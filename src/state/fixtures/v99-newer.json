@@ -1,0 +1,11 @@
+{
+  "version": 99,
+  "writtenBy": "maxims@99.0.0",
+  "hooks": ["claude-code"],
+  "sources": {},
+  "sessions": {
+    "example-session": {
+      "pinned": true
+    }
+  }
+}

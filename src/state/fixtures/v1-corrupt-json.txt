@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": ["claude-code"],
+  "sources": {
