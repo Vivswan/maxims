@@ -79,7 +79,7 @@ Two scopes exist, project (`-p`) and user (`-g`). `-o` is the escape hatch for a
 
 ## User defaults in config.json
 
-`<MAXIMS_HOME>/config.json` holds the defaults you would otherwise repeat on every command. It is a file beside state, never a part of it. `cooldownDays` and `ruleCap` are the two keys `sync` reads, since they govern every run; each other key fills in a flag you did not type on `add`, and what `add` records is ordinary intent.
+`<MAXIMS_HOME>/config.json`, `~/.agents/maxims/config.json` by default, holds the defaults you would otherwise repeat on every command. It is a file beside state, never a part of it; the [canonical home](state-and-store.md#the-canonical-home) shows where it sits. `cooldownDays` and `ruleCap` are the two keys `sync` reads, since they govern every run; `agents`, `yes`, `addHook`, and `rule` each fill in a flag you did not type on `add`, and what `add` records is ordinary intent.
 
 | key | stands in for | default when unset |
 | --- | --- | --- |
@@ -89,6 +89,7 @@ Two scopes exist, project (`-p`) and user (`-g`). `-o` is the escape hatch for a
 | `rule` | `--rule` | off |
 | `cooldownDays` | `--cooldown <days>` | 7 |
 | `ruleCap` | `--cap <n>` | 25 |
+| `lastAgents` | nothing you type: the harnesses the last interactive `add` selected, preselected by the next prompt; `add` writes it | the detected harnesses |
 
 ```bash
 npx -y @vivswan/maxims config set rule true
@@ -96,7 +97,11 @@ npx -y @vivswan/maxims config get rule
 npx -y @vivswan/maxims config unset rule
 ```
 
-A flag on the command line wins over the file for that invocation and leaves the file alone. The two exceptions are `--cooldown` and `--cap`, which write their key as `config set` would and apply at once, because a cap or cooldown typed once is meant for every later sync. `config set` refuses a key the table does not name, with exit 1.
+A flag on the command line wins over the file for that invocation and leaves the file alone. The two exceptions are `--cooldown` and `--cap`, which persist as well as apply, because a cap or cooldown typed once is meant for every later sync; [the cap and the cooldown](#the-cap-and-the-cooldown) owns what they write.
+
+`config set` refuses a key the table does not name, with exit 1, and the file is parsed the same way: a misspelled key makes the whole file invalid rather than being ignored.
+
+Status: the first six keys are the schema maxims parses today. `lastAgents` and the `config` verb itself are specified, not yet built.
 
 ## The cap and the cooldown
 
