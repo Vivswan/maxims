@@ -1,31 +1,132 @@
-// Guards the two OpenCode artifacts that would drift silently: the plugin file must render the
-// same bytes on every sync (a differing render would rewrite it every session start), and the
-// `instructions` edit must leave a hand-formatted opencode.json byte-identical outside our entry.
+// Guards the OpenCode artifacts that would drift silently: the plugin file must render the same
+// bytes on every sync (a differing render would rewrite it every session start) at the plugins
+// path OpenCode scans, the `instructions` edit must leave a hand-formatted opencode.json
+// byte-identical outside our entry and name the glob the rule files are written under, and the
+// global files must follow `$XDG_CONFIG_HOME/opencode`.
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
-import { hookSpecFor } from "../contract.ts";
+import type { HarnessContext, Scope } from "../contract.ts";
+import { hasHook, planFileHookWrite } from "../hook-writer.ts";
+import { planRulesDirWrite } from "../strategies/rules-dir.ts";
+import { planSharedBlockWrite } from "../strategies/shared-block.ts";
 import { opencode } from "./index.ts";
-import { INSTRUCTIONS_GLOB, reconcileInstructions } from "./instructions.ts";
+import { INSTRUCTIONS_GLOB, reconcileInstructions } from "./quirks.ts";
 
 const fixture = readFileSync(join(import.meta.dir, "fixtures", "config.jsonc"), "utf8");
-const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+const xdg: HarnessContext = { ...ctx, env: { XDG_CONFIG_HOME: "/home/user/xdg" } };
+const block =
+  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
-test("the plugin renders byte-identically twice and calls the hook command on session.created", () => {
-  if (opencode.hook.kind !== "file") throw new Error("OpenCode writes a plugin file");
-  const first = opencode.hook.render(hookSpecFor(opencode));
-  expect(opencode.hook.render(hookSpecFor(opencode))).toBe(first);
-  expect(first).toContain(
-    'if (event.type === "session.created") await $`npx -y @vivswan/maxims sync --quiet`.nothrow().quiet();',
-  );
-  expect(opencode.hook.path("project", ctx)).toBe("/home/user/project/.opencode/plugins/maxims.ts");
-  expect(opencode.hook.path("global", ctx)).toBe("/home/user/.config/opencode/plugins/maxims.ts");
-  expect(opencode.hook.path("global", { ...ctx, env: { XDG_CONFIG_HOME: "/home/user/xdg" } })).toBe(
-    "/home/user/xdg/opencode/plugins/maxims.ts",
-  );
+const pluginPaths: [string, Scope, HarnessContext, string, string][] = [
+  [
+    "the project",
+    "project",
+    ctx,
+    "/home/user/project",
+    "/home/user/project/.opencode/plugins/maxims.ts",
+  ],
+  [
+    "the default config home",
+    "global",
+    ctx,
+    "/home/user",
+    "/home/user/.config/opencode/plugins/maxims.ts",
+  ],
+  ["XDG_CONFIG_HOME", "global", xdg, "/home/user", "/home/user/xdg/opencode/plugins/maxims.ts"],
+];
+
+// OpenCode reads nothing back from a plugin and the shell call is `.nothrow().quiet()`, so an
+// offline npx can never surface as a plugin error in the session.
+test.each(pluginPaths)(
+  "the plugin under %s renders the same bytes twice",
+  (_, scope, context, root, path) => {
+    if (!hasHook(opencode, "file")) throw new Error("OpenCode writes a plugin file");
+    const input = { def: opencode, scope, ctx: context, wanted: true, current: null };
+    const [first] = planFileHookWrite(input).changes;
+    expect(planFileHookWrite(input).changes).toEqual([first]);
+    expect(first).toEqual({
+      kind: "write",
+      path: assertInsideRoot(root, path),
+      content: [
+        "// Written by maxims. It runs the maxims sync whenever an OpenCode session is created so the",
+        "// rule files stay current. maxims rewrites this file on every sync while a source in its",
+        "// state still wants a hook for OpenCode; removing the last such source deletes it.",
+        'import type { Plugin } from "@opencode-ai/plugin";',
+        "",
+        "export const MaximsSync: Plugin = async ({ $ }) => ({",
+        "  event: async ({ event }) => {",
+        '    if (event.type === "session.created") await $`npx -y @vivswan/maxims sync --quiet`.nothrow().quiet();',
+        "  },",
+        "});",
+        "",
+      ].join("\n"),
+    });
+  },
+);
+
+// The project rule file is bare (OpenCode reads it only through the `instructions` entry, so no
+// preamble applies) and lands under the glob that entry names; the user block goes into the one
+// AGENTS.md OpenCode always reads, under its XDG home.
+test("the project rule file matches the instructions glob and the user block follows XDG_CONFIG_HOME", () => {
+  const project = opencode.targets.project;
+  if (project?.kind !== "rules-dir") throw new Error("the project target is a rules directory");
+  const [rule] = planRulesDirWrite({
+    def: opencode,
+    target: project,
+    scope: "project",
+    ctx,
+    sourceSlug: "example-user-doctrine",
+    block,
+  });
+  expect(rule).toEqual({
+    kind: "write",
+    path: assertInsideRoot(
+      "/home/user/project",
+      "/home/user/project/.opencode/memories/maxims-example-user-doctrine.md",
+    ),
+    content: block,
+  });
+  expect(
+    new Bun.Glob(INSTRUCTIONS_GLOB).match(".opencode/memories/maxims-example-user-doctrine.md"),
+  ).toBe(true);
+  const global = opencode.targets.global;
+  if (global?.kind !== "shared-block") throw new Error("the user target is a shared block");
+  expect(
+    planSharedBlockWrite({
+      def: opencode,
+      target: global,
+      scope: "global",
+      ctx: xdg,
+      source: "@example-user/doctrine",
+      currentText: null,
+      block,
+    }),
+  ).toEqual([
+    {
+      kind: "write",
+      path: assertInsideRoot("/home/user", "/home/user/xdg/opencode/AGENTS.md"),
+      content: block,
+    },
+  ]);
+});
+
+test("detection reads the opencode directory under ~/.config or XDG_CONFIG_HOME", async () => {
+  await withTempDir((dir) => {
+    const home = join(dir, "home");
+    const bare: HarnessContext = { home, projectRoot: null, env: {} };
+    mkdirSync(home);
+    expect(opencode.detect(bare)).toBe(false);
+    mkdirSync(join(dir, "xdg", "opencode"), { recursive: true });
+    expect(opencode.detect({ ...bare, env: { XDG_CONFIG_HOME: join(dir, "xdg") } })).toBe(true);
+    expect(opencode.detect(bare)).toBe(false);
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    expect(opencode.detect(bare)).toBe(true);
+  });
 });
 
 test("adding then removing the instructions entry returns a hand-formatted opencode.json", async () => {

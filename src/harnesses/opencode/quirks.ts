@@ -4,11 +4,14 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { appendChild, assertParses, readConfigText, removeChild } from "../../util/jsonc.ts";
+import { type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
+import { spec } from "./spec.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
-// files load only when `opencode.json` lists them. One glob covers every source, so adding the
-// tenth source edits nothing here, and removal is the single entry coming back out.
-export const INSTRUCTIONS_GLOB = ".opencode/memories/maxims-*.md";
+// files load only when `opencode.json` lists them. One glob over the spec's own rules directory
+// covers every source, so adding the tenth source edits nothing here, and removal is the single
+// entry coming back out.
+export const INSTRUCTIONS_GLOB = `${spec.targets.project.dir}/${spec.targets.project.fileName.replaceAll("{{slug}}", "*")}`;
 
 // OpenCode loads both names when both exist and merges their `instructions`, so the entry is
 // added to one file (the `.jsonc` when present) only if neither already lists it, and removed
@@ -16,6 +19,12 @@ export const INSTRUCTIONS_GLOB = ".opencode/memories/maxims-*.md";
 const CONFIG_NAMES = ["opencode.jsonc", "opencode.json"] as const;
 
 type ConfigFile = { path: RootedPath; text: string | null };
+
+export function configEdit(scope: Scope, ctx: HarnessContext, wanted: boolean): Promise<Change[]> {
+  return scope === "project"
+    ? reconcileInstructions(scopeRoot({}, scope, ctx), wanted)
+    : Promise.resolve([]);
+}
 
 export async function reconcileInstructions(
   projectRoot: string,
