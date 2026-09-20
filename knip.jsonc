@@ -2,5 +2,21 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["src/cli.ts", "scripts/*.ts", "tests/**/*.test.ts", "src/**/*.test.ts"],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  // Contract-only modules and pinned dependencies whose first importer has not landed yet. Knip
+  // reports each entry below as a configuration hint once it is genuinely used; drop it then.
+  "ignore": ["src/commands/types.ts", "src/sources/contract.ts"],
+  "ignoreDependencies": [
+    "@clack/prompts",
+    "@vercel/detect-agent",
+    "jsonc-parser",
+    "picocolors",
+    "picomatch",
+    "semver",
+    "simple-git",
+    "smol-toml",
+    "tar",
+    "@types/picomatch",
+    "@types/semver"
+  ]
 }
