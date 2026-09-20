@@ -2,14 +2,26 @@
 // names, the run count, and a real median are what the sticky PR comment is built from, and a
 // mean, a NaN, or a child that ran fewer times than --runs would flow through unnoticed. Also
 // fails if a run leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if
-// measured timings can be written inside the repository, where a commit would publish them.
+// measured timings can be written inside the repository, where a commit would publish them,
+// including through a symlink or a /proc alias whose lexical path lies outside the checkout.
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, parse, relative, resolve, sep } from "node:path";
 import { summarize } from "../scripts/bench.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
+const realRepoRoot = realpathSync(repoRoot);
 
 // Samples where the mean and the median differ, so a switch to the mean fails these cases.
 const summaries: [number[], ReturnType<typeof summarize>][] = [
@@ -36,6 +48,28 @@ function runBench(args: string[], scratch: string) {
     stdout: "pipe",
     stderr: "pipe",
   });
+}
+
+// A red run of a guard test writes exactly where the guard should have refused. The shallowest
+// missing ancestor of each path is what such a run would create, and removing it afterwards takes
+// everything under it along without touching what was already there. Descent stops at an entry
+// that is not a directory, so a stray file or a dangling link is neither probed beneath nor removed.
+function removerOfCreated(paths: string[]): () => void {
+  const created = new Set<string>();
+  for (const path of paths) {
+    let current = parse(path).root;
+    for (const segment of relative(current, path).split(sep)) {
+      current = join(current, segment);
+      if (lstatSync(current, { throwIfNoEntry: false }) === undefined) {
+        created.add(current);
+        break;
+      }
+      if (!statSync(current, { throwIfNoEntry: false })?.isDirectory()) break;
+    }
+  }
+  return () => {
+    for (const path of created) rmSync(path, { recursive: true, force: true });
+  };
 }
 
 test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 times in fresh homes", () => {
@@ -76,21 +110,87 @@ test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 t
   }
 });
 
+interface JsonTarget {
+  jsonArg: string;
+  // Where the bytes would land: the temp file for an accepted path, the file inside the
+  // repository a lexical-only guard would let through for a refused one.
+  target: string;
+  // Fragments the refusal on stderr must name; undefined when the path is accepted.
+  refusal: string[] | undefined;
+}
+
 // Names carry the test's own temp-dir token so a file another run left behind cannot collide.
-const insideRepo: [string, (token: string) => string][] = [
-  ["a relative path", (token) => `${token}.json`],
+// The bench runs with the repository as cwd, which is what makes the /proc alias point at it.
+const jsonTargets: [string, (dir: string, token: string) => JsonTarget][] = [
+  [
+    "a plain path in the temp dir",
+    (dir, token) => {
+      const target = join(dir, `${token}.json`);
+      return { jsonArg: target, target, refusal: undefined };
+    },
+  ],
+  [
+    "a relative path inside the repository",
+    (_dir, token) => {
+      const target = join(realRepoRoot, `${token}.json`);
+      return { jsonArg: `${token}.json`, target, refusal: ["repository", target] };
+    },
+  ],
   [
     "an absolute path under an ignored directory",
-    (token) => join(repoRoot, "dist", `${token}.json`),
+    (_dir, token) => {
+      const target = join(realRepoRoot, "dist", `${token}.json`);
+      return {
+        jsonArg: join(repoRoot, "dist", `${token}.json`),
+        target,
+        refusal: ["repository", target],
+      };
+    },
   ],
+  [
+    "a symlink in the temp dir pointing at the repository",
+    (dir, token) => {
+      symlinkSync(repoRoot, join(dir, "repo"));
+      const target = join(realRepoRoot, `${token}.json`);
+      return {
+        jsonArg: join(dir, "repo", `${token}.json`),
+        target,
+        refusal: ["repository", target],
+      };
+    },
+  ],
+  [
+    "a dangling symlink in the temp dir pointing into the repository",
+    (dir, token) => {
+      const target = join(realRepoRoot, `${token}.json`);
+      const link = join(dir, "dangling.json");
+      symlinkSync(target, link);
+      return { jsonArg: link, target, refusal: ["dangling symlink", link] };
+    },
+  ],
+  ...(process.platform === "linux"
+    ? ([
+        [
+          "a /proc/self/cwd alias of the repository",
+          (_dir, token) => {
+            const target = join(realRepoRoot, `${token}.json`);
+            return {
+              jsonArg: join("/proc/self/cwd", `${token}.json`),
+              target,
+              refusal: ["repository", target],
+            };
+          },
+        ],
+      ] satisfies [string, (dir: string, token: string) => JsonTarget][])
+    : []),
 ];
 
-test.each(insideRepo)(
-  "--json with %s inside the repository is refused before any run",
-  (_name, jsonArgFor) => {
-    const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
+test.each(jsonTargets)("--json with %s is decided by where the bytes would land", (_name, plan) => {
+  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
+  try {
+    const { jsonArg, target, refusal } = plan(dir, basename(dir));
+    const removeStrays = removerOfCreated([target]);
     try {
-      const jsonArg = jsonArgFor(basename(dir));
       const log = join(dir, "runs.log");
       const command = [
         "node",
@@ -99,19 +199,25 @@ test.each(insideRepo)(
         log,
       ];
       const bench = runBench(["--runs", "1", "--json", jsonArg, "--", ...command], dir);
-      expect(bench.exitCode).toBe(2);
-      expect(bench.stdout.toString()).toBe("");
-      expect(bench.stderr.toString()).toBe(
-        `bench: refusing to write measured data inside the repository: ${resolve(repoRoot, jsonArg)}\n` +
-          "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n",
-      );
-      expect(readdirSync(dir)).toEqual([]);
-      expect(existsSync(resolve(repoRoot, jsonArg))).toBe(false);
+      if (refusal !== undefined) {
+        expect(bench.exitCode).toBe(2);
+        expect(bench.stdout.toString()).toBe("");
+        for (const fragment of refusal) expect(bench.stderr.toString()).toContain(fragment);
+        expect(existsSync(log)).toBe(false);
+        expect(existsSync(target)).toBe(false);
+      } else {
+        expect(bench.stderr.toString()).toBe("");
+        expect(bench.exitCode).toBe(0);
+        expect(readFileSync(log, "utf8")).toBe("x");
+        expect(JSON.parse(readFileSync(target, "utf8")).runs).toBe(1);
+      }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      removeStrays();
     }
-  },
-);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("a failing command's stderr and exit code are reported with status 1, and its HOME is removed", () => {
   const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
@@ -123,7 +229,7 @@ test("a failing command's stderr and exit code are reported with status 1, and i
     expect(bench.stderr.toString()).toBe(
       `child says no\nbench: ${command.join(" ")} exited with code 3\n`,
     );
-    expect(readdirSync(dir)).toEqual([]);
+    expect(readdirSync(dir).sort()).toEqual([]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

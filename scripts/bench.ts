@@ -1,8 +1,16 @@
 // Every run is a fresh process with its own throwaway HOME, so the number is the every-session
 // cost and nothing the developer's real home holds can shorten or lengthen it.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const DEFAULT_COMMAND = ["node", "dist/cli.js", "--version"];
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
@@ -31,11 +39,29 @@ function fail(message: string): never {
   process.exit(2);
 }
 
+// The path's longest existing prefix goes through realpath, so a symlink or a /proc alias whose
+// lexical form lies outside the repository still compares against where the bytes would land.
+// A dangling link is refused outright: realpath cannot follow it, yet a write would.
+function whereBytesLand(path: string): string {
+  let existing = resolve(path);
+  const missing: string[] = [];
+  let entry = lstatSync(existing, { throwIfNoEntry: false });
+  while (entry === undefined) {
+    missing.unshift(basename(existing));
+    existing = dirname(existing);
+    entry = lstatSync(existing, { throwIfNoEntry: false });
+  }
+  if (entry.isSymbolicLink() && !existsSync(existing)) {
+    fail(`refusing to write through the dangling symlink ${existing}`);
+  }
+  return join(realpathSync(existing), ...missing);
+}
+
 // Timings measured on a real machine describe that machine; refusing to write them inside the
 // repository is what keeps them out of a commit, since .gitignore is not consulted by `git add -f`.
 function measuredDataPath(value: string): string {
-  const out = resolve(value);
-  const rel = relative(repoRoot, out);
+  const out = whereBytesLand(value);
+  const rel = relative(realpathSync(repoRoot), out);
   const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
   if (!outside) fail(`refusing to write measured data inside the repository: ${out}`);
   return out;
