@@ -2,7 +2,7 @@
 // must resolve to the renamed local memory and to nothing else, and a dangling link must surface
 // as the unmet dependency rather than being satisfied by another source's same-named memory.
 import { describe, expect, test } from "bun:test";
-import type { Memory } from "./contract.ts";
+import { contentHashOf, type Memory } from "./contract.ts";
 import { extractWikilinks, resolveWikilinks } from "./wikilinks.ts";
 
 function memory(name: string, body: string): Memory {
@@ -12,6 +12,7 @@ function memory(name: string, body: string): Memory {
     body,
     metadata: { extra: {} },
     raw: body,
+    contentHash: contentHashOf(body),
   };
 }
 

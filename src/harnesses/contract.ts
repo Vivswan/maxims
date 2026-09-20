@@ -1,3 +1,4 @@
+import type { ContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -133,7 +134,7 @@ export interface HarnessDefinition {
   detect: (ctx: HarnessContext) => boolean;
   achievedTier?: (ctx: HarnessContext) => Promise<1 | 2>;
   scopeFrontmatter?: (globs: string[]) => string | null;
-  verifiedAgainst: { url: string; date: string; contentHash?: string };
+  verifiedAgainst: { url: string; date: string; contentHash?: ContentHash };
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
   // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`

@@ -1,7 +1,12 @@
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { HARNESS_IDS } from "../harnesses/contract.ts";
-import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
+import {
+  type ContentHash,
+  type MemoryName,
+  parseContentHash,
+  parseMemoryName,
+} from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 
 export const CURRENT_STATE_VERSION = 1;
@@ -155,19 +160,25 @@ export const LastErrorSchema = z.strictObject({
 });
 export type LastError = z.infer<typeof LastErrorSchema>;
 
-const Sha256 = z.string().regex(/^sha256:[0-9a-f]{64}$/, "expected sha256:<hex>");
+const ContentHashSchema = z.custom<ContentHash>(
+  (value) => typeof value === "string" && parseContentHash(value) !== null,
+  { error: "expected sha256:<hex>" },
+);
 
 function fetchedSchema<S extends z.ZodType<string>>(sha: S) {
   return z.strictObject({
     at: IsoTimestamp,
     sha,
     memoryPath: z.string().min(1),
-    memories: z.record(MemoryNameSchema, z.strictObject({ content: Sha256, description: Sha256 })),
+    memories: z.record(
+      MemoryNameSchema,
+      z.strictObject({ content: ContentHashSchema, description: ContentHashSchema }),
+    ),
     lastError: LastErrorSchema.nullable(),
   });
 }
 const RemoteFetched = fetchedSchema(GitShaSchema);
-const CopiedLocalFetched = fetchedSchema(Sha256);
+const CopiedLocalFetched = fetchedSchema(ContentHashSchema);
 /** @public */
 export type Fetched = z.infer<typeof RemoteFetched> | z.infer<typeof CopiedLocalFetched>;
 

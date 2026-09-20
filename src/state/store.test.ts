@@ -15,7 +15,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { withTempHome } from "../../tests/shared/temp_dir.ts";
-import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
+import {
+  type ContentHash,
+  type MemoryName,
+  parseContentHash,
+  parseMemoryName,
+} from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { legacyHooksStep } from "./fixtures/migration-step-v0.ts";
@@ -39,6 +44,12 @@ function memoryName(candidate: string): MemoryName {
   const name = parseMemoryName(candidate);
   if (name === null) throw new Error(`${candidate} is not a memory name`);
   return name;
+}
+
+function contentHash(candidate: string): ContentHash {
+  const hash = parseContentHash(candidate);
+  if (hash === null) throw new Error(`${candidate} is not a content hash`);
+  return hash;
 }
 
 function gitSha(candidate: string): GitSha {
@@ -72,8 +83,8 @@ const VALID_STATE: State = {
         memoryPath: "memories",
         memories: {
           [RUBBER_DUCK]: {
-            content: `sha256:${"9f2a1c".repeat(10)}9f2a`,
-            description: `sha256:${"11cd".repeat(16)}`,
+            content: contentHash(`sha256:${"9f2a1c".repeat(10)}9f2a`),
+            description: contentHash(`sha256:${"11cd".repeat(16)}`),
           },
         },
         lastError: null,

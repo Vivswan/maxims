@@ -3,9 +3,11 @@
 // pass silently without these rows.
 import { describe, expect, test } from "bun:test";
 import {
+  type ContentHash,
   type HiddenCharacter,
   hiddenCharacters,
   type Memory,
+  parseContentHash,
   parseMemory,
   parseMemoryName,
 } from "./contract.ts";
@@ -49,6 +51,23 @@ describe("parseMemoryName", () => {
   });
 });
 
+describe("parseContentHash", () => {
+  const hex = "9f".repeat(32);
+  const cases: [string, boolean][] = [
+    [`sha256:${hex}`, true],
+    [`sha256:${hex.toUpperCase()}`, false],
+    [`sha256:${hex.slice(2)}`, false],
+    [`sha256:${hex}00`, false],
+    [hex, false],
+    [`sha1:${"ab".repeat(20)}`, false],
+    [` sha256:${hex}`, false],
+    ["", false],
+  ];
+  test.each(cases)("%j is a content hash: %p", (candidate, ok) => {
+    expect(parseContentHash(candidate)).toBe(ok ? (candidate as ContentHash) : null);
+  });
+});
+
 describe("parseMemory", () => {
   test("a conforming file yields the whole memory with the body byte-identical", () => {
     const result = parseMemory("/store/x/gate-exit-conditions-the-merge.md", FILE);
@@ -64,6 +83,10 @@ describe("parseMemory", () => {
         extra: { originSessionId: "abc123" },
       },
       raw: FILE,
+      // The digest of the file bytes as authored, frontmatter included: a hash over the body alone
+      // would miss a description edit, which is the change a rule line has to notice.
+      contentHash:
+        "sha256:a59fc98b89dd2709b679b583e870430f043175b628e8b23f4d08ced89f998978" as ContentHash,
     };
     expect(result).toEqual({ ok: true, memory: expected });
   });
@@ -109,6 +132,8 @@ describe("parseMemory", () => {
         body: "",
         metadata: { extra: {} },
         raw: text,
+        contentHash:
+          "sha256:c53d42ccc1b710646b0ae0f5f2e6475a463600e01d6976d10a53cc9516ec9a49" as ContentHash,
       },
     });
   });

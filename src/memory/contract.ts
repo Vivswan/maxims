@@ -1,9 +1,26 @@
 import { basename } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { sha256 } from "../util/fs.ts";
 
 declare const memoryNameBrand: unique symbol;
+declare const contentHashBrand: unique symbol;
 
 export type MemoryName = string & { readonly [memoryNameBrand]: true };
+
+// The `sha256:<hex>` digest of a memory file, a description, or a copied tree, in the one spelling
+// `sha256` in util/fs.ts produces. State records and compares these across fetches, and a rule
+// line shows a prefix of one, so a hash read back from disk is parsed here before it is trusted.
+export type ContentHash = string & { readonly [contentHashBrand]: true };
+
+const CONTENT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+export function parseContentHash(candidate: string): ContentHash | null {
+  return CONTENT_HASH_PATTERN.test(candidate) ? (candidate as ContentHash) : null;
+}
+
+export function contentHashOf(text: string | Uint8Array): ContentHash {
+  return sha256(text) as ContentHash;
+}
 
 // A name reaches disk as `<name>.md` inside a directory, so the grammar admits nothing a path
 // builder could misread: no separators, no dots, no case to fold. The length cap keeps the
@@ -36,6 +53,7 @@ export type Memory = {
   body: string;
   metadata: MemoryMetadata;
   raw: string;
+  contentHash: ContentHash;
 };
 
 export type ParsedMemory =
@@ -93,6 +111,7 @@ function parseMemoryChecked(filename: string, text: string): ParsedMemory {
     body: split.body,
     metadata: metadata.metadata,
     raw: text,
+    contentHash: contentHashOf(text),
   };
   return metadata.warning === undefined
     ? { ok: true, memory }
