@@ -1,5 +1,6 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { whereBytesLand } from "./lib/paths.ts";
 
 const SHEBANG = "#!/usr/bin/env node\n";
@@ -57,6 +58,23 @@ if (sizeJson === outfile) {
 // artifact byte-identical no matter where the build is invoked from.
 process.chdir(repoRoot);
 
+// jsonc-parser's `main` is a UMD bundle that `require`s its ./impl siblings when the factory runs;
+// once bundled, node resolves those against a file that no longer exists and the artifact dies on
+// load. Its `module` entry imports them statically, so that is the copy the bundle takes.
+function esmEntryOf(packageName: string): string {
+  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`));
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const esmEntry =
+    typeof manifest === "object" && manifest !== null && "module" in manifest
+      ? manifest.module
+      : undefined;
+  if (typeof esmEntry !== "string") {
+    throw new Error(`${manifestPath} has no "module" field to bundle in place of "main"`);
+  }
+  return join(dirname(manifestPath), esmEntry);
+}
+const jsoncParserEsm = esmEntryOf("jsonc-parser");
+
 // Without `throw: false` a failed bundle surfaces as an uncaught AggregateError whose dump hides
 // the bundler's own messages; asking for the result instead lets them print with their code frames.
 const result = await Bun.build({
@@ -66,6 +84,14 @@ const result = await Bun.build({
   minify: false,
   sourcemap: "none",
   throw: false,
+  plugins: [
+    {
+      name: "jsonc-parser-esm-entry",
+      setup(build) {
+        build.onResolve({ filter: /^jsonc-parser$/ }, () => ({ path: jsoncParserEsm }));
+      },
+    },
+  ],
 });
 if (!result.success) {
   for (const log of result.logs) process.stderr.write(`${Bun.inspect(log)}\n`);

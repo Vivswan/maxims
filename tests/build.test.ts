@@ -156,6 +156,27 @@ test.each(invocations)(
   },
 );
 
+// A dependency whose `main` is a UMD bundle that `require`s its siblings at runtime breaks only
+// inside the shipped artifact, where node resolves that require against a file the bundle no
+// longer has; every unit test imports src/ directly and never sees it.
+test("a bundle whose entry imports jsonc-parser runs under node", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
+  try {
+    const entry = join("tests", "fixtures", "build", "jsonc-entry.ts");
+    const outfile = join(dir, "jsonc.js");
+    const build = runBuild(["--entry", entry, "--outfile", outfile], repoRoot);
+    expect(build.stderr.toString()).toBe("");
+    expect(build.exitCode).toBe(0);
+
+    const run = Bun.spawnSync(["node", outfile], { stdout: "pipe", stderr: "pipe" });
+    expect(run.stderr.toString()).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout.toString()).toBe('jsonc: {"a": 1, "b": 2}\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]][] = [
   ["an unknown flag", () => ["--minify"], () => ["unknown argument --minify"]],
   ["a flag without its value", () => ["--outfile"], () => ["--outfile needs a value"]],
