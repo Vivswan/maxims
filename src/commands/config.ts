@@ -1,14 +1,30 @@
-import { HARNESS_IDS } from "../harnesses/contract.ts";
+import { invalidAgents } from "../console/strings.ts";
+import {
+  HARNESS_IDS,
+  type HarnessId,
+  isBuiltInHarnessId,
+  parseUserHarnessId,
+} from "../harnesses/contract.ts";
 import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { configWrite } from "./shared/cli-context.ts";
-import { type Command, harnessIdsOrUsage, usage } from "./shared/options.ts";
+import { type Command, closestHarnessId, usage } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 
 type ConfigKey = keyof UserConfig;
 
 const KEYS = Object.keys(UserConfigSchema.shape) as ConfigKey[];
+
+// A default may name a harness this machine has not declared yet, so the id is checked against
+// the grammar (built-in or kebab-case user id), not against a registry.
+function harnessIdOrUsage(raw: string): HarnessId {
+  if (isBuiltInHarnessId(raw)) return raw;
+  const user = parseUserHarnessId(raw);
+  if (user !== null) return user;
+  const closest = closestHarnessId(raw, HARNESS_IDS);
+  throw usage(invalidAgents([raw], HARNESS_IDS, closest));
+}
 
 function keyOrUsage(raw: string | undefined): ConfigKey {
   const key = KEYS.find((candidate) => candidate === raw);
@@ -24,13 +40,11 @@ function valueFor(key: ConfigKey, raw: string): UserConfig[ConfigKey] {
   switch (key) {
     case "agents":
     case "lastAgents":
-      return harnessIdsOrUsage(
-        raw
-          .split(",")
-          .map((id) => id.trim())
-          .filter((id) => id !== ""),
-        HARNESS_IDS,
-      );
+      return raw
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id !== "")
+        .map(harnessIdOrUsage);
     case "yes":
     case "addHook":
     case "rule":

@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { HARNESS_IDS } from "../harnesses/contract.ts";
+import { HarnessIdSchema } from "./schema.ts";
 
 // User defaults live in `<home>/config.json`, apart from state: state records what is installed,
 // this records how the user likes to install. Strict, like state, so a misspelled key is refused
 // rather than silently ignored.
 export const UserConfigSchema = z.strictObject({
-  agents: z.array(z.enum(HARNESS_IDS)).optional(),
+  agents: z.array(HarnessIdSchema).optional(),
   yes: z.boolean().optional(),
   addHook: z.boolean().optional(),
   rule: z.boolean().optional(),
@@ -13,7 +13,7 @@ export const UserConfigSchema = z.strictObject({
   ruleCap: z.number().int().positive().optional(),
   // The harnesses chosen at the last interactive prompt, pre-selected next time; a memory of a
   // choice, not a default, so `-a` and `agents` both win over it.
-  lastAgents: z.array(z.enum(HARNESS_IDS)).optional(),
+  lastAgents: z.array(HarnessIdSchema).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 

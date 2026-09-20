@@ -182,8 +182,12 @@ test("config set/get/unset round-trips through the schema and refuses bad values
     const bad = await runCli(scenario, ["config", "set", "ruleCap", "0"]);
     expect(bad.code).toBe(1);
     expect(bad.stderr).toBe(' ERROR  ruleCap expects a positive integer, got "0"\n');
-    const badAgent = await runCli(scenario, ["config", "set", "agents", "vim"]);
+    const badAgent = await runCli(scenario, ["config", "set", "agents", "Vim"]);
     expect(badAgent.code).toBe(1);
+    expect((await runCli(scenario, ["config", "set", "agents", "team-agent,codex"])).code).toBe(0);
+    expect((await runCli(scenario, ["config", "get", "agents"])).stdout).toBe(
+      '["team-agent","codex"]\n',
+    );
     expect((await runCli(scenario, ["config", "unset", "rule"])).code).toBe(0);
     expect((await runCli(scenario, ["config", "get", "rule"])).stdout).toBe("");
     const before = await snapshot(scenario.home);

@@ -19,12 +19,7 @@ import {
   STRINGS,
   selected,
 } from "../console/strings.ts";
-import {
-  type HarnessDefinition,
-  type HarnessId,
-  HOOK_COMMAND,
-  isBuiltInHarnessId,
-} from "../harnesses/contract.ts";
+import { type HarnessDefinition, type HarnessId, HOOK_COMMAND } from "../harnesses/contract.ts";
 import {
   contentHashOf,
   type HiddenCharacter,
@@ -482,7 +477,7 @@ export async function commitAdd(
           configChanged = true;
         }
         if (harnesses.remember) {
-          config.lastAgents = harnesses.ids.filter(isBuiltInHarnessId);
+          config.lastAgents = harnesses.ids;
           configChanged = true;
         }
         if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);

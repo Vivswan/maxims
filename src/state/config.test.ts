@@ -16,5 +16,6 @@ test("parseUserConfig: valid file, absent file, and a strict rejection of unknow
   if (corrupt.ok) return;
   expect(corrupt.issues.some((line) => /cooldown/.test(line))).toBe(true);
   expect(parseUserConfig({ ruleCap: 0 }).ok).toBe(false);
-  expect(parseUserConfig({ agents: ["vim"] }).ok).toBe(false);
+  // A user-declared harness id is a valid default, not only the built-in ones.
+  expect(parseUserConfig({ agents: ["team-agent"] }).ok).toBe(true);
 });
