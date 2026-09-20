@@ -1,15 +1,7 @@
 // Builds and times HEAD and the base ref on the same machine in one run, so the figures compare
 // two bundles under the same noise instead of one bundle against a budget written for other
 // hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's.
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isInside, whereBytesLand } from "./lib/paths.ts";
@@ -77,7 +69,7 @@ function fail(message: string): never {
 function measuredDataDir(value: string): string {
   const out = whereBytesLand(value, fail);
   const common = resolve(repoRoot, git(["rev-parse", "--git-common-dir"]));
-  const roots = [repoRoot, resolve(common, "..")].map((root) => realpathSync(root));
+  const roots = [repoRoot, resolve(common, "..")].map((root) => whereBytesLand(root, fail));
   for (const root of new Set(roots)) {
     if (isInside(root, out)) fail(`refusing to write measured data inside the repository: ${out}`);
   }

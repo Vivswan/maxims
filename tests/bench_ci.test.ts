@@ -19,7 +19,7 @@ import {
 } from "../scripts/bench_ci.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
-const realRepoRoot = realpathSync(repoRoot);
+const realRepoRoot = realpathSync.native(repoRoot);
 
 const shape = (gate: Signal["gate"], base: number, head: number): Signal => ({
   name: "signal",

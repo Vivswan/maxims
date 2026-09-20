@@ -25,7 +25,7 @@ import { basename, dirname, join, parse, relative, resolve, sep } from "node:pat
 import { summarize } from "../scripts/bench.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
-const realRepoRoot = realpathSync(repoRoot);
+const realRepoRoot = realpathSync.native(repoRoot);
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
 
 // Samples where the mean and the median differ, so a switch to the mean fails these cases.
@@ -314,7 +314,7 @@ test.each(worktreeTargets)(
         expect(bench.exitCode).toBe(2);
         expect(bench.stdout.toString()).toBe("");
         expect(bench.stderr.toString()).toContain(
-          `inside the repository: ${realpathSync(dirname(out))}`,
+          `inside the repository: ${realpathSync.native(dirname(out))}`,
         );
         expect(existsSync(log)).toBe(false);
         expect(existsSync(out)).toBe(false);

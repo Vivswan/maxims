@@ -1,6 +1,6 @@
 // Every run is a fresh process with its own throwaway HOME, so the number is the every-session
 // cost and nothing the developer's real home holds can shorten or lengthen it.
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { isInside, whereBytesLand } from "./lib/paths.ts";
@@ -53,14 +53,16 @@ function listCheckouts(): string {
 // Every checkout of one repository shares its history, so a commit from any of them publishes
 // what lands there; git's own worktree list is the set of them. A bare entry has no working tree.
 // A primary set up with --separate-git-dir is out of reach: git keeps no path back to it and lists
-// its git dir in its place. No git answer, no known roots: refuse.
+// its git dir in its place. No git answer, no known roots: refuse. Every root is canonicalized the
+// way the output path is, so the two sides agree on a spelling (git prints forward slashes and
+// the short name of a Windows temp directory).
 function repositoryRoots(): Set<string> {
-  const roots = new Set([realpathSync(repoRoot)]);
+  const roots = new Set([whereBytesLand(repoRoot, fail)]);
   for (const entry of listCheckouts().split("\n\n")) {
     const lines = entry.split("\n");
     const path = lines[0]?.startsWith("worktree ") ? lines[0].slice("worktree ".length) : undefined;
     if (path === undefined || lines.includes("bare")) continue;
-    roots.add(existsSync(path) ? realpathSync(path) : path);
+    roots.add(existsSync(path) ? whereBytesLand(path, fail) : resolve(path));
   }
   return roots;
 }
