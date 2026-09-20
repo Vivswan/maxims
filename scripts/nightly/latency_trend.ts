@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
 import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
+import { readPositiveNumber } from "../lib/figures.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
 
@@ -147,17 +148,6 @@ function capture(command: string[]): string {
   if (proc.exitCode !== 0)
     throw new Error(`${command.join(" ")} failed: ${proc.stderr.toString().trim()}`);
   return proc.stdout.toString().trim();
-}
-
-// Both producers write one flat JSON object; a missing or non-positive figure means the producer
-// changed shape or measured nothing, and would otherwise flow into a delta as NaN.
-function readPositiveNumber(path: string, key: string): number {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof parsed === "object" && parsed !== null && key in parsed) {
-    const value: unknown = Reflect.get(parsed, key);
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-  }
-  throw new Error(`${path} has no positive number at ${key}`);
 }
 
 async function measureHead(scratch: string): Promise<Measurement> {

@@ -1,9 +1,8 @@
 // Runs one nightly category, writes its step summary, and on a failure writes the report the
 // tracking-issue job turns into the issue body. Every category answers with an Outcome; the exit
 // code and the files written are decided here alone.
-import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { isInside, whereBytesLand } from "./lib/paths.ts";
+import { outsideCheckouts } from "./lib/paths.ts";
 import { runHarnessDrift } from "./nightly/harness_drift.ts";
 import { runLatencyTrend } from "./nightly/latency_trend.ts";
 import { runLiveNetwork } from "./nightly/live_network.ts";
@@ -50,38 +49,8 @@ function isCategory(value: string): value is Category {
   return CATEGORIES.some((category) => category === value);
 }
 
-// Every checkout of the repository shares its history, so a commit from any of them publishes
-// what lands there; git's own worktree list is the set of them. A bare entry has no working tree.
-function repositoryRoots(): Set<string> {
-  const roots = new Set([whereBytesLand(repoRoot, usage)]);
-  for (const entry of git(["worktree", "list", "--porcelain"]).split("\n\n")) {
-    const lines = entry.split("\n");
-    const path = lines[0]?.startsWith("worktree ") ? lines[0].slice("worktree ".length) : undefined;
-    if (path === undefined || lines.includes("bare")) continue;
-    roots.add(existsSync(path) ? whereBytesLand(path, usage) : resolve(path));
-  }
-  return roots;
-}
-
-// A failure report and a trend file are evidence from one run; refusing to write either inside
-// any checkout keeps them out of a commit.
 function outsideRepository(value: string, what: string): string {
-  const path = whereBytesLand(value, usage);
-  for (const root of repositoryRoots()) {
-    if (isInside(root, path)) usage(`refusing to write ${what} inside the repository: ${path}`);
-  }
-  return path;
-}
-
-function git(args: string[]): string {
-  const proc = Bun.spawnSync(["git", "-C", repoRoot, ...args], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (proc.exitCode !== 0)
-    throw new Error(`git ${args.join(" ")} failed: ${proc.stderr.toString().trim()}`);
-  return proc.stdout.toString().trim();
+  return outsideCheckouts(value, repoRoot, what, usage);
 }
 
 type Flag = "--report-dir" | "--trend" | "--iterations";

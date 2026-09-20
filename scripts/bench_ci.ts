@@ -1,10 +1,11 @@
 // Builds and times HEAD and the base ref on the same machine in one run, so the figures compare
 // two bundles under the same noise instead of one bundle against a budget written for other
 // hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { isInside, whereBytesLand } from "./lib/paths.ts";
+import { readPositiveNumber } from "./lib/figures.ts";
+import { outsideCheckouts } from "./lib/paths.ts";
 
 const USAGE = "usage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n";
 const repoRoot = resolve(import.meta.dir, "..");
@@ -63,17 +64,8 @@ function fail(message: string): never {
   process.exit(2);
 }
 
-// The report carries this machine's timings; refusing to write it inside the repository keeps
-// it out of a commit, since .gitignore is not consulted by `git add -f`. A linked worktree's
-// primary checkout is the same repository, so it is refused too.
 function measuredDataDir(value: string): string {
-  const out = whereBytesLand(value, fail);
-  const common = resolve(repoRoot, git(["rev-parse", "--git-common-dir"]));
-  const roots = [repoRoot, resolve(common, "..")].map((root) => whereBytesLand(root, fail));
-  for (const root of new Set(roots)) {
-    if (isInside(root, out)) fail(`refusing to write measured data inside the repository: ${out}`);
-  }
-  return out;
+  return outsideCheckouts(value, repoRoot, "measured data", fail);
 }
 
 function parseArgs(argv: string[]): Options {
@@ -177,17 +169,6 @@ function git(args: string[]): string {
   if (proc.exitCode !== 0)
     throw new Error(`git ${args.join(" ")} failed: ${proc.stderr.toString().trim()}`);
   return proc.stdout.toString().trim();
-}
-
-// Both producers write one flat JSON object; a missing or non-positive figure means the producer
-// changed shape or measured nothing, and either would otherwise flow into a delta as NaN.
-function readPositiveNumber(path: string, key: string): number {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof parsed === "object" && parsed !== null && key in parsed) {
-    const value: unknown = Reflect.get(parsed, key);
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-  }
-  throw new Error(`${path} has no positive number at ${key}`);
 }
 
 interface Bundle {

@@ -1,9 +1,9 @@
 // Every run is a fresh process with its own throwaway HOME, so the number is the every-session
 // cost and nothing the developer's real home holds can shorten or lengthen it.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { isInside, whereBytesLand } from "./lib/paths.ts";
+import { outsideCheckouts } from "./lib/paths.ts";
 
 const DEFAULT_COMMAND = ["node", "dist/cli.js", "--version"];
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
@@ -32,49 +32,8 @@ function fail(message: string): never {
   process.exit(2);
 }
 
-// A git binary that cannot be started surfaces as a thrown ENOENT, not as an exit code; both are
-// the same refusal, never a stack trace.
-function listCheckouts(): string {
-  const command = ["git", "-C", repoRoot, "worktree", "list", "--porcelain"];
-  let git: Bun.ReadableSyncSubprocess;
-  try {
-    git = Bun.spawnSync(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    fail(`cannot list the repository's checkouts: ${reason}`);
-  }
-  if (git.exitCode !== 0) {
-    process.stderr.write(git.stderr.toString());
-    fail(`cannot list the repository's checkouts: git worktree list exited with ${git.exitCode}`);
-  }
-  return git.stdout.toString();
-}
-
-// Every checkout of one repository shares its history, so a commit from any of them publishes
-// what lands there; git's own worktree list is the set of them. A bare entry has no working tree.
-// A primary set up with --separate-git-dir is out of reach: git keeps no path back to it and lists
-// its git dir in its place. No git answer, no known roots: refuse. Every root is canonicalized the
-// way the output path is, so the two sides agree on a spelling (git prints forward slashes and
-// the short name of a Windows temp directory).
-function repositoryRoots(): Set<string> {
-  const roots = new Set([whereBytesLand(repoRoot, fail)]);
-  for (const entry of listCheckouts().split("\n\n")) {
-    const lines = entry.split("\n");
-    const path = lines[0]?.startsWith("worktree ") ? lines[0].slice("worktree ".length) : undefined;
-    if (path === undefined || lines.includes("bare")) continue;
-    roots.add(existsSync(path) ? whereBytesLand(path, fail) : resolve(path));
-  }
-  return roots;
-}
-
-// Timings measured on a real machine describe that machine; refusing to write them inside the
-// repository is what keeps them out of a commit, since .gitignore is not consulted by `git add -f`.
 function measuredDataPath(value: string): string {
-  const out = whereBytesLand(value, fail);
-  for (const root of repositoryRoots()) {
-    if (isInside(root, out)) fail(`refusing to write measured data inside the repository: ${out}`);
-  }
-  return out;
+  return outsideCheckouts(value, repoRoot, "measured data", fail);
 }
 
 function parseArgs(argv: string[]): Options {
