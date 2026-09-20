@@ -33,22 +33,22 @@ function parseArgs(argv: string[]): Options {
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--") {
-      if (i + 1 < argv.length) options.command = argv.slice(i + 1);
+      options.command = argv.slice(i + 1);
+      if (options.command.length === 0) fail("no command after --");
       break;
     }
+    if (flag !== "--runs" && flag !== "--json") fail(`unknown argument ${flag}`);
     const value = argv[i + 1];
-    if (flag === "--runs" && value !== undefined) {
+    if (value === undefined) fail(`${flag} needs a value`);
+    if (flag === "--runs") {
       const runs = Number(value);
       if (!Number.isInteger(runs) || runs < 1)
         fail(`--runs must be a positive integer, got ${value}`);
       options.runs = runs;
-      i++;
-    } else if (flag === "--json" && value !== undefined) {
-      options.json = value;
-      i++;
     } else {
-      fail(`unknown argument ${flag}`);
+      options.json = value;
     }
+    i++;
   }
   return options;
 }
