@@ -6,6 +6,7 @@ import type {
   DisabledEdit,
   Engine,
   EngineBundle,
+  ListedSource,
   ListOptions,
   RemoveOptions,
   ResolveIncomingInput,
@@ -14,6 +15,7 @@ import type {
   SyncOptions,
   SyncReport,
 } from "../../src/commands/types.ts";
+import type { InteractiveStreams } from "../../src/console/contract.ts";
 import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
 import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
@@ -53,9 +55,14 @@ export type ScenarioOptions = {
   syncReport?: Partial<
     Pick<SyncReport, "rules" | "tokens" | "fetched" | "failed" | "changed" | "notices">
   >;
+  listReport?: ListedSource[];
   hookMissing?: HarnessId[];
   tier2?: HarnessId[];
   disabledChanged?: boolean;
+  // Scripted prompt answers: the keystrokes to type once the interactive frame shows the prompt
+  // whose message contains the key. Without this the CLI gets no interactive streams and every
+  // prompt takes its silent branch.
+  answers?: Record<string, string>;
 };
 
 export type Scenario = {
@@ -98,7 +105,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     },
     async runList(listOptions) {
       calls.list.push(listOptions);
-      return { sources: [] };
+      return { sources: options.listReport ?? [] };
     },
     planStoreEntry(from, home, files) {
       const entry = assertInsideRoot(homePaths(home).store, storePathFor(home, from));
@@ -300,6 +307,9 @@ export async function withScenario<T>(
 export async function runCli(scenario: Scenario, argv: string[]): Promise<RunResult> {
   let stdout = "";
   let stderr = "";
+  const answers = scenario.options.answers;
+  const interactive =
+    answers === undefined ? null : scriptedStreams(answers, (chunk) => (stdout += chunk));
   const bundle: EngineBundle = {
     engine: scenario.engine,
     harnesses: scenario.options.harnesses ?? FIXTURE_HARNESSES,
@@ -320,26 +330,62 @@ export async function runCli(scenario: Scenario, argv: string[]): Promise<RunRes
     },
     stdoutTty: { isTTY: scenario.options.tty === true, columns: scenario.options.columns ?? 80 },
     stdinTty: scenario.options.stdinTty ?? scenario.options.tty === true,
-    interactive: null,
+    interactive,
     detectAgent: async () => scenario.options.agent ?? null,
   };
   const code = await main(argv, deps);
   return { code, stdout, stderr };
 }
 
-// Every regular file under a directory with its content hash, plus every symlink by name and
-// target, so a test can prove a failing verb wrote nothing anywhere under the home or the project.
+// The real clack prompts read keypresses off any stream, so a scenario drives them through a
+// pipe: each answer is written once the frame has rendered its prompt, which happens only after
+// the prompt attached its listener, so no keystroke lands before anyone is reading. Clack wraps
+// the message at the real terminal's width and draws a gutter on every line, so the match runs
+// on the letters alone, whatever the width of the terminal the tests run in.
+function scriptedStreams(
+  answers: Record<string, string>,
+  capture: (chunk: string) => void,
+): InteractiveStreams {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const pending = new Map(Object.entries(answers).map(([m, keys]) => [letters(m), keys]));
+  let seen = "";
+  output.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    capture(text);
+    seen += letters(text);
+    for (const [message, keys] of pending) {
+      if (!seen.includes(message)) continue;
+      pending.delete(message);
+      setImmediate(() => input.write(keys));
+    }
+  });
+  return { input, output };
+}
+
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
+
+function letters(text: string): string {
+  return text.replace(ANSI_ESCAPE, "").replace(/[^A-Za-z0-9]/g, "");
+}
+
+// Every regular file under a directory with its content hash, every symlink by name and target,
+// and every directory by name, so a test can prove a failing verb created nothing anywhere under
+// the home or the project, not even an empty folder.
 export async function snapshot(dir: string): Promise<string> {
-  const links: string[] = [];
+  const entries: string[] = [];
   const walk = (current: string): void => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const path = join(current, entry.name);
-      if (entry.isSymbolicLink()) links.push(`${relative(dir, path)}->${readlinkSync(path)}`);
-      else if (entry.isDirectory()) walk(path);
+      if (entry.isSymbolicLink()) entries.push(`${relative(dir, path)}->${readlinkSync(path)}`);
+      else if (entry.isDirectory()) {
+        entries.push(`${relative(dir, path)}/`);
+        walk(path);
+      }
     }
   };
   walk(dir);
-  return `${await hashDirectory(dir)}|${links.sort().join(",")}`;
+  return `${await hashDirectory(dir)}|${entries.sort().join(",")}`;
 }
 
 // The last sync the fake engine recorded, or a thrown error: an assertion about an absent key on

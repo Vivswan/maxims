@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { STRINGS } from "../../src/console/strings.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
   FIXTURES,
@@ -653,4 +654,33 @@ test("a --pin the state schema refuses is a usage error naming the flag, and not
     expect(scenario.fetches).toEqual([]);
     expect(await snapshot(scenario.root)).toBe(before);
   });
+});
+
+// The harness prompt is the one place `lastAgents` is written. The next prompt offers it as the
+// pre-selected answer (Enter alone keeps it, where an empty selection would be refused), and a
+// silent run takes it without asking, instead of failing with "no harness detected".
+test("the harnesses chosen at the prompt are remembered, pre-selected, and reused silently", async () => {
+  await withScenario(
+    {
+      github: { "a/b": SKILLS },
+      tty: true,
+      answers: { [STRINGS.whichAgents]: " \r", [STRINGS.proceed]: "\r" },
+    },
+    async (scenario) => {
+      const chosen = await runCli(scenario, ["add", "@a/b", "-g"]);
+      expect(chosen.code).toBe(0);
+      expect(source(scenario, "@a/b").intent.harnesses).toEqual(["claude-code"]);
+      const config = homePaths(scenario.home).config;
+      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({ lastAgents: ["claude-code"] });
+      const before = readFileSync(config, "utf8");
+      scenario.options.answers = { [STRINGS.whichAgents]: "\r", [STRINGS.proceed]: "\r" };
+      const kept = await runCli(scenario, ["add", "@a/b", "-g", "-m", "skip-unfit-skills"]);
+      expect(kept.code).toBe(0);
+      expect(source(scenario, "@a/b").intent.harnesses).toEqual(["claude-code"]);
+      const silent = await runCli(scenario, ["add", "@a/b", "-g", "-y"]);
+      expect(silent.code).toBe(0);
+      expect(source(scenario, "@a/b").intent.harnesses).toEqual(["claude-code"]);
+      expect(readFileSync(config, "utf8")).toBe(before);
+    },
+  );
 });

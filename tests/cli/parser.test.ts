@@ -2,7 +2,7 @@
 // firing (two destinations, --json without -y, --all with names), an alias that stops resolving,
 // `--flag=value` or comma lists that stop composing, or `--help` that starts touching the disk.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERSION } from "../../src/version.ts";
 import { FIXTURES, runCli, snapshot, withScenario } from "./harness.ts";
@@ -150,6 +150,15 @@ test.each(VERBS.map((verb) => [verb] as const))(
     });
   },
 );
+
+// The control for the snapshot above: a verb that only created an empty directory must not pass.
+test("the snapshot changes when an empty directory appears", async () => {
+  await withScenario({}, async (scenario) => {
+    const before = await snapshot(scenario.root);
+    mkdirSync(join(scenario.root, "control"));
+    expect(await snapshot(scenario.root)).not.toBe(before);
+  });
+});
 
 test("-h anywhere on the line wins over an unknown flag, and -v prints the version", async () => {
   await withScenario({}, async (scenario) => {

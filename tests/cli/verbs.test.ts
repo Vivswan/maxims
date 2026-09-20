@@ -16,9 +16,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import type { ListedSource } from "../../src/commands/types.ts";
+import type { HarnessId } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/index.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
+import type { Destination, SourceIntent } from "../../src/state/schema.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
@@ -605,12 +608,69 @@ test("mcp-serve hands the stub a quiet sync and stays out of --help", async () =
   });
 });
 
-test("list prints the empty result and the --json envelope", async () => {
+const listIntent = (
+  repo: string,
+  destination: Destination,
+  harnesses: HarnessId[],
+): SourceIntent => ({
+  from: { type: "github", repo, ref: "HEAD" },
+  select: "*",
+  rename: {},
+  rule: true,
+  destination,
+  copy: false,
+  auth: false,
+  harnesses,
+  memoryPath: "memories",
+  fullDepth: false,
+});
+
+// The engine's report is rendered by scope, project first, with each source's harnesses, memory
+// count, stale renames and last fetch error on their own lines.
+const LISTED: ListedSource[] = [
+  {
+    key: "@a/b",
+    intent: listIntent("a/b", { scope: "global" }, ["codex"]),
+    memories: [mn("skip-unfit-skills")],
+    renamesStale: [mn("old-rule")],
+    lastError: "connect timed out",
+  },
+  {
+    key: "@a/d",
+    intent: listIntent("a/d", { scope: "project" }, ["codex", "claude-code"]),
+    memories: [mn("alpha"), mn("beta")],
+    renamesStale: [],
+    lastError: null,
+  },
+];
+
+test("list renders the engine's report by scope and hands it through under --json", async () => {
   await withScenario({}, async (scenario) => {
     const empty = await runCli(scenario, ["ls"]);
-    expect(empty.stdout).toContain("o  No sources installed.\n");
+    expect(empty.stdout).toBe("o  No sources installed.\n");
+    scenario.options.listReport = LISTED;
+    const listed = await runCli(scenario, ["list"]);
+    expect(listed.code).toBe(0);
+    expect(listed.stdout).toBe(
+      [
+        "o  Project Memories",
+        "@a/d",
+        "  Agents: codex, claude-code  Memories: 2",
+        "o  Global Memories",
+        "@a/b",
+        "  Agents: codex  Memories: 1",
+        "!    renames no longer resolving a collision: old-rule",
+        "!    last fetch failed: connect timed out",
+        "",
+      ].join("\n"),
+    );
     const json = await runCli(scenario, ["list", "--json"]);
-    expect(JSON.parse(json.stdout)).toEqual({ ok: true, sources: [] });
+    expect(JSON.parse(json.stdout)).toEqual({ ok: true, sources: LISTED });
+    expect(scenario.engine.calls.list).toEqual([
+      { quiet: false, dryRun: false, json: false },
+      { quiet: false, dryRun: false, json: false },
+      { quiet: false, dryRun: false, json: true },
+    ]);
   });
 });
 
