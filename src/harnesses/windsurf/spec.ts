@@ -2,11 +2,13 @@ import type { HarnessSpec } from "../spec.ts";
 
 // The legacy Cascade agent of Devin Desktop (formerly Windsurf). Its rules directory needs
 // `trigger: always_on` in each file's frontmatter or the rule is not injected on every message;
-// `.devin/rules/` is the location Cascade prefers over `.windsurf/rules/`, and the single global
-// file takes no frontmatter and is capped at 6,000 characters. Cascade has no session-start
-// event, so the hook rides `pre_user_prompt` behind the shared debounce; the hook has no stdout
-// protocol and no timeout field, runs `command` through bash and `powershell` on Windows, and
-// silently skips an entry that names only one of them on the other platform.
+// a path-scoped rule is `trigger: glob` with the pattern under `globs`, documented for one
+// pattern only, so several are joined with commas. `.devin/rules/` is the location Cascade
+// prefers over `.windsurf/rules/`, and the single global file takes no frontmatter and is capped
+// at 6,000 characters. Cascade has no session-start event, so the hook rides `pre_user_prompt`
+// behind the shared debounce; the hook has no stdout protocol and no timeout field, runs
+// `command` through bash and `powershell` on Windows, and silently skips an entry that names only
+// one of them on the other platform.
 export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",
@@ -18,7 +20,10 @@ export const spec = {
       kind: "rules-dir",
       dir: ".devin/rules",
       fileName: "maxims-{{slug}}.md",
-      frontmatter: { always: { trigger: "always_on" } },
+      frontmatter: {
+        always: { trigger: "always_on" },
+        scoped: { fields: { trigger: "glob" }, pathsKey: "globs", pathsAs: "comma-list" },
+      },
     },
     global: { kind: "shared-block", file: "memories/global_rules.md" },
   },

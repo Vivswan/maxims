@@ -1,32 +1,25 @@
 // Guards what Cascade enforces silently: a rules file without `trigger: always_on` is not injected
-// on every message, `--paths` has no documented form so it is refused rather than written as
-// always-on, the `pre_user_prompt` entry names both `command` and `powershell` (an entry with one
-// is skipped on the other platform) and no timeout field, and the global block goes into the
-// single `global_rules.md` under `~/.codeium/windsurf/memories`.
+// on every message, a `--paths` install is `trigger: glob` with the patterns under `globs`, the
+// `pre_user_prompt` entry names both `command` and `powershell` (an entry with one is skipped on
+// the other platform) and no timeout field, and the global block goes into the single
+// `global_rules.md` under `~/.codeium/windsurf/memories`.
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { hookSpecFor, scopeRoot } from "../contract.ts";
 import { windsurf } from "./index.ts";
 
 const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 
-test("a project rule file is always-on by frontmatter and refuses a path filter", () => {
+test("a project rule file is always-on by frontmatter and glob-triggered under --paths", () => {
   const target = windsurf.targets.project;
   if (target?.kind !== "rules-dir" || target.frontmatter === undefined) {
     throw new Error("expected a rules directory with frontmatter");
   }
   expect(target.frontmatter({})).toBe("---\ntrigger: always_on\n---\n");
   expect(target.fileName("example-user-doctrine")).toBe("maxims-example-user-doctrine.md");
-  let caught: unknown;
-  try {
-    target.frontmatter({ paths: ["src/**"] });
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  if (!(caught instanceof MaximsError)) throw new Error("expected a MaximsError");
-  expect(caught.code).toBe(ExitCode.Usage);
+  expect(target.frontmatter({ paths: ["src/**", "docs/**"] })).toBe(
+    "---\ntrigger: glob\nglobs: src/**,docs/**\n---\n",
+  );
 });
 
 test("the pre_user_prompt entry carries both shells and no timeout", () => {
