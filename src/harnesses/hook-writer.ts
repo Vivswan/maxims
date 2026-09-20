@@ -193,8 +193,14 @@ class JsonRegistry {
   }
 
   // The deepest existing level of the event path receives the rest nested inside it, so the
-  // removal climb later finds one lineage to cut.
+  // removal climb later finds one lineage to cut. Wrapper keys the file lacks go in first, so a
+  // registry emptied by a removal comes back as the fresh one; a key the user already set keeps
+  // its value.
   append(handler: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(this.hook.wrapper ?? {})) {
+      if (findNodeAtLocation(this.root(), [key]) !== undefined) continue;
+      this.text = appendChild(this.text, this.root(), key, value);
+    }
     const entry = this.hook.grouped ? { hooks: [handler] } : handler;
     const event = this.eventArray();
     if (event !== undefined) {

@@ -172,6 +172,11 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     const [removed] = remove(added.content).changes;
     expect(removed).toEqual({ kind: "write", path: added.path, content: original ?? "{}\n" });
     expect(remove(original).changes).toEqual([]);
+    const [fresh] = add(null).changes;
+    const [reinstalled] = add("{}\n").changes;
+    if (fresh?.kind !== "write" || reinstalled?.kind !== "write")
+      throw new Error("expected writes");
+    expect(reinstalled.content).toBe(fresh.content);
   });
 
   test.each(scopes)("%s file-shaped hook is written when wanted and deleted when not", (scope) => {

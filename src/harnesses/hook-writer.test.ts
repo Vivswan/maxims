@@ -270,6 +270,76 @@ describe("planHookRegistryWrite on JSON registries", () => {
     ]);
   });
 
+  const flatHandler = [
+    "      {",
+    '        "type": "command",',
+    `        "bash": "${HOOK_COMMAND}",`,
+    '        "timeoutSec": 20',
+    "      }",
+  ];
+  const wrapped: { name: string; before: string; after: string }[] = [
+    {
+      name: "the empty object a removal leaves regains the wrapper ahead of the event",
+      before: "{}\n",
+      after: [
+        "{",
+        '  "version": 1,',
+        '  "hooks": {',
+        '    "sessionStart": [',
+        ...flatHandler,
+        "    ]",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "a user file already carrying the key keeps its own value",
+      before: '{\n  "version": 2\n}\n',
+      after: [
+        "{",
+        '  "version": 2,',
+        '  "hooks": {',
+        '    "sessionStart": [',
+        ...flatHandler,
+        "    ]",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "a user file holding other events and no wrapper gains the key after them",
+      before: `{\n  "hooks": {\n    "stop": [${theirsJson}]\n  }\n}\n`,
+      after: [
+        "{",
+        '  "hooks": {',
+        `    "stop": [${theirsJson}],`,
+        '    "sessionStart": [',
+        ...flatHandler,
+        "    ]",
+        "  },",
+        '  "version": 1',
+        "}",
+        "",
+      ].join("\n"),
+    },
+  ];
+
+  test.each(wrapped)("registering into $name", ({ before, after }) => {
+    expect(textOf(plan(flat, true, before))).toBe(after);
+  });
+
+  test("remove then reinstall on a wrapper-bearing registry converges on the fresh file", () => {
+    const alone = `{"version":1,"hooks":{"sessionStart":[${flatOurs}]}}\n`;
+    const removed = textOf(plan(flat, false, alone));
+    expect(removed).toBe("{}\n");
+    const reinstalled = textOf(plan(flat, true, removed));
+    expect(reinstalled).toBe(textOf(plan(flat, true, null)));
+    expect(plan(flat, true, reinstalled)).toEqual({ changes: [] });
+    expect(textOf(plan(flat, false, reinstalled))).toBe(removed);
+  });
+
   const commands: { command: string; ours: boolean }[] = [
     { command: "npx -y @vivswan/maxims sync --quiet", ours: true },
     { command: "npx -y @vivswan/maxims sync", ours: true },
