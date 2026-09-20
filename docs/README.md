@@ -13,7 +13,7 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 
 | I want to... | Read |
 | --- | --- |
-| understand the problem and the two-layer answer | [Why maxims](why.md) |
+| understand the problem, the two-layer answer, and what came before | [Why maxims](why.md) |
 | install a source and see what lands where | [Quickstart](quickstart.md) |
 | see how the code is arranged, file by file, and who writes what | [Architecture](architecture.md) |
 | write a memory file maxims accepts | [Memory files](memory-files.md) |

@@ -63,7 +63,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 - **DeepSeek Harness is tier 1 through its Claude Code hook bridge, caveats recorded.** The bridge row is mounted machine-wide and its config points at a maxims-owned file, never into `.claude`; the [dsh catch](harnesses.md#per-harness-catches) owns the caveats.
 - **The MCP stub ships behind the hidden `maxims mcp-serve` command.** It is the only mechanical tier 2 answer, for harnesses that start MCP servers eagerly and have no hook; the [matrix](harnesses.md#the-matrix) shows where it is registered.
 - **The self-refresh line ships beside the stub.** Zero artifact and universal by construction, since every tier 2 harness has an always-loaded layer by definition; not written where a hook exists.
-- **Shell-rc lines, OS schedulers, editor tasks, and git hooks are rejected as freshness fallbacks.** Each forks per platform or writes into shared territory for a benefit the one-hook-refreshes-everything property already delivers.
+- **Shell-rc lines, OS schedulers, editor tasks, and git hooks are rejected as freshness fallbacks.** None fires on the agent's session start, each forks per platform or writes into a file the team shares, and the one hook already refreshes every harness. The [prior art table](why.md#prior-art) places them beside the tools maxims did borrow from.
 - **The rule file is a real file, never a symlink, on every harness.** A rule that silently never loads is the failure the tool exists to prevent. The spec reports, unverified here, that Claude Code skips a symlinked rule file pointing outside the working directory.
 
 ## Tooling

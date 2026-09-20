@@ -16,7 +16,7 @@ What that writes for Claude Code, one line per memory:
 <!-- maxims:end @Vivswan/skills -->
 ```
 
-- [Why maxims](docs/why.md): the problem, the two layers, what a rule costs.
+- [Why maxims](docs/why.md): the problem, the two layers, the prior art, what a rule costs.
 - [Quickstart](docs/quickstart.md): the install command and what it writes.
 - [All documentation](docs/README.md): every verb, flag, harness, and design decision.
 

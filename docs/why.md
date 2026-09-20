@@ -74,6 +74,17 @@ Both install a versioned GitHub repo like a package, with selection, state, and 
 
 Rules also come from reviewable repos instead of hand-copied files, so one machine cannot silently drift from another, and a hook re-syncs them at every session start.
 
+## Prior art
+
+Each tool below already solved part of the problem. The table says what maxims copied from it and what it left behind.
+
+| tool or practice | what it does | what maxims took | what maxims left |
+| --- | --- | --- | --- |
+| `npx skills` (vercel-labs/skills) | installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays | the verbs, the flag names and short forms, which the [parity page](parity.md) pins against a captured `skills --help`; the `@owner/repo` shorthand; [`~/.agents/`](state.md#the-canonical-home) as the home; and the committed project lock, which the [project lock](project-lock.md) mirrors | the skills layer itself; maxims adds the rule line in the always-loaded layer and the session-start hook that re-syncs it, which skills do not have |
+| Claude Code's `MEMORY.md` index | one index file, loaded every session, with one line per memory that points at the body file beside it | the shape of the two layers, and the [memory file format](memory-files.md) itself, so a source repo needs no new format | the single harness and the single folder; maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code |
+| rulesync (dyoshikawa/rulesync) | compiles rule files under `.rulesync/` into the native rule format of each supported agent when you run `rulesync generate` | the fan-out, one source written in each harness's own format | the unit and the trigger; maxims installs published memories from a repo rather than compiling your own local files, and a hook re-syncs at session start rather than a generate step you run by hand |
+| a shell rc line, an OS scheduler, an editor folder-open task, or a git hook | refreshes a file from outside the agent, on a shell start, a clock, an editor open, or a commit | nothing | all four; none fires on the agent's session start, so a session can still open on a stale file, and the [freshness fallbacks decision](design-decisions.md#harnesses) records the rest of the reasons |
+
 ## What a rule costs
 
 | item | cost |
