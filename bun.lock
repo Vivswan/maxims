@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "maxims",
+      "name": "@vivswan/maxims",
       "dependencies": {
         "semver": "7.8.5",
       },
