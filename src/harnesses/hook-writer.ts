@@ -14,6 +14,13 @@ import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
 import {
+  appendChild,
+  assertParses,
+  readConfigText,
+  removeChild,
+  replaceValue,
+} from "../util/jsonc.ts";
+import {
   type ConfigFormat,
   type HarnessContext,
   type HarnessDefinition,
@@ -65,11 +72,11 @@ export async function planHookWrite(
 async function planHookOnly(def: HarnessDefinition, intent: HookIntent): Promise<HookPlan> {
   if (hasHook(def, "registry")) {
     const path = hookPath(def, def.hook, intent);
-    return planHookRegistryWrite({ def, ...intent, currentText: await readCurrent(path) });
+    return planHookRegistryWrite({ def, ...intent, currentText: await readConfigText(path) });
   }
   if (hasHook(def, "file")) {
     const path = hookPath(def, def.hook, intent);
-    return planFileHookWrite({ def, ...intent, currentText: await readCurrent(path) });
+    return planFileHookWrite({ def, ...intent, currentText: await readConfigText(path) });
   }
   if (hasHook(def, "custom")) {
     const spec = hookSpecFor(def);
@@ -95,7 +102,7 @@ export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
   const handler = input.def.hook.handler(hookSpecFor(input.def));
   if (input.currentText === null) {
     if (!input.wanted) return { changes: [] };
-    const content = freshRegistry(input.def.hook, handler, "\n");
+    const content = freshRegistry(input.def.hook, handler);
     return {
       changes: [{ kind: "write", path, content }],
       notice: `registered the maxims hook in ${path}`,
@@ -122,7 +129,7 @@ export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
   return { changes: [registry.finish()], notice: `removed the maxims hook from ${path}` };
 }
 
-function freshRegistry(hook: RegistryHook, handler: Record<string, unknown>, eol: string): string {
+function freshRegistry(hook: RegistryHook, handler: Record<string, unknown>): string {
   const root: Record<string, unknown> = { ...hook.wrapper };
   let container = root;
   for (const key of hook.eventPath.slice(0, -1)) {
@@ -132,17 +139,14 @@ function freshRegistry(hook: RegistryHook, handler: Record<string, unknown>, eol
   }
   const event = hook.eventPath[hook.eventPath.length - 1];
   if (event !== undefined) container[event] = [hook.grouped ? { hooks: [handler] } : handler];
-  return `${pretty(root, "", eol)}${eol}`;
+  return `${JSON.stringify(root, null, 2)}\n`;
 }
 
-// Edits are byte-range splices on the user's own text, located through the jsonc-parser tree:
-// only our node and the separator joining it to a neighbour ever change, so the rest of the file,
-// comments and irregular spacing included, comes back byte-identical after add then remove.
-// jsonc-parser's `modify` is not used because it reformats every line an edit touches, and a
-// compact user file does not survive that.
+// The registry policy over the splices in src/util/jsonc.ts: which entries are ours, where a new
+// one goes, and how far a removal climbs. Every splice invalidates the tree, so each step
+// re-parses the text it holds.
 class JsonRegistry {
   private text: string;
-  private readonly eol: string;
 
   constructor(
     private readonly hook: RegistryHook,
@@ -150,7 +154,6 @@ class JsonRegistry {
     currentText: string,
   ) {
     this.text = currentText;
-    this.eol = currentText.includes("\r\n") ? "\r\n" : "\n";
     this.eventArray();
   }
 
@@ -170,7 +173,6 @@ class JsonRegistry {
     });
   }
 
-  // Every removal shifts the offsets after it, so each pass re-parses and takes one node.
   removeAll(): void {
     for (let [ours] = this.locateOurs(); ours !== undefined; [ours] = this.locateOurs()) {
       this.remove(ours);
@@ -187,15 +189,16 @@ class JsonRegistry {
   }
 
   replace(node: Node, handler: Record<string, unknown>): void {
-    const indent = lineIndent(this.text, node.offset);
-    this.splice(node.offset, node.length, pretty(handler, indent, this.eol));
+    this.text = replaceValue(this.text, node, handler);
   }
 
+  // The deepest existing level of the event path receives the rest nested inside it, so the
+  // removal climb later finds one lineage to cut.
   append(handler: Record<string, unknown>): void {
     const entry = this.hook.grouped ? { hooks: [handler] } : handler;
     const event = this.eventArray();
     if (event !== undefined) {
-      this.appendElement(event, entry);
+      this.text = appendChild(this.text, event, null, entry);
       return;
     }
     let depth = this.hook.eventPath.length - 1;
@@ -207,27 +210,20 @@ class JsonRegistry {
     const [key, ...nested] = this.hook.eventPath.slice(depth);
     if (key === undefined) throw this.refuse("the hook declares no event path");
     const value = nested.reduceRight<unknown>((inner, name) => ({ [name]: inner }), [entry]);
-    this.appendProperty(container ?? this.root(), key, value);
+    this.text = appendChild(this.text, container ?? this.root(), key, value);
   }
 
   // Removal climbs to the highest ancestor our handler alone kept alive (a matcher group whose
   // list emptied, then the event list) and cuts it there; the object holding the events stays,
   // emptied if need be, because nothing tells a `hooks: {}` the user wrote from one we added.
   // Anything a user wrote in a container, a comment above all, pins that container: the climb
-  // stops below it and only our node leaves.
+  // stops below it and only our lineage leaves.
   remove(node: Node): void {
     let target = node;
     for (;;) {
-      const parent = target.parent;
-      if (parent === undefined) {
-        this.emptyContainer(target);
-        return;
-      }
-      if (
-        parent.type === "object" &&
-        isDeepStrictEqual(getNodePath(parent), this.hook.eventPath.slice(0, -1))
-      ) {
-        this.cut(parent, target);
+      const parent = parentOf(target);
+      if (parent.type === "object" && this.holdsEvents(parent)) {
+        this.text = removeChild(this.text, parent, target);
         return;
       }
       const clean = this.commentFree(parent);
@@ -236,7 +232,7 @@ class JsonRegistry {
           target = parent;
           continue;
         }
-        this.emptyContainer(target);
+        this.text = removeChild(this.text, target, onlyChild(target));
         return;
       }
       if (clean && (this.isGroup(parent) || parent.children?.length === 1)) {
@@ -245,10 +241,10 @@ class JsonRegistry {
       }
       const value = target.children?.[1];
       if (this.isGroup(parent) && target.type === "property" && value !== undefined) {
-        this.emptyContainer(value);
+        this.text = removeChild(this.text, value, onlyChild(value));
         return;
       }
-      this.cut(parent, target);
+      this.text = removeChild(this.text, parent, target);
       return;
     }
   }
@@ -264,7 +260,12 @@ class JsonRegistry {
   }
 
   write(): Change {
+    this.root();
     return { kind: "write", path: this.path, content: this.text };
+  }
+
+  private holdsEvents(node: Node): boolean {
+    return isDeepStrictEqual(getNodePath(node), this.hook.eventPath.slice(0, -1));
   }
 
   private isGroup(node: Node): boolean {
@@ -286,10 +287,6 @@ class JsonRegistry {
     return true;
   }
 
-  private emptyContainer(node: Node): void {
-    this.splice(node.offset + 1, node.length - 2, "");
-  }
-
   private eventArray(): Node | undefined {
     const root = this.root();
     const last = this.hook.eventPath.length;
@@ -304,143 +301,8 @@ class JsonRegistry {
     return undefined;
   }
 
-  private appendElement(list: Node, value: unknown): void {
-    const last = list.children?.[list.children.length - 1];
-    if (last === undefined) {
-      this.fill(list, (indent) => pretty(value, indent, this.eol));
-      return;
-    }
-    const indent = lineIndent(this.text, last.offset);
-    const body = pretty(value, indent, this.eol);
-    this.splice(last.offset + last.length, 0, `,${this.eol}${indent}${body}`);
-  }
-
-  private appendProperty(object: Node, key: string, value: unknown): void {
-    const last = object.children?.[object.children.length - 1];
-    const member = (indent: string) => `${JSON.stringify(key)}: ${pretty(value, indent, this.eol)}`;
-    if (last === undefined) {
-      this.fill(object, member);
-      return;
-    }
-    const indent = lineIndent(this.text, last.offset);
-    this.splice(last.offset + last.length, 0, `,${this.eol}${indent}${member(indent)}`);
-  }
-
-  // An empty container keeps whatever sits between its brackets, a comment included: the entry
-  // goes in before the closing bracket's own whitespace rather than over the whole node.
-  private fill(container: Node, render: (indent: string) => string): void {
-    const indent = lineIndent(this.text, container.offset);
-    const closing = this.closingOf(container);
-    const at = this.whitespaceStart(closing);
-    const tail = at === closing ? `${this.eol}${indent}` : this.eol;
-    this.splice(at, 0, `${this.eol}${indent}  ${render(`${indent}  `)}${tail}`);
-  }
-
-  // Only the node and the one comma that joined it go. When nothing but whitespace sits between
-  // that comma and the node the whole run goes too, which is the exact inverse of an append; a
-  // comment in the gap stays, and a line comment keeps the line break that ends it.
-  private cut(container: Node, target: Node): void {
-    const siblings = container.children ?? [];
-    const index = siblings.indexOf(target);
-    const previous = siblings[index - 1];
-    const next = siblings[index + 1];
-    const end = target.offset + target.length;
-    if (next !== undefined) {
-      const comma = this.commaBetween(end, next.offset);
-      if (comma === undefined) {
-        this.splice(target.offset, end - target.offset, "");
-      } else if (this.whitespaceOnly(end, comma)) {
-        this.splice(target.offset, this.whitespaceEnd(comma + 1) - target.offset, "");
-      } else {
-        this.splice(comma, 1, "");
-        this.splice(target.offset, end - target.offset, "");
-      }
-      return;
-    }
-    if (previous !== undefined) {
-      const comma = this.commaBetween(previous.offset + previous.length, target.offset);
-      if (comma !== undefined && this.whitespaceOnly(comma + 1, target.offset)) {
-        this.splice(comma, end - comma, "");
-        return;
-      }
-      const start = this.leadStart(target.offset);
-      const stop =
-        start === this.whitespaceStart(target.offset) ? end : this.throughFirstLineBreak(end);
-      this.splice(start, stop - start, "");
-      if (comma !== undefined) this.splice(comma, 1, "");
-      return;
-    }
-    if (this.commentFree(container)) {
-      this.emptyContainer(container);
-      return;
-    }
-    const comma = this.commaBetween(end, this.closingOf(container));
-    const tailFrom = comma !== undefined && this.whitespaceOnly(end, comma) ? comma + 1 : end;
-    const stop = this.throughFirstLineBreak(tailFrom);
-    const start = this.leadStart(target.offset);
-    if (comma !== undefined && tailFrom === end) this.splice(comma, 1, "");
-    this.splice(start, stop - start, "");
-  }
-
-  // The separator between two siblings is one comma, possibly among comments; the scanner walks
-  // the gap so a comma inside a comment is never mistaken for it.
-  private commaBetween(from: number, to: number): number | undefined {
-    const gap = this.text.slice(from, to);
-    const scanner = createScanner(gap, false);
-    while (scanner.getPosition() < gap.length) {
-      scanner.scan();
-      const at = scanner.getTokenOffset();
-      if (gap[at] === "," && scanner.getTokenLength() === 1) return from + at;
-    }
-    return undefined;
-  }
-
-  private closingOf(container: Node): number {
-    return container.offset + container.length - 1;
-  }
-
-  private whitespaceOnly(from: number, to: number): boolean {
-    return this.text.slice(from, to).trim() === "";
-  }
-
-  private whitespaceStart(offset: number): number {
-    let start = offset;
-    while (start > 0 && isWhitespace(this.text[start - 1])) start -= 1;
-    return start;
-  }
-
-  private whitespaceEnd(offset: number): number {
-    let end = offset;
-    while (end < this.text.length && isWhitespace(this.text[end])) end += 1;
-    return end;
-  }
-
-  // The whitespace run leading into a node, except the line break that terminates a `//`
-  // comment on the line before it: taking that break would swallow the rest of the line.
-  private leadStart(offset: number): number {
-    const start = this.whitespaceStart(offset);
-    const lineStart = this.text.lastIndexOf("\n", start - 1) + 1;
-    if (!this.text.slice(lineStart, start).includes("//")) return start;
-    const lineBreak = this.text.indexOf("\n", start);
-    return lineBreak === -1 || lineBreak >= offset ? start : lineBreak + 1;
-  }
-
-  private throughFirstLineBreak(offset: number): number {
-    const end = this.whitespaceEnd(offset);
-    const lineBreak = this.text.indexOf("\n", offset);
-    return lineBreak === -1 || lineBreak >= end ? offset : lineBreak + 1;
-  }
-
-  private splice(offset: number, length: number, content: string): void {
-    this.text = `${this.text.slice(0, offset)}${content}${this.text.slice(offset + length)}`;
-  }
-
   private root(): Node {
-    const errors: ParseError[] = [];
-    const root = parseTree(this.text, errors, { allowTrailingComma: true });
-    if (errors.length > 0 || root === undefined) throw this.refuse("it is not valid JSON");
-    if (root.type !== "object") throw this.refuse("its top level is not an object");
-    return root;
+    return assertParses(this.text, this.path);
   }
 
   private refuse(reason: string): MaximsError {
@@ -450,18 +312,20 @@ class JsonRegistry {
   }
 }
 
-function isWhitespace(char: string | undefined): boolean {
-  return char === " " || char === "\t" || char === "\n" || char === "\r";
+// Our handlers are found inside the event list, so every node the climb visits below the object
+// holding the events has a parent; the containers it empties were climbed into through their
+// single child.
+function parentOf(node: Node): Node {
+  if (node.parent === undefined) throw new Error("the climb reached the root of the registry");
+  return node.parent;
 }
 
-function pretty(value: unknown, indent: string, eol: string): string {
-  return JSON.stringify(value, null, 2).split("\n").join(`${eol}${indent}`);
-}
-
-function lineIndent(text: string, offset: number): string {
-  let start = offset;
-  while (start > 0 && text[start - 1] !== "\n") start -= 1;
-  return /^[ \t]*/.exec(text.slice(start, offset))?.[0] ?? "";
+function onlyChild(node: Node): Node {
+  const [child, ...rest] = node.children ?? [];
+  if (child === undefined || rest.length > 0) {
+    throw new Error("the container being emptied holds exactly one member");
+  }
+  return child;
 }
 
 export type FileHookWriteInput = HookIntent & {
@@ -532,22 +396,8 @@ function hookPath(
   hook: RegistryHook | FileHook,
   intent: Pick<HookIntent, "scope" | "ctx">,
 ): RootedPath {
-  return assertInsideRoot(
-    scopeRoot(def, intent.scope, intent.ctx),
-    hook.path(intent.scope, intent.ctx),
-  );
-}
-
-async function readCurrent(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
-      cause,
-    });
-  }
+  const root = scopeRoot(def, intent.scope, intent.ctx);
+  return assertInsideRoot(root, hook.path(intent.scope, intent.ctx));
 }
 
 // jsonc-parser builds objects with a null prototype and smol-toml returns its own date type; a
