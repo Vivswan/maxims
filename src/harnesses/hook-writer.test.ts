@@ -352,6 +352,18 @@ ${flatOurs} ]}}`,
       after: `{"hooks":{"SessionStart":[\n/* keep */\n]}}`,
     },
     {
+      before: `{"hooks":{"SessionStart":[\n/* keep */]}}`,
+      after: `{"hooks":{"SessionStart":[\n/* keep */]}}`,
+    },
+    {
+      before: `{"hooks":{"SessionStart":[\n/* keep */ ]}}`,
+      after: `{"hooks":{"SessionStart":[\n/* keep */ ]}}`,
+    },
+    {
+      before: `{"hooks":{"SessionStart":[\n// keep \n]}}`,
+      after: `{"hooks":{"SessionStart":[\n// keep \n]}}`,
+    },
+    {
       before: `{"model":"opus","hooks": /* keep */ {}}`,
       after: `{"model":"opus","hooks": /* keep */ {}}`,
     },
@@ -664,7 +676,7 @@ describe("achievedTier", () => {
       tier: 1,
     },
     {
-      name: "an unparseable config keeps the declared tier",
+      name: "an unparsable config keeps the declared tier",
       config: "[features\nhooks =",
       tier: 1,
     },

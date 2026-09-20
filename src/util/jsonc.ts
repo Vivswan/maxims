@@ -41,9 +41,11 @@ function refuse(path: string, reason: string): MaximsError {
 }
 
 // Appends a `key: value` property to an object, or (with `key` null) an element to an array. An
-// empty container's member goes in before the closing bracket's own whitespace, so a comment
-// already inside stays and a later removal restores the file byte for byte; when that whitespace
-// already breaks the line (a `//` comment ends there), the member ends on that break.
+// empty container's member goes in before the closing bracket's own whitespace (the trailing space
+// of a `//` comment is the comment's, not the bracket's), so a comment already inside stays and a
+// later removal restores the file byte for byte. A container on one line opens onto lines with a
+// break before the bracket; one already on several lines keeps the bracket's whitespace exactly,
+// so `[\n/* keep */]` stays glued: a break added there would read as the user's on removal.
 export function appendChild(
   text: string,
   container: Node,
@@ -60,13 +62,13 @@ export function appendChild(
   if (last === undefined) {
     const indent = lineIndent(text, container.offset);
     const closing = closingOf(container);
-    const at = whitespaceStart(text, closing);
-    const tail =
-      at === closing
+    const start = whitespaceStart(text, closing);
+    const at = lineCommentEnd(text, start) ?? start;
+    const tail = text.slice(container.offset + 1, closing).includes("\n")
+      ? ""
+      : at === closing
         ? `${style.eol}${indent}`
-        : text.slice(at, closing).includes("\n")
-          ? ""
-          : style.eol;
+        : style.eol;
     const inner = `${indent}${style.unit}`;
     return splice(text, at, 0, `${style.eol}${inner}${render(inner)}${tail}`);
   }
@@ -86,11 +88,13 @@ export function replaceValue(text: string, node: Node, value: unknown): string {
 // Cuts one member and the one comma that joined it. When nothing but whitespace sits between that
 // comma and the member the whole run goes too, which is the exact inverse of an append; a comment
 // in the gap stays, and a line comment keeps the line break that ends it. A lone member also takes
-// the break that ends its own line, except in a container that was already broken onto lines
-// before it (`[\n/* keep */\n]`), where that break is the user's; `[/* keep */\n  x\n]` and
-// `[/* keep */]` are the same file to us, and the one-line reading wins. A container left holding
-// only whitespace collapses to `{}` or `[]`; one still holding a comment keeps it. The container
-// itself always stays: nothing tells a `hooks: {}` the user wrote from one maxims added.
+// the break that ends its own line, except when a line break already sat between the opening
+// bracket and the member (`[\n/* keep */\n  x\n]`): an append into such a container adds no
+// break before the bracket, so that one is the user's. A member that follows a `//` comment takes
+// its break either way, since the comment's own break is the one before it. `[/* keep */\n  x\n]`
+// and `[/* keep */]` are the same file to us, and the one-line reading wins. A container left
+// holding only whitespace collapses to `{}` or `[]`; one still holding a comment keeps it. The
+// container itself always stays: nothing tells a `hooks: {}` the user wrote from one maxims added.
 export function removeChild(text: string, container: Node, child: Node): string {
   const siblings = container.children ?? [];
   const index = siblings.indexOf(child);
@@ -197,23 +201,25 @@ function whitespaceEnd(text: string, offset: number): number {
 // right before it: taking that break would swallow the rest of the line.
 function leadStart(text: string, offset: number): number {
   const start = whitespaceStart(text, offset);
-  if (!endsLineComment(text, start)) return start;
+  if (lineCommentEnd(text, start) === undefined) return start;
   const lineBreak = text.indexOf("\n", start);
   return lineBreak === -1 || lineBreak >= offset ? start : lineBreak + 1;
 }
 
-// Whether the character before `offset` belongs to a `//` comment (whose token runs to the line
-// break, trailing spaces included). The scanner runs from the top of the file so a `//` inside a
-// string (`"https://example.com"`) is never taken for one.
-function endsLineComment(text: string, offset: number): boolean {
+// Where the `//` comment holding the character before `offset` ends, or undefined when that
+// character is not in one. The token runs to the line break, trailing spaces included, so a
+// whitespace walk that stopped inside them is moved out to the token's end. The scanner runs from
+// the top of the file so a `//` inside a string (`"https://example.com"`) is never taken for one.
+function lineCommentEnd(text: string, offset: number): number | undefined {
   const scanner = createScanner(text, false);
   while (scanner.getPosition() < text.length) {
     scanner.scan();
     const at = scanner.getTokenOffset();
-    if (at + scanner.getTokenLength() < offset) continue;
-    return at < offset && text.startsWith("//", at);
+    const end = at + scanner.getTokenLength();
+    if (end < offset) continue;
+    return at < offset && text.startsWith("//", at) ? end : undefined;
   }
-  return false;
+  return undefined;
 }
 
 function throughFirstLineBreak(text: string, offset: number): number {

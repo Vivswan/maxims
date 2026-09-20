@@ -75,6 +75,22 @@ describe("appendChild", () => {
       after: '{"l": [\n// keep\n  1\n]}',
     },
     {
+      name: "a line comment's trailing space stays on the comment, not on the new element's line",
+      text: '{"l": [\n// keep \n]}',
+      container: ["l"],
+      key: null,
+      value: 1,
+      after: '{"l": [\n// keep \n  1\n]}',
+    },
+    {
+      name: "a bracket glued to a comment in a list already on several lines stays glued",
+      text: '{"l": [\n/* keep */]}',
+      container: ["l"],
+      key: null,
+      value: 1,
+      after: '{"l": [\n/* keep */\n  1]}',
+    },
+    {
       name: "a block-comment header does not pass for the indent unit",
       text: '/*\n * settings\n */\n{\n    "a": 1\n}\n',
       container: [],
@@ -190,6 +206,34 @@ describe("removeChild", () => {
     const child = parent.children?.[index];
     if (child === undefined) throw new Error("fixture lacks the child");
     expect(removeChild(text, parent, child)).toBe(after);
+  });
+});
+
+// Add then remove hands back the input on every shape the appended text still tells apart: the
+// break appended after a lone member and the break removed with it come from two different rules,
+// and a mismatch keeps a line break the user never wrote or drops one they did.
+describe("appendChild then removeChild", () => {
+  const shapes = [
+    "[\n/* keep */]",
+    "[\n/* keep */ ]",
+    "[\n/* keep */\n]",
+    "[\n  /* keep */\n]",
+    "[ /* keep */ ]",
+    "[/* keep */]",
+    "[\n// keep\n]",
+    "[\n// keep \n]",
+    "[\n  // keep\n  ]",
+    "{/* keep */}",
+  ];
+
+  test.each(shapes)("%j comes back byte for byte", (shape) => {
+    const before = `{"c": ${shape}}`;
+    const key = shape.startsWith("{") ? "k" : null;
+    const added = appendChild(before, at(before, ["c"]), key, 1);
+    const container = at(added, ["c"]);
+    const child = container.children?.[0];
+    if (child === undefined) throw new Error("append left no child");
+    expect(removeChild(added, container, child)).toBe(before);
   });
 });
 
