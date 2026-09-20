@@ -5,17 +5,29 @@ import type { Markers } from "./types.ts";
 export const DEFAULT_RULE_CAP = 25;
 
 // Claude Code strips block-level HTML comments before injection and keeps the ones inside fenced
-// code, so a stripped estimate drops exactly the lines the scanner classes as comment blocks.
+// code, so a stripped estimate removes exactly the comment spans the scanner classes as comment
+// blocks: a complete `<!-- ... -->` goes with the spaces around it and the line ending it sits on,
+// while text beside it and an unclosed comment ride into context and are counted.
 export function estimateTokens(renderedFile: string, markers: Markers): number {
   const injected = markers === "counted" ? renderedFile : withoutBlockComments(renderedFile);
   return Math.ceil(injected.length / 4);
 }
 
+const COMMENT_SPAN = /[ \t]*<!--[\s\S]*?-->[ \t]*(?:\r\n|\r|\n)?/g;
+
 function withoutBlockComments(fileText: string): string {
-  return markdownLines(fileText)
-    .filter((line) => line.kind !== "comment" && line.kind !== "comment-continuation")
-    .map((line) => fileText.slice(line.start, line.end))
-    .join("");
+  let kept = "";
+  let commentRun = "";
+  for (const line of markdownLines(fileText)) {
+    const text = fileText.slice(line.start, line.end);
+    if (line.kind === "comment" || line.kind === "comment-continuation") {
+      commentRun += text;
+      continue;
+    }
+    kept += commentRun.replace(COMMENT_SPAN, "") + text;
+    commentRun = "";
+  }
+  return kept + commentRun.replace(COMMENT_SPAN, "");
 }
 
 export type CapCheck =

@@ -1,5 +1,6 @@
 // Guards the two numbers a user acts on: the token estimate that would quietly overstate a Claude
-// Code file by its stripped comments, and the count cap whose refusal must carry the two ways out.
+// Code file by its stripped comments (or understate it by the text those comments sit beside), and
+// the count cap whose refusal must carry the two ways out.
 import { describe, expect, test } from "bun:test";
 import type { MemoryName } from "../memory/contract.ts";
 import { ExitCode } from "../util/exit-codes.ts";
@@ -58,6 +59,20 @@ describe("estimateTokens", () => {
     expect(estimateTokens(file, "counted")).toBe(Math.ceil(file.length / 4));
     expect(estimateTokens("<!--\n```\n-->\n", "stripped")).toBe(0);
   });
+
+  const besideComments: [string, string, string][] = [
+    ["text after a comment on its line", "<!-- gone -->KEEP THIS\n", "KEEP THIS\n"],
+    ["an unclosed comment", "<!-- open\nimportant text\n", "<!-- open\nimportant text\n"],
+    ["text between two comments on one line", "<!-- a --> KEEP <!-- b -->\nrest\n", "KEEP\nrest\n"],
+    ["text after a multi-line comment's closer", "<!--\ngone\n-->KEEP\nrest\n", "KEEP\nrest\n"],
+    ["a comment behind two spaces", "  <!-- gone -->\nrest\n", "rest\n"],
+  ];
+  test.each(besideComments)(
+    "under stripping, %s is kept the way the harness keeps it",
+    (_label, file, injected) => {
+      expect(estimateTokens(file, "stripped")).toBe(Math.ceil(injected.length / 4));
+    },
+  );
 });
 
 describe("checkCap", () => {
