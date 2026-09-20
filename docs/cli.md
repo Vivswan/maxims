@@ -39,7 +39,9 @@ Status: `share`, `unshare`, and `config` are specified, not yet built.
 
 ## Sources
 
-A source is `@owner/repo`, `owner/repo`, a GitHub URL, any other git remote URL (https, http, ssh, git, or the `git@host:path` form), or a local directory. `.` installs the current working tree as a live source. The `@` in `@owner/repo` is cosmetic, as it is for `skills`.
+A source is `@owner/repo`, `owner/repo`, a GitHub URL, any other git remote URL (https, http, ssh, git, or the `git@host:path` form), or a local directory. `.` installs the current working tree as a live source.
+
+The `@` in `@owner/repo` is cosmetic, as it is for `skills`.
 
 | source form | what it means |
 | --- | --- |

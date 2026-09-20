@@ -126,7 +126,9 @@ npx -y @vivswan/maxims remove @Vivswan/skills                  # a whole source
 npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by name
 ```
 
-In a terminal, `remove` lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)"; the [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY. `remove` takes the source or memory out of state and syncs. There is no separate uninstall path. The same convergence that installs also removes, because the regenerated output no longer contains those lines.
+`remove` takes the source or memory out of state and syncs; there is no separate uninstall path, because the regenerated output no longer contains those lines.
+
+In a terminal it lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)". The [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY.
 
 | after `remove` | result |
 | --- | --- |

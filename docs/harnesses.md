@@ -123,6 +123,8 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 
 Editing a hook registry is surgical everywhere: the writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, and updates it in place or appends it.
 
-- **The write is a temp file, then a rename.**
-- **An unparsable config is never rewritten:** the run exits 4.
-- **Formatting and comments outside the entry survive byte for byte.**
+| rule | effect |
+| --- | --- |
+| the write is a temp file, then a rename | a half-written registry has no representation |
+| an unparsable config is never rewritten | the run exits 4 |
+| formatting and comments outside the entry survive byte for byte | the user's own hooks and layout are untouched |
