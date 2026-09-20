@@ -205,7 +205,12 @@ The store is single-writer. A writer creates `state.json.lock` atomically, holdi
 
 ## Migrations
 
-State migrates forward only. A `version` below the current one runs the ordered steps, each a pure function over the JSON, then writes back atomically and continues. A `version` above the current one is a clean stop. In quiet mode it exits 0 with "state written by a newer maxims, skipping"; otherwise it asks the user to upgrade, because a rewrite would destroy fields the older binary cannot see.
+State migrates forward only.
+
+| `version` in the file | what happens |
+| --- | --- |
+| below the current one | the ordered steps run, each a pure function over the JSON, then the file is written back atomically and the command continues |
+| above the current one | a clean stop: in quiet mode exit 0 with "state written by a newer maxims, skipping", otherwise a request to upgrade, because a rewrite would destroy fields the older binary cannot see |
 
 | rule | reason |
 | --- | --- |

@@ -52,7 +52,10 @@ npx skills             : repo of skills   -> agent's skill dirs   (on-demand wor
 npx -y @vivswan/maxims : repo of memories -> agent's rules layer  (always-on one-liners)
 ```
 
-Both install a versioned GitHub repo like a package, with selection, state, and removal. The difference is the target layer. Skills load when invoked or judged relevant, which is the probabilistic layer maxims is escaping. Every harness on the [harnesses page](harnesses.md) has an always-loaded instruction layer; having one is what qualifies it for a row.
+Both install a versioned GitHub repo like a package, with selection, state, and removal; the difference is the target layer.
+
+- **Skill dirs:** skills load when invoked or judged relevant, which is the probabilistic layer maxims is escaping.
+- **Rules layer:** every harness on the [harnesses page](harnesses.md) has an always-loaded instruction layer, and having one is what qualifies it for a row.
 
 Rules also come from reviewable repos instead of hand-copied files, so one machine cannot silently drift from another, and a hook re-syncs them at every session start.
 
