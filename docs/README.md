@@ -18,6 +18,7 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 | write a memory file maxims accepts | [Memory files](memory-files.md) |
 | look up a verb, a flag, or an exit code | [CLI reference](cli.md) |
 | know which agents are supported and what each one gets | [Harnesses](harnesses.md) |
+| declare a harness as data, built in or in `harnesses.json` | [Adding a harness](adding-a-harness.md) |
 | know what state records and how a sync recovers | [State and store](state-and-store.md) |
 | fix what a session start or a sync reports | [Troubleshooting](troubleshooting.md) |
 | read the threat model | [Security](security.md) |

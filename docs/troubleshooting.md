@@ -25,8 +25,8 @@ The [Cline catch](harnesses.md#per-harness-catches) names the hook's other prere
 
 ## A sync notice names a harness you defined yourself
 
-**What you see:** `sync` prints a notice naming a harness id from `<MAXIMS_HOME>/harnesses.json` and skips that harness, at every run.
+**What you see:** `sync` prints a notice naming a harness id from `<MAXIMS_HOME>/harnesses.json` and skips that harness, at every run; the [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
 
-**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. Specified: user-defined harnesses are not yet built on this branch.
+**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. The file loader and the state field exist; the notice is `sync`'s to print, and `sync` is specified, not yet built.
 
 **What to do:** Restore the definition in `harnesses.json`, or take the id out of intent with `unlink <source> -a <id>` for each source the notice names; the [verb table](cli.md#verbs) owns `unlink`.
