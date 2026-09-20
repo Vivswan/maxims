@@ -142,6 +142,8 @@ const IntentFields = {
   memoryPath: z.string().min(1).default("memories"),
   fullDepth: z.boolean().default(false),
   paths: z.array(z.string().min(1)).optional(),
+  // Set by `add --allow-hidden`; absent means the hidden-character check applies on every refresh.
+  allowHidden: z.boolean().optional(),
 };
 const RemoteIntent = z.strictObject({ from: RemoteFrom, ...IntentFields });
 const CopiedLocalIntent = z.strictObject({ from: CopiedLocalFrom, ...IntentFields });

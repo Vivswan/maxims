@@ -130,6 +130,24 @@ describe("parseState", () => {
     expect(local !== undefined && "fetched" in local).toBe(false);
   });
 
+  // `add --allow-hidden` accepts a source whose descriptions carry hidden characters; refresh
+  // reads the same answer from intent, so the flag must survive a round trip through state and
+  // must stay absent, not default to false, when it was never given.
+  test("intent.allowHidden round-trips when set and stays absent when not", () => {
+    const json = clone(VALID);
+    (json.sources["@example-user/rules"].intent as Record<string, unknown>).allowHidden = true;
+    const result = parseState(json);
+    expect(result.ok).toBe("parsed");
+    if (result.ok !== "parsed") return;
+    expect(result.state.sources["@example-user/rules"]?.intent.allowHidden).toBe(true);
+    expect(
+      "allowHidden" in
+        (result.state.sources["https://gitlab.example.com/team/rules.git"]?.intent ?? {}),
+    ).toBe(false);
+    (json.sources["@example-user/rules"].intent as Record<string, unknown>).allowHidden = "yes";
+    expect(parseState(json).ok).toBe("corrupt");
+  });
+
   test("a newer version is reported as such, never parsed", () => {
     expect(parseState({ version: CURRENT_STATE_VERSION + 1, anything: true })).toEqual({
       ok: "newer",
