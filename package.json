@@ -31,7 +31,8 @@
     "build": "bun scripts/build.ts",
     "knip": "bun x knip",
     "bench": "bun scripts/bench.ts",
-    "nightly": "bun scripts/nightly.ts"
+    "nightly": "bun scripts/nightly.ts",
+    "test:container": "bun scripts/container_tests.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.11",
