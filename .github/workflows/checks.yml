@@ -1,6 +1,5 @@
-# Repo-owned: seeded before the fleet sync, never overwritten by it. The managed ci.yml calls this
-# workflow inside the all-green gate once it arrives; until then the push and pull_request triggers
-# below run it directly and are removed the moment ci.yml lands.
+# Repo-owned, never overwritten by sync; the managed ci.yml calls it inside the all-green gate, so every job here
+# must pass before all-green goes green.
 #   secrets      -> none reach these jobs
 #   permissions  -> capped at the caller's contents: read
 #   all-green    -> sees only the aggregate result
@@ -9,9 +8,6 @@ name: Checks
 
 on:
   workflow_call:
-  push:
-    branches: [main]
-  pull_request:
 
 permissions:
   contents: read

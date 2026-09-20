@@ -381,10 +381,9 @@ dist
 .tern-port
 
 # END REPO-PLATFORM MANAGED
-# Repository-local patterns; the repo-platform managed region is appended below by the sync.
+# Repository-local patterns (below the managed region, so last-match-wins can override it).
 node_modules/
 dist/
 coverage/
 *.tgz
-.claude/worktrees/
 .env
