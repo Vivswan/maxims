@@ -34,7 +34,7 @@ const MARKER_RULES: [(value: string) => boolean, string][] = [
   [(value) => value === value.trim(), "cannot start or end with whitespace"],
 ];
 
-function markerSafe<T extends z.ZodString>(schema: T, noun: string): T {
+export function markerSafe<T extends z.ZodString>(schema: T, noun: string): T {
   return MARKER_RULES.reduce(
     (current, [holds, message]) => current.refine(holds, { message: `${noun} ${message}` }),
     schema,
@@ -55,7 +55,12 @@ const AbsolutePath = markerSafe(
   "a path",
 );
 
-const GitRef = markerSafe(z.string().min(1), "a ref");
+export const GitRefSchema = markerSafe(z.string().min(1), "a ref");
+export const GithubRepoSchema = z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo");
+export const HostnameSchema = z.string().regex(HOSTNAME, "expected a hostname");
+export const GitUrlSchema = z
+  .string()
+  .refine(isUsableRemote, { error: "expected a git remote URL" });
 
 declare const gitShaBrand: unique symbol;
 
@@ -84,16 +89,16 @@ const IsoTimestamp = z.iso.datetime();
 // enterprise host is never re-expanded against github.com at sync time.
 const GithubFrom = z.strictObject({
   type: z.literal("github"),
-  repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
-  ref: GitRef,
-  host: z.string().regex(HOSTNAME, "expected a hostname").optional(),
+  repo: GithubRepoSchema,
+  ref: GitRefSchema,
+  host: HostnameSchema.optional(),
 });
 // Any non-GitHub git remote (GitLab, Gitea, a mirror, an air-gapped proxy). The URL is stored as
 // the user gave it and never rewritten, so a proxy path or an ssh alias survives round trips.
 const GitFrom = z.strictObject({
   type: z.literal("git"),
-  url: z.string().refine(isUsableRemote, { error: "expected a git remote URL" }),
-  ref: GitRef,
+  url: GitUrlSchema,
+  ref: GitRefSchema,
 });
 const CopiedLocalFrom = z.strictObject({
   type: z.literal("local"),
@@ -227,37 +232,47 @@ export const StateSchema = z
     sources: z.record(z.string(), SourceEntrySchema),
     disabled: DisabledNamesSchema.optional(),
   })
-  // GitHub owner and repo names are case-insensitive and the store folds them, so two keys that
-  // differ only in case would be one repository fetched twice into one directory; the key keeps
-  // the case as typed, and the second spelling is refused like a mismatched key.
   .check((ctx) => {
-    const seenFolded = new Map<string, string>();
-    for (const [key, entry] of Object.entries(ctx.value.sources)) {
-      const from = entry.intent.from;
-      const expected = canonicalSourceKey(from);
-      if (key !== expected) {
-        ctx.issues.push({
-          code: "custom",
-          input: key,
-          path: ["sources", key],
-          message: `source key must be ${expected}`,
-        });
-      }
-      if (from.type !== "github") continue;
-      const folded = canonicalSourceKey({ ...from, repo: from.repo.toLowerCase() });
-      const twin = seenFolded.get(folded);
-      if (twin !== undefined) {
-        ctx.issues.push({
-          code: "custom",
-          input: key,
-          path: ["sources", key],
-          message: `names the same GitHub repository as ${twin}`,
-        });
-      }
-      seenFolded.set(folded, key);
-    }
+    ctx.issues.push(
+      ...sourceKeyIssues(
+        Object.entries(ctx.value.sources).map(([key, entry]) => [key, entry.intent.from]),
+      ),
+    );
   });
 export type State = z.infer<typeof StateSchema>;
+
+// Shared by every file that keys sources (state, project lock): a key must be the source's
+// canonical key, and GitHub owner and repo names are case-insensitive and folded by the store, so
+// two keys that differ only in case would be one repository fetched twice into one directory;
+// the key keeps the case as typed, and the second spelling is refused like a mismatched key.
+export function sourceKeyIssues(sources: [key: string, from: SourceFrom][]): z.core.$ZodRawIssue[] {
+  const issues: z.core.$ZodRawIssue[] = [];
+  const seenFolded = new Map<string, string>();
+  for (const [key, from] of sources) {
+    const expected = canonicalSourceKey(from);
+    if (key !== expected) {
+      issues.push({
+        code: "custom",
+        input: key,
+        path: ["sources", key],
+        message: `source key must be ${expected}`,
+      });
+    }
+    if (from.type !== "github") continue;
+    const folded = canonicalSourceKey({ ...from, repo: from.repo.toLowerCase() });
+    const twin = seenFolded.get(folded);
+    if (twin !== undefined) {
+      issues.push({
+        code: "custom",
+        input: key,
+        path: ["sources", key],
+        message: `names the same GitHub repository as ${twin}`,
+      });
+    }
+    seenFolded.set(folded, key);
+  }
+  return issues;
+}
 
 export type ParsedState =
   | { ok: "parsed"; state: State }
@@ -285,7 +300,7 @@ export function parseState(json: unknown): ParsedState {
 
 // Union and record issues nest the branch that actually failed one level down; the flattened
 // text names it so a quarantine notice can say which key was wrong rather than "invalid input".
-function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): string[] {
+export function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): string[] {
   return issues.flatMap((issue) => {
     const path = [...prefix, ...issue.path];
     if (issue.code === "invalid_union" && issue.errors.length > 0) {
