@@ -20,10 +20,15 @@ import {
 import {
   achievedTier,
   type HarnessWithHook,
+  type HookPlan,
+  hasHook,
   planFileHookWrite,
+  planHookOnly,
   planHookRegistryWrite,
   planHookWrite,
 } from "./hook-writer.ts";
+import { opencode } from "./opencode/index.ts";
+import { INSTRUCTIONS_GLOB } from "./opencode/quirks.ts";
 
 const projectRoot = "/home/user/project";
 const ctx: HarnessContext = { home: "/home/user", projectRoot, env: {} };
@@ -718,6 +723,46 @@ describe("planHookWrite composes the hook with the definition's config edit", ()
     const plan = await planHookWrite({ def, scope: "project", ctx, wanted: false });
     expect(plan.changes).toEqual([{ kind: "delete", path: configFile }]);
     expect(seen.at(-1)).toEqual({ scope: "project", wanted: false, command: HOOK_COMMAND });
+  });
+});
+
+// A caller judging "is the hook itself current?" from the combined plan would read a pending
+// config edit as a stale hook; one that plans the config edit separately would write it twice.
+describe("planHookOnly leaves the definition's config edit out", () => {
+  const rows: [string, boolean][] = [
+    ["the plugin is current and only the instructions entry is missing", true],
+    ["the plugin is missing too", false],
+  ];
+  test.each(rows)("%s", async (_, pluginPresent) => {
+    if (!hasHook(opencode, "file")) throw new Error("OpenCode writes a plugin file");
+    const rendered = opencode.hook.render(hookSpecFor(opencode));
+    await withTempDir(async (root) => {
+      const local: HarnessContext = { ...ctx, projectRoot: root };
+      const plugin = assertInsideRoot(root, join(root, ".opencode", "plugins", "maxims.ts"));
+      const config = assertInsideRoot(root, join(root, "opencode.json"));
+      writeFileSync(config, '{\n  "model": "x"\n}\n');
+      if (pluginPresent) {
+        mkdirSync(join(root, ".opencode", "plugins"), { recursive: true });
+        writeFileSync(plugin, rendered);
+      }
+      const hook: HookPlan = pluginPresent
+        ? { changes: [] }
+        : {
+            changes: [{ kind: "write", path: plugin, content: rendered }],
+            notice: `wrote the maxims hook to ${plugin}`,
+          };
+      const configEdit: Change = {
+        kind: "write",
+        path: config,
+        content: `{\n  "model": "x",\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
+      };
+      const intent = { def: opencode, scope: "project" as const, ctx: local, wanted: true };
+      expect(await planHookOnly(intent)).toEqual(hook);
+      expect(await planHookWrite(intent)).toEqual({
+        ...hook,
+        changes: [...hook.changes, configEdit],
+      });
+    });
   });
 });
 

@@ -37,8 +37,6 @@ export type HookPlan = {
   notice?: string;
 };
 
-export type FileHook = Extract<HookShape, { kind: "file" }>;
-
 export type HarnessWithHook<K extends HookShape["kind"]> = HarnessDefinition & {
   hook: Extract<HookShape, { kind: K }>;
 };
@@ -56,26 +54,29 @@ type HookIntent = {
   wanted: boolean;
 };
 
-// Reads the registry or artifact the shape names and hands the text to the pure planner, so the
-// same planner serves a dry run over fixture text and a real sync over the user's file. A
-// definition's config edit rides along with the same `wanted`, so the rules directory it lists
+// The definition's config edit rides along with the same `wanted`, so the rules directory it lists
 // and the hook that refreshes it appear and leave together.
 export async function planHookWrite(
   input: HookIntent & { def: HarnessDefinition },
 ): Promise<HookPlan> {
-  const { def, ...intent } = input;
-  const hook = await planHookOnly(def, intent);
-  const config = (await def.configEdit?.(intent.scope, intent.ctx, intent.wanted)) ?? [];
+  const hook = await planHookOnly(input);
+  const config = (await input.def.configEdit?.(input.scope, input.ctx, input.wanted)) ?? [];
   return { changes: [...hook.changes, ...config], notice: hook.notice };
 }
 
-async function planHookOnly(def: HarnessDefinition, intent: HookIntent): Promise<HookPlan> {
+// Reads the registry or artifact the shape names and hands the text to the pure planner, so the
+// same planner serves a dry run over fixture text and a real sync over the user's file. Only the
+// hook artifact is planned here: an empty plan means the hook itself is current.
+export async function planHookOnly(
+  input: HookIntent & { def: HarnessDefinition },
+): Promise<HookPlan> {
+  const { def, ...intent } = input;
   if (hasHook(def, "registry")) {
-    const path = hookPath(def, def.hook, intent);
+    const path = hookPath(def, intent.scope, intent.ctx);
     return planHookRegistryWrite({ def, ...intent, currentText: await readConfigText(path) });
   }
   if (hasHook(def, "file")) {
-    const path = hookPath(def, def.hook, intent);
+    const path = hookPath(def, intent.scope, intent.ctx);
     return planFileHookWrite({ def, ...intent, current: await readFileState(path) });
   }
   if (hasHook(def, "custom")) {
@@ -91,7 +92,7 @@ export type RegistryWriteInput = HookIntent & {
 };
 
 export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
-  const path = hookPath(input.def, input.def.hook, input);
+  const path = hookPath(input.def, input.scope, input.ctx);
   if (input.def.hook.format === "toml") {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
@@ -360,7 +361,7 @@ async function readFileState(path: string): Promise<FileState | null> {
 }
 
 export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
-  const path = hookPath(input.def, input.def.hook, input);
+  const path = hookPath(input.def, input.scope, input.ctx);
   const current = input.current;
   if (!input.wanted) return { changes: current === null ? [] : [{ kind: "delete", path }] };
   const content = input.def.hook.render(hookSpecFor(input.def));
@@ -422,13 +423,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hookPath(
-  def: Pick<HarnessDefinition, "globalRoot">,
-  hook: RegistryHook | FileHook,
-  intent: Pick<HookIntent, "scope" | "ctx">,
+export function hookPath(
+  def: HarnessWithHook<"registry"> | HarnessWithHook<"file">,
+  scope: Scope,
+  ctx: HarnessContext,
 ): RootedPath {
-  const root = scopeRoot(def, intent.scope, intent.ctx);
-  return assertInsideRoot(root, hook.path(intent.scope, intent.ctx));
+  return assertInsideRoot(scopeRoot(def, scope, ctx), def.hook.path(scope, ctx));
 }
 
 // The prefix is matched as whole words: `npx -y @vivswan/maxims syncthing` is somebody else's
