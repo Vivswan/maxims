@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { whereBytesLand } from "./lib/paths.ts";
 
 const SHEBANG = "#!/usr/bin/env node\n";
 const DEFAULT_ENTRY = "src/cli.ts";
@@ -42,12 +43,14 @@ function parseArgs(argv: string[]): Options {
 
 const options = parseArgs(process.argv.slice(2));
 // Caller-supplied paths are relative to the caller's cwd; resolve them before the chdir below.
+// The two outputs are compared by where their bytes land, so a second spelling of the bundle
+// path (a `..` segment, a symlinked directory) cannot make the size report overwrite it.
 const entry = options.entry === undefined ? join(repoRoot, DEFAULT_ENTRY) : resolve(options.entry);
-const outfile =
-  options.outfile === undefined ? join(repoRoot, DEFAULT_OUTFILE) : resolve(options.outfile);
-const sizeJson = options.sizeJson === undefined ? undefined : resolve(options.sizeJson);
+const outfile = whereBytesLand(options.outfile ?? join(repoRoot, DEFAULT_OUTFILE), fail);
+const sizeJson =
+  options.sizeJson === undefined ? undefined : whereBytesLand(options.sizeJson, fail);
 if (sizeJson === outfile) {
-  fail(`--outfile and --size-json both name ${outfile}; the report would overwrite the bundle`);
+  fail(`--outfile and --size-json both land at ${outfile}; the report would overwrite the bundle`);
 }
 
 // Bun writes module-boundary comments relative to the cwd; anchoring at the repo root keeps the

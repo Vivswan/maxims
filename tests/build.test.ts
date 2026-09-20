@@ -3,17 +3,21 @@
 // ship silently, since nothing in the repo runs dist/cli.js under plain node except this test.
 // Also fails if relative --entry, --outfile, and --size-json paths stop landing where the caller
 // stands, which the repo-root chdir inside the build would otherwise move without a word, if one
-// path given for both lets the size report overwrite the bundle, or if a bundle that fails to
-// build stops reporting the bundler's message and a non-zero exit.
+// path given for both, in one spelling or two, through a symlinked directory or not, lets the
+// size report overwrite the bundle, or if a bundle that fails to build stops reporting the
+// bundler's message and a non-zero exit.
 import { expect, test } from "bun:test";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +66,38 @@ const invocations: [string, (dir: string) => Invocation][] = [
       strays: [join(repoRoot, "out", "cli.js"), join(repoRoot, "report", "size.json")],
     }),
   ],
+  [
+    "paths through a symlinked directory",
+    (dir) => {
+      linkToReal(dir);
+      return {
+        cwd: repoRoot,
+        outfileArg: join(dir, "link", "cli.js"),
+        sizeJsonArg: join(dir, "link", "size.json"),
+        outfile: join(dir, "real", "cli.js"),
+        sizeJson: join(dir, "real", "size.json"),
+        strays: [],
+      };
+    },
+  ],
 ];
+
+function linkToReal(dir: string): void {
+  mkdirSync(join(dir, "real"));
+  symlinkSync(join(dir, "real"), join(dir, "link"));
+}
+
+// Every entry below a directory, links included and not followed, so a write through a symlink
+// shows up once, under its real name, and a dangling link is listed rather than descended into.
+function entriesOf(dir: string, prefix = ""): string[] {
+  const entries: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = join(prefix, entry.name);
+    entries.push(name);
+    if (entry.isDirectory()) entries.push(...entriesOf(join(dir, entry.name), name));
+  }
+  return entries.sort();
+}
 
 // A red run of the relative case writes into the checkout. The shallowest missing ancestor of each
 // path is what such a run would create, and removing it afterwards takes everything under it along
@@ -132,12 +167,42 @@ const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]
   [
     "one path for the bundle and the size report",
     (dir) => ["--outfile", join(dir, "cli.js"), "--size-json", join(dir, "cli.js")],
-    (dir) => ["--outfile and --size-json both name", join(dir, "cli.js")],
+    (dir) => ["--outfile and --size-json both land at", join(realpathSync.native(dir), "cli.js")],
   ],
   [
     "two spellings of one path for the bundle and the size report",
     (dir) => ["--outfile", join(dir, "cli.js"), "--size-json", join("sub", "..", "cli.js")],
-    (dir) => ["--outfile and --size-json both name", join(dir, "cli.js")],
+    (dir) => ["--outfile and --size-json both land at", join(realpathSync.native(dir), "cli.js")],
+  ],
+  [
+    "the bundle through a symlinked directory and the size report at its real path",
+    (dir) => {
+      linkToReal(dir);
+      return ["--outfile", join(dir, "link", "cli.js"), "--size-json", join(dir, "real", "cli.js")];
+    },
+    (dir) => [
+      "--outfile and --size-json both land at",
+      join(realpathSync.native(dir), "real", "cli.js"),
+    ],
+  ],
+  [
+    "the bundle at its real path and the size report through a symlinked directory",
+    (dir) => {
+      linkToReal(dir);
+      return ["--outfile", join(dir, "real", "cli.js"), "--size-json", join(dir, "link", "cli.js")];
+    },
+    (dir) => [
+      "--outfile and --size-json both land at",
+      join(realpathSync.native(dir), "real", "cli.js"),
+    ],
+  ],
+  [
+    "a dangling symlink as the bundle path",
+    (dir) => {
+      symlinkSync(join(dir, "nowhere"), join(dir, "cli.js"));
+      return ["--outfile", join(dir, "cli.js")];
+    },
+    (dir) => ["refusing to write through the dangling symlink", join(dir, "cli.js")],
   ],
 ];
 
@@ -146,13 +211,15 @@ test.each(usageErrors)(
   (_name, args, fragments) => {
     const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
     try {
-      const build = runBuild(args(dir), dir);
+      const argv = args(dir);
+      const before = entriesOf(dir);
+      const build = runBuild(argv, dir);
       expect(build.exitCode).toBe(2);
       expect(build.stdout.toString()).toBe("");
       const stderr = build.stderr.toString();
       for (const fragment of fragments(dir)) expect(stderr).toContain(fragment);
       expect(stderr.endsWith(USAGE)).toBe(true);
-      expect(readdirSync(dir)).toEqual([]);
+      expect(entriesOf(dir)).toEqual(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
