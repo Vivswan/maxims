@@ -183,6 +183,14 @@ There is one durable commit point, the state write, done as temp file plus renam
 
 Never auto-removing on a fetch failure is deliberate. A rate limit and a deleted repo look alike from the client, and dropping a commit-review rule because GitHub returned 403 is the failure class maxims exists to prevent.
 
+## Moving state to a new machine
+
+State is the only record maxims needs, so carrying an install over is three steps:
+
+1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, and `config.json` beside it if you want the same defaults.
+2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, and each project root under `disabled.project`.
+3. Run `npx -y @vivswan/maxims sync`; the [failure paths](#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
+
 ## Concurrency
 
 The store is single-writer. A writer creates `state.json.lock` atomically, holding its pid, host, start time, and command line. Reads never take the lock, and every write is temp plus rename, so a session starting mid-sync sees the old rule file or the new one, never a partial one.
