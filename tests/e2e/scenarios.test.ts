@@ -33,6 +33,7 @@ import {
   CODEX_HOOKS,
   fixtureRepo,
   harnessFixture,
+  hookPayload,
   installDotfiles,
   memoriesRepo,
   redact,
@@ -251,7 +252,11 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
     writeState(home, { ...state, sources: { [key]: agedEntry(entry, lastSuccess, false) } });
     withoutStamp(home);
 
-    const run = ok(await runMaxims(bundle, home, ["sync", "--quiet"], { stdin: CLAUDE_STDIN }));
+    const run = ok(
+      await runMaxims(bundle, home, ["sync", "--quiet"], {
+        stdin: hookPayload(CLAUDE_STDIN, home),
+      }),
+    );
     const since = lastSuccess.slice(0, "2026-01-01".length);
     expect(run.stdout).toBe(
       `maxims: ${installed.source} offline, kept last-good from ${since} (1 rules); source repository gone or unreadable\n` +

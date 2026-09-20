@@ -28,6 +28,13 @@ export function harnessFixture(id: HarnessId, name: string): string {
 export const CLAUDE_SETTINGS = harnessFixture("claude-code", "settings.json");
 export const CODEX_HOOKS = harnessFixture("codex", "hooks.json");
 
+// A hook stdin fixture names directories under the example user's home; a run that read them as
+// written would walk a real filesystem for a project root, so they are moved under the temp home,
+// spelled as JSON spells a path (a Windows root carries backslashes).
+export function hookPayload(fixture: string, home: Home): string {
+  return fixture.replaceAll("/home/user", JSON.stringify(home.root).slice(1, -1));
+}
+
 const TREES = [
   resolve(import.meta.dir, "..", "fixtures", "cli"),
   resolve(import.meta.dir, "..", "fixtures", "e2e"),
@@ -158,6 +165,8 @@ export async function installDotfiles(
 
 // The run-specific values a printed line may carry, so a whole frame can be pinned: the source
 // path, the slug hashed from it, the home, and a token estimate that follows the path lengths.
+// A path under the home keeps the separator of the machine that printed it; the golden holds the
+// forward-slash spelling.
 export function redact(
   text: string,
   installed: Pick<Installed, "source" | "slug">,
@@ -167,5 +176,6 @@ export function redact(
     .replaceAll(installed.source, "<SOURCE>")
     .replaceAll(installed.slug, "<SLUG>")
     .replaceAll(home.root, "<HOME>")
+    .replace(/<HOME>\S*/g, (path) => path.replaceAll("\\", "/"))
     .replace(/~\d+ tokens/g, "~N tokens");
 }

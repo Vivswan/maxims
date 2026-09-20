@@ -1,0 +1,1 @@
+maxims: <SOURCE> offline, kept last-good from 2026-01-01 (4 rules); source repository gone or unreadable
