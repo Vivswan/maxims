@@ -15,19 +15,22 @@ export function estimateTokens(renderedFile: string, markers: Markers): number {
 
 const COMMENT_SPAN = /[ \t]*<!--[\s\S]*?-->[ \t]*(?:\r\n|\r|\n)?/g;
 
+// A comment block is its starting line and the continuation lines behind it; two blocks are
+// stripped apart, so a closed one never lends its closer to an unclosed one before it.
 function withoutBlockComments(fileText: string): string {
   let kept = "";
-  let commentRun = "";
+  let comment = "";
   for (const line of markdownLines(fileText)) {
     const text = fileText.slice(line.start, line.end);
-    if (line.kind === "comment" || line.kind === "comment-continuation") {
-      commentRun += text;
+    if (line.kind === "comment-continuation") {
+      comment += text;
       continue;
     }
-    kept += commentRun.replace(COMMENT_SPAN, "") + text;
-    commentRun = "";
+    kept += comment.replace(COMMENT_SPAN, "");
+    comment = line.kind === "comment" ? text : "";
+    if (line.kind !== "comment") kept += text;
   }
-  return kept + commentRun.replace(COMMENT_SPAN, "");
+  return kept + comment.replace(COMMENT_SPAN, "");
 }
 
 export type CapCheck =

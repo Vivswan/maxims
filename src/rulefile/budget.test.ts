@@ -66,6 +66,11 @@ describe("estimateTokens", () => {
     ["text between two comments on one line", "<!-- a --> KEEP <!-- b -->\nrest\n", "KEEP\nrest\n"],
     ["text after a multi-line comment's closer", "<!--\ngone\n-->KEEP\nrest\n", "KEEP\nrest\n"],
     ["a comment behind two spaces", "  <!-- gone -->\nrest\n", "rest\n"],
+    [
+      "an unclosed comment ended by its list item, then a closed one",
+      "- <!-- open\n<!-- gone -->\nrest\n",
+      "- <!-- open\nrest\n",
+    ],
   ];
   test.each(besideComments)(
     "under stripping, %s is kept the way the harness keeps it",

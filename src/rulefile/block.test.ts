@@ -231,6 +231,18 @@ describe("parseBlocks", () => {
     ["inside a processing instruction", `<?xml\n${BEGIN}\n- x\n${END}\n?>\n`],
     ["inside a declaration", `<!DOCTYPE\n${BEGIN}\n- x\n${END}\n>\n`],
     ["inside a div with no blank line before it", `<div>\n${BEGIN}\n- x\n${END}\n</div>\n`],
+    ["inside a custom tag block", `<custom>\n${BEGIN}\n- x\n${END}\n</custom>\n`],
+    ["inside a block opened by a lone inline tag", `<b>\n${BEGIN}\n- x\n${END}\n</b>\n`],
+    [
+      "inside a block opened by a tag with attributes",
+      `<custom attr="x" data-y='z' flag>\n${BEGIN}\n- x\n${END}\n</custom>\n`,
+    ],
+    ["inside a block opened by a tag holding a form feed", `<custom\f>\n${BEGIN}\n- x\n${END}\n`],
+    [
+      "inside a block opened by a tag followed by a form feed",
+      `<custom>\f\n${BEGIN}\n- x\n${END}\n`,
+    ],
+    ["inside a block opened by a closing tag", `</custom>\n${BEGIN}\n- x\n${END}\n`],
     [
       "inside a div after a line holding only a non-breaking space",
       `<div>\n\u00a0\n${BEGIN}\n- x\n${END}\n</div>\n`,
@@ -257,6 +269,192 @@ describe("parseBlocks", () => {
     const text = ["````\n", BEGIN, "\n```\n", END, "\n`````\n", BLOCK].join("");
     const parsed = parseBlocks(text);
     expect(parsed.blocks.map((block) => text.slice(block.start, block.end))).toEqual([BLOCK]);
+  });
+
+  // Each prefix is followed by the block at column 0. Whether CommonMark leaves the marker lines
+  // outside every fence and raw HTML block the prefix opened decides whether they form a block.
+  const contexts: [string, string, boolean][] = [
+    ["a fence inside a list item, ended by the next item", "- a\n  ```\n  x\n- b\n", true],
+    ["a fence inside a list item, ended by the markers themselves", "- a\n  ```\n  x\n", true],
+    ["a fence inside a nested item, ended by the outer item", "- a\n  - b\n    ```\n  - c\n", true],
+    ["a fence inside an item indented with a tab", "- a\n\t```\n\tx\n- b\n", true],
+    ["a fence inside an item after a blank line in it", "- a\n  ```\n\n  x\n- b\n", true],
+    [
+      "a fence inside an item reached across a lazy paragraph line",
+      "- a\nlazy\n  ```\n- b\n",
+      true,
+    ],
+    [
+      "an ordered marker numbered two, which continues a paragraph inside its own item",
+      "1. a\n   2. b\n   ```\n- c\n",
+      true,
+    ],
+    ["a lone tag lazily continuing an item's paragraph", "- a\n<custom>\n", true],
+    [
+      "a lazy line continuing a blockquote's paragraph inside an item",
+      "- > a\nlazy\n  ```\n- b\n",
+      true,
+    ],
+    [
+      "a setext underline and a lone tag lazily continuing a blockquote",
+      "> a\n===\n<custom>\n",
+      true,
+    ],
+    [
+      "a top-level fence behind two spaces after an ordered item numbered two",
+      "- a\n2. b\n  ```\n- c\n",
+      false,
+    ],
+    [
+      "a top-level fence behind two spaces after an empty item ended by a blank line",
+      "-\n\n  ```\n",
+      false,
+    ],
+    [
+      "a top-level fence after an item's fence indented by a tab reaching column four",
+      "- a\n  \t```\nx\n  ```\n",
+      false,
+    ],
+    [
+      "a lone tag after a blockquote ending in a fence, which it cannot continue",
+      "> ```\n> x\n<custom>\n",
+      false,
+    ],
+    ["an empty item that ends its sibling's paragraph and holds a fence", "- a\n-\n  ```\n", true],
+    [
+      "an empty item ending a lazily continued quoted paragraph, with a fence closed by a shallower closer",
+      "> - a\n  > q\n-\n  \t```\n   ```\n",
+      true,
+    ],
+    [
+      "a blockquoted fence inside an item, which a lone tag cannot continue",
+      "- > ```\n<custom>\n",
+      false,
+    ],
+    ["a quoted paragraph behind a tab, which a lone tag continues", ">\tx\n<custom>\n", true],
+    ["twenty thousand nested blockquotes", `${">".repeat(20_000)}x\n`, true],
+    [
+      "a paragraph of link reference definitions, which `===` cannot underline",
+      "[x]: /url\n===\n<custom>\n",
+      true,
+    ],
+    [
+      "a paragraph underlined by `===`, after which a lone tag opens a block",
+      "text\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "a line shaped like a definition with text after it, which `===` underlines",
+      "[x]: /url junk\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "a paragraph of link reference definitions ended by a thematic break",
+      "[x]: /url\n---\n<custom>\n",
+      false,
+    ],
+    [
+      "an unclosed label whose bracket is escaped, which `===` underlines",
+      "[\\]: /url\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "an unclosed destination whose bracket is escaped, which `===` underlines",
+      "[x]: <a\\>\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "an unclosed title whose quote is escaped, which `===` underlines",
+      '[x]: /url "a\\"\n===\n<custom>\n',
+      false,
+    ],
+    ["nested quotes whose tabs reach an indented code block", ">\t>\t  x\n<custom>\n", false],
+    ["nested quotes whose tab reaches a paragraph", "> >\t  x\n<custom>\n", true],
+    [
+      "a label of only a non-breaking space, which is no definition",
+      "[\u00a0]: /url\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "a definition with balanced parentheses, then `===` and `-` as text and underline",
+      "[x]: /a(b)\n===\n-\n  ```\n",
+      false,
+    ],
+    ["a definition whose destination sits on the next line", "[x]:\n/url\n===\n<custom>\n", true],
+    ["a definition whose title sits on the next line", '[x]: /url\n"title"\n===\n<custom>\n', true],
+    ["a label alone, which `===` underlines", "[x]:\n===\n<custom>\n", false],
+    [
+      "a definition followed by a title line with text after it",
+      '[x]: /url\n"title" junk\n===\n<custom>\n',
+      false,
+    ],
+    ["a destination with an escaped space, which is prose", "[x]: /a\\ b\n===\n<custom>\n", false],
+    ["a destination ending in a lone backslash", "[x]: /a\\\n===\n<custom>\n", true],
+    ["a title spanning two lines", '[x]: /url "hello\nworld"\n===\n<custom>\n', true],
+    ["a label spanning two lines", "[hello\nworld]: /url\n===\n<custom>\n", true],
+    ["a title left open, which `===` underlines", '[x]: /url "hello\n===\n<custom>\n', false],
+    ["a label left open, which `===` underlines", "[hello\n===\n<custom>\n", false],
+    [
+      "a label of a thousand characters written as escape pairs",
+      `[${"\\!".repeat(500)}]: /url\n===\n<custom>\n`,
+      false,
+    ],
+    ["a label whose first line ends in a backslash", "[a\\\nb]: /url\n===\n<custom>\n", true],
+    ["a title whose first line ends in a backslash", '[x]: /url "a\\\nb"\n===\n<custom>\n', true],
+    ["a destination holding a C1 control character", "[x]: /a\u0085b\n===\n<custom>\n", true],
+    ["a destination holding a NUL", "[x]: /a\0b\n===\n<custom>\n", true],
+    [
+      "a top-level fence behind two spaces after a heading item ends",
+      "- # h\nfoo\n  ```\n- b\n",
+      false,
+    ],
+    [
+      "a top-level fence behind two spaces after an ordered item starting at one",
+      "- a\n1. b\n  ```\n- c\n",
+      false,
+    ],
+    [
+      "a top-level fence opened by a column-0 closer of an item's fence",
+      "- a\n  ```\n  x\n```\n",
+      false,
+    ],
+    ["a div inside a list item, ended by the markers themselves", "- <div>\n  x\n", true],
+    ["a pre block inside a list item, ended by the markers themselves", "- <pre>\n  x\n", true],
+    ["a comment inside a list item, ended by the markers themselves", "- <!--\n  x\n", true],
+    ["a fence inside a blockquote, ended by the markers themselves", "> ```\n> x\n", true],
+    ["a custom tag block with no blank line after it", "<custom>\nx\n", false],
+    ["a custom tag block ended by a blank line", "<custom>\nx\n\n", true],
+    [
+      "a lone custom tag continuing a paragraph, which it cannot interrupt",
+      "text\n<custom>\n",
+      true,
+    ],
+    ["a custom tag followed by text, which is a paragraph", "<custom>text\n", true],
+  ];
+  test.each(contexts)(
+    "after %s, column-0 markers form a block: %p",
+    (_label, prefix, formsBlock) => {
+      const text = `${prefix}${BLOCK}`;
+      const spans = parseBlocks(text).blocks.map((block) => text.slice(block.start, block.end));
+      expect(spans).toEqual(formsBlock ? [BLOCK] : []);
+    },
+  );
+
+  // Each prefix took seconds under a scanner that re-read the line or the item stack per level,
+  // or let a rule backtrack across the line.
+  const deep: [string, string][] = [
+    ["a line of nested list markers", `${"- ".repeat(100_000)}x\n`],
+    [
+      "nested blockquotes holding nested list markers",
+      `${">".repeat(4_000)}${"- ".repeat(100_000)}\n`,
+    ],
+    ["lazy lines under deep nesting", `${"- ".repeat(50_000)}x\n${"x\n".repeat(50_000)}`],
+    ["nested blockquotes each leaving a space of indentation", `${">  ".repeat(100_000)}x\n`],
+    ["nested blockquotes each followed by a tab", `${">\t".repeat(100_000)}x\n`],
+    ["an unterminated link label", `[${"a".repeat(200_000)}\n`],
+  ];
+  test.each(deep)("%s scans without rescanning the line or the item stack", (_label, prefix) => {
+    expect(parseBlocks(`${prefix}${BLOCK}`).blocks).toHaveLength(1);
   });
 
   test("an orphaned or mismatched BEGIN is text: it absorbs neither user lines nor a later block", () => {
@@ -342,9 +540,19 @@ describe("replaceBlock and stripBlock", () => {
       ["<pre>\n```\n</pre>\n\n", BLOCK].join(""),
     ],
     [
-      "a fence opened inside a list item, closed at the opener's own indentation",
+      "a fence opened inside a list item, which the block's own markers end",
       "- a\n  ```\n  x\n- b\n",
-      ["- a\n  ```\n  x\n- b\n  ```\n\n", BLOCK].join(""),
+      ["- a\n  ```\n  x\n- b\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a list item's fence, which the block's own markers end",
+      "- a\n  ```\n  x\n",
+      ["- a\n  ```\n  x\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a custom tag block, which the blank line closes",
+      "<custom>\nx\n",
+      `<custom>\nx\n\n${BLOCK}`,
     ],
     [
       "a fence closed on a line ended by a lone carriage return",
