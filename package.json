@@ -23,7 +23,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip && bun run docs:check",
     "lint": "bun x biome ci .",
     "lint:fix": "bun x biome check --write .",
     "typecheck": "bun x tsc -p .",
@@ -33,7 +33,8 @@
     "bench": "bun scripts/bench.ts",
     "bench:ci": "bun scripts/bench_ci.ts",
     "nightly": "bun scripts/nightly.ts",
-    "test:container": "bun scripts/container_tests.ts"
+    "test:container": "bun scripts/container_tests.ts",
+    "docs:check": "bun scripts/docs_probe.mts README.md AGENTS.md docs/*.md"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.11",

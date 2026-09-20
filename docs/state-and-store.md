@@ -1,0 +1,168 @@
+---
+order: 70
+group: Reference
+---
+
+# State and store
+
+Everything maxims owns lives under one directory, and one file in it, `state.json`, records what should be installed. `sync` reads that file and makes the machine match; nothing else on disk is ever read back as a record of what maxims did.
+
+## The canonical home
+
+```text
+~/.agents/maxims/                       # or $MAXIMS_HOME
+|-- store/
+|   |-- vivswan/skills/                 # a GitHub source: store/<owner>/<repo>, lower-cased
+|   |   |-- rubber-duck-before-every-commit.md
+|   |   `-- ...
+|   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>/<path without .git>
+|   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>
+|-- state.json                          # intent: what should be true
+|-- state.json.lock                     # the writer mutex, present only while a process writes
+|-- last-sync                           # the stamp quiet-mode syncs debounce on
+`-- log/refresh.log                     # rolling, capped: what each run changed
+```
+
+The home sits inside `.agents`, the directory `npx skills` already owns, so no new dotfolder appears and the layout is the same whether or not Claude Code is installed. Project memory directories link into it and rule lines point into it; the store is the only place a body lives, so a stale body cannot exist.
+
+A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
+
+## State holds intent, never actuality
+
+Each fact has exactly one owner. State records only what nothing else on the machine can tell you.
+
+| category | what belongs | example |
+| --- | --- | --- |
+| user intent | what the user asked for | which source, which memories, whether it publishes rule lines, which harnesses, where |
+| fetch facts | what the last fetch found | the sha, when, the content hashes, the last error |
+| provenance | when it was added and which maxims wrote the file | `addedAt`, `writtenBy` |
+
+| not in state | the real owner |
+| --- | --- |
+| whether a memory is in the rule file | derived at sync from the rule flag, the selection, the renames, and the cap |
+| installed paths and store paths | derived from the destination and the store's naming scheme |
+| whether the hook is registered, its command, whether it is async | the harness registry, read at sync; a maxims upgrade that changes the command needs no migration, the next sync rewrites it |
+| each target's path, strategy, and tier | the harness definition for the first two; the tier achieved is a sync-time result `list` reports |
+| collisions | re-derived by walking the name index; a resolution is a rename entry |
+| retired memories | the log; a retired memory drops out of the regenerated block on its own |
+| `updatedAt` | the state file's mtime, plus the log |
+
+Storing "it is installed" beside "it should be installed" creates two fields that can disagree the moment a user hand-edits a settings file. With no actuality fields there is nothing to reconcile, and recovery from any crash is `maxims sync` again.
+
+## The schema
+
+```json
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": ["claude-code", "codex"],
+  "config": { "cooldownDays": 7, "ruleCap": 25 },
+  "sources": {
+    "@Vivswan/skills": {
+      "intent": {
+        "from": { "type": "github", "repo": "Vivswan/skills", "ref": "HEAD" },
+        "select": ["rubber-duck-before-every-commit"],
+        "rename": { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
+        "rule": true,
+        "destination": { "scope": "global" },
+        "copy": false,
+        "harnesses": ["claude-code", "codex"],
+        "memoryPath": "memories",
+        "fullDepth": false
+      },
+      "fetched": {
+        "at": "2026-08-27T04:12:09.113Z",
+        "sha": "fc675572711b0a1c9e...",
+        "memoryPath": "memories",
+        "memories": {
+          "rubber-duck-before-every-commit": { "content": "sha256:9f2a...", "description": "sha256:11cd..." }
+        },
+        "lastError": null
+      },
+      "addedAt": "2026-08-20T08:38:04.471Z"
+    }
+  }
+}
+```
+
+The sha and hash values above are shortened for display; state stores full digests.
+
+| field | why it exists |
+| --- | --- |
+| `version` | integer schema version, bumped on any breaking shape change |
+| `writtenBy` | which maxims wrote this, so a bug report is reproducible without asking |
+| `hooks` | the harnesses where the user wants a sync hook kept: a list, not records |
+| `config` | the [cap and cooldown](cli.md#the-cap-and-the-cooldown), when set |
+| `intent.from` | `github` with `repo` and `ref`; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
+| `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
+| `intent.rename` | upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision |
+| `intent.rule` | whether this source publishes one-liners; the field that separates `--rule` from `--add-hook` |
+| `intent.destination` | `global`, `project`, or `out` with a path; `-g` with `-o` has no representation |
+| `intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths` | `--copy`, `--from`, `--full-depth`, `--paths`, recorded per source |
+| `intent.harnesses` | which harnesses this source writes to |
+| `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, versus `ref`, which is what was asked for. A copied local source hashes its directory contents here. A live local source has no `fetched` block at all, because the tree is the record. |
+| `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
+| `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
+| `addedAt` | provenance; there is no `updatedAt` |
+
+A GitHub source is keyed by `@owner/repo`, a git source by its URL, a local source by its absolute path. Keying by source rather than by memory name is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
+
+## Idempotency
+
+Running the same `add` twice against an unchanged source, or `sync` any number of times, produces byte-identical files and makes zero writes after the first.
+
+| property | guarantee |
+| --- | --- |
+| store | the recorded sha is compared to the remote's before any download; equal means the fetch is skipped entirely. A live local source has no sha, so sync reads its tree and lets the output comparison decide. |
+| bodies | written only when the file's content differs from the recorded content hash |
+| rule file | regenerated from intent plus store, then compared; identical output means no write, so mtime does not churn |
+| state | `addedAt` is set once and intent changes only when the user changes it; a sync writes state only to record a refresh it performed or a `--cooldown` or `--cap` it was given |
+| hook | keyed by harness, not by source; the registry is rewritten only when the constructed entry differs |
+| ordering | rule lines sort by memory name, so the "nothing changed" fast path fires across machines |
+
+There is one durable commit point, the state write, done as temp file plus rename. Every artifact after it is derived, so an interruption anywhere past that write is repaired by the next sync, which is what the next session start runs anyway.
+
+## Failure paths
+
+| failure | behavior |
+| --- | --- |
+| fetch fails before any write | keep the last good store, exit 2 (0 with `--quiet`) |
+| fetch succeeds, some files fail the contract | install the valid ones, warn per bad file |
+| fetch succeeds, every file fails the contract | treat as an empty source; the existing block survives, exit 3 |
+| write fails partway through linking bodies | intent is already correct, nothing is stranded, exit 4 |
+| write fails on the rule file | bodies stay, block unchanged, exit 4; temp plus rename means a partial file has no representation |
+| process killed between store swap and rule write | the next sync re-derives everything from intent |
+| hook fires while a manual add holds the lock | the hook exits 0 immediately without waiting |
+| two manual adds at once | the second polls, then exits 5 |
+| source repo deleted upstream | keep the last good copy, warn at every start, never auto-remove |
+| store copy missing on a new machine | sync refetches on the spot, cooldown or not |
+| a live source's directory moved or deleted | the symlink dangles and there is no copy: keep the existing block, report the error, never wipe |
+| a live edit breaks a wikilink or crosses the cap | that source's block keeps its previous content; other sources are unaffected |
+
+Never auto-removing on a fetch failure is deliberate. A rate limit and a deleted repo look alike from the client, and dropping a commit-review rule because GitHub returned 403 is the failure class maxims exists to prevent.
+
+## Concurrency
+
+The store is single-writer. A writer creates `state.json.lock` atomically, holding its pid, host, start time, and command line. Reads never take the lock, and every write is temp plus rename, so a session starting mid-sync sees the old rule file or the new one, never a partial one.
+
+| situation | behavior |
+| --- | --- |
+| two adds, different sources | the second polls for up to 5 seconds, then exits 5 with the holder's command line |
+| a hook fires during a manual add | the hook does not wait: exit 0 at once, logged as "skipped, lock held" |
+| two syncs at once | one wins, the other exits 0; both would compute the same output |
+| the holder crashed and left the lock | a lock older than 60 seconds with a dead pid is stolen, and the theft is logged |
+| NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
+
+## Migrations
+
+State migrates forward only. A `version` below the current one runs the ordered steps, each a pure function over the JSON, then writes back atomically and continues. A `version` above the current one is a clean stop. In quiet mode it exits 0 with "state written by a newer maxims, skipping"; otherwise it asks the user to upgrade, because a rewrite would destroy fields the older binary cannot see.
+
+| rule | reason |
+| --- | --- |
+| each step is named for the version it migrates away from | a step is authored against the shipped shape, with no guess at the next release number |
+| steps chain in ascending order and each is idempotent | an update can be retried, so a step may run twice |
+| one golden fixture per step | the shape change is proven, not described |
+| steps are deleted once a hard break makes them unreachable | the migration directory is not allowed to accumulate compatibility baggage |
+| downgrading past a migration is unsupported | recovery is the same as corruption: quarantine and re-add |
+
+A corrupt state file is moved aside to `state.json.corrupt-<timestamp>` and the user is told to re-add. It is not rebuilt from the rule files, because no reading of a managed block reveals which memories the user selected or whether they asked for rule lines. Only intent-shape changes ever need a migration; everything derived is regenerated by the next sync at the current spec.
