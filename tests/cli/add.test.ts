@@ -3,7 +3,15 @@
 // re-add that unions instead of replacing the selection, a `.` source that registers a hook, or
 // a sync that stops receiving `fetch: "none"` and the chosen harnesses.
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { STRINGS } from "../../src/console/strings.ts";
 import { homePaths } from "../../src/util/home.ts";
@@ -339,6 +347,52 @@ test("--list --no-fetch stays offline: the store copy when present, the empty li
     expect(listed.code).toBe(0);
     expect(listed.stdout).toContain("o  Found 4 memories\n");
     expect(scenario.fetches.length).toBe(fetches);
+  });
+});
+
+// The offline listing walks the store copy the way the fetch walked the source: from the source
+// root under `--full-depth`, into nested folders always.
+test("--list --no-fetch sees the files the fetch saw: a full-depth root folder and a nested one", async () => {
+  await withScenario({}, async (scenario) => {
+    const dir = join(scenario.root, "layout");
+    mkdirSync(join(dir, "rules"), { recursive: true });
+    mkdirSync(join(dir, "memories", "nested"), { recursive: true });
+    writeFileSync(join(dir, "rules", "alpha.md"), "---\nname: alpha\ndescription: A\n---\n");
+    writeFileSync(
+      join(dir, "memories", "nested", "beta.md"),
+      "---\nname: beta\ndescription: B\n---\n",
+    );
+    const nested = await runCli(scenario, ["add", dir, "-g", "-a", "codex"]);
+    expect(nested.code).toBe(0);
+    expect(nested.stdout).toContain("o  Found 1 memory\n");
+    expect(nested.stdout).toContain("|    beta\n");
+    const offline = await runCli(scenario, ["add", dir, "--list", "--no-fetch"]);
+    expect(offline.stdout).toContain("o  Found 1 memory\n");
+    expect(offline.stdout).toContain("|    beta\n");
+    const deep = await runCli(scenario, ["add", dir, "-g", "-a", "codex", "--full-depth"]);
+    expect(deep.code).toBe(0);
+    expect(deep.stdout).toContain("o  Found 2 memories\n");
+    const deepOffline = await runCli(scenario, [
+      "add",
+      dir,
+      "--list",
+      "--no-fetch",
+      "--full-depth",
+    ]);
+    expect(deepOffline.stdout).toContain("o  Found 2 memories\n");
+    expect(deepOffline.stdout).toContain("|    alpha\n");
+    // A store copy that is there but cannot be looked at is a failure, never an empty store.
+    // Root ignores modes.
+    if (process.getuid?.() === 0) return;
+    const store = join(scenario.home, "store");
+    chmodSync(store, 0o000);
+    try {
+      const locked = await runCli(scenario, ["add", dir, "--list", "--no-fetch"]);
+      expect(locked.code).not.toBe(0);
+      expect(locked.stdout).not.toContain("store empty");
+    } finally {
+      chmodSync(store, 0o755);
+    }
   });
 });
 

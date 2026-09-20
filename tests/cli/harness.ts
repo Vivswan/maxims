@@ -15,6 +15,7 @@ import type {
 import type { InteractiveStreams } from "../../src/console/contract.ts";
 import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
 import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
+import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot, hashDirectory } from "../../src/util/fs.ts";
 import { homePaths } from "../../src/util/home.ts";
@@ -138,32 +139,18 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
 }
 
 // Resolvers over fixture directories: a github repo maps to the directory the scenario names, a
-// local path is read as is. Every fetch is recorded so a test can assert none happened.
+// local path is read as is, both walked the way the real fetch walks a source. Every fetch is
+// recorded so a test can assert none happened. A remote reports a commit id cut from the tree
+// hash, a local directory the tree hash itself, as the real resolvers do.
 export function fixtureResolvers(scenario: () => Scenario): ResolverFor {
   const resolver = {
     async fetch(from: SourceFrom, opts: FetchOptions) {
       scenario().fetches.push(from);
       const dir = sourceDir(scenario(), from);
-      const memoriesDir = join(dir, opts.memoryPath);
-      let names: string[];
-      try {
-        names = readdirSync(memoriesDir).sort();
-      } catch {
-        throw new MaximsError(
-          ExitCode.SourceUnresolvable,
-          `Local path does not exist: ${memoriesDir}`,
-        );
-      }
-      const files = names
-        .filter((name) => name.endsWith(".md"))
-        .map((name) => ({
-          relPath: join(opts.memoryPath, name),
-          text: readFileSync(join(memoriesDir, name), "utf8"),
-        }));
-      const count = String(names.length).padStart(2, "0");
-      const sha =
-        from.type === "local" ? `sha256:${"0".repeat(62)}${count}` : `${"0".repeat(38)}${count}`;
-      return { sha, memoryPath: opts.memoryPath, files };
+      const tree = await readMemoryTree(dir, opts, () => undefined);
+      const treeSha = hashFiles(tree.files);
+      const sha = from.type === "local" ? treeSha : treeSha.slice("sha256:".length, 47);
+      return { sha, memoryPath: opts.memoryPath, files: tree.files };
     },
   };
   return (() => resolver) as ResolverFor;

@@ -45,7 +45,7 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
     });
   }
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
-  const resolved = resolveMemoryName(state, ctx.io, positional);
+  const resolved = await resolveMemoryName(state, ctx.io, positional);
   return { at, name: resolved.name, key: resolved.key };
 }
 

@@ -58,8 +58,11 @@ export function rulesDirPath(input: RulesDirLocation): RootedPath {
 }
 
 // A target that declares its own frontmatter owns the whole preamble, path filter included; the
-// definition-level `scopeFrontmatter` serves harnesses whose always-on form needs none.
-function rulesDirFrontmatter(input: RulesDirWriteInput): string {
+// definition-level `scopeFrontmatter` serves harnesses whose always-on form needs none. The
+// result ends in a newline or is empty, so a reader can compare a file's opening bytes to it.
+export function rulesDirFrontmatter(
+  input: Pick<RulesDirWriteInput, "def" | "target" | "paths">,
+): string {
   const paths = input.paths === undefined || input.paths.length === 0 ? undefined : input.paths;
   const declared =
     input.target.frontmatter !== undefined

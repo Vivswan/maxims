@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import {
   type HarnessContext,
@@ -8,17 +8,13 @@ import {
   scopeRoot,
   sharedBlockFile,
 } from "../../harnesses/contract.ts";
-import {
-  type ContentHash,
-  type MemoryName,
-  parseMemory,
-  parseMemoryName,
-} from "../../memory/contract.ts";
+import { type ContentHash, type MemoryName, parseMemoryName } from "../../memory/contract.ts";
 import {
   buildNameIndex,
   type IndexedSource,
   resolveSourceCandidates,
 } from "../../rulefile/dedupe.ts";
+import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/tree.ts";
 import {
   canonicalSourceKey,
   type Destination,
@@ -33,7 +29,8 @@ import {
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
-import { readDirIfPresent, realpathOfExistingPrefix } from "./fs-probe.ts";
+import { realpathOfExistingPrefix } from "./fs-probe.ts";
+import { validateMemoryFiles } from "./memories.ts";
 
 export function harnessContext(io: CliIo): HarnessContext {
   return { home: io.userHome, projectRoot: io.projectRoot, env: io.env };
@@ -78,38 +75,36 @@ export function targetPath(
 }
 
 // The memory names a recorded source currently offers: the fetch record for a fetched source, the
-// store entry's tree for a live one, read with the same contract and internal-memory rule `add`
-// applies, so a name `add` would hide is not a name the index can collide on.
-export function upstreamNames(entry: SourceEntry, io: Pick<CliIo, "home" | "env">): MemoryName[] {
+// store entry's tree for a live one, walked and read with the same contract and internal-memory
+// rule the fetch applies, so a name `add` would hide is not a name the index can collide on.
+export async function upstreamNames(
+  entry: SourceEntry,
+  io: Pick<CliIo, "home" | "env">,
+): Promise<MemoryName[]> {
   if ("fetched" in entry && entry.fetched !== undefined) {
     return Object.keys(entry.fetched.memories).flatMap((name) => {
       const parsed = parseMemoryName(name);
       return parsed === null ? [] : [parsed];
     });
   }
-  const dir = join(storePathFor(io.home, entry.intent.from), entry.intent.memoryPath);
+  const tree = await storeTree(storePathFor(io.home, entry.intent.from), entry.intent);
+  if (tree === null) return [];
   const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
   const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
-  return (markdownFiles(dir, entry.intent.fullDepth) ?? []).flatMap((file) => {
-    const parsed = parseMemory(file, readFileSync(file, "utf8"));
-    if (!parsed.ok) return [];
-    const memory = parsed.memory;
+  return validateMemoryFiles(tree.files).memories.flatMap(({ memory }) => {
     if (memory.metadata.internal === true && !installInternal && !named.has(memory.name)) return [];
     return [memory.name];
   });
 }
 
-// Null when the folder is absent; the caller decides what an absent folder means.
-export function markdownFiles(dir: string, recursive: boolean): string[] | null {
-  const entries = readDirIfPresent(dir);
-  if (entries === null) return null;
-  return entries
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .flatMap((entry) => {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) return recursive ? (markdownFiles(path, recursive) ?? []) : [];
-      return entry.isFile() && entry.name.endsWith(".md") ? [path] : [];
-    });
+// The files under a store entry as the fetch would have laid them out, walked from the source
+// root under `--full-depth` and from the memory folder otherwise; null only when the folder to
+// walk is not there. A folder that is there but cannot be looked at fails as itself, never as an
+// empty store.
+export async function storeTree(root: string, scope: TreeScope): Promise<MemoryTree | null> {
+  const scanned = scope.fullDepth ? root : join(root, scope.memoryPath);
+  if (statSync(scanned, { throwIfNoEntry: false }) === undefined) return null;
+  return readMemoryTree(root, scope, () => undefined);
 }
 
 export function localName(entry: SourceEntry, name: MemoryName): MemoryName {
@@ -117,20 +112,28 @@ export function localName(entry: SourceEntry, name: MemoryName): MemoryName {
   return Object.hasOwn(rename, name) ? rename[name] : name;
 }
 
-export function effectiveNames(entry: SourceEntry, io: Pick<CliIo, "home" | "env">): MemoryName[] {
+export async function effectiveNames(
+  entry: SourceEntry,
+  io: Pick<CliIo, "home" | "env">,
+): Promise<MemoryName[]> {
   const select = entry.intent.select;
-  return upstreamNames(entry, io)
+  return (await upstreamNames(entry, io))
     .filter((name) => select === "*" || select.includes(name))
     .map((name) => localName(entry, name));
 }
 
-export function installedSources(state: State, io: Pick<CliIo, "home" | "env">): IndexedSource[] {
-  return Object.entries(state.sources).map(([key, entry]) => ({
-    key,
-    addedAt: entry.addedAt,
-    intent: { select: entry.intent.select, rename: entry.intent.rename },
-    names: upstreamNames(entry, io),
-  }));
+export async function installedSources(
+  state: State,
+  io: Pick<CliIo, "home" | "env">,
+): Promise<IndexedSource[]> {
+  return Promise.all(
+    Object.entries(state.sources).map(async ([key, entry]) => ({
+      key,
+      addedAt: entry.addedAt,
+      intent: { select: entry.intent.select, rename: entry.intent.rename },
+      names: await upstreamNames(entry, io),
+    })),
+  );
 }
 
 export type IncomingMemory = {
@@ -216,11 +219,11 @@ export type ResolvedMemory = { key: string; name: MemoryName };
 
 // A bare name is looked up across every source's effective set; two owners make it ambiguous and
 // the qualified `@owner/repo/name` forms are the way out. A qualified name looks up one source.
-export function resolveMemoryName(
+export async function resolveMemoryName(
   state: State,
   io: Pick<CliIo, "home" | "env">,
   raw: string,
-): ResolvedMemory {
+): Promise<ResolvedMemory> {
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
   if (qualified !== null && qualified[1] !== undefined && qualified[2] !== undefined) {
     const key = findSourceKey(state, qualified[1]);
@@ -229,7 +232,7 @@ export function resolveMemoryName(
     if (name === null)
       throw new MaximsError(ExitCode.Usage, `"${qualified[2]}" is not a memory name`);
     const entry = state.sources[key];
-    if (entry === undefined || !effectiveNames(entry, io).includes(name)) {
+    if (entry === undefined || !(await effectiveNames(entry, io)).includes(name)) {
       throw new MaximsError(ExitCode.Usage, `${key} does not provide ${name}`);
     }
     return { key, name };
@@ -237,9 +240,10 @@ export function resolveMemoryName(
   const name = parseMemoryName(raw);
   if (name === null)
     throw new MaximsError(ExitCode.Usage, `"${raw}" is not a kebab-case memory name`);
-  const owners = Object.entries(state.sources)
-    .filter(([, entry]) => effectiveNames(entry, io).includes(name))
-    .map(([key]) => key);
+  const owners: string[] = [];
+  for (const [key, entry] of Object.entries(state.sources)) {
+    if ((await effectiveNames(entry, io)).includes(name)) owners.push(key);
+  }
   if (owners.length === 0)
     throw new MaximsError(ExitCode.Usage, `no installed memory is named ${name}`);
   if (owners.length > 1) {

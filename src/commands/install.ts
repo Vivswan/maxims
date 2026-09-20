@@ -103,7 +103,7 @@ export const install: Command = {
       prepared.push(outcome.prepared);
       current[index] = { ...item, request: { ...item.request, rename: outcome.prepared.rename } };
     }
-    assertBatchConsistent(prepared, ctx);
+    await assertBatchConsistent(prepared, ctx);
     const commit = await commitAdd(prepared, ctx, {
       writeManifest: false,
       disabledAtProject: lock.disabled ?? [],
@@ -144,7 +144,10 @@ function manifestOrUsage(lock: LoadedProjectLock): ProjectLock | null {
 // move a name after a sibling validated against it. The final batch is therefore checked once
 // more for distinct local names and for wikilinks, against the names it will really record plus
 // the sources outside the batch, before anything is written.
-function assertBatchConsistent(prepared: readonly PreparedAdd[], ctx: CommandContext): void {
+async function assertBatchConsistent(
+  prepared: readonly PreparedAdd[],
+  ctx: CommandContext,
+): Promise<void> {
   const owners = new Map<string, string>();
   for (const item of prepared) {
     for (const name of item.names) {
@@ -163,7 +166,7 @@ function assertBatchConsistent(prepared: readonly PreparedAdd[], ctx: CommandCon
   if (first !== undefined) {
     for (const [key, entry] of Object.entries(first.staged.sources)) {
       if (batchKeys.has(key)) continue;
-      for (const name of effectiveNames(entry, ctx.io)) outside.add(name);
+      for (const name of await effectiveNames(entry, ctx.io)) outside.add(name);
     }
   }
   for (const item of prepared) {

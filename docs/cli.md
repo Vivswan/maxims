@@ -69,7 +69,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `-p, --project` | add, remove, disable, enable | auto | the project scope; [where it lands](installing.md#where-it-lands) |
 | `-o, --out <dir>` | add, remove | off | an output folder instead of a scope; [where it lands](installing.md#where-it-lands) |
 | `-m, --memory <names>` | add, remove | `*` | only these memories; [what gets installed](installing.md#what-gets-installed) |
-| `-a, --agent <ids>` | add, remove, sync, update, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix); on `sync` and `update`, limits the run to those harnesses |
+| `-a, --agent <ids>` | add, remove, sync, update, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix). On `sync`, limits the run to the named harnesses and fetches nothing; `-a '*'` names them all and fetches as a plain `sync` does. On `update`, every source still refreshes, and a refreshed source is written for every harness that reads it; the filter narrows only the untouched sources. On `remove`, drops those harnesses from a whole source and is refused on a memory. |
 | `-l, --list` | add | off | preview the source, write nothing; [what gets installed](installing.md#what-gets-installed) |
 | `-y, --yes` | add, remove | auto | skip the confirmation prompt; [non-interactive behavior](installing.md#non-interactive-behavior) |
 | `--all` | add, remove | off | every memory, every harness, no prompt; [what gets installed](installing.md#what-gets-installed) |

@@ -1,4 +1,4 @@
-import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -13,15 +13,6 @@ export function readTextIfPresent(path: string): string | null {
   } catch (cause) {
     if (isAbsent(cause)) return null;
     throw cannotInspect(path, cause);
-  }
-}
-
-export function readDirIfPresent(dir: string): Dirent[] | null {
-  try {
-    return readdirSync(dir, { withFileTypes: true });
-  } catch (cause) {
-    if (isAbsent(cause)) return null;
-    throw cannotInspect(dir, cause);
   }
 }
 

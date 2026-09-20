@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { notDefinedHere } from "../console/strings.ts";
 import type { HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
+import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
@@ -28,11 +29,16 @@ import {
 
 type Finding = { level: "ok" | "warn" | "fail"; text: string };
 
+// What the preamble a rules-dir writer puts before the block is for, when the file lacks it: the
+// harness loads the file only on demand (`always-on`), or loads it for every file instead of the
+// `--paths` filter (`path-scope`). Null when the writer puts none there.
+type Preamble = { ok: true } | { ok: false; lost: "always-on" | "path-scope" } | null;
+
 type RuleFileReport = {
   source: string;
   path: string;
   present: boolean;
-  frontmatter: boolean | null;
+  preamble: Preamble;
 };
 
 type HarnessReport = {
@@ -71,7 +77,7 @@ export const doctor: Command = {
     }
     const expects: ExpectReport[] = [];
     for (const raw of args.list(FLAGS.expect)) {
-      const report = checkExpect(raw, state, ctx);
+      const report = await checkExpect(raw, state, ctx);
       expects.push(report);
       findings.push(expectFinding(report));
     }
@@ -158,7 +164,7 @@ async function checkHarness(
       source: key,
       path,
       present: (blocks ?? []).some((block) => block.source === key),
-      frontmatter: frontmatterOk(def, scope, entry, readTextIfPresent(path)),
+      preamble: preambleCheck(def, scope, entry, readTextIfPresent(path)),
     });
   }
   const wanted = state.hooks.includes(def.id);
@@ -179,26 +185,26 @@ function ruleBlocks(path: string): RuleBlock[] | null {
   return text === null ? null : parseRuleBlocks(text);
 }
 
-// The target's frontmatter is the whole preamble the rules-dir strategy writes, fences included,
-// and the file must open with exactly it: a rules-dir harness that requires `alwaysApply: true`
-// and does not find it loads the file only on demand, which is the failure `doctor` exists to
-// name. Null when the target declares no frontmatter to check.
-function frontmatterOk(
+// The preamble the rules-dir writer puts before the block, fences included, and the file must open
+// with exactly it: a rules-dir harness that requires `alwaysApply: true` and does not find it
+// loads the file only on demand, and one whose preamble is the `--paths` filter alone loads a bare
+// file for every file, both failures `doctor` exists to name.
+function preambleCheck(
   def: HarnessDefinition,
   scope: Scope,
   entry: SourceEntry,
   text: string | null,
-): boolean | null {
+): Preamble {
   const target = def.targets[scope];
-  if (target === null || target.kind !== "rules-dir" || target.frontmatter === undefined) {
-    return null;
-  }
-  const declared = target.frontmatter(
-    entry.intent.paths === undefined ? {} : { paths: entry.intent.paths },
-  );
+  if (target === null || target.kind !== "rules-dir") return null;
+  const declared = rulesDirFrontmatter({
+    def,
+    target,
+    ...(entry.intent.paths === undefined ? {} : { paths: entry.intent.paths }),
+  });
   if (declared === "") return null;
-  if (text === null) return false;
-  return text.startsWith(declared.endsWith("\n") ? declared : `${declared}\n`);
+  if (text !== null && text.startsWith(declared)) return { ok: true };
+  return { ok: false, lost: target.frontmatter === undefined ? "path-scope" : "always-on" };
 }
 
 function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
@@ -212,10 +218,13 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
           ? `${shown} has no block for ${file.source}`
           : `${shown} is missing`;
       findings.push({ level: "fail", text: `${prefix} ${what}` });
-    } else if (file.frontmatter === false) {
+    } else if (file.preamble !== null && !file.preamble.ok) {
       findings.push({
         level: "fail",
-        text: `${prefix} ${shown} lacks the frontmatter ${def.displayName} needs to load it every session`,
+        text:
+          file.preamble.lost === "always-on"
+            ? `${prefix} ${shown} lacks the frontmatter ${def.displayName} needs to load it every session`
+            : `${prefix} ${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`,
       });
     } else findings.push({ level: "ok", text: `${prefix} ${shown}` });
   }
@@ -236,7 +245,7 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
 // file its source targets; a name two sources provide is checked for each. Met means every
 // inspected file carries it AND at least one file was inspected: a source with no rule flag or no
 // target is not a passing check.
-function checkExpect(raw: string, state: State, ctx: CommandContext): ExpectReport {
+async function checkExpect(raw: string, state: State, ctx: CommandContext): Promise<ExpectReport> {
   const io = ctx.io;
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
   const nameRaw = qualified?.[2] ?? raw;
@@ -247,9 +256,12 @@ function checkExpect(raw: string, state: State, ctx: CommandContext): ExpectRepo
     const key = findSourceKey(state, qualified[1]);
     entries = key === null ? [] : entries.filter(([candidate]) => candidate === key);
   }
-  const owners = entries.filter(
-    ([, entry]) => entry.intent.rule && effectiveNames(entry, io).includes(name),
-  );
+  const owners: typeof entries = [];
+  for (const candidate of entries) {
+    const [, entry] = candidate;
+    if (entry.intent.rule && (await effectiveNames(entry, io)).includes(name))
+      owners.push(candidate);
+  }
   const harnessCtx = harnessContext(io);
   const missing: string[] = [];
   let checked = 0;

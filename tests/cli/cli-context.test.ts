@@ -77,8 +77,11 @@ test("updateIntent writes a state that reads back", async () => {
       }),
       async () => undefined,
     );
-    expect(update.changes.map((change) => change.kind)).toEqual(["write"]);
-    const stored = parseState(JSON.parse(readFileSync(homePaths(home).state, "utf8")));
+    const [write] = update.changes;
+    if (write?.kind !== "write") throw new Error("expected the state write in the plan");
+    const bytes = readFileSync(homePaths(home).state, "utf8");
+    expect(write.content).toBe(bytes);
+    const stored = parseState(JSON.parse(bytes));
     expect(stored).toMatchObject({ ok: "parsed", state: { hooks: ["codex"], sources: {} } });
   });
 });

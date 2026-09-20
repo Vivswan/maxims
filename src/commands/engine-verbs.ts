@@ -3,7 +3,7 @@ import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../harnesses/contract.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { loadIntentFor, persistCooldownCap } from "./shared/cli-context.ts";
+import { cooldownCapConfig, loadIntentFor, persistConfig } from "./shared/cli-context.ts";
 import { engineIo, exitForFailed } from "./shared/engine-io.ts";
 import {
   type Args,
@@ -49,7 +49,7 @@ export const sync: Command = {
   flags: SYNC_FLAGS,
   async run(args, ctx) {
     const agents = syncAgents(args, ctx.io);
-    const persisted = await persistCooldownCap(args, ctx);
+    const persisted = await persistConfig(ctx, cooldownCapConfig(args, ctx.config));
     const preview =
       ctx.global.dryRun && persisted.changes.length > 0
         ? {
@@ -154,6 +154,9 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
   const positional = args.positionals[0];
   const destination = parseDestination(args, ctx.io.cwd);
   const agents = agentIds(args, ctx.io) ?? null;
+  // `-a '*'` parses to "no filter", which on a whole source means every harness; on a memory or
+  // a narrowed selection any `-a` is refused, the wildcard included.
+  const agentFlag = args.list(FLAGS.agent).length > 0;
   const select = parseSelect(args);
   if (all) {
     if (positional !== undefined || args.list(FLAGS.memory).length > 0) {
@@ -170,13 +173,13 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
       throw usage(`${key} has one recorded destination; drop -g, -p or -o`);
     }
     if (select === null || select === "*") return { kind: "source", key, agents };
-    if (agents !== null) throw usage(`-a applies to a whole source; drop -m to unlink ${key}`);
+    if (agentFlag) throw usage(`-a applies to a whole source; drop -m to unlink ${key}`);
     return { kind: "memories", source: key, names: select };
   }
   if (args.list(FLAGS.memory).length > 0) {
     throw usage(`${positional} names a memory; -m narrows a source, so name the source instead`);
   }
-  if (agents !== null) {
+  if (agentFlag) {
     throw usage(`-a applies to a source, not to the memory ${positional}`, {
       hint: "name the source to drop a harness from, or drop the name without -a",
     });
@@ -184,7 +187,7 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
   if (destination !== null) {
     throw usage(`${positional} names a memory of one recorded source; drop -g, -p or -o`);
   }
-  const resolved: ResolvedMemory = resolveMemoryName(state, ctx.io, positional);
+  const resolved: ResolvedMemory = await resolveMemoryName(state, ctx.io, positional);
   return { kind: "memories", source: resolved.key, names: [resolved.name] };
 }
 

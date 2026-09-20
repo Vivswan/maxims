@@ -13,7 +13,12 @@ import type { RenameMap, State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
-import { loadIntentFor, persistCooldownCap, updateIntent } from "./shared/cli-context.ts";
+import {
+  cooldownCapConfig,
+  loadIntentFor,
+  persistConfig,
+  updateIntent,
+} from "./shared/cli-context.ts";
 import { exitForFailed, framed } from "./shared/engine-io.ts";
 import {
   agentsFilter,
@@ -53,11 +58,14 @@ export const update: Command = {
     const console = await ctx.openConsole(true);
     const renames = parseRenames(args);
     const selection = parseAgents(args, knownHarnessIds(ctx.io));
+    // Every flag is parsed before the first state read: on a real run that read settles a corrupt
+    // file, which a request that turns out malformed must not have done.
+    const nextConfig = cooldownCapConfig(args, ctx.config);
     const only = await onlySource(args.positionals[0], ctx);
     if (Object.keys(renames).length > 0 && only === undefined) {
       throw usage("--rename on update needs the source it applies to");
     }
-    const persisted = await persistCooldownCap(args, ctx);
+    const persisted = await persistConfig(ctx, nextConfig);
     let preview: SyncPreview | undefined;
     if (Object.keys(renames).length > 0) {
       preview = await recordRenames(only?.[0] ?? "", renames, ctx, persisted.config);
@@ -141,7 +149,7 @@ async function recordRenames(
       const existing = current.state.sources[key];
       if (existing === undefined) throw new MaximsError(ExitCode.Usage, `${key} is not installed`);
       const rename = { ...existing.intent.rename, ...renames };
-      const known = upstreamNames(existing, ctx.io);
+      const known = await upstreamNames(existing, ctx.io);
       const incoming = Object.keys(renames).flatMap((name) => {
         const parsed = parseMemoryName(name);
         return parsed === null || known.includes(parsed) ? [] : [parsed];
@@ -156,7 +164,7 @@ async function recordRenames(
         select: existing.intent.select,
         rename,
         cap: config.ruleCap ?? DEFAULT_RULE_CAP,
-        installed: installedSources(current.state, ctx.io),
+        installed: await installedSources(current.state, ctx.io),
       });
       if (!outcome.ok) {
         const first = outcome.code === ExitCode.NameCollision ? outcome.collisions[0] : undefined;

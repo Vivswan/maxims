@@ -79,11 +79,10 @@ export function cooldownCapConfig(args: Args, config: UserConfig): UserConfig | 
 
 // Writes the persisted flags before the engine runs, so the sync that follows reads the new cap
 // and cooldown from the file like every later one.
-export async function persistCooldownCap(
-  args: Args,
+export async function persistConfig(
   ctx: CommandContext,
+  next: UserConfig | null,
 ): Promise<{ config: UserConfig; changes: Change[] }> {
-  const next = cooldownCapConfig(args, ctx.config);
   if (next === null) return { config: ctx.config, changes: [] };
   const changes = [configWrite(ctx.io.home, next)];
   await applyChanges({ changes, notices: [] }, { dryRun: ctx.global.dryRun });

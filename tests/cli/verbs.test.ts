@@ -16,7 +16,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { claudeCode } from "../../src/harnesses/claude-code/index.ts";
 import { cursor } from "../../src/harnesses/cursor/index.ts";
+import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
 import { renderBlock } from "../../src/rulefile/block.ts";
@@ -477,15 +479,17 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
     expect(scopedSource.stderr).toBe(
       " ERROR  @a/b has one recorded destination; drop -g, -p or -o\n",
     );
-    const oneHarness = await runCli(scenario, [
-      "remove",
-      "@a/b/skip-unfit-skills",
-      "-a",
-      "codex",
-      "-y",
-    ]);
-    expect(oneHarness.code).toBe(1);
-    expect(oneHarness.stderr).toContain("-a applies to a source, not to the memory");
+    for (const agent of ["codex", "*"]) {
+      const oneHarness = await runCli(scenario, [
+        "remove",
+        "@a/b/skip-unfit-skills",
+        "-a",
+        agent,
+        "-y",
+      ]);
+      expect(oneHarness.code).toBe(1);
+      expect(oneHarness.stderr).toContain("-a applies to a source, not to the memory");
+    }
     expect(
       (
         await runCli(scenario, [
@@ -1406,33 +1410,64 @@ test("sync exits by the report's failure class, except under --quiet", async () 
 // The fixture harnesses mirror the real definitions' shapes, so the real cursor and zed run here
 // once: cursor's frontmatter arrives fenced from the definition, and zed reads `.rules` before
 // `AGENTS.md`, two facts a fixture cannot vouch for.
+// The rule files are the ones the real rules-dir writer produces for the real definitions, so
+// the check reads the writer's own preamble: cursor's from its target, claude-code's from the
+// `--paths` filter alone, and zed's precedence file before `AGENTS.md`.
 test("doctor judges the frontmatter and the precedence file the real definitions write", async () => {
   await withScenario(
-    { project: true, github: { "a/b": SKILLS }, harnesses: [cursor, zed] },
+    { project: true, github: { "a/b": SKILLS }, harnesses: [cursor, zed, claudeCode] },
     async (scenario) => {
       writeFileSync(join(scenario.cwd, ".rules"), "# zed\n");
-      const add = await runCli(scenario, ["add", "@a/b", "-p", "-a", "cursor,zed", "--rule"]);
+      mkdirSync(join(scenario.cwd, ".claude"), { recursive: true });
+      const add = await runCli(scenario, [
+        "add",
+        "@a/b",
+        "-p",
+        "-a",
+        "cursor,zed,claude-code",
+        "--rule",
+        "--paths",
+        "src/**",
+      ]);
       expect(add.code).toBe(0);
       const rendered = block("@a/b", ["skip-unfit-skills"]);
-      const target = cursor.targets.project;
-      if (target === null || target.kind !== "rules-dir" || target.frontmatter === undefined) {
-        throw new Error("the cursor definition no longer declares a rules-dir frontmatter");
-      }
-      mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
-      const mdc = join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc");
-      writeFileSync(mdc, `${target.frontmatter({})}${rendered}`);
+      const ctx = { home: scenario.userHome, projectRoot: scenario.cwd, env: {} };
+      const written = (def: typeof cursor): string => {
+        const target = def.targets.project;
+        if (target === null || target.kind !== "rules-dir") throw new Error("not a rules dir");
+        const [change] = planRulesDirWrite({
+          def,
+          target,
+          scope: "project",
+          ctx,
+          sourceSlug: "a-b",
+          block: rendered,
+          paths: ["src/**"],
+        });
+        if (change?.kind !== "write") throw new Error("expected a write");
+        mkdirSync(join(change.path, ".."), { recursive: true });
+        writeFileSync(change.path, change.content);
+        return change.path;
+      };
+      const mdc = written(cursor);
+      const claude = written(claudeCode);
       const rules = join(scenario.cwd, ".rules");
       writeFileSync(rules, `# zed\n\n${rendered}`);
       const healthy = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
       expect(healthy.code).toBe(0);
       expect(healthy.stdout).toContain(`ok  cursor: ${mdc}\n`);
+      expect(healthy.stdout).toContain(`ok  claude-code: ${claude}\n`);
       expect(healthy.stdout).toContain(`ok  zed: ${rules}\n`);
       expect(healthy.stdout).toContain("ok  expect skip-unfit-skills: rule line in place\n");
       writeFileSync(mdc, rendered);
+      writeFileSync(claude, rendered);
       const bare = await runCli(scenario, ["doctor"]);
       expect(bare.code).toBe(1);
       expect(bare.stdout).toContain(
         `x   cursor: ${mdc} lacks the frontmatter Cursor needs to load it every session\n`,
+      );
+      expect(bare.stdout).toContain(
+        `x   claude-code: ${claude} lacks the path filter for --paths; Claude Code loads it for every file\n`,
       );
     },
   );
@@ -1504,9 +1539,14 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
 
 // The persisted-flag preview reads state on a real run too, so the read must stay the locking
 // one there: a corrupt file is settled (moved aside) as on any other real run, never refused.
+// A request that turns out malformed reads nothing first, so it settles nothing either.
 test("update --cap on a real run settles a corrupt state file instead of refusing it", async () => {
   await withScenario({}, async (scenario) => {
     writeState(scenario, { version: 1, writtenBy: "x", hooks: [], sources: { "@a/b": {} } });
+    const malformed = await runCli(scenario, ["update", "@a/b", "--cap", "0"]);
+    expect(malformed.code).toBe(1);
+    expect(malformed.stderr).toContain("--cap expects a positive integer");
+    expect(existsSync(homePaths(scenario.home).state)).toBe(true);
     const run = await runCli(scenario, ["update", "--cap", "7"]);
     expect(run.code).toBe(0);
     expect(existsSync(homePaths(scenario.home).state)).toBe(false);

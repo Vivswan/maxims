@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { basename, join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { type Collision, promptRenames } from "../console/rename.ts";
 import {
@@ -85,10 +85,10 @@ import {
   harnessContext,
   installedSources,
   knownHarnessIds,
-  markdownFiles,
   realLocal,
   resolveIncoming,
   scopeOf,
+  storeTree,
   targetPath,
   tildify,
 } from "./shared/sources.ts";
@@ -382,11 +382,12 @@ export async function stageAdd(
   };
 }
 
-// Steps 3 and 4: validate, show the plan and confirm. Nothing is written, so a failure here
-// (exit 3, 6, 7, 8) leaves the machine exactly as it was. `--list` stops before validation: a
-// preview exists so the user can see and narrow a source whose install would be refused. `siblings` are the other sources staged
-// in the same run: their names satisfy wikilinks and take part in the collision walk as if they
-// were already recorded.
+// Steps 3 and 4: validate, show the plan and confirm. No intent and no destination is written, so
+// a failure here (exit 3, 6, 7, 8) leaves the machine as it was, apart from a corrupt state file a
+// real run's locking read has already moved aside. `--list` stops before validation: a preview
+// exists so the user can see and narrow a source whose install would be refused. `siblings` are
+// the other sources staged in the same run: their names satisfy wikilinks and take part in the
+// collision walk as if they were already recorded.
 export async function planAdd(
   staged: StagedAdd,
   ctx: CommandContext,
@@ -444,8 +445,9 @@ export async function planAdd(
   };
 }
 
-// Steps 1 to 4 for one source on its own: fetch, filter, validate, show the plan and confirm.
-// Nothing is written, so a failure here (exit 2, 3, 6, 7, 8) leaves the machine exactly as it was.
+// Steps 1 to 4 for one source on its own: fetch, filter, validate, show the plan and confirm. No
+// intent and no destination is written, so a failure here (exit 2, 3, 6, 7, 8) leaves the machine
+// as it was, apart from a corrupt state file a real run's locking read has already moved aside.
 export async function prepareAdd(
   requested: AddRequest,
   ctx: CommandContext,
@@ -608,21 +610,14 @@ export function describeSource(from: SourceFrom): string {
   }
 }
 
-// A fetch lands in a temp directory removed on every path; a `--list --no-fetch` reads the store
-// copy instead and never opens a socket, which is what keeps the benchmark's preview offline.
+// A fetch lands in a temp directory removed on every path; a `--list --no-fetch` walks the store
+// copy instead, the way the fetch walked the source, and never opens a socket, which is what keeps
+// the benchmark's preview offline.
 async function fetchTree(request: AddRequest, io: CliIo, console: Console): Promise<FetchedTree> {
   if (request.noFetch) {
-    const root = storePathFor(io.home, request.from);
-    const files = markdownFiles(join(root, request.memoryPath), request.fullDepth);
-    if (files === null) return { kind: "store-empty" };
-    return {
-      sha: "store",
-      memoryPath: request.memoryPath,
-      files: files.map((file) => ({
-        relPath: relative(root, file),
-        text: readFileSync(file, "utf8"),
-      })),
-    };
+    const tree = await storeTree(storePathFor(io.home, request.from), request);
+    if (tree === null) return { kind: "store-empty" };
+    return { sha: "store", memoryPath: request.memoryPath, files: tree.files };
   }
   const local = request.from.type === "local";
   const tempDir = mkdtempSync(join(tmpdir(), "maxims-add-"));
@@ -734,7 +729,7 @@ async function validate(
   const installedNames = new Set<string>();
   for (const [key, entry] of Object.entries(state.sources)) {
     if (key === request.key || siblings.some((sibling) => sibling.request.key === key)) continue;
-    for (const name of effectiveNames(entry, ctx.io)) installedNames.add(name);
+    for (const name of await effectiveNames(entry, ctx.io)) installedNames.add(name);
   }
   for (const sibling of siblings) {
     for (const memory of sibling.chosen) {
@@ -759,7 +754,7 @@ async function validate(
     });
   }
   const installed = [
-    ...installedSources(state, ctx.io).filter(
+    ...(await installedSources(state, ctx.io)).filter(
       (source) => !siblings.some((sibling) => sibling.request.key === source.key),
     ),
     ...siblings.map((sibling) => ({
