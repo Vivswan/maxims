@@ -41,6 +41,8 @@ RUN chmod 755 /usr/local/bin/entrypoint
 
 USER tester
 ENV HOME=/home/tester
+# The tests that drive the installed harness CLIs run only where they see this marker.
+ENV MAXIMS_CONTAINER_TIER=1
 WORKDIR /work
 ENTRYPOINT ["entrypoint"]
 CMD ["bun", "run", "test"]
