@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { type HarnessDefinition, scopeRoot } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 import { dshHome, reconcileBridge } from "./bridge.ts";
 
 // dsh renders every instruction file it discovers into ONE 65,536-byte block and truncates the
@@ -50,7 +50,7 @@ export const dsh: HarnessDefinition = {
   // Documented: "`.claude/rules/`, and `@path` imports are not interpreted".
   expands: ["none"],
   byteBudget: DSH_FILE_BUDGET,
-  detect: (ctx) => existsSync(dshHome(ctx)),
+  detect: (ctx) => configDirExists(dshHome(ctx)),
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
     date: "2026-09-20",

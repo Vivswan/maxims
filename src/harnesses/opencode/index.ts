@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 import { reconcileInstructions } from "./instructions.ts";
 import { renderPlugin } from "./plugin.ts";
 
@@ -45,7 +45,7 @@ export const opencode: HarnessDefinition = {
   markers: "counted",
   // Documented: "opencode doesn't automatically parse file references in AGENTS.md".
   expands: ["none"],
-  detect: (ctx) => existsSync(globalRoot(ctx)),
+  detect: (ctx) => configDirExists(globalRoot(ctx)),
   verifiedAgainst: { url: "https://opencode.ai/docs/plugins/", date: "2026-09-20" },
   fixtures: { config: "config.jsonc" },
   globalRoot,

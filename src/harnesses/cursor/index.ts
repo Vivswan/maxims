@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { type HarnessDefinition, scopeRoot } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 
 // Cursor ignores a plain `.md` in `.cursor/rules` and loads an `.mdc` only when its frontmatter
 // says so: without `alwaysApply: true` the rule is offered to the agent by description instead
@@ -53,7 +53,7 @@ export const cursor: HarnessDefinition = {
   // `@file` attaches a file to the rule's context and its literal-escaping is undocumented.
   expands: ["at-import"],
   scopeFrontmatter: (globs) => frontmatter(globs),
-  detect: (ctx) => existsSync(join(ctx.home, ".cursor")),
+  detect: (ctx) => configDirExists(join(ctx.home, ".cursor")),
   verifiedAgainst: { url: "https://cursor.com/docs/context/rules", date: "2026-09-20" },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },
 };
