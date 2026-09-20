@@ -118,14 +118,16 @@ type Invocation = {
   version: boolean;
   quiet: boolean;
   json: boolean;
+  dryRun: boolean;
 };
 
-// `-h`, `-v`, `--quiet` and `--json` are read off the raw argv before the verb's module loads and
-// before any file is touched: help costs nothing and changes nothing, and the output mode is
-// known before the strict parse can fail, so a usage error under --json is still one JSON value
-// and under --quiet is still exit 0. Only whole argv words count, never letters inside a short
-// group or an attached value (`-mprivacy` selects a memory, it does not ask for the version), and
-// the verb is the first word that is not a flag; the flags a verb may precede are all booleans.
+// `-h`, `-v`, `--quiet`, `--json` and `--dry-run` are read off the raw argv before the verb's
+// module loads and before any file is touched: help costs nothing and changes nothing, and the
+// output mode is known before the strict parse can fail, so a usage error under --json is still
+// one JSON value, under --quiet is still exit 0, and under --dry-run still writes no log line.
+// Only whole argv words count, never letters inside a short group or an attached value
+// (`-mprivacy` selects a memory, it does not ask for the version), and the verb is the first word
+// that is not a flag; the flags a verb may precede are all booleans.
 const SCAN_WORDS = new Map<string, keyof Omit<Invocation, "verb" | "rest">>([
   ["--help", "help"],
   ["-h", "help"],
@@ -133,6 +135,7 @@ const SCAN_WORDS = new Map<string, keyof Omit<Invocation, "verb" | "rest">>([
   ["-v", "version"],
   ["--quiet", "quiet"],
   ["--json", "json"],
+  ["--dry-run", "dryRun"],
 ]);
 
 function scan(argv: readonly string[]): Invocation {
@@ -143,6 +146,7 @@ function scan(argv: readonly string[]): Invocation {
     version: false,
     quiet: false,
     json: false,
+    dryRun: false,
   };
   let verbIndex = -1;
   for (const [index, word] of argv.entries()) {
@@ -174,8 +178,8 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     return ExitCode.Ok;
   }
   const entry = invocation.verb === null ? undefined : findVerb(invocation.verb);
-  const { quiet, json } = invocation;
-  const failure: FailureContext = { io, quiet, json, verb: invocation.verb ?? "maxims" };
+  const { quiet, json, dryRun } = invocation;
+  const failure: FailureContext = { io, quiet, json, dryRun, verb: invocation.verb ?? "maxims" };
   if (invocation.help) {
     io.stdout.write(await helpText(entry));
     return ExitCode.Ok;
@@ -222,7 +226,7 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     };
     const code = await command.run(args, ctx);
     if (code !== ExitCode.Ok && quiet) {
-      await logQuietly(io.home, `maxims: ${entry.name} exited ${code}`);
+      await logQuietly(failure, `maxims: ${entry.name} exited ${code}`);
       return ExitCode.Ok;
     }
     return code;
@@ -232,10 +236,12 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
 }
 
 // The quiet log is best effort: a home that cannot take the line must not turn a fail-soft exit
-// into a thrown one.
-async function logQuietly(home: string, line: string): Promise<void> {
+// into a thrown one. A dry run writes nothing, the log line and the home directory it would
+// create included.
+async function logQuietly(ctx: FailureContext, line: string): Promise<void> {
+  if (ctx.dryRun) return;
   try {
-    await appendRefreshLog(home, line);
+    await appendRefreshLog(ctx.io.home, line);
   } catch {
     return;
   }
@@ -250,7 +256,13 @@ function refuseJsonCombinations(command: Command, args: Args, json: boolean): vo
     throw usage(STRINGS.jsonWithList);
 }
 
-type FailureContext = { io: MachineIo; quiet: boolean; json: boolean; verb: string };
+type FailureContext = {
+  io: MachineIo;
+  quiet: boolean;
+  json: boolean;
+  dryRun: boolean;
+  verb: string;
+};
 
 // One place turns a thrown error into an exit code. Under `--quiet` every failure becomes exit 0
 // after a log line: a session-start hook that exits non-zero renders an error in the user's
@@ -264,7 +276,7 @@ async function reportFailure(error: unknown, ctx: FailureContext): Promise<numbe
     ctx.io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
   }
   if (ctx.quiet) {
-    await logQuietly(ctx.io.home, `maxims: ${ctx.verb} failed (exit ${code}): ${message}`);
+    await logQuietly(ctx, `maxims: ${ctx.verb} failed (exit ${code}): ${message}`);
     return ExitCode.Ok;
   }
   if (ctx.json) return code;

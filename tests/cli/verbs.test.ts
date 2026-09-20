@@ -712,6 +712,11 @@ test("sync --quiet exits 0 even on a usage error, and --json wraps errors before
     expect(readFileSync(homePaths(scenario.home).log, "utf8")).toBe(
       "maxims: sync failed (exit 1): unknown option: --bogus\n",
     );
+    rmSync(scenario.home, { recursive: true, force: true });
+    const dry = await runCli(scenario, ["sync", "--quiet", "--dry-run", "--bogus"]);
+    expect(dry).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(existsSync(scenario.home)).toBe(false);
+    mkdirSync(scenario.home, { recursive: true });
     const json = await runCli(scenario, ["add", "@a/b", "--json", "-y", "--bogus"]);
     expect(json.code).toBe(1);
     expect(JSON.parse(json.stdout)).toEqual({
