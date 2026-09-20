@@ -474,6 +474,23 @@ test("a reconcile quirk becomes the custom hook of a spec that declares none", (
   expect(custom.hook).toEqual({ kind: "custom", reconcile });
 });
 
+// A probe that reads a file under the global root must see the root the spec resolves, override
+// included; a quirk written against a root of its own would read a stale path once the spec's
+// `globalRoot` moved.
+test("quirks given as a function receive the compiled data definition", async () => {
+  const def = toDefinition(rendering, (declared) => ({
+    achievedTier: async (ctx) => (declared.globalRoot?.(ctx) === "/xdg/example" ? 2 : 1),
+  }));
+  expect(await def.achievedTier?.({ home: "/home/user", projectRoot: null, env: {} })).toBe(1);
+  expect(
+    await def.achievedTier?.({
+      home: "/home/user",
+      projectRoot: null,
+      env: { XDG_CONFIG_HOME: "/xdg" },
+    }),
+  ).toBe(2);
+});
+
 // Detection reads a directory it cannot inspect as an error, not as "not installed": a
 // permission problem on the config directory is something to show, and a silent false would
 // hide the harness from every command.

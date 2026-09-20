@@ -25,17 +25,35 @@ import {
 } from "./spec.ts";
 
 // The members a spec cannot carry because they are code: a probe for the tier the machine really
-// reaches, a config edit a rules directory needs, or a hook the shared writers cannot express.
+// reaches, a config edit a rules directory needs, or a hook the shared writers cannot express. A
+// quirk that needs the compiled paths (a probe reading the files `tierCheck` names under the
+// resolved global root) is given as a function of the data-only definition.
 export type HarnessQuirks = {
   achievedTier?: HarnessDefinition["achievedTier"];
   configEdit?: HarnessDefinition["configEdit"];
   reconcile?: Extract<HookShape, { kind: "custom" }>["reconcile"];
 };
+export type QuirksInput = HarnessQuirks | ((declared: HarnessDefinition) => HarnessQuirks);
 
 type ScopedPath = (scope: Scope, ctx: HarnessContext) => string;
 type PathsPerScope = Record<Scope, string>;
 
-export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): HarnessDefinition {
+export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): HarnessDefinition {
+  const declared = compileData(spec);
+  const resolved = typeof quirks === "function" ? quirks(declared) : quirks;
+  const { reconcile, achievedTier, configEdit } = resolved;
+  if (reconcile !== undefined && declared.hook.kind !== "none") {
+    throw new Error(`${spec.id}: a custom reconcile quirk needs hook kind "none" in the spec`);
+  }
+  return {
+    ...declared,
+    ...(reconcile === undefined ? {} : { hook: { kind: "custom", reconcile } }),
+    ...(achievedTier === undefined ? {} : { achievedTier }),
+    ...(configEdit === undefined ? {} : { configEdit }),
+  };
+}
+
+function compileData(spec: HarnessSpec): HarnessDefinition {
   const globalRoot = spec.globalRoot === undefined ? undefined : compileGlobalRoot(spec.globalRoot);
   const roots: Pick<HarnessDefinition, "globalRoot"> =
     globalRoot === undefined ? {} : { globalRoot };
@@ -57,7 +75,7 @@ export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): Har
       const dir = spec.bodiesDir[scope];
       return dir === null ? null : join(scopeRoot(roots, scope, ctx), dir);
     },
-    hook: compileHook(spec, quirks, under),
+    hook: compileHook(spec.hook, under),
     markers: spec.markers,
     expands: [...spec.expands],
     ...(spec.byteBudget === undefined ? {} : { byteBudget: spec.byteBudget }),
@@ -68,7 +86,6 @@ export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): Har
         spec.detect.dirs.some((dir) => configDirExists(join(root, dir)))
       );
     },
-    ...(quirks.achievedTier === undefined ? {} : { achievedTier: quirks.achievedTier }),
     ...(scopeFrontmatter === undefined ? {} : { scopeFrontmatter }),
     verifiedAgainst: { ...spec.verifiedAgainst },
     ...(spec.fixtures === undefined ? {} : { fixtures: { ...spec.fixtures } }),
@@ -86,7 +103,6 @@ export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): Har
             serversPath: [...spec.mcp.serversPath],
           },
         }),
-    ...(quirks.configEdit === undefined ? {} : { configEdit: quirks.configEdit }),
   };
 }
 
@@ -158,18 +174,7 @@ function fenced(fields: Record<string, unknown>): string {
   return `---\n${stringify(fields)}---\n`;
 }
 
-function compileHook(
-  spec: HarnessSpec,
-  quirks: HarnessQuirks,
-  under: (paths: PathsPerScope) => ScopedPath,
-): HookShape {
-  const hook: HookSpecData = spec.hook;
-  if (quirks.reconcile !== undefined) {
-    if (hook.kind !== "none") {
-      throw new Error(`${spec.id}: a custom reconcile quirk needs hook kind "none" in the spec`);
-    }
-    return { kind: "custom", reconcile: quirks.reconcile };
-  }
+function compileHook(hook: HookSpecData, under: (paths: PathsPerScope) => ScopedPath): HookShape {
   switch (hook.kind) {
     case "none":
       return { kind: "none" };

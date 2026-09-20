@@ -2,12 +2,15 @@
 // false` in the project or user config.toml disables them, with the project layer deciding when it
 // sets the key at all. Reporting tier 1 on a disabled machine would promise a refresh that never
 // fires, and so would passing an unreadable config off as an absent one. Also guards that every
-// user-level file follows $CODEX_HOME and that the variable alone never counts as an install.
+// user-level file follows $CODEX_HOME, that the variable alone never counts as an install, and the
+// bytes a fresh hooks.json receives, which Codex reads without checking them for us.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
-import { scopeRoot } from "../contract.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
+import { type HarnessContext, scopeRoot } from "../contract.ts";
+import { hasHook, planHookRegistryWrite } from "../hook-writer.ts";
 import { codex } from "./index.ts";
 
 const fixture = (name: string): string =>
@@ -15,6 +18,16 @@ const fixture = (name: string): string =>
 const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
+
+function achievedTier(ctx: HarnessContext): Promise<1 | 2> {
+  if (codex.achievedTier === undefined) throw new Error("Codex probes its config.toml layers");
+  return codex.achievedTier(ctx);
+}
+
+function hookPath(scope: "project" | "global", ctx: HarnessContext): string {
+  if (!hasHook(codex, "registry")) throw new Error("the hook is a registry entry");
+  return codex.hook.path(scope, ctx);
+}
 
 const layers: [string, string | null, string | null, 1 | 2][] = [
   ["no config at all", null, null, 1],
@@ -35,8 +48,7 @@ test.each(layers)(
       mkdirSync(join(project, ".codex"), { recursive: true });
       if (projectToml !== null) writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       if (userToml !== null) writeFileSync(join(home, ".codex", "config.toml"), userToml);
-      const ctx = { home, projectRoot: project, env: {} };
-      expect(await codex.achievedTier(ctx)).toBe(expected);
+      expect(await achievedTier({ home, projectRoot: project, env: {} })).toBe(expected);
     });
   },
 );
@@ -44,8 +56,7 @@ test.each(layers)(
 test("achievedTier surfaces a config.toml it cannot read instead of counting it absent", async () => {
   await withTempDir(async (dir) => {
     mkdirSync(join(dir, ".codex", "config.toml"), { recursive: true });
-    const ctx = { home: dir, projectRoot: null, env: {} };
-    await expect(codex.achievedTier(ctx)).rejects.toThrow(/EISDIR/);
+    await expect(achievedTier({ home: dir, projectRoot: null, env: {} })).rejects.toThrow(/EISDIR/);
   });
 });
 
@@ -57,7 +68,7 @@ test("achievedTier skips a project whose .codex is a regular file and lets the u
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, ".codex"), "not a directory\n");
     writeFileSync(join(home, ".codex", "config.toml"), disabled);
-    expect(await codex.achievedTier({ home, projectRoot: project, env: {} })).toBe(2);
+    expect(await achievedTier({ home, projectRoot: project, env: {} })).toBe(2);
   });
 });
 
@@ -67,16 +78,14 @@ test("$CODEX_HOME moves the user AGENTS.md, config and hook registry, even when 
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(join(codexHome, "config.toml"), disabled);
     const ctx = { home: join(dir, "home"), projectRoot: null, env: { CODEX_HOME: codexHome } };
-    expect(await codex.achievedTier(ctx)).toBe(2);
-    expect(codex.hook.path("global", ctx)).toBe(join(codexHome, "hooks.json"));
-    expect(join(scopeRoot(codex, "global", ctx), codex.targets.global.file)).toBe(
-      join(codexHome, "AGENTS.md"),
-    );
+    expect(await achievedTier(ctx)).toBe(2);
+    expect(hookPath("global", ctx)).toBe(join(codexHome, "hooks.json"));
+    const target = codex.targets.global;
+    if (target?.kind !== "shared-block") throw new Error("the user AGENTS.md is a shared block");
+    expect(join(scopeRoot(codex, "global", ctx), target.file)).toBe(join(codexHome, "AGENTS.md"));
 
     const relative = { ...ctx, env: { CODEX_HOME: "custom-codex" } };
-    expect(codex.hook.path("global", relative)).toBe(
-      join(process.cwd(), "custom-codex/hooks.json"),
-    );
+    expect(hookPath("global", relative)).toBe(join(process.cwd(), "custom-codex/hooks.json"));
   });
 });
 
@@ -100,4 +109,42 @@ test("detection follows the config directory, not the exported variable", async 
     mkdirSync(join(home, ".codex"), { recursive: true });
     expect(codex.detect({ home, projectRoot: null, env: {} })).toBe(true);
   });
+});
+
+test("a fresh project hooks.json receives the grouped async SessionStart entry", () => {
+  const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+  if (!hasHook(codex, "registry")) throw new Error("the hook is a registry entry");
+  const plan = planHookRegistryWrite({
+    def: codex,
+    scope: "project",
+    ctx,
+    wanted: true,
+    currentText: null,
+  });
+  expect(plan.changes).toEqual([
+    {
+      kind: "write",
+      path: assertInsideRoot("/home/user/project", "/home/user/project/.codex/hooks.json"),
+      content: [
+        "{",
+        '  "hooks": {',
+        '    "SessionStart": [',
+        "      {",
+        '        "hooks": [',
+        "          {",
+        '            "type": "command",',
+        '            "command": "npx -y @vivswan/maxims sync --quiet",',
+        '            "timeout": 20,',
+        '            "async": true,',
+        '            "statusMessage": "Syncing maxims"',
+        "          }",
+        "        ]",
+        "      }",
+        "    ]",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    },
+  ]);
 });
