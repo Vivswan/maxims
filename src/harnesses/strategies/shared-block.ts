@@ -6,6 +6,7 @@ import {
   type HarnessDefinition,
   type Scope,
   scopeRoot,
+  sharedBlockFile,
   type Target,
 } from "../contract.ts";
 import { assertWithinBudget } from "./rules-dir.ts";
@@ -70,7 +71,7 @@ export function sharedBlockPath(
   input: Pick<SharedBlockLocation, "def" | "target" | "scope" | "ctx">,
 ): RootedPath {
   const root = scopeRoot(input.def, input.scope, input.ctx);
-  return assertInsideRoot(root, join(root, input.target.file));
+  return assertInsideRoot(root, join(root, sharedBlockFile(input.target, root)));
 }
 
 function findSpan(input: SharedBlockLocation): ManagedBlockSpan | undefined {

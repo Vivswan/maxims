@@ -2,6 +2,9 @@
 // separator that add-then-remove fails to undo, or a leftover empty file would each corrupt or
 // litter the AGENTS.md family silently.
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessContext, HarnessDefinition } from "../contract.ts";
@@ -143,5 +146,45 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
     }
     expect(caught).toBeInstanceOf(MaximsError);
     if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.RuleCapExceeded);
+  });
+});
+
+// Zed reads only the first of its instruction files that exists, so a block planned for AGENTS.md
+// beside a `.rules` file would never load; the plan must follow the target's precedence list
+// against the real root and fall back to the declared file only when none of them exists.
+test("a precedence target plans the block into the file the harness reads first", async () => {
+  const preferring: SharedBlockTarget = {
+    kind: "shared-block",
+    file: "AGENTS.md",
+    precedence: [".rules", "AGENTS.md"],
+  };
+  await withTempDir((root) => {
+    const at = {
+      def,
+      target: preferring,
+      scope: "project" as const,
+      ctx: { ...ctx, projectRoot: root },
+    };
+    const plan = (currentText: string | null) =>
+      planSharedBlockWrite({ ...at, source: "@a/b", currentText, parseBlocks, block: ours });
+    expect(plan(null).map((change) => String(change.path))).toEqual([join(root, "AGENTS.md")]);
+    writeFileSync(join(root, ".rules"), "house rules\n");
+    expect(plan("house rules\n").map((change) => String(change.path))).toEqual([
+      join(root, ".rules"),
+    ]);
+    expect(
+      planSharedBlockRemove({
+        ...at,
+        source: "@a/b",
+        currentText: `house rules\n\n${ours}`,
+        parseBlocks,
+      }),
+    ).toEqual([
+      {
+        kind: "write",
+        path: assertInsideRoot(root, join(root, ".rules")),
+        content: "house rules\n",
+      },
+    ]);
   });
 });
