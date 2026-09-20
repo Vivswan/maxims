@@ -72,21 +72,25 @@ function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
   return escapeReferences(commentSafe, expands);
 }
 
-// A reference token is wrapped in a code span, which every documented import parser skips. So
-// that every parser agrees where that span is, a line carrying such a token first loses everything
-// that could pair with, escape or swallow one of its fences: existing backticks, backslashes, `<`,
-// `[` and any `~~~` run become entities (a leading `~~~` would otherwise turn the whole rule into
-// a fence's info string). The fences are then the only backticks in the line, each glued to its token with
-// no escape or link syntax left to reach across them, so a construct that steals an opener
-// swallows the token with it and none can leave it exposed.
-//
-// A token behind leading backslashes counts as a reference too, since CommonMark renders `\@x` as
-// a bare `@x`; once the backslash is an entity the token is inert and needs no fence.
+// A reference token is wrapped in a code span, which every documented import parser skips. Every
+// whitespace-split token holding `@` (or `#name:`) anywhere is one: an import walker matches a
+// bare `@` at the start of a lexed text token, and which inline constructs (emphasis, a link label,
+// an escape, an email autolink, an inline tag) start a fresh one differs by parser, so the rule
+// models none of them. So that every parser agrees where each span is, a line carrying such a
+// token first loses everything that could pair with, escape or swallow one of its fences: existing
+// backticks, backslashes, `<`, `[` and any `~~~` run become entities (a leading `~~~` would
+// otherwise turn the whole rule into a fence's info string). The fences are then the only
+// backticks in the line, each glued to its token with no escape or link syntax left to reach
+// across them, so a construct that steals an opener swallows the token with it and none can leave
+// it exposed.
+const AT_REFERENCE = /@/;
+const HASH_REFERENCE = /#[A-Za-z]+:/;
+
 function escapeReferences(text: string, expands: readonly ExpansionSyntax[]): string {
   const wrapAt = expands.length === 0 || expands.includes("at-import");
   const wrapHash = expands.length === 0;
   const isReference = (token: string): boolean =>
-    (wrapAt && /^\\*@/.test(token)) || (wrapHash && /^\\*#[A-Za-z]+:/.test(token));
+    (wrapAt && AT_REFERENCE.test(token)) || (wrapHash && HASH_REFERENCE.test(token));
   if (!text.split(/\s+/).some(isReference)) return text;
   return text
     .replaceAll("\\", "&#92;")

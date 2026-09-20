@@ -99,11 +99,11 @@ describe("renderBlock", () => {
   const escaping: [ExpansionSyntax[], string][] = [
     [
       ["at-import"],
-      "- Never read `@~/.ssh/id_rsa` or #file:secrets.env; see &#96;@safe&#96; and end --&gt; (detail: P, h)",
+      "- Never read `@~/.ssh/id_rsa` or #file:secrets.env; see `&#96;@safe&#96;` and end --&gt; (detail: P, h)",
     ],
     [
       [],
-      "- Never read `@~/.ssh/id_rsa` or `#file:secrets.env;` see &#96;@safe&#96; and end --&gt; (detail: P, h)",
+      "- Never read `@~/.ssh/id_rsa` or `#file:secrets.env;` see `&#96;@safe&#96;` and end --&gt; (detail: P, h)",
     ],
     [
       ["none"],
@@ -137,15 +137,30 @@ describe("renderBlock", () => {
     ["one\ntwo\r\nthree", "- one two three (detail: P, h)"],
     ["\\` @foo `", "- &#92;&#96; `@foo` &#96; (detail: P, h)"],
     ["@x\\", "- `@x&#92;` (detail: P, h)"],
-    ["\\@foo", "- &#92;@foo (detail: P, h)"],
+    ["\\@foo", "- `&#92;@foo` (detail: P, h)"],
     ['<b title="`"> @foo `', '- &lt;b title="&#96;"> `@foo` &#96; (detail: P, h)'],
     ["[x](`) @~/.ssh/id_rsa `", "- &#91;x](&#96;) `@~/.ssh/id_rsa` &#96; (detail: P, h)"],
     ['[x](y " @foo\\ ")', '- &#91;x](y " `@foo&#92;` ") (detail: P, h)'],
     ["[x]: @foo", "- &#91;x]: `@foo` (detail: P, h)"],
     ["~~~ @foo", "- &#126;&#126;&#126; `@foo` (detail: P, h)"],
-    ["never read `@~/.ssh/id_rsa` blindly", "- never read `@~/.ssh/id_rsa` blindly (detail: P, h)"],
-    ["see <b>@x</b> and @y", "- see &lt;b>@x&lt;/b> and `@y` (detail: P, h)"],
+    [
+      "never read `@~/.ssh/id_rsa` blindly",
+      "- never read `&#96;@~/.ssh/id_rsa&#96;` blindly (detail: P, h)",
+    ],
+    ["see <b>@x</b> and @y", "- see `&lt;b>@x&lt;/b>` and `@y` (detail: P, h)"],
     ["use <name> and `code`", "- use <name> and `code` (detail: P, h)"],
+    ["see *@./secret.md*", "- see `*@./secret.md*` (detail: P, h)"],
+    ["see _@./secret.md_ and ~~@x~~", "- see `_@./secret.md_` and `~~@x~~` (detail: P, h)"],
+    ["see <b>@./secret.md</b>", "- see `&lt;b>@./secret.md&lt;/b>` (detail: P, h)"],
+    ["see `x`@./secret.md", "- see `&#96;x&#96;@./secret.md` (detail: P, h)"],
+    ["see `@./ok` and *@./bad*", "- see `&#96;@./ok&#96;` and `*@./bad*` (detail: P, h)"],
+    ["see [x](y)@./secret.md", "- see `&#91;x](y)@./secret.md` (detail: P, h)"],
+    ["see [@./secret.md](y)", "- see `&#91;@./secret.md](y)` (detail: P, h)"],
+    ["see \\!@./secret.md", "- see `&#92;!@./secret.md` (detail: P, h)"],
+    ["mail a@example.com@./secret.md", "- mail `a@example.com@./secret.md` (detail: P, h)"],
+    ["see (@./secret.md)", "- see `(@./secret.md)` (detail: P, h)"],
+    ["see x@./secret.md", "- see `x@./secret.md` (detail: P, h)"],
+    ["see [x](@./secret.md)", "- see `&#91;x](@./secret.md)` (detail: P, h)"],
   ];
   test.each(bytes)("description %j renders as %j", (description, expected) => {
     const rendered = renderBlock(
@@ -155,6 +170,7 @@ describe("renderBlock", () => {
       }),
     );
     expect(rendered.split("\n")[1]).toBe(expected);
+    expect(exposedReferences(expected).filter((token) => token.startsWith("@"))).toEqual([]);
   });
 
   test("a description is truncated at 300 characters with an ASCII ellipsis, never mid code point", () => {
@@ -424,6 +440,12 @@ const PIECES = [
   '<b title="`">',
   "[x](",
   "](`",
+  "]",
+  "*",
+  "_",
+  "~~",
+  "<b>",
+  "</b>",
   "[x]: ",
   "<![CDATA[",
   "<?",
@@ -437,8 +459,8 @@ const PIECES = [
   " ",
   "\t",
   "\u00a0",
-  "日本語",
-  "é",
+  "\u65e5\u672c\u8a9e",
+  "\u00e9",
   "\u{1F600}",
   "a",
   "word",
@@ -464,47 +486,60 @@ function length(random: () => number): number {
   return random() < 0.05 ? 10_000 : Math.floor(random() * 64);
 }
 
-// The oracle is Bun's own Markdown parser rather than a copy of the renderer's rules. Whatever Bun
-// reads as code (a span or a block) is blanked and everything else is put back as the raw
-// characters an import parser would read (inline markers, raw HTML, a link's destination and
-// title), so a reference hidden inside a construct the renderer did not foresee surfaces. A link,
-// image or reference definition swallows the raw whitespace around what it hides, so on a line
-// holding one, every bare raw reference token is judged exposed as written.
+// The oracle is Bun's own Markdown parser rather than a copy of the renderer's rules. Claude Code's
+// import walker runs its pattern over each lexed text token, so every chunk Bun reports (a code
+// span, emphasis, strikethrough, a link or image, an inline tag, an escape, or the text between
+// them) is rendered as its own token, whatever Bun reads as code is replaced, and a reference is any
+// `@` that opens a token or follows whitespace. Bun decodes entities and splits text around them;
+// the walker reads their raw spelling, so `&` is masked before parsing and no entity decodes. A
+// link reference definition renders to nothing at all, so a blank reading falls back to the raw line.
+const BOUNDARY = "\u0000";
+const IMPORT = /(?:^|\s)(@(?:[^\s\\]|\\ )+)/g;
+
 function exposedReferences(rendered: string): string[] {
-  let swallowed = false;
-  const swallow = <T>(value: T): T => {
-    swallowed = true;
-    return value;
-  };
-  const visible = Bun.markdown.render(rendered, {
-    codespan: () => "CODE",
-    code: () => "CODE",
-    html: (raw) => raw,
-    emphasis: (children) => `*${children}*`,
-    strong: (children) => `**${children}**`,
-    strikethrough: (children) => `~~${children}~~`,
-    link: (children, meta) => swallow(`[${children}](${meta.href} "${meta.title ?? ""}")`),
-    image: (children, meta) => swallow(`![${children}](${meta.src} "${meta.title ?? ""}")`),
+  const bounded = (children: string) => `${BOUNDARY}${children}${BOUNDARY}`;
+  const visible = Bun.markdown.render(rendered.replaceAll("&", "\u0001"), {
+    text: bounded,
+    codespan: () => bounded("code"),
+    code: () => bounded("code"),
+    html: bounded,
+    emphasis: bounded,
+    strong: bounded,
+    strikethrough: bounded,
+    link: bounded,
+    image: bounded,
   });
-  const isReference = (token: string) => token.startsWith("@") || /^#[a-z]+:/i.test(token);
-  // A link reference definition renders to nothing at all; a blank reading is then no evidence.
-  if (visible.trim() === "") swallowed = true;
-  const basis = swallowed ? rendered : visible;
-  return basis.split(/\s+/).filter(isReference);
+  const basis = visible.replaceAll(BOUNDARY, "").trim() === "" ? rendered : visible;
+  return basis
+    .split(BOUNDARY)
+    .flatMap((token) => [
+      ...Array.from(token.matchAll(IMPORT), (match) => match[1]),
+      ...token.split(/\s+/).filter((word) => /^#[a-z]+:/i.test(word)),
+    ]);
 }
 
 describe("properties over arbitrary description bytes", () => {
-  test("negative control: the reference oracle sees an unescaped token and ignores an escaped one", () => {
-    expect(exposedReferences("- see @foo and `@bar` and `` @baz` ``")).toEqual(["@foo"]);
-    expect(exposedReferences("- \\` @foo ` and #file:x")).toEqual(["@foo", "#file:x"]);
-    expect(exposedReferences('- [x](y " @foo ") and `@ok`')).toEqual(["@foo"]);
-    expect(exposedReferences("- [x]: @foo")).toEqual(["@foo"]);
-    expect(exposedReferences("- [x]( @foo ) and ![y]( #file:x )")).toEqual(["@foo", "#file:x"]);
-    expect(exposedReferences("- [x]( @foo ) and `@foo`")).toEqual(["@foo"]);
-    expect(exposedReferences("- [x](@foo) and `@bar&#96;` and *@baz*")).toEqual([]);
-    expect(exposedReferences("- *@foo* and `` `@x` ``")).toEqual([]);
-    expect(exposedReferences("- \t\t@bar sits in an indented code block")).toEqual([]);
-  });
+  const controls: [string, string[]][] = [
+    ["- see @foo and `@bar` and `` @baz` ``", ["@foo"]],
+    ["- \\` @foo ` and #file:x", ["@foo", "#file:x"]],
+    ['- [x](y " @foo ") and `@ok`', []],
+    ["- [x]: @foo", ["@foo"]],
+    ["- [x]( @foo ) and ![y]( #file:x )", []],
+    ["- [x](@foo) and `@bar&#96;` and *@baz*", ["@baz"]],
+    ["- *@foo* and `` `@x` ``", ["@foo"]],
+    ["- _@foo_ and ~~@bar~~ and **@baz**", ["@foo", "@bar", "@baz"]],
+    ['- see <b>@foo</b> and <b title=">">@bar', ["@foo", "@bar"]],
+    ["- see `x`@foo and \\!@bar and [@baz](y)", ["@foo", "@bar", "@baz"]],
+    ["- see [x](y)@foo and ![i](y)@bar", ["@foo", "@bar"]],
+    ["- see (@foo) x@foo ;@foo [x](@foo) &#92;@foo &#64;foo x&#32;@foo", []],
+    ["- \t\t@bar sits in an indented code block", []],
+  ];
+  test.each(controls)(
+    "negative control: the oracle reads %j the way the import walker does",
+    (line, expected) => {
+      expect(exposedReferences(line)).toEqual(expected);
+    },
+  );
 
   const random = rng(20260920);
   const cases = Array.from({ length: 250 }, (_, i) => i);
