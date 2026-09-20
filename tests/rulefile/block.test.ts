@@ -3,6 +3,7 @@
 // token is a file-read primitive on Claude Code, and any byte changed outside the pair is a user's
 // hand-written rule silently rewritten. None of that is enforced by anything but these rows.
 import { describe, expect, test } from "bun:test";
+import fc from "fast-check";
 import type { MemoryName } from "../../src/memory/contract.ts";
 import {
   ownLineMatcher,
@@ -14,6 +15,7 @@ import {
 } from "../../src/rulefile/block.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "../../src/rulefile/types.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { propertyOptions } from "../shared/property.ts";
 
 const SOURCE = "@Vivswan/skills";
 const STORE = "/home/user/.agents/maxims/store/Vivswan/skills";
@@ -1099,81 +1101,6 @@ describe("replaceBlock and stripBlock", () => {
   );
 });
 
-// mulberry32: a tiny seeded generator so a failing case is reproducible from its seed alone.
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const PIECES = [
-  "-->",
-  "<!--",
-  "<!-->",
-  "@",
-  "@~/.ssh/id_rsa",
-  "@../../secrets.env",
-  "#file:x",
-  "`",
-  "``",
-  "```",
-  "\\",
-  "\\`",
-  "<",
-  '<b title="`">',
-  "[x](",
-  "](`",
-  "]",
-  "*",
-  "_",
-  "~~",
-  "<b>",
-  "</b>",
-  "[x]: ",
-  "<![CDATA[",
-  "<?",
-  "<div>",
-  "\u2028",
-  '"',
-  "<pre>",
-  "~~~",
-  "\n",
-  "\r\n",
-  " ",
-  "\t",
-  "\u00a0",
-  "\u65e5\u672c\u8a9e",
-  "\u00e9",
-  "\u{1F600}",
-  "a",
-  "word",
-  "-",
-  "(",
-  ")",
-  END,
-  BEGIN,
-  "<!-- maxims:end @Vivswan/skills",
-];
-
-function pick<T>(random: () => number, items: readonly T[]): T {
-  return items[Math.floor(random() * items.length)];
-}
-
-function text(random: () => number, pieces: readonly string[], target: number): string {
-  let out = "";
-  while (out.length < target) out += pick(random, pieces);
-  return out;
-}
-
-function length(random: () => number): number {
-  return random() < 0.05 ? 10_000 : Math.floor(random() * 64);
-}
-
 // The oracle is Bun's own Markdown parser rather than a copy of the renderer's rules. Claude Code's
 // import walker runs its pattern over each lexed text token, so every chunk Bun reports (a code
 // span, emphasis, strikethrough, a link or image, an inline tag, an escape, or the text between
@@ -1206,6 +1133,219 @@ function exposedReferences(rendered: string): string[] {
     ]);
 }
 
+// Every byte sequence the escaping has to keep in its place inside a rule line: comment delimiters,
+// reference tokens, code-span and fence openers, escapes, raw HTML, link syntax, the markers
+// themselves, line endings and whitespace of several widths. fast-check shrinks a constantFrom
+// toward its first value, so the harmless pieces come first and a counterexample reads as text.
+const DESCRIPTION_PIECES = [
+  "a",
+  "word",
+  " ",
+  "-",
+  "(",
+  ")",
+  "\t",
+  "\u00a0",
+  "\n",
+  "\r\n",
+  "\r",
+  "\u2028",
+  "\u00e9",
+  "\u65e5\u672c\u8a9e",
+  "\u{1F600}",
+  "-->",
+  "<!--",
+  "<!-->",
+  "@",
+  "@foo",
+  "@~/.ssh/id_rsa",
+  "@../../secrets.env",
+  "#file:x",
+  "`",
+  "``",
+  "```",
+  "\\",
+  "\\`",
+  "<",
+  '<b title="`">',
+  "[x](",
+  "](`",
+  "]",
+  "*",
+  "_",
+  "~~",
+  "<b>",
+  "</b>",
+  "[x]: ",
+  "<![CDATA[",
+  "<?",
+  "<div>",
+  '"',
+  "<pre>",
+  "~~~",
+  END,
+  BEGIN,
+  "<!-- maxims:end @Vivswan/skills",
+];
+
+const join = (parts: string[]): string => parts.join("");
+
+function piecesOf(pieces: readonly string[], maxLength: number): fc.Arbitrary<string> {
+  return fc.array(fc.constantFrom(...pieces), { maxLength }).map(join);
+}
+
+// Any scalar value: fc.string's binary unit draws from the same range but builds its code point table
+// at construction, which costs more than the whole test file.
+const anyCodePoint = fc
+  .oneof(fc.integer({ min: 0, max: 0xd7ff }), fc.integer({ min: 0xe000, max: 0x10ffff }))
+  .map((codePoint) => String.fromCodePoint(codePoint));
+
+// Hostile pieces, any scalar value now and then, and a share of descriptions past the 300 code
+// point cap so the cut can land inside a reference token or a comment delimiter.
+const descriptions = fc.oneof(
+  {
+    weight: 19,
+    arbitrary: fc
+      .array(
+        fc.oneof(
+          { weight: 8, arbitrary: fc.constantFrom(...DESCRIPTION_PIECES) },
+          { weight: 1, arbitrary: anyCodePoint },
+        ),
+        { maxLength: 24 },
+      )
+      .map(join),
+  },
+  {
+    weight: 1,
+    arbitrary: fc
+      .array(fc.constantFrom(...DESCRIPTION_PIECES), { minLength: 301, maxLength: 600 })
+      .map(join),
+  },
+);
+
+const renderCases = fc.record({
+  markers: fc.constantFrom<BlockInput["markers"]>("stripped", "counted"),
+  expands: fc.constantFrom<ExpansionSyntax[]>(["at-import"], [], ["none"]),
+  description: descriptions,
+  detailPath: piecesOf(DESCRIPTION_PIECES, 5),
+  stale: fc.option(fc.constant<Staleness>({ since: "2026-09-01T00:00:00Z", kind: "age" }), {
+    nil: undefined,
+  }),
+  selfRefresh: fc.boolean(),
+  frontmatter: fc.option(fc.constant('---\napplyTo: "**"\n---\n'), { nil: undefined }),
+});
+
+const LINE_ENDINGS = ["\n", "\r\n", "\r"];
+
+// Line starts that put the rest of the line inside a list item, a blockquote, or an indented code
+// block, or leave it at column 0 with up to three spaces of indentation.
+const LINE_STARTS = [
+  "",
+  "",
+  "",
+  "- ",
+  "-",
+  "  ",
+  "   ",
+  "    ",
+  "\t",
+  "> ",
+  ">",
+  "1. ",
+  "2. ",
+  "- > ",
+  "  - ",
+];
+
+// Pieces that open no fence, comment, or literal HTML block (pre, CDATA, processing instruction,
+// declaration) in any order behind any line start; a lone tag still opens a raw HTML block, but the
+// blank line an append writes ends that, so no closer is written and a strip gives the file back
+// byte for byte. No piece starts or ends with a backtick or tilde run that a neighbour could extend
+// into a fence opener, and no two pieces spell a marker pair: a file that already holds a block
+// takes the new one into that run rather than at its end, which the slot tests above cover.
+const CLOSED_PIECES = [
+  "word",
+  "x",
+  " ",
+  "\t",
+  "\u00a0",
+  "\u2028",
+  "\ufeff",
+  "\u65e5\u672c\u8a9e",
+  "\u{1F600}",
+  "`x`",
+  "~~x~~",
+  "*",
+  "_",
+  "\\",
+  "#",
+  "===",
+  "---",
+  '"title"',
+  "[x]: /url",
+  "[x](y)",
+  "<b>",
+  "</b>",
+  '<b title="`">',
+  "<!-->",
+  "<!-- note -->",
+  "<pre>x</pre>",
+];
+
+// Pieces that can leave a fence, a comment, a raw HTML block, or a code span open past their line.
+const OPEN_PIECES = [
+  "`",
+  "``",
+  "```",
+  "````",
+  "~~~",
+  "~~~~",
+  "<!--",
+  "-->",
+  "<pre>",
+  "</pre>",
+  "<div>",
+  "</div>",
+  "<custom>",
+  "<b",
+  "<![CDATA[",
+  "]]>",
+  "<?",
+  "?>",
+  "<!DOCTYPE",
+  "<!-- maxims:end @Vivswan/skills",
+];
+
+// Each line ends in its own style, so one file mixes LF, CRLF and lone CR; one file in twenty runs
+// to about a thousand lines so item, quote and paragraph state is carried far past the short cases.
+function userFiles(pieces: readonly string[]): fc.Arbitrary<string> {
+  const fileLine = fc
+    .tuple(fc.constantFrom(...LINE_STARTS), piecesOf(pieces, 5), fc.constantFrom(...LINE_ENDINGS))
+    .map(join);
+  const fileLines = fc.oneof(
+    { weight: 19, arbitrary: fc.array(fileLine, { maxLength: 10 }) },
+    { weight: 1, arbitrary: fc.array(fileLine, { minLength: 800, maxLength: 1200 }) },
+  );
+  return fc.tuple(fileLines, fc.boolean()).map(([lines, terminated]) => {
+    const text = join(lines);
+    return terminated ? text : text.replace(/\r\n$|[\r\n]$/, "");
+  });
+}
+
+// Runs per property when MAXIMS_PROPERTY_ITERATIONS is unset. Each run here renders or edits one
+// small file, so the count sits far above the engine convergence suite's default, whose every run
+// drives the whole engine.
+const CORPUS_RUNS = 100;
+
+const closedFiles = userFiles(CLOSED_PIECES);
+const openFiles = userFiles([...CLOSED_PIECES, ...OPEN_PIECES]);
+
+function blocksFor(text: string, source: string): string[] {
+  return parseBlocks(text)
+    .blocks.filter((block) => block.source === source)
+    .map((block) => text.slice(block.start, block.end));
+}
+
 describe("properties over arbitrary description bytes", () => {
   const controls: [string, string[]][] = [
     ["- see @foo and `@bar` and `` @baz` ``", ["@foo"]],
@@ -1229,76 +1369,81 @@ describe("properties over arbitrary description bytes", () => {
     },
   );
 
-  const random = rng(20260920);
-  const cases = Array.from({ length: 250 }, (_, i) => i);
+  test("for any bytes the pair round-trips, renders identically, escapes and stays at column 0", () => {
+    fc.assert(
+      fc.property(renderCases, ({ description, detailPath, ...rest }) => {
+        const blockInput = input({
+          ...rest,
+          lines: [{ name: RUBBER_DUCK.name, description, detailPath, shortHash: "h" }, GATE],
+        });
+        const rendered = renderBlock(blockInput);
+        const parsed = parseBlocks(rendered);
+        expect(parsed.warnings).toEqual([]);
+        expect(parsed.blocks.map((block) => rendered.slice(block.start, block.end))).toEqual([
+          rendered.slice(rendered.indexOf(BEGIN)),
+        ]);
+        expect(parsed.blocks[0]).toMatchObject({ source: SOURCE, sha: "3f2a9c1e" });
+        expect(renderBlock(blockInput)).toBe(rendered);
 
-  test.each(cases)(
-    "case %i: the pair round-trips, renders identically, escapes and stays at column 0",
-    (i) => {
-      const expands = pick(random, [["at-import"], [], ["none"]] as ExpansionSyntax[][]);
-      const markers = pick(random, ["stripped", "counted"] as const);
-      const description = text(random, PIECES, length(random));
-      const detailPath = text(random, PIECES, Math.floor(random() * 24));
-      const blockInput = input({
-        markers,
-        expands,
-        lines: [{ name: RUBBER_DUCK.name, description, detailPath, shortHash: "h" }, GATE],
-        stale: random() < 0.5 ? { since: "2026-09-01T00:00:00Z", kind: "age" } : undefined,
-        selfRefresh: random() < 0.5,
-        frontmatter: random() < 0.3 ? '---\napplyTo: "**"\n---\n' : undefined,
-      });
-      const rendered = renderBlock(blockInput);
-      const parsed = parseBlocks(rendered);
-      expect(parsed.warnings, `seed case ${i}`).toEqual([]);
-      expect(parsed.blocks.map((block) => rendered.slice(block.start, block.end))).toEqual([
-        rendered.slice(rendered.indexOf(BEGIN)),
-      ]);
-      expect(parsed.blocks[0]).toMatchObject({ source: SOURCE, sha: "3f2a9c1e" });
-      expect(renderBlock(blockInput)).toBe(rendered);
-
-      const lines = rendered.split("\n");
-      const markerLines = lines.filter((l) => l.includes("<!-- maxims:"));
-      expect(markerLines.every((l) => l.startsWith("<!-- maxims:"))).toBe(true);
-      expect(markerLines).toHaveLength(2);
-      if (expands.length === 0 || expands.includes("at-import")) {
-        for (const l of lines.filter((l) => l.startsWith("- "))) {
-          expect(
-            exposedReferences(l).filter((t) => t.startsWith("@")),
-            `seed case ${i}`,
-          ).toEqual([]);
+        const lines = rendered.split("\n");
+        const markerLines = lines.filter((l) => l.includes("<!-- maxims:"));
+        expect(markerLines.every((l) => l.startsWith("<!-- maxims:"))).toBe(true);
+        expect(markerLines).toHaveLength(2);
+        const ruleLines = lines.filter((l) => l.startsWith("- "));
+        expect(ruleLines.filter((l) => l.includes("-->") || l.includes("<!--"))).toEqual([]);
+        const { expands } = rest;
+        if (expands.length === 0 || expands.includes("at-import")) {
+          for (const l of ruleLines) {
+            expect(exposedReferences(l).filter((t) => t.startsWith("@"))).toEqual([]);
+          }
         }
-      }
-      if (expands.length === 0) {
-        for (const l of lines.filter((l) => l.startsWith("- "))) {
-          expect(exposedReferences(l), `seed case ${i}`).toEqual([]);
+        if (expands.length === 0) {
+          for (const l of ruleLines) expect(exposedReferences(l)).toEqual([]);
         }
-      }
-    },
-  );
+      }),
+      propertyOptions(CORPUS_RUNS),
+    );
+  });
+});
 
-  const surroundings = PIECES.filter((piece) => piece !== BEGIN && piece !== END);
-  const opensBlock = ["```", "~~~", "<!--", "<pre>", "<![CDATA[", "<?", "<div>"];
-  const flat = surroundings.filter((piece) => !opensBlock.includes(piece));
+describe("properties over arbitrary user files", () => {
+  test("appending after a file with nothing left open keeps every byte, and stripping gives it back", () => {
+    fc.assert(
+      fc.property(closedFiles, (before) => {
+        const after = replaceBlock(before, SOURCE, BLOCK);
+        expect(after.startsWith(before)).toBe(true);
+        expect(blocksFor(after, SOURCE)).toEqual([BLOCK]);
+        const stripped = stripBlock(after, SOURCE).text;
+        if (before === "" || /[\r\n]$/.test(before)) expect(stripped).toBe(before);
+        else expect(stripped.startsWith(before)).toBe(true);
+      }),
+      propertyOptions(CORPUS_RUNS),
+    );
+  });
 
-  test.each(cases)(
-    "case %i: appending into arbitrary user text preserves it and strips back out",
-    (i) => {
-      const before = text(random, flat, length(random));
-      const after = replaceBlock(before, SOURCE, BLOCK);
-      expect(after.startsWith(before), `seed case ${i}`).toBe(true);
-      const parsed = parseBlocks(after);
-      expect(parsed.blocks.filter((block) => block.source === SOURCE)).toHaveLength(1);
-      if (before === "" || /[\r\n]$/.test(before)) {
-        expect(stripBlock(after, SOURCE).text, `seed case ${i}`).toBe(before);
-      }
-      const fenced = text(random, surroundings, length(random));
-      const withFences = replaceBlock(fenced, SOURCE, BLOCK);
-      expect(withFences.startsWith(fenced), `seed case ${i}`).toBe(true);
-      expect(
-        parseBlocks(withFences).blocks.filter((block) => block.source === SOURCE),
-      ).toHaveLength(1);
-    },
-  );
+  test("appending after a file that may end inside a fence or raw HTML still lands one findable block and strips back out", () => {
+    fc.assert(
+      fc.property(openFiles, (before) => {
+        const after = replaceBlock(before, SOURCE, BLOCK);
+        expect(after.startsWith(before)).toBe(true);
+        expect(blocksFor(after, SOURCE)).toEqual([BLOCK]);
+        const stripped = stripBlock(after, SOURCE).text;
+        expect(stripped.startsWith(before)).toBe(true);
+        expect(blocksFor(stripped, SOURCE)).toEqual([]);
+      }),
+      propertyOptions(CORPUS_RUNS),
+    );
+  });
+
+  test("a block quoted in a fence after a file with nothing left open is never a block", () => {
+    fc.assert(
+      fc.property(closedFiles, fc.constantFrom("```", "````", "~~~"), (before, fence) => {
+        const text = `${before}\n\n${fence}\n${BLOCK}${fence}\n`;
+        expect(blocksFor(text, SOURCE)).toEqual([]);
+      }),
+      propertyOptions(CORPUS_RUNS),
+    );
+  });
 
   // The removal validates a closing by scanning only the joined gap and what it swallows, on the
   // premise that a marker line leaves the scanner in its starting state. A scanner change that
@@ -1343,35 +1488,43 @@ describe("properties over arbitrary description bytes", () => {
     ZETA,
     renderBlock(input({ markers: "counted", source: "@example-user/rules", sha: "dup" })),
   ];
-  test.each(cases)(
-    "case %i: an accepted removal reads back in full as exactly the kept pairs",
-    (i) => {
-      const spread = (count: number): string =>
-        Array.from({ length: count }, () => pick(random, gaps)).join("");
-      const blocks = Array.from({ length: 1 + Math.floor(random() * 4) }, () =>
-        pick(random, rendered),
-      );
-      const ending = pick(random, ["\n", "\r\n", "\r"]);
-      const before = blocks
-        .map((block) => `${spread(Math.floor(random() * 4))}${block.replaceAll("\n", ending)}`)
-        .join("")
-        .concat(spread(Math.floor(random() * 3)));
-      const pairs = pairsOf(before);
-      if (pairs.length === 0) return;
-      const sources = pairs.map(
-        (pair) => /^<!-- maxims:begin (.+) sha=\S+ -->/.exec(pair)?.[1] ?? "",
-      );
-      const source = pick(random, sources);
-      let stripped: string | null = null;
-      try {
-        stripped = stripBlock(before, source).text;
-      } catch (error) {
-        expect(error, `seed case ${i}`).toBeInstanceOf(MaximsError);
-      }
-      if (stripped === null) return;
-      const kept = [...pairs];
-      kept.splice(sources.indexOf(source), 1);
-      expect(pairsOf(stripped).sort(), `seed case ${i}`).toEqual(kept.sort());
-    },
-  );
+  // Up to four blocks in one line-ending style, each behind up to three gap pieces and the file
+  // behind up to two more; the block to remove is drawn by index so a shrink keeps the file and
+  // walks the choice down.
+  const removals = fc.record({
+    blocks: fc.array(fc.tuple(piecesOf(gaps, 3), fc.constantFrom(...rendered)), {
+      minLength: 1,
+      maxLength: 4,
+    }),
+    ending: fc.constantFrom(...LINE_ENDINGS),
+    tail: piecesOf(gaps, 2),
+    choice: fc.nat(),
+  });
+  test("an accepted removal reads back in full as exactly the kept pairs", () => {
+    fc.assert(
+      fc.property(removals, ({ blocks, ending, tail, choice }) => {
+        const before = blocks
+          .map(([spread, block]) => `${spread}${block.replaceAll("\n", ending)}`)
+          .join("")
+          .concat(tail);
+        const pairs = pairsOf(before);
+        fc.pre(pairs.length > 0);
+        const sources = pairs.map(
+          (pair) => /^<!-- maxims:begin (.+) sha=\S+ -->/.exec(pair)?.[1] ?? "",
+        );
+        const source = sources[choice % sources.length];
+        let stripped: string | null = null;
+        try {
+          stripped = stripBlock(before, source).text;
+        } catch (error) {
+          expect(error).toBeInstanceOf(MaximsError);
+        }
+        if (stripped === null) return;
+        const kept = [...pairs];
+        kept.splice(sources.indexOf(source), 1);
+        expect(pairsOf(stripped).sort()).toEqual(kept.sort());
+      }),
+      propertyOptions(CORPUS_RUNS),
+    );
+  });
 });

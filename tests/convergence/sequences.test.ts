@@ -16,7 +16,7 @@ import { homePaths } from "../../src/util/home.ts";
 import { type MemorySpec, memoryFile, writeMemories } from "../chaos/shared/fixture-repo.ts";
 import { type RealWorld, runReal, withRealWorld } from "../chaos/shared/real-cli.ts";
 import { snapshot } from "../e2e/fixtures.ts";
-import { checkProperty, PROPERTY_TIMEOUT_MS } from "./property.ts";
+import { checkProperty, PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 
 // A source as the generators name it: its folder under the world and the memories it ships.
 type Fixture = { name: string; memories: Record<string, MemorySpec> };

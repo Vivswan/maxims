@@ -2,7 +2,7 @@
 // generators that reach the byte shapes a hand-written case list never does, and the timing helper
 // that turns a documented complexity into a per-input budget.
 import fc from "fast-check";
-import { checkProperty, propertyKnobs } from "../convergence/property.ts";
+import { checkProperty, propertyKnobs } from "../shared/property.ts";
 
 // A convergence property drives the whole engine per run; a fuzz case is one parser call, so the
 // same knob buys this many more cases per property.

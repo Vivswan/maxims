@@ -15,7 +15,7 @@ import {
 import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
 import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
-import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, asyncOutcome, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
 // The fields the invoker rules read, each in the type that matches and in one that does not, so

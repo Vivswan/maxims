@@ -12,7 +12,7 @@ import {
   parseSourceSelector,
 } from "../../src/state/schema.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
-import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz, outcome } from "./shared.ts";
 
 const CWD = "/home/user/project";

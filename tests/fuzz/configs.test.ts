@@ -17,7 +17,7 @@ import { parseHarnessSpec, UserHarnessSpecSchema } from "../../src/harnesses/spe
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { appendChild, assertParses, removeChild, replaceValue } from "../../src/util/jsonc.ts";
-import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
   anyText,

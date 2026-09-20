@@ -12,7 +12,7 @@ import {
   parseMemoryName,
 } from "../../src/memory/contract.ts";
 import { extractWikilinks, resolveWikilinks } from "../../src/memory/wikilinks.ts";
-import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
 // The frontmatter grammar's own tokens, so a near miss lands on the row-by-row checks rather than

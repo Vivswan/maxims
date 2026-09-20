@@ -378,12 +378,12 @@ describe("the oracle departs from the reference parsers", () => {
   });
 });
 
-// mulberry32 and the inline pieces, copied from tests/rulefile/block.test.ts so that a failing case
-// is reproducible from its index alone. The copy leaves out the inline tags and the non-breaking
-// space: a lone tag under a list item and a non-breaking space beside a tag are the two readings
-// the rows above attribute, and every generated document must read alike. The pieces can still
-// spell a bare tag such as `<a-->` from `<`, `a` and `-->`; the seeds in use never place one
-// lazily under an item, and a seed that did would fail the comparison rather than hide it.
+// mulberry32: a tiny seeded generator, so a failing case is reproducible from its index alone.
+// The pieces leave out the inline tags and the non-breaking space: a lone tag under a list item
+// and a non-breaking space beside a tag are the two readings the rows above attribute, and every
+// generated document must read alike. The pieces can still spell a bare tag such as `<a-->` from
+// `<`, `a` and `-->`; the seeds in use never place one lazily under an item, and a seed that did
+// would fail the comparison rather than hide it.
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

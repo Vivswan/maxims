@@ -8,7 +8,7 @@ import { join } from "node:path";
 import fc from "fast-check";
 import { parseProjectLock, serializeProjectLock } from "../../src/state/project-lock.ts";
 import { CURRENT_STATE_VERSION, parseState, type State } from "../../src/state/schema.ts";
-import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz, mutatedJson, outcome } from "./shared.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "src", "state", "fixtures");
