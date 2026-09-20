@@ -1,0 +1,14 @@
+# User patch layer; dsh applies it to every profile on this machine.
+- insert:
+    - id: memory-engram
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: engram   # trailing comment with odd spacing
+        transport: stdio
+        command: engram
+        args: [mcp]
+        cwd: !!js process.cwd()
+
+# Shrink the base instruction budget.
+- id: agent-instructions
+  config: { maxBytes: 32768 }

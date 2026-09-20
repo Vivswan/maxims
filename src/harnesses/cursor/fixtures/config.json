@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      { "command": ".cursor/hooks/lint-prompt.sh", "type": "command", "timeout": 10 }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  // Hand-maintained: the filesystem server and its compact formatting must survive.
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "docs": {
+      "type": "http",
+      "url": "https://mcp.example.com/docs"
+    }
+  },
+  "theme": "dark"
+}

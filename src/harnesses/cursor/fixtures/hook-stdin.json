@@ -1,0 +1,9 @@
+{
+  "conversation_id": "conv-0001",
+  "generation_id": "gen-0001",
+  "hook_event_name": "sessionStart",
+  "workspace_roots": ["/home/user/project"],
+  "session_id": "sess-0001",
+  "is_background_agent": false,
+  "composer_mode": "agent"
+}

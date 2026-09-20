@@ -1,0 +1,7 @@
+{
+  // Hand-maintained project config; the comment and the compact provider block must survive.
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-5",
+  "provider": { "anthropic": { "options": { "timeout": 60000 } } },
+  "instructions": ["CONTRIBUTING.md", "docs/guidelines.md"]
+}
