@@ -3,14 +3,7 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import {
-  appendChild,
-  assertParses,
-  detectFormatting,
-  parseObjectRoot,
-  readConfigText,
-  removeChild,
-} from "../mcp-stub/jsonc-edit.ts";
+import { appendChild, assertParses, readConfigText, removeChild } from "../mcp-stub/jsonc-edit.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
 // files load only when `opencode.json` lists them. One glob covers every source, so adding the
@@ -29,21 +22,22 @@ export async function reconcileInstructions(
   wanted: boolean,
 ): Promise<Change[]> {
   const files = await readConfigs(projectRoot);
-  const changes: Change[] = [];
   if (!wanted) {
-    for (const file of files) {
-      if (file.text === null) continue;
-      const next = editInstructions(file.text, file.path, false);
-      if (next !== file.text) changes.push({ kind: "write", path: file.path, content: next });
-    }
-    return changes;
+    return files.flatMap((file) =>
+      file.text === null ? [] : writeIfChanged(file, editInstructions(file.text, file.path, false)),
+    );
   }
   const listed = files.map((file) => file.text !== null && hasEntry(file.text, file.path));
   if (listed.includes(true)) return [];
   const target = files.find((file) => file.text !== null) ?? files[files.length - 1];
   if (target === undefined) return [];
-  const next = editInstructions(target.text ?? "", target.path, true);
-  return [{ kind: "write", path: target.path, content: next }];
+  return writeIfChanged(target, editInstructions(target.text ?? "", target.path, true));
+}
+
+function writeIfChanged(file: ConfigFile, next: string): Change[] {
+  if (next === file.text) return [];
+  assertParses(next, file.path);
+  return [{ kind: "write", path: file.path, content: next }];
 }
 
 async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
@@ -57,7 +51,7 @@ async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
 
 function hasEntry(text: string, path: string): boolean {
   if (text.trim() === "") return false;
-  const instructions = findNodeAtLocation(parseObjectRoot(text, path), ["instructions"]);
+  const instructions = findNodeAtLocation(assertParses(text, path), ["instructions"]);
   return (instructions?.children ?? []).some((child) => getNodeValue(child) === INSTRUCTIONS_GLOB);
 }
 
@@ -66,12 +60,11 @@ function editInstructions(text: string, path: string, wanted: boolean): string {
     if (!wanted) return text;
     return `${JSON.stringify({ instructions: [INSTRUCTIONS_GLOB] }, null, 2)}\n`;
   }
-  const fmt = detectFormatting(text);
-  const root = parseObjectRoot(text, path);
+  const root = assertParses(text, path);
   const instructions = findNodeAtLocation(root, ["instructions"]);
   if (instructions === undefined) {
     if (!wanted) return text;
-    return assertParses(appendChild(text, root, "instructions", [INSTRUCTIONS_GLOB], fmt), path);
+    return appendChild(text, root, "instructions", [INSTRUCTIONS_GLOB]);
   }
   if (instructions.type !== "array") {
     throw new MaximsError(
@@ -84,9 +77,9 @@ function editInstructions(text: string, path: string, wanted: boolean): string {
   );
   if (wanted) {
     if (entry !== undefined) return text;
-    return assertParses(appendChild(text, instructions, null, INSTRUCTIONS_GLOB, fmt), path);
+    return appendChild(text, instructions, null, INSTRUCTIONS_GLOB);
   }
   if (entry === undefined) return text;
   // A hand-duplicated entry leaves after one pass too: each removal re-parses what is left.
-  return editInstructions(assertParses(removeChild(text, instructions, entry), path), path, false);
+  return editInstructions(removeChild(text, instructions, entry), path, false);
 }

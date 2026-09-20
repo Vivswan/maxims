@@ -5,9 +5,6 @@ import { assertInsideRoot } from "../../util/fs.ts";
 import {
   appendChild,
   assertParses,
-  detectFormatting,
-  parseObjectRoot,
-  propertyNamed,
   readConfigText,
   removeChild,
   replaceValue,
@@ -33,6 +30,7 @@ export async function reconcileMcpServer(
   const text = await readConfigText(path);
   const next = editServers(text, path, registry.serversPath, wanted);
   if (next === null || next === text) return [];
+  assertParses(next, path);
   return [{ kind: "write", path, content: next }];
 }
 
@@ -51,8 +49,7 @@ function editServers(
     );
     return `${JSON.stringify(nested, null, 2)}\n`;
   }
-  const fmt = detectFormatting(text);
-  const root = parseObjectRoot(text, path);
+  const root = assertParses(text, path);
   // A missing level of the servers path is created with the rest nested inside it, so a file
   // without the key gains exactly one new property.
   let container = root;
@@ -62,7 +59,7 @@ function editServers(
       if (!wanted) return text;
       const rest = entryPath.slice(depth + 1);
       const value = rest.reduceRight<unknown>((inner, k) => ({ [k]: inner }), MCP_SERVER_ENTRY);
-      return assertParses(appendChild(text, container, key, value, fmt), path);
+      return appendChild(text, container, key, value);
     }
     if (child.type !== "object") {
       throw new MaximsError(
@@ -72,15 +69,12 @@ function editServers(
     }
     container = child;
   }
-  const property = propertyNamed(container, MCP_SERVER_KEY);
-  const current = property?.children?.[1];
+  const current = findNodeAtLocation(container, [MCP_SERVER_KEY]);
+  const property = current?.parent;
   if (!wanted) {
-    if (property === undefined) return text;
-    return assertParses(removeChild(text, container, property), path);
+    return property === undefined ? text : removeChild(text, container, property);
   }
-  if (current === undefined) {
-    return assertParses(appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY, fmt), path);
-  }
+  if (current === undefined) return appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY);
   if (JSON.stringify(getNodeValue(current)) === JSON.stringify(MCP_SERVER_ENTRY)) return text;
-  return assertParses(replaceValue(text, current, MCP_SERVER_ENTRY, fmt), path);
+  return replaceValue(text, current, MCP_SERVER_ENTRY);
 }

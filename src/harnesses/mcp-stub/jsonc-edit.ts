@@ -13,7 +13,7 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 // insert and on remove; these helpers splice text at the offsets its parser reports instead, so
 // the bytes outside our own entry are the bytes that were there. Trailing commas are accepted
 // because OpenCode's parser accepts them.
-export type Formatting = {
+type Formatting = {
   indentUnit: string;
   eol: string;
 };
@@ -21,7 +21,7 @@ export type Formatting = {
 const PARSE_OPTIONS: ParseOptions = { allowTrailingComma: true };
 
 // A file with no indented line yet gets two spaces, the style every harness's own examples use.
-export function detectFormatting(text: string): Formatting {
+function detectFormatting(text: string): Formatting {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const indent = /^([ \t]+)\S/m.exec(text)?.[1];
   return { indentUnit: indent ?? "  ", eol };
@@ -42,32 +42,15 @@ export async function readConfigText(path: string): Promise<string | null> {
 }
 
 // An unparseable config is never rewritten: a typo in the user's file must not become a
-// clobbered file. `path` only names the file in the error.
-export function parseObjectRoot(text: string, path: string): Node {
+// clobbered file, and a splice that cut through a comment must not land in it. `path` only
+// names the file in the error.
+export function assertParses(text: string, path: string): Node {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, PARSE_OPTIONS);
   if (errors.length > 0 || root === undefined || root.type !== "object") {
     throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot parse ${path}; left untouched`);
   }
   return root;
-}
-
-// The post-condition of every splice: what we are about to write parses. A splice that cut
-// through a comment or dropped a comma is refused here instead of landing in the user's file.
-export function assertParses(text: string, path: string): string {
-  const errors: ParseError[] = [];
-  parseTree(text, errors, PARSE_OPTIONS);
-  if (errors.length > 0) {
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `refusing to write ${path}: the edited config would not parse`,
-    );
-  }
-  return text;
-}
-
-export function propertyNamed(container: Node, key: string): Node | undefined {
-  return (container.children ?? []).find((child) => child.children?.[0]?.value === key);
 }
 
 // Appends one child, a `key: value` property or a bare element, separated the way the container
@@ -77,8 +60,8 @@ export function appendChild(
   container: Node,
   key: string | null,
   value: unknown,
-  fmt: Formatting,
 ): string {
+  const fmt = detectFormatting(text);
   const prefix = key === null ? "" : `${JSON.stringify(key)}: `;
   const children = container.children ?? [];
   const last = children[children.length - 1];
@@ -94,7 +77,8 @@ export function appendChild(
   return `${text.slice(0, insertAt)},${separator}${prefix}${rendered}${text.slice(insertAt)}`;
 }
 
-export function replaceValue(text: string, node: Node, value: unknown, fmt: Formatting): string {
+export function replaceValue(text: string, node: Node, value: unknown): string {
+  const fmt = detectFormatting(text);
   const old = text.slice(node.offset, node.offset + node.length);
   const rendered = renderValue(value, fmt, lineIndent(text, node.offset), old.includes("\n"));
   return `${text.slice(0, node.offset)}${rendered}${text.slice(node.offset + node.length)}`;

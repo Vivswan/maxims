@@ -4,32 +4,28 @@
 import { expect, test } from "bun:test";
 import { findNodeAtLocation } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import {
-  appendChild,
-  assertParses,
-  detectFormatting,
-  parseObjectRoot,
-  propertyNamed,
-  removeChild,
-  replaceValue,
-} from "./jsonc-edit.ts";
+import { appendChild, assertParses, removeChild, replaceValue } from "./jsonc-edit.ts";
 
 const VALUE = { command: "npx", args: ["-y", "maxims", "mcp-serve"] };
 
 function add(text: string, path: string[], key: string | null, value: unknown): string {
-  const container = findNodeAtLocation(parseObjectRoot(text, "t"), path);
+  const container = findNodeAtLocation(assertParses(text, "t"), path);
   if (container === undefined) throw new Error(`no container at ${path.join(".")}`);
-  return assertParses(appendChild(text, container, key, value, detectFormatting(text)), "t");
+  const next = appendChild(text, container, key, value);
+  assertParses(next, "t");
+  return next;
 }
 
 function remove(text: string, path: string[], match: (value: unknown) => boolean): string {
-  const container = findNodeAtLocation(parseObjectRoot(text, "t"), path);
+  const container = findNodeAtLocation(assertParses(text, "t"), path);
   if (container === undefined) throw new Error(`no container at ${path.join(".")}`);
   const child = (container.children ?? []).find((node) =>
     container.type === "object" ? match(node.children?.[0]?.value) : match(node.value),
   );
   if (child === undefined) throw new Error("no child to remove");
-  return assertParses(removeChild(text, container, child), "t");
+  const next = removeChild(text, container, child);
+  assertParses(next, "t");
+  return next;
 }
 
 const V = '{"command":"npx","args":["-y","maxims","mcp-serve"]}';
@@ -159,11 +155,9 @@ test("replacing our value keeps its layout: compact stays compact, pretty stays 
     [compact, `{"s":{"maxims":${V},"fs":{}}}`],
     [pretty, `{\n  "s": {\n    ${PRETTY_M},\n    "fs": {}\n  }\n}\n`],
   ]) {
-    const servers = findNodeAtLocation(parseObjectRoot(text, "t"), ["s"]);
-    const value =
-      servers === undefined ? undefined : propertyNamed(servers, "maxims")?.children?.[1];
+    const value = findNodeAtLocation(assertParses(text, "t"), ["s", "maxims"]);
     if (value === undefined) throw new Error("fixture lacks maxims");
-    expect(replaceValue(text, value, VALUE, detectFormatting(text))).toBe(expected);
+    expect(replaceValue(text, value, VALUE)).toBe(expected);
   }
 });
 
