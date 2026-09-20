@@ -19,23 +19,21 @@ export function writeStepSummary(markdown: string, env: NodeJS.ProcessEnv): void
 
 // The replay block sits right under the heading because the action keeps only a report's head
 // in the issue body when the whole report rides in the artifact.
-export function renderFailureReport(category: string, report: FailureReport): string {
-  return [
-    `# ${report.title}`,
-    "",
-    "```sh",
-    `bun run nightly ${category}`,
-    "```",
-    "",
-    report.body.trimEnd(),
-    "",
-  ].join("\n");
+export function renderFailureReport(replay: string, report: FailureReport): string {
+  return [`# ${report.title}`, "", "```sh", replay, "```", "", report.body.trimEnd(), ""].join(
+    "\n",
+  );
 }
 
-export function writeFailureReport(dir: string, category: string, report: FailureReport): void {
+export function writeFailureReport(
+  dir: string,
+  category: string,
+  replay: string,
+  report: FailureReport,
+): void {
   const failureDir = join(dir, category);
   mkdirSync(failureDir, { recursive: true });
-  writeFileSync(join(failureDir, "report.md"), renderFailureReport(category, report));
+  writeFileSync(join(failureDir, "report.md"), renderFailureReport(replay, report));
 }
 
 export function markdownTable(

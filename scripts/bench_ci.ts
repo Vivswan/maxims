@@ -46,7 +46,7 @@ interface TimedPath {
 
 // The argv the hook registers and the argv a user types to browse a source; the bundle is timed
 // on whatever it does with them.
-const TIMED_PATHS: TimedPath[] = [
+export const TIMED_PATHS: TimedPath[] = [
   { name: "sync --quiet", argv: ["sync", "--quiet"], gate: "fail" },
   { name: "add --list", argv: ["add", "@example/repo", "--list", "--no-fetch"], gate: "warn" },
 ];
