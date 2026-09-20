@@ -132,9 +132,9 @@ async function lockAgeMs(lockPath: string, holder: LockHolder | null): Promise<n
 
 // The stale file is renamed aside before the new lock is created so two stealers racing on one
 // stale lock cannot both believe they removed it: only the rename's winner proceeds. The moved
-// file is then checked against the holder that was judged stale; if a faster stealer had already
-// replaced it with a fresh lock, that lock is put back (a hard link fails rather than clobbers a
-// newer one) and nothing was stolen.
+// file is then aged again on its own: a faster stealer's fresh lock may have no record written
+// yet, and its young mtime is what gives it away. A young file is put back (a hard link fails
+// rather than clobbers a newer one) and nothing was stolen.
 async function stealIfStale(
   lockPath: string,
   holder: LockHolder | null,
@@ -148,8 +148,8 @@ async function stealIfStale(
   } catch {
     return null;
   }
-  const moved = await readHolder(aside);
-  const grabbedFreshLock = moved !== null && !sameHolder(moved, holder);
+  const movedAgeMs = await lockAgeMs(aside, await readHolder(aside));
+  const grabbedFreshLock = movedAgeMs === null || movedAgeMs <= staleMs;
   if (grabbedFreshLock) await link(aside, lockPath).catch(() => undefined);
   await unlink(aside).catch(() => undefined);
   if (grabbedFreshLock) return null;

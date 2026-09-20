@@ -108,6 +108,18 @@ describe("applyChanges", () => {
     });
   });
 
+  test("mkdir over a link to an existing directory is not a change", async () => {
+    await withTempDir(async (dir) => {
+      mkdirSync(join(dir, "real"));
+      symlinkSync(join(dir, "real"), join(dir, "alias"));
+      const plan: Plan = {
+        changes: [{ kind: "mkdir", path: assertInsideRoot(dir, join(dir, "alias")) }],
+        notices: [],
+      };
+      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+    });
+  });
+
   test("delete removes a directory tree but only unlinks a symlink to one", async () => {
     await withTempDir(async (dir) => {
       const tree = assertInsideRoot(dir, join(dir, "tree"));

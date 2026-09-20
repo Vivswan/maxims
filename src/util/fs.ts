@@ -75,12 +75,16 @@ function writeAll(fd: number, data: Uint8Array): void {
 }
 
 // Containment is checked on real paths, not lexical ones: a symlinked directory planted under the
-// root would otherwise carry a write or delete to wherever it points. The deepest existing
-// ancestor of the candidate is resolved and the not-yet-created tail appended to it.
+// root would otherwise carry a write or delete to wherever it points. Only the PARENT is
+// resolved; the final entry is what a write, rename or unlink modifies, and it is normal for that
+// entry to be a link whose target lies elsewhere (a memory body linked from the store).
 export function assertInsideRoot(root: string, candidate: string): RootedPath {
   const resolved = resolve(candidate);
   const realRoot = realpathOfExistingPrefix(resolve(root));
-  const realCandidate = realpathOfExistingPrefix(resolved);
+  const realCandidate =
+    dirname(resolved) === resolved
+      ? resolved
+      : join(realpathOfExistingPrefix(dirname(resolved)), basename(resolved));
   const rel = relative(realRoot, realCandidate);
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new MaximsError(

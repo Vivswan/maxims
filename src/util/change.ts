@@ -8,6 +8,7 @@ import {
   readlink,
   rename,
   rm,
+  stat,
   symlink,
   unlink,
 } from "node:fs/promises";
@@ -114,7 +115,7 @@ async function applyOne(change: Change): Promise<boolean> {
       return true;
     }
     case "mkdir": {
-      const entry = await lstatOrNull(change.path);
+      const entry = await statOrNull(change.path);
       if (entry?.isDirectory()) return false;
       await guarded(change.path, () => mkdir(change.path, { recursive: true }));
       return true;
@@ -124,9 +125,18 @@ async function applyOne(change: Change): Promise<boolean> {
 
 // Only "nothing is there" reads as absent; a probe that could not look (EACCES on a parent, an
 // I/O error) surfaces as exit 4 rather than as a change that silently did not happen.
-async function lstatOrNull(path: string): Promise<Stats | null> {
+function lstatOrNull(path: string): Promise<Stats | null> {
+  return probe(path, lstat);
+}
+
+// A directory reached through a link already exists for mkdir's purposes, so this probe follows.
+function statOrNull(path: string): Promise<Stats | null> {
+  return probe(path, stat);
+}
+
+async function probe(path: string, look: (path: string) => Promise<Stats>): Promise<Stats | null> {
   try {
-    return await lstat(path);
+    return await look(path);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return null;

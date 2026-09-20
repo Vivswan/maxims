@@ -79,7 +79,7 @@ describe("assertInsideRoot", () => {
   });
 });
 
-test("assertInsideRoot follows a symlinked ancestor and refuses one that leaves the root", async () => {
+test("assertInsideRoot resolves symlinked ancestors but judges the final entry by where it sits", async () => {
   await withTempDir((dir) => {
     const root = join(dir, "root");
     const outside = join(dir, "outside");
@@ -98,6 +98,16 @@ test("assertInsideRoot follows a symlinked ancestor and refuses one that leaves 
     expect(assertInsideRoot(root, join(root, "alias", "ok.md"))).toBe(
       join(root, "alias", "ok.md") as RootedPath,
     );
+    symlinkSync(join(outside, "body.md"), join(root, "body.md"));
+    expect(assertInsideRoot(root, join(root, "body.md"))).toBe(join(root, "body.md") as RootedPath);
+    symlinkSync(join(root, "real", "file.md"), join(outside, "into-root.md"));
+    caught = undefined;
+    try {
+      assertInsideRoot(root, join(outside, "into-root.md"));
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
   });
 });
 

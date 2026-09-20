@@ -124,6 +124,18 @@ describe("withLock", () => {
     });
   });
 
+  test("a fresh but still empty lock is put back rather than stolen", async () => {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "state.json.lock");
+      writeFileSync(lockPath, "");
+      const started = Date.now();
+      await expectLocked(withLock(lockPath, { waitMs: 100, staleMs: 60_000 }, async () => "never"));
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(existsSync(lockPath)).toBe(true);
+      expect(readFileSync(lockPath, "utf8")).toBe("");
+    });
+  });
+
   test("a displaced holder's release leaves the newer lock in place", async () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
