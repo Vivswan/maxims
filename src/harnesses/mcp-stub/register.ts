@@ -8,7 +8,7 @@ import {
   readConfigText,
   removeChild,
   replaceValue,
-} from "./jsonc-edit.ts";
+} from "../../util/jsonc.ts";
 
 export const MCP_SERVER_KEY = "maxims";
 export const MCP_SERVER_ENTRY = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };

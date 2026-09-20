@@ -43,15 +43,29 @@ test("the entry is appended to the servers and its removal restores the fixture"
   });
 });
 
-test("a stale entry is rewritten in place and an emptied map stays as {}", async () => {
+test("a stale entry is rewritten in place in the file's indent and an emptied map stays as {}", async () => {
   await withTempDir(async (dir) => {
     const stale =
       '{\n  "mcpServers": {\n    "maxims": { "command": "npx", "args": ["-y", "maxims@0.1.0", "mcp-serve"] }\n  },\n  "theme": "dark"\n}\n';
     const { added, removed } = await roundTrip(dir, stale);
-    expect(added).toBe(
-      '{\n  "mcpServers": {\n    "maxims": {"command":"npx","args":["-y","@vivswan/maxims","mcp-serve"]}\n  },\n  "theme": "dark"\n}\n',
-    );
+    expect(added).toBe(`{\n  "mcpServers": {\n    ${ENTRY}\n  },\n  "theme": "dark"\n}\n`);
     expect(removed).toBe('{\n  "mcpServers": {},\n  "theme": "dark"\n}\n');
+  });
+});
+
+// The separator is found by the tokenizer: a comma inside a comment beside our entry is the
+// comment's, and searching for the character would cut the comment instead of the separator.
+test("a comma inside a comment beside our entry is not taken for the separator", async () => {
+  await withTempDir(async (dir) => {
+    const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcpServers"] };
+    writeFileSync(registry.path, '{"mcpServers":{"maxims":{} /* keep, note */,"other":{}}}\n');
+    expect(await reconcileMcpServer(registry, false)).toEqual([
+      {
+        kind: "write",
+        path: assertInsideRoot(dir, registry.path),
+        content: '{"mcpServers":{ /* keep, note */"other":{}}}\n',
+      },
+    ]);
   });
 });
 

@@ -3,8 +3,8 @@ import { type Document, isMap, isNode, isSeq, parseDocument, stringify } from "y
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import { readConfigText } from "../../util/jsonc.ts";
 import type { HarnessContext, HookSpec, Scope } from "../contract.ts";
-import { readConfigText } from "../mcp-stub/jsonc-edit.ts";
 
 // dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
 // profile is `$DSH_HOME/cordis.patch.yml`; it has no per-project config discovery. The bridge

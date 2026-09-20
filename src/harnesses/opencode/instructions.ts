@@ -3,7 +3,7 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import { appendChild, assertParses, readConfigText, removeChild } from "../mcp-stub/jsonc-edit.ts";
+import { appendChild, assertParses, readConfigText, removeChild } from "../../util/jsonc.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
 // files load only when `opencode.json` lists them. One glob covers every source, so adding the
