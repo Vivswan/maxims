@@ -5,7 +5,7 @@ group: Reference
 
 # Harnesses
 
-Eight coding agents ship in the first release, and each one gets a rule file in its always-loaded layer plus one session-start hook that runs `maxims sync --quiet`. This matrix is rendered by hand until it is generated from the harness definitions in the code, so a path here is the specification the code must satisfy.
+Eight coding agents ship in the first release, and each one gets a rule file in its always-loaded layer plus one session-start hook that runs `npx -y @vivswan/maxims sync --quiet`. This matrix is rendered by hand until it is generated from the harness definitions in the code, so a path here is the specification the code must satisfy.
 
 ## The matrix
 
@@ -55,7 +55,9 @@ A source is stale once its last successful fetch is more than 7 days old, or imm
 | a hook | the hook's stdout, which the harness adds to the agent's context on exit 0, so no non-zero exit and no hook error banner |
 | no hook (tier 2) | one managed line at the top of the maxims block in the rule file, removed on the next successful refresh |
 
-Beneath that line, and only there, maxims writes the self-refresh line: if the staleness notice is present, run `maxims sync --quiet` before continuing. It is a rule asking an agent to act, so it is best-effort even from the always-loaded layer, and some harnesses gate shell commands behind approval. On tier 1 harnesses it is not written, because the hook already guarantees freshness and the line would be wasted context.
+Beneath that line, and only there, maxims writes the self-refresh line: if the staleness notice is present, run `npx -y @vivswan/maxims sync --quiet` before continuing. It is a rule asking an agent to act, so it is best-effort even from the always-loaded layer, and some harnesses gate shell commands behind approval.
+
+On tier 1 harnesses the self-refresh line is not written, because the hook already guarantees freshness and the line would be wasted context.
 
 Neither the notice line nor the self-refresh line counts against the [rule cap](cli.md#the-cap-and-the-cooldown); the cap governs how many of a source's memories reach the file, not what maxims says about its own state.
 
@@ -96,4 +98,4 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 | every hook | a repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once |
 | MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It ships dormant: no shipped harness needs it while all eight reach tier 1. |
 
-Editing a hook registry is surgical everywhere. The writer parses the file, finds the maxims entry by its command prefix `npx -y maxims sync`, updates it in place or appends it, and writes to a temp file before renaming. An unparseable config is never rewritten; the run exits 4. Formatting and comments outside the entry survive byte for byte.
+Editing a hook registry is surgical everywhere. The writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, updates it in place or appends it, and writes to a temp file before renaming. An unparseable config is never rewritten; the run exits 4. Formatting and comments outside the entry survive byte for byte.

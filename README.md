@@ -9,7 +9,7 @@ One-line rule memories, installed from GitHub repos or local folders into the al
 ```
 
 ```bash
-npx maxims add @Vivswan/skills -g --rule --add-hook
+npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 ```
 
 - [Why maxims](docs/why.md): the problem, the two layers, what a rule costs.

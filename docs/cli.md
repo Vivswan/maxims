@@ -5,7 +5,7 @@ group: Reference
 
 # CLI reference
 
-Every verb, flag, exit code, and prompt rule of `npx maxims`, as specified. The command shapes mirror `npx skills`: same flags, same short forms, same confirmation and non-interactive behavior, so a person running both never has to remember which one spells a thing differently.
+Every verb, flag, exit code, and prompt rule of `npx -y @vivswan/maxims`, as specified. The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. The command shapes mirror `npx skills`: same flags, same short forms, same confirmation and non-interactive behavior, so a person running both never has to remember which one spells a thing differently.
 
 ## Verbs
 

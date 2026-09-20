@@ -10,14 +10,14 @@ One command installs a source's one-liners into your agent's always-loaded layer
 ## Install a source
 
 ```bash
-npx maxims add @Vivswan/skills -g --rule --add-hook
+npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 ```
 
 - `-g` installs at user level, for every project on the machine.
 - `--rule` publishes each memory's one-liner into the rule file.
 - `--add-hook` registers the session-start sync hook, once per harness.
 
-The [flag reference](cli.md#flags) has the full table. Run from inside an agent session, the plan is applied without a prompt; in a terminal, a confirm prompt appears before the install line.
+The [flag reference](cli.md#flags) has the full table. Run from inside an agent session, the plan is applied without a prompt; in a terminal, a "Proceed with installation?" confirm appears before the install line, and a refusal prints "Installation cancelled".
 
 ```text
 |
@@ -38,11 +38,11 @@ o  Memories to install
 |    ... 3 more
 |
 o  Installed 4 memories, 4 rule lines (~103 tokens)
-o  Hook registered: SessionStart -> npx -y maxims sync --quiet
+o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
 |
 ```
 
-`add @Vivswan/skills --list` prints the same "Found N memories" and item blocks, then stops before the destination line and writes nothing.
+`add @Vivswan/skills --list` prints the same "Found N memories" and item blocks, then ends with "Run without --list to install" and writes nothing.
 
 ## What it writes
 
@@ -52,7 +52,7 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 | --- | --- | --- |
 | memory bodies | `~/.agents/maxims/store/vivswan/skills/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
 | rule file | `~/.claude/rules/maxims-vivswan-skills.md` | one line per memory: the one-liner plus a `detail:` pointer to the body |
-| hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y maxims sync --quiet`, registered once however many sources you add |
+| hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
 | state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
 
 Two of the four lines in the rule file for that install:
@@ -68,10 +68,10 @@ The file is generated on every sync and never hand-edited; the [rule file sectio
 
 ## Keep it fresh: sync
 
-The hook runs `maxims sync --quiet` at every session start. Run it yourself to apply state now:
+The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run it yourself to apply state now:
 
 ```bash
-npx maxims sync
+npx -y @vivswan/maxims sync
 ```
 
 In quiet mode the whole output is one line, or nothing when nothing changed:
@@ -87,18 +87,30 @@ maxims: @Vivswan/skills offline, kept last-good from 2026-08-26 (4 rules)
 ## Refresh now: update
 
 ```bash
-npx maxims update
+npx -y @vivswan/maxims update
 ```
 
-`update` refetches every source whatever the cooldown says, then runs the same sync. Its output is the `sync` line above. Use it when you know a source changed upstream and do not want to wait.
+`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` line above; in a terminal it follows the `npx skills update` frame, which the specification leaves to be mirrored:
+
+```text
+|
+o  Checking for memory updates...
+o  Found 1 update(s)
+|  Updating @Vivswan/skills...
+|    ok Updated @Vivswan/skills
+o  ok Updated 1 source(s)
+|
+```
+
+With nothing to fetch the frame is one line, "ok All sources are up to date".
 
 ## See what is installed: list
 
 ```bash
-npx maxims list
+npx -y @vivswan/maxims list
 ```
 
-The specification fixes what `list` reports, not its layout. Everything past the recorded intent is re-derived when you run it, so a hand-edited hook registry is reported as it is, not as it was.
+The specification fixes what `list` reports and leaves the layout to mirror `npx skills list`: a "Global Memories" or "Project Memories" header, then one row per memory with its path and an indented line naming the agents and the source. Everything past the recorded intent is re-derived when you run it, so a hand-edited hook registry is reported as it is, not as it was.
 
 | `list` reports | derived from |
 | --- | --- |
@@ -110,11 +122,11 @@ The specification fixes what `list` reports, not its layout. Everything past the
 ## Remove
 
 ```bash
-npx maxims remove @Vivswan/skills                  # a whole source
-npx maxims remove rubber-duck-before-every-commit  # one memory by name
+npx -y @vivswan/maxims remove @Vivswan/skills                  # a whole source
+npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by name
 ```
 
-`remove` takes the source or memory out of state and syncs. There is no separate uninstall path. The same convergence that installs also removes, because the regenerated output no longer contains those lines.
+In a terminal, `remove` lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)"; the [non-interactive rules](cli.md#non-interactive-behavior) own what happens without a TTY. `remove` takes the source or memory out of state and syncs. There is no separate uninstall path. The same convergence that installs also removes, because the regenerated output no longer contains those lines.
 
 | after `remove` | result |
 | --- | --- |

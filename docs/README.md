@@ -8,7 +8,7 @@ group: Start here
 maxims installs one-line rule memories from GitHub repos or local folders into the always-loaded instruction layer of every coding agent on a machine, and keeps them fresh with one session-start hook per agent. These pages state the specified behavior the code is built and tested against; each fact lives on one page.
 
 ```bash
-npx maxims add @Vivswan/skills -g --rule --add-hook
+npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 ```
 
 | I want to... | Read |
