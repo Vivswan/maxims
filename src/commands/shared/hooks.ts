@@ -1,13 +1,15 @@
 import { isDeepStrictEqual } from "node:util";
-import type {
-  HarnessContext,
-  HarnessDefinition,
-  HarnessId,
-  Scope,
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type HarnessId,
+  type Scope,
+  scopeRoot,
 } from "../../harnesses/contract.ts";
 import { type HookPlan, planHookWrite } from "../../harnesses/hook-writer.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 
@@ -86,35 +88,62 @@ export async function planHooks(input: {
         if (wants.hook || wants.rules) failures.push({ message: error.message, hint: error.hint });
         continue;
       }
-      if (hook.notice !== undefined) notices.push(hook.notice);
-      answers.push({ artifact: hook.changes, wanted: wants.hook });
-      answers.push({ artifact: config, wanted: wants.rules });
+      answers.push({
+        artifact: hook.changes,
+        claims: hookFiles(def, scope, harnessCtx, hook.changes),
+        wanted: wants.hook,
+        notice: hook.notice,
+      });
+      answers.push({ artifact: config, claims: config.map((c) => c.path), wanted: wants.rules });
     }
     const reconciled = reconcileScopes(answers);
     changes.push(...reconciled.changes);
     removals.push(...reconciled.removals);
+    notices.push(...reconciled.notices);
   }
   return { changes, removals, notices, failures };
 }
 
-type ScopeAnswer = { artifact: Change[]; wanted: boolean };
+// `claims` are the files the answer resolves to whether or not it changes them there; the notice
+// describes the artifact and leaves with it.
+type ScopeAnswer = { artifact: Change[]; claims: string[]; wanted: boolean; notice?: string };
 
-// One artifact can be reached from both scopes: dsh mounts its bridge under the global root
-// whatever the install scope, so a project-only install would write the bridge for the project
-// scope and delete it again for the global scope, the deletion applied last. A removal touching
-// any file a wanted answer writes is dropped whole, its companion edits (the patch row) included.
-function reconcileScopes(answers: readonly ScopeAnswer[]): Pick<HooksPlan, "changes" | "removals"> {
+// A registry or file hook knows its file before it is planned; a custom hook names its files only
+// through the changes it returns (dsh's bridge emits its hooks-file write whenever it is wanted).
+function hookFiles(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  planned: Change[],
+): string[] {
+  const files: string[] = planned.map((change) => change.path);
+  if (def.hook.kind === "registry" || def.hook.kind === "file") {
+    files.push(assertInsideRoot(scopeRoot(def, scope, ctx), def.hook.path(scope, ctx)));
+  }
+  return files;
+}
+
+// One file can be reached from both scopes: dsh mounts its bridge under the global root whatever
+// the install scope, and a home directory that is itself a repository makes the project and the
+// global registry one file. A project-only install would then write the hook for the project scope
+// and delete it again for the global scope, the deletion applied last. A removal touching any file
+// a wanted answer claims is dropped whole, its companion edits (the patch row) included. The claim
+// covers files the wanted answer leaves alone: on a settled registry the wanted scope has nothing
+// to write while the unwanted scope still finds our entry to remove.
+function reconcileScopes(
+  answers: readonly ScopeAnswer[],
+): Pick<HooksPlan, "changes" | "removals" | "notices"> {
   const changes: Change[] = [];
   const removals: Change[] = [];
+  const notices: string[] = [];
   const kept = new Set(
-    answers
-      .filter((answer) => answer.wanted)
-      .flatMap((answer) => answer.artifact.map((c) => c.path)),
+    answers.filter((answer) => answer.wanted).flatMap((answer) => answer.claims),
   );
   for (const answer of answers) {
     if (answer.wanted) changes.push(...answer.artifact);
-    else if (!answer.artifact.some((change) => kept.has(change.path)))
-      removals.push(...answer.artifact);
+    else if (answer.artifact.some((change) => kept.has(change.path))) continue;
+    else removals.push(...answer.artifact);
+    if (answer.notice !== undefined) notices.push(answer.notice);
   }
-  return { changes, removals };
+  return { changes, removals, notices };
 }

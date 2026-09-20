@@ -1,10 +1,12 @@
 // What would drift silently: the hook writer plans a definition's config edit under the same
 // `wanted` as the hook, so a source that lists rules without a hook would lose the config entry
-// its rules directory needs, and one that switched rules off would keep it; and a hook that
-// lives in one place whatever the scope (dsh's bridge under the global root) would be written
-// for the scope that wants it and deleted again for the scope that does not.
+// its rules directory needs, and one that switched rules off would keep it. A hook that lives in
+// one place whatever the scope (dsh's bridge under the global root) would be written for the scope
+// that wants it and deleted again for the scope that does not. When both scopes resolve to one
+// registry (a home directory that is itself a git repository), the second sync would remove the
+// hook the first one wrote and the third would put it back.
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   configEditHarness,
@@ -18,6 +20,7 @@ import {
   writeState,
 } from "../../../tests/engine/harness.ts";
 import { TWO_MEMORIES, world } from "../../../tests/engine/world.ts";
+import { claudeCode } from "../../harnesses/claude-code/index.ts";
 import { HOOK_COMMAND, type Scope } from "../../harnesses/contract.ts";
 import { dsh } from "../../harnesses/dsh/index.ts";
 import { runSync } from "../sync.ts";
@@ -113,6 +116,37 @@ describe("a hook that lives in one place for both scopes", () => {
       await runSync(SYNC, io);
       expect(existsSync(hooks)).toBe(false);
       expect(readFileSync(patch, "utf8")).not.toContain("maxims-hooks");
+    });
+  });
+});
+
+describe("both scopes resolving to one registry", () => {
+  test("a project-scoped source under a home that is a repository keeps its hook settled; hooks off at both scopes removes it", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      mkdirSync(join(userHome, ".git"));
+      mkdirSync(join(userHome, ".claude"));
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project" },
+        harnesses: ["claude-code"],
+      });
+      writeState(home, stateWith({ [source]: entry }, ["claude-code"]));
+      const io = fakeIo({ home, userHome, cwd: userHome, harnesses: [claudeCode] });
+      const settings = join(userHome, ".claude", "settings.json");
+      const texts: string[] = [];
+      for (const run of ["first", "second", "third"]) {
+        const report = await runSync(SYNC, io);
+        const text = readFileSync(settings, "utf8");
+        expect([run, text]).toEqual([run, expect.stringContaining(HOOK_COMMAND)]);
+        expect(report.notices.filter((line) => line.includes("removed the maxims hook"))).toEqual(
+          [],
+        );
+        texts.push(text);
+      }
+      expect(texts[2]).toBe(texts[1] ?? "");
+      writeState(home, stateWith({ [source]: entry }, []));
+      await runSync(SYNC, io);
+      expect(readFileSync(settings, "utf8")).not.toContain(HOOK_COMMAND);
     });
   });
 });
