@@ -28,7 +28,7 @@
     "lint:fix": "bun x biome check --write .",
     "typecheck": "bun x tsc -p .",
     "test": "bun scripts/run_tests.ts",
-    "build": "bun build src/cli.ts --target node --outfile dist/cli.js",
+    "build": "bun scripts/build.ts",
     "knip": "bun x knip",
     "bench": "bun scripts/bench.ts",
     "nightly": "bun scripts/nightly.ts"
