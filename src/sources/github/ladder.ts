@@ -129,9 +129,19 @@ export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
 }
 
-export function tokenFrom(env: NodeJS.ProcessEnv): string | undefined {
-  const token = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim();
-  return token === undefined || token === "" ? undefined : token;
+// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate github.com, the two
+// ENTERPRISE names every other host. A token is offered only to the host it was named for, so a
+// github.com token never reaches an enterprise server.
+const DOTCOM_TOKEN_NAMES = ["GH_TOKEN", "GITHUB_TOKEN"];
+const ENTERPRISE_TOKEN_NAMES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+
+export function tokenFor(env: NodeJS.ProcessEnv, host: string): string | undefined {
+  const names = host === DEFAULT_GH_HOST ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
+  for (const name of names) {
+    const token = env[name]?.trim();
+    if (token !== undefined && token !== "") return token;
+  }
+  return undefined;
 }
 
 export type RungOutcome<T> =

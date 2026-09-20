@@ -4,14 +4,14 @@ import { readMemoryTree, type WarnSink } from "../tree.ts";
 import {
   createLadder,
   DEFAULT_GH_HOST,
-  type Endpoints,
   endpointsFor,
   fetchTimeoutMs,
+  type Ladder,
   type RepoCoordinate,
   type Runner,
   sparsePathFor,
   systemRunner,
-  tokenFrom,
+  tokenFor,
 } from "./ladder.ts";
 
 export type GithubSourceFrom = Extract<SourceFrom, { type: "github" }>;
@@ -20,7 +20,6 @@ export type GithubResolverOptions = {
   warn: WarnSink;
   runner?: Runner;
   env?: NodeJS.ProcessEnv;
-  endpoints?: Partial<Endpoints>;
 };
 
 // `resolveRef` is required here where the contract leaves it optional: a GitHub ref always has a
@@ -34,17 +33,30 @@ const FULL_SHA = /^[0-9a-f]{40}$/i;
 // `auth` is false unless the caller says otherwise: only then may `gh` run or a token leave the
 // process. The CLI's `--auth` flag and a stored `intent.auth` are what supply it. A ref that is
 // already a full sha never touches the network, which is why a caller that has resolved a ref once
-// should pass the sha back as `from.ref` when it fetches. GH_HOST names the GitHub host for both
-// the API and the clone URL; github.com when unset.
+// should pass the sha back as `from.ref` when it fetches. The host is the source record's own
+// (`GH_HOST` was resolved into it when the source was added), never the shell's at fetch time, so a
+// recorded source fetches from the same server on every machine. One ladder serves each host,
+// because a `gh` login and a token are both per host.
 export function createGithubResolver(options: GithubResolverOptions): GithubResolver {
   const env = options.env ?? process.env;
-  const ladder = createLadder({
-    runner: options.runner ?? systemRunner(env),
-    endpoints: { ...endpointsFor(env.GH_HOST?.trim() || DEFAULT_GH_HOST), ...options.endpoints },
-    warn: options.warn,
-    timeoutMs: fetchTimeoutMs(env),
-    token: tokenFrom(env),
-  });
+  const runner = options.runner ?? systemRunner(env);
+  const timeoutMs = fetchTimeoutMs(env);
+  const ladders = new Map<string, Ladder>();
+  const ladderFor = (from: GithubSourceFrom): Ladder => {
+    const host = from.host ?? DEFAULT_GH_HOST;
+    let ladder = ladders.get(host);
+    if (ladder === undefined) {
+      ladder = createLadder({
+        runner,
+        endpoints: endpointsFor(host),
+        warn: options.warn,
+        timeoutMs,
+        token: tokenFor(env, host),
+      });
+      ladders.set(host, ladder);
+    }
+    return ladder;
+  };
   const resolveRef = async (
     from: GithubSourceFrom,
     pin?: string,
@@ -52,7 +64,7 @@ export function createGithubResolver(options: GithubResolverOptions): GithubReso
   ): Promise<string> => {
     const ref = pin ?? from.ref;
     if (FULL_SHA.test(ref)) return ref.toLowerCase();
-    return ladder.resolveRef(coordinate(from), ref, { auth: request.auth === true });
+    return ladderFor(from).resolveRef(coordinate(from), ref, { auth: request.auth === true });
   };
   return {
     resolveRef,
@@ -60,7 +72,7 @@ export function createGithubResolver(options: GithubResolverOptions): GithubReso
       const sha = await resolveRef(from, undefined, { auth: opts.auth });
       const treeDir = join(opts.tempDir, "tree");
       const sparsePath = sparsePathFor(opts);
-      await ladder.fetchTree(coordinate(from), sha, treeDir, {
+      await ladderFor(from).fetchTree(coordinate(from), sha, treeDir, {
         auth: opts.auth,
         ...(sparsePath === undefined ? {} : { sparsePath }),
       });

@@ -167,21 +167,89 @@ describe("fetch", () => {
     });
   });
 
-  test("GH_HOST from the environment changes the clone and archive URLs", async () => {
+  // GH_HOST is resolved once, when a source is added, into the record's `host`; at fetch time the
+  // shell's value is ambient noise, or one machine would fetch a recorded source from another host.
+  const hosts: [string, string | undefined, string, string][] = [
+    [
+      "a github.com source stays on github.com under a foreign GH_HOST",
+      undefined,
+      "ghe.example.com",
+      "github.com",
+    ],
+    [
+      "an enterprise source reaches its own host under a foreign GH_HOST",
+      "ghe.example.com",
+      "other.example.com",
+      "ghe.example.com",
+    ],
+    [
+      "an enterprise source reaches its own host with GH_HOST unset",
+      "ghe.example.com",
+      "",
+      "ghe.example.com",
+    ],
+  ];
+  test.each(hosts)("%s", async (_label, host, ghHost, expected) => {
     await withTempDir(async (tempDir) => {
       const runner = scriptedRunner({ fetch: () => httpResponse(200, cleanTarball()) });
       const resolver = createGithubResolver({
         runner,
         warn: () => {},
-        env: { GH_HOST: "ghe.example.com" },
+        env: ghHost === "" ? {} : { GH_HOST: ghHost },
       });
-      await resolver.fetch(
-        { ...FROM, ref: SHA },
-        { memoryPath: "memories", fullDepth: false, tempDir, auth: false },
-      );
+      const from = host === undefined ? { ...FROM, ref: SHA } : { ...FROM, ref: SHA, host };
+      await resolver.fetch(from, {
+        memoryPath: "memories",
+        fullDepth: false,
+        tempDir,
+        auth: false,
+      });
+      const archive =
+        expected === "github.com"
+          ? `https://codeload.github.com/Example-User/rules/tar.gz/${SHA}`
+          : `https://${expected}/Example-User/rules/archive/${SHA}.tar.gz`;
       expect(runner.calls).toEqual([
-        `git clone https://ghe.example.com/Example-User/rules.git ${SHA} [creds=none sparse=memories]`,
+        `git clone https://${expected}/Example-User/rules.git ${SHA} [creds=none sparse=memories]`,
+        `fetch ${archive}`,
+      ]);
+    });
+  });
+
+  // gh's own convention: GITHUB_TOKEN and GH_TOKEN belong to github.com, the two ENTERPRISE names
+  // to every other host. A github.com token sent to an enterprise host would hand it to a third party.
+  test("with auth, each host is offered only its own token, and gh is asked per host", async () => {
+    await withTempDir(async (tempDir) => {
+      const seen: { url: string; authorization: string | undefined }[] = [];
+      const runner = scriptedRunner({
+        git: scriptedGit({ shallowClone: () => ({ kind: "ok", value: "not-the-sha" }) }),
+        fetch: (url, init) => {
+          seen.push({ url, authorization: authorizationOf(init) });
+          return httpResponse(200, cleanTarball());
+        },
+      });
+      const resolver = createGithubResolver({
+        runner,
+        warn: () => {},
+        env: { GITHUB_TOKEN: "dotcom", GH_ENTERPRISE_TOKEN: "ghe" },
+      });
+      const opts = { memoryPath: "memories", fullDepth: false, tempDir, auth: true };
+      await resolver.fetch({ ...FROM, ref: SHA }, opts);
+      await resolver.fetch({ ...FROM, ref: SHA, host: "ghe.example.com" }, opts);
+      await resolver.fetch({ ...FROM, ref: SHA, host: "ghe.example.com" }, opts);
+      expect(runner.calls).toEqual([
+        "exec gh auth status --hostname github.com",
+        `git clone https://github.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer dotcom sparse=memories]`,
+        `fetch https://codeload.github.com/Example-User/rules/tar.gz/${SHA}`,
+        "exec gh auth status --hostname ghe.example.com",
+        `git clone https://ghe.example.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer ghe sparse=memories]`,
         `fetch https://ghe.example.com/Example-User/rules/archive/${SHA}.tar.gz`,
+        `git clone https://ghe.example.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer ghe sparse=memories]`,
+        `fetch https://ghe.example.com/Example-User/rules/archive/${SHA}.tar.gz`,
+      ]);
+      expect(seen.map((s) => s.authorization)).toEqual([
+        "Bearer dotcom",
+        "Bearer ghe",
+        "Bearer ghe",
       ]);
     });
   });
