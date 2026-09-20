@@ -1,7 +1,7 @@
 import { readFile, rename } from "node:fs/promises";
 import { applyChanges, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertInsideRoot, ensureDir0700 } from "../util/fs.ts";
+import { assertInsideRoot, ensureDir0700, type RootedPath } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
 import { type StolenLock, withLock } from "../util/lock.ts";
 import { VERSION } from "../version.ts";
@@ -39,7 +39,7 @@ export type StateLockOptions = {
   waitMs?: number;
 };
 
-type StatePaths = { home: string; state: string; lock: string };
+type StatePaths = { home: string; state: RootedPath; lock: string };
 
 const STATE_FILE_MODE = 0o600;
 
@@ -116,9 +116,8 @@ export async function withStateLock<T>(
   }
 }
 
-// Whether the file is newer or due for migration is decided on an integer `version` only: a
-// fractional or non-numeric version is a shape error the strict parse reports, never a newer file
-// to step around.
+// The migration dispatch runs before `parseState`, which reports an older integer version as
+// corrupt rather than due.
 async function loadStateFile(paths: StatePaths, options: ReadStateOptions): Promise<LoadedState> {
   let text: string;
   try {
@@ -136,18 +135,13 @@ async function loadStateFile(paths: StatePaths, options: ReadStateOptions): Prom
     return quarantine(paths, [`not valid JSON: ${detail}`]);
   }
   const version = versionOf(json);
-  if (version !== null && version > CURRENT_STATE_VERSION) {
-    return { kind: "newer", version, path: paths.state };
-  }
   if (version !== null && version < CURRENT_STATE_VERSION) {
     return migrateFile(paths, json, version, options.migrations);
   }
   const parsed = parseState(json);
   if (parsed.ok === "parsed") return { kind: "loaded", state: parsed.state, migrated: false };
-  return quarantine(
-    paths,
-    parsed.ok === "corrupt" ? parsed.issues : ["version: expected an integer"],
-  );
+  if (parsed.ok === "newer") return { kind: "newer", version: parsed.version, path: paths.state };
+  return quarantine(paths, parsed.issues);
 }
 
 // The migrated document passes the same strict parse a fresh file gets before it is written back,

@@ -10,7 +10,7 @@
     }
   },
   "sources": {
-    "@example-user/rules": {
+    "@example-user/rules#main": {
       "intent": {
         "from": {
           "type": "github",

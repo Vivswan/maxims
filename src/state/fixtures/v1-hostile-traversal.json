@@ -3,7 +3,7 @@
   "writtenBy": "maxims@0.4.1",
   "hooks": ["claude-code", "codex"],
   "sources": {
-    "@example-user/rules": {
+    "@example-user/rules#main": {
       "intent": {
         "from": {
           "type": "github",

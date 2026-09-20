@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": ["claude-code"],
+  "sources": {
+    "/home/user/rules\u0000": {
+      "intent": {
+        "from": { "type": "local", "path": "/home/user/rules\u0000" },
+        "select": "*",
+        "rename": {},
+        "rule": true,
+        "destination": { "scope": "global" },
+        "copy": true,
+        "harnesses": ["claude-code"]
+      },
+      "addedAt": "2026-08-20T08:38:04.471Z"
+    }
+  }
+}

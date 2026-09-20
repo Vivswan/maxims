@@ -36,7 +36,7 @@ const VALID_STATE: State = {
   writtenBy: "maxims@0.4.1",
   hooks: ["claude-code", "codex"],
   sources: {
-    "@example-user/rules": {
+    "@example-user/rules#main": {
       intent: {
         from: { type: "github", repo: "example-user/rules", ref: "main" },
         select: [RUBBER_DUCK],
@@ -44,6 +44,7 @@ const VALID_STATE: State = {
         rule: true,
         destination: { scope: "global" },
         copy: false,
+        auth: false,
         harnesses: ["claude-code", "codex"],
         memoryPath: "memories",
         fullDepth: false,
@@ -120,7 +121,23 @@ describe("readState", () => {
     { fixture: "v1-hostile-extra-key.json", issue: /installedPath/ },
     { fixture: "v1-hostile-traversal.json", issue: /select\.0: expected a kebab-case memory name/ },
     { fixture: "v0-legacy.json", issue: /^version 0 is older than any migration/ },
-    { fixture: "v1-corrupt-fractional-version.json", issue: /^version: expected an integer$/ },
+    {
+      fixture: "v1-corrupt-fractional-version.json",
+      issue: /^version: Invalid input: expected 1$/,
+    },
+    {
+      fixture: "v1-corrupt-unpinned-key.json",
+      issue: /^sources\.@example-user\/rules: source key must be @example-user\/rules#main$/,
+    },
+    {
+      fixture: "v1-corrupt-case-twins.json",
+      issue:
+        /^sources\.@Example-User\/Rules: names the same GitHub repository as @example-user\/rules$/,
+    },
+    {
+      fixture: "v1-corrupt-nul-path.json",
+      issue: /intent\.from\.path: a path cannot contain NUL$/,
+    },
   ];
   test.each(hostile)(
     "$fixture is moved aside, reported, and never rebuilt",
