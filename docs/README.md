@@ -19,5 +19,6 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 | look up a verb, a flag, or an exit code | [CLI reference](cli.md) |
 | know which agents are supported and what each one gets | [Harnesses](harnesses.md) |
 | know what state records and how a sync recovers | [State and store](state-and-store.md) |
+| fix what a session start or a sync reports | [Troubleshooting](troubleshooting.md) |
 | read the threat model | [Security](security.md) |
 | know why a behavior is the way it is | [Design decisions](design-decisions.md) |
