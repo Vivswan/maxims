@@ -124,6 +124,23 @@ describe("stablePublishVerdict", () => {
       packument(["1.0.0"], { latest: "1.0.0" }),
       { action: "publish", version: "1.1.0" },
     ],
+    [
+      "latest is a newer release whose minor sorts below this one's as a string",
+      "1.2.0",
+      packument(["1.1.0", "1.10.0"], { latest: "1.10.0" }),
+      {
+        action: "skip",
+        version: "1.2.0",
+        reason:
+          "the registry's latest is 1.10.0, newer than 1.2.0, so this rerun of an older release publishes nothing (npm publish would move latest back)",
+      },
+    ],
+    [
+      "latest is an older release whose minor sorts above this one's as a string",
+      "1.10.0",
+      packument(["1.9.0"], { latest: "1.9.0" }),
+      { action: "publish", version: "1.10.0" },
+    ],
   ];
   test.each(cases)("%s", (_case, version, registry, expected) => {
     expect(stablePublishVerdict(version, registry)).toEqual(expected);
@@ -260,6 +277,13 @@ describe("confirmPublish", () => {
       "1.1.0",
       packument(["1.1.0", "1.2.0"], { latest: "1.2.0" }),
       "settled",
+    ],
+    [
+      "latest names an older release whose minor sorts above the published one's as a string",
+      "stable",
+      "1.10.0",
+      packument(["1.9.0", "1.10.0"], { latest: "1.9.0" }),
+      "behind",
     ],
   ];
   test.each(tags)("judges the dist-tag: %s", async (_case, channel, version, shown, outcome) => {
