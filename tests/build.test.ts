@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { VERSION } from "../src/version.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const SHEBANG = "#!/usr/bin/env node\n";
@@ -34,7 +35,7 @@ test("bun scripts/build.ts writes an executable single-file bundle that runs und
     const run = Bun.spawnSync(["node", out], { stdout: "pipe", stderr: "pipe" });
     expect(run.stderr.toString()).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout.toString()).toBe("maxims 0.0.0\n");
+    expect(run.stdout.toString()).toBe(`maxims ${VERSION}\n`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

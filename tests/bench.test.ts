@@ -47,5 +47,5 @@ test("a failing command is reported instead of timed", () => {
   );
   expect(bench.exitCode).not.toBe(0);
   expect(bench.stdout.toString()).toBe("");
-  expect(bench.stderr.toString()).toContain("exit 3");
+  expect(bench.stderr.toString()).toContain("node -e process.exit(3) exited with code 3\n");
 });
