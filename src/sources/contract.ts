@@ -14,9 +14,15 @@ export type FetchResult = {
   files: { relPath: string; text: string }[];
 };
 
-// `resolveRef` is optional because a local directory has no ref to resolve: its `fetch` hashes the
-// tree and reports that as the sha, which is what lets change detection work identically for both.
-export interface SourceResolver {
-  resolveRef?(from: SourceFrom, pin?: string): Promise<string>;
-  fetch(from: SourceFrom, opts: FetchOptions): Promise<FetchResult>;
+// A resolver is generic over the variant it serves, so the github resolver is never handed a local
+// value and needs no throwing guard. `resolveRef` is optional because a local directory has no ref
+// to resolve: its `fetch` hashes the tree and reports that as the sha, which is what lets change
+// detection work identically for every variant.
+export interface SourceResolver<F extends SourceFrom = SourceFrom> {
+  resolveRef?(from: F, pin?: string): Promise<string>;
+  fetch(from: F, opts: FetchOptions): Promise<FetchResult>;
 }
+
+// The dispatch shape the resolver registry implements: the resolver returned is typed for exactly
+// the variant passed in.
+export type ResolverFor = <F extends SourceFrom>(from: F) => SourceResolver<F>;

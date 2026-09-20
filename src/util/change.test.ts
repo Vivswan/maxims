@@ -83,6 +83,24 @@ describe("applyChanges", () => {
     });
   });
 
+  test("a write over a symlink with identical bytes still replaces it with a real file", async () => {
+    await withTempDir(async (dir) => {
+      const store = join(dir, "store.md");
+      writeFileSync(store, "- rule\n");
+      const rule = assertInsideRoot(dir, join(dir, "rule.md"));
+      symlinkSync(store, rule);
+      const plan: Plan = {
+        changes: [{ kind: "write", path: rule, content: "- rule\n" }],
+        notices: [],
+      };
+      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 1 });
+      expect(lstatSync(rule).isSymbolicLink()).toBe(false);
+      expect(readFileSync(rule, "utf8")).toBe("- rule\n");
+      expect(readFileSync(store, "utf8")).toBe("- rule\n");
+      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+    });
+  });
+
   test("a changed symlink target is repointed; a real file in its place is refused", async () => {
     await withTempDir(async (dir) => {
       const link = assertInsideRoot(dir, join(dir, "a.md"));

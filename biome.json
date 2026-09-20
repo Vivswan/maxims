@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!.github/repo-platform-manifest.json", "!bun.lock"]
+    "includes": [
+      "**",
+      "!dist",
+      "!.github/repo-platform-manifest.json",
+      "!bun.lock",
+      "!src/harnesses/*/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,

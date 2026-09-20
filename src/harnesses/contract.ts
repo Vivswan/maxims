@@ -92,7 +92,12 @@ export type HookShape =
     }
   | {
       kind: "custom";
-      reconcile: (ctx: HarnessContext, spec: HookSpec, wanted: boolean) => Promise<Change[]>;
+      reconcile: (
+        scope: Scope,
+        ctx: HarnessContext,
+        spec: HookSpec,
+        wanted: boolean,
+      ) => Promise<Change[]>;
     };
 
 // The hook command carries no source string, no filter, and no version pin: intent supplies the
@@ -131,6 +136,10 @@ export interface HarnessDefinition {
   verifiedAgainst: { url: string; date: string; contentHash?: string };
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
+  // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`
+  // array entry), reconciled by sync like a hook: constructed from the spec, compared, written on a
+  // difference, removed when `wanted` is false.
+  configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<Change[]>;
 }
 
 // The one place a scope becomes a directory: a harness whose global files honor an environment
