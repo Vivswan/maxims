@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cline rules without frontmatter are always active, so the file is the block and nothing more.
@@ -13,6 +14,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
     date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:e050c3a7df7d88b7248b1ee5d5b3b9ca13940f98dc37e7df045240be3b50e89d") ??
+      undefined,
   },
   targets: {
     project: { kind: "rules-dir", dir: ".clinerules", fileName: "maxims-{{slug}}.md" },

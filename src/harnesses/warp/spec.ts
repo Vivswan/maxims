@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Warp applies the ALL CAPS `AGENTS.md` at the repository root and in the current directory, and
@@ -12,6 +13,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
     date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:150dc63558ea424e97d9376e2ae7ac84678b12d3bc36aa2e9941162310a7f2de") ??
+      undefined,
   },
   targets: {
     project: { kind: "shared-block", file: "AGENTS.md", precedence: ["WARP.md", "AGENTS.md"] },

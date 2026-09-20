@@ -51,6 +51,7 @@
     "@types/semver": "7.8.0",
     "@vercel/detect-agent": "1.2.5",
     "debug": "4.4.3",
+    "entities": "8.1.0",
     "jsonc-parser": "3.3.1",
     "knip": "6.35.1",
     "micromark": "4.0.2",

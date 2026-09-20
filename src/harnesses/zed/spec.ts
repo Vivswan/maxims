@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Zed reads exactly one project instruction file, the first of nine names that exists at the
@@ -9,7 +10,13 @@ export const spec = {
   id: "zed",
   displayName: "Zed",
   tier: 2,
-  verifiedAgainst: { url: "https://zed.dev/docs/ai/instructions", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://zed.dev/docs/ai/instructions",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:22f2de60f9767faa275d538380f075f236e2400905a0ba7663265311bacec515") ??
+      undefined,
+  },
   globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },
   targets: {
     project: {

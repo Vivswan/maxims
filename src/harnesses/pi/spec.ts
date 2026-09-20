@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Pi loads `~/.pi/agent/AGENTS.md` and every AGENTS.md from the parents down to the working
@@ -12,6 +13,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
     date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:f60abaa25440d30469d94b1c27ac8c6b4a28ecafdd60e5d93cc92c46e8f67ed5") ??
+      undefined,
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },
   targets: {

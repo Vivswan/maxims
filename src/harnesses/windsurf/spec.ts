@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // The legacy Cascade agent of Devin Desktop (formerly Windsurf). Its rules directory needs
@@ -14,7 +15,13 @@ export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",
   tier: 1,
-  verifiedAgainst: { url: "https://docs.devin.ai/desktop/cascade/hooks", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://docs.devin.ai/desktop/cascade/hooks",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:e4cef5a0685b214e4a80179bcfb4ea2f834b9e7659935d181a943a42ce941c46") ??
+      undefined,
+  },
   globalRoot: { default: ".codeium/windsurf" },
   targets: {
     project: {

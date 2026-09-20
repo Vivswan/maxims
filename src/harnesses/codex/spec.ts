@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
@@ -7,7 +8,13 @@ export const spec = {
   id: "codex",
   displayName: "Codex",
   tier: 1,
-  verifiedAgainst: { url: "https://learn.chatgpt.com/docs/hooks", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://learn.chatgpt.com/docs/hooks",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:289b77f35834f070c739dd0590b54209088b311b39d9b254b0c92a11fb16cdbc") ??
+      undefined,
+  },
   globalRoot: { default: ".codex", env: { name: "CODEX_HOME" } },
   targets: {
     project: { kind: "shared-block", file: "AGENTS.md" },

@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
@@ -17,6 +18,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
     date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:4aaff5814a41d41b14d3ebeb12126d1eb7974180fe4ec42414f8641f6bf440fb") ??
+      undefined,
   },
   globalRoot: { default: ".dsh", env: { name: "DSH_HOME" } },
   targets: {

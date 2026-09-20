@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Amp always includes AGENTS.md from the working directory upward and `~/.config/amp/AGENTS.md`;
@@ -11,7 +12,13 @@ export const spec = {
   id: "amp",
   displayName: "Amp",
   tier: 1,
-  verifiedAgainst: { url: "https://ampcode.com/docs/customize/plugins", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://ampcode.com/docs/customize/plugins",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:9fd35d00d467bfe0c646f76d9968a39ca1372ac6da1e10b986ea26be94d446f8") ??
+      undefined,
+  },
   globalRoot: { default: ".config/amp" },
   targets: {
     project: {

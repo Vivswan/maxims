@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
@@ -9,7 +10,13 @@ export const spec = {
   id: "claude-code",
   displayName: "Claude Code",
   tier: 1,
-  verifiedAgainst: { url: "https://code.claude.com/docs/en/memory", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://code.claude.com/docs/en/memory",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:8b0293c0b433c082cee1712f624b34c32980f7888a1702a56d631ddf9e0b1046") ??
+      undefined,
+  },
   targets: {
     project: { kind: "rules-dir", dir: ".claude/rules", fileName: "maxims-{{slug}}.md" },
     global: { kind: "rules-dir", dir: ".claude/rules", fileName: "maxims-{{slug}}.md" },

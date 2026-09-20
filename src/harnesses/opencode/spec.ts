@@ -1,3 +1,4 @@
+import { parseContentHash } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // OpenCode resolves its global directory through the XDG base directories, so an override of
@@ -13,7 +14,13 @@ export const spec = {
   id: "opencode",
   displayName: "OpenCode",
   tier: 1,
-  verifiedAgainst: { url: "https://opencode.ai/docs/plugins/", date: "2026-09-20" },
+  verifiedAgainst: {
+    url: "https://opencode.ai/docs/plugins/",
+    date: "2026-09-20",
+    contentHash:
+      parseContentHash("sha256:046e4477803e32126f82828c2f5446555a371ad859875f0a9376b7e2843b3ef5") ??
+      undefined,
+  },
   globalRoot: { default: ".config/opencode", env: { name: "XDG_CONFIG_HOME", subdir: "opencode" } },
   targets: {
     project: { kind: "rules-dir", dir: ".opencode/memories", fileName: "maxims-{{slug}}.md" },
