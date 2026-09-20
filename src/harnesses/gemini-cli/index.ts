@@ -31,7 +31,7 @@ export const geminiCli = {
       timeout: spec.timeoutSeconds * 1000,
     }),
     commandKey: "command",
-    stdout: "json:additionalContext",
+    stdout: "json:hookSpecificOutput.additionalContext",
     async: false,
   },
   markers: "counted",

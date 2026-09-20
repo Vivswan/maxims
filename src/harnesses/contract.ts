@@ -44,13 +44,16 @@ export type HookSpec = {
   timeoutSeconds: number;
 };
 
-// How a session-start hook may speak back to its harness; the `json:` variants name the key the
-// harness reads. Plain stdout becomes context on Claude Code and Codex; Gemini and Copilot accept
-// only one JSON object; Cline and Cursor read their own keys. Sync renders the staleness notice
-// per this field, so a harness that requires silence never sees stray text.
+// How a session-start hook may speak back to its harness; the `json:` variants name the path of
+// the key the harness reads inside the one JSON object it accepts. Plain stdout becomes context on
+// Claude Code and Codex. Two envelopes carry an `additionalContext`: Copilot reads it at the top
+// level, `{"additionalContext": "..."}`; Claude Code, Gemini and Devin read it nested under
+// `hookSpecificOutput` beside the event name. Cline and Cursor read their own keys. Sync renders
+// the staleness notice per this field, so a harness that requires silence never sees stray text.
 export type HookStdout =
   | "plain"
   | "json:additionalContext"
+  | "json:hookSpecificOutput.additionalContext"
   | "json:contextModification"
   | "json:additional_context"
   | "none";
