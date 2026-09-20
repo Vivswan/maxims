@@ -64,7 +64,7 @@ async function applyOne(change: Change): Promise<boolean> {
       if (
         change.mode !== undefined &&
         existing !== null &&
-        (existing.mode & 0o777) !== change.mode
+        (existing.mode & 0o7777) !== change.mode
       ) {
         await guarded(change.path, () => chmod(change.path, change.mode as number));
         return true;
