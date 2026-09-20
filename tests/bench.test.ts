@@ -4,7 +4,8 @@
 // fails if a run leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if
 // measured timings can be written inside the repository, where a commit would publish them,
 // including through a symlink or a /proc alias whose lexical path lies outside the checkout, or
-// into any other checkout of a repository the bench runs from a linked worktree of.
+// into any other checkout of a repository the bench runs from a linked worktree of. Also fails if
+// the bench guesses at that set of checkouts when git cannot list them or is not installed.
 import { expect, test } from "bun:test";
 import {
   copyFileSync,
@@ -25,6 +26,7 @@ import { summarize } from "../scripts/bench.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const realRepoRoot = realpathSync(repoRoot);
+const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
 
 // Samples where the mean and the median differ, so a switch to the mean fails these cases.
 const summaries: [number[], ReturnType<typeof summarize>][] = [
@@ -313,6 +315,79 @@ test.each(worktreeTargets)(
         expect(readFileSync(log, "utf8")).toBe("x");
         expect(JSON.parse(readFileSync(out, "utf8")).runs).toBe(1);
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+interface GitFailure {
+  bench: string;
+  env: Record<string, string>;
+  // Fragments the refusal on stderr must carry: git's own words and the bench's reason.
+  fragments: string[];
+}
+
+// The bench derives the repository from its own location, so a copy of the script in a plain
+// directory asks git about a checkout that is not one. The ceiling keeps git from adopting a
+// repository that happens to enclose the OS tmpdir. With an empty PATH only git goes missing: the
+// bench and its child are named by absolute path.
+const gitFailures: [string, (dir: string) => GitFailure][] = [
+  [
+    "a checkout git does not recognize",
+    (dir) => {
+      mkdirSync(join(dir, "fixture", "scripts"), { recursive: true });
+      const bench = join(dir, "fixture", "scripts", "bench.ts");
+      copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
+      return {
+        bench,
+        env: { GIT_CEILING_DIRECTORIES: dirname(dir) },
+        fragments: ["not a git repository", "git worktree list exited with 128"],
+      };
+    },
+  ],
+  [
+    "no git on PATH",
+    (dir) => {
+      const emptyPath = join(dir, "empty-path");
+      mkdirSync(emptyPath);
+      return {
+        bench: join(repoRoot, "scripts", "bench.ts"),
+        env: { PATH: emptyPath },
+        fragments: ['"git"'],
+      };
+    },
+  ],
+];
+
+test.each(gitFailures)(
+  "--json with %s is refused with exit 2 before the child runs or anything is written",
+  (_name, plan) => {
+    const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
+    try {
+      const { bench, env, fragments } = plan(dir);
+      const out = join(dir, "bench.json");
+      const log = join(dir, "runs.log");
+      const command = [
+        process.execPath,
+        "-e",
+        "require('node:fs').appendFileSync(process.argv[1], 'x')",
+        log,
+      ];
+      const ran = Bun.spawnSync([process.execPath, bench, "--json", out, "--", ...command], {
+        cwd: dirname(dirname(bench)),
+        env: { ...process.env, TMPDIR: dir, ...env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(ran.exitCode).toBe(2);
+      expect(ran.stdout.toString()).toBe("");
+      const stderr = ran.stderr.toString();
+      expect(stderr).toContain("bench: cannot list the repository's checkouts: ");
+      for (const fragment of fragments) expect(stderr).toContain(fragment);
+      expect(stderr.endsWith(USAGE)).toBe(true);
+      expect(existsSync(log)).toBe(false);
+      expect(existsSync(out)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

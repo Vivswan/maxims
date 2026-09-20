@@ -57,22 +57,31 @@ function whereBytesLand(path: string): string {
   return join(realpathSync(existing), ...missing);
 }
 
+// A git binary that cannot be started surfaces as a thrown ENOENT, not as an exit code; both are
+// the same refusal, never a stack trace.
+function listCheckouts(): string {
+  const command = ["git", "-C", repoRoot, "worktree", "list", "--porcelain"];
+  let git: Bun.ReadableSyncSubprocess;
+  try {
+    git = Bun.spawnSync(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    fail(`cannot list the repository's checkouts: ${reason}`);
+  }
+  if (git.exitCode !== 0) {
+    process.stderr.write(git.stderr.toString());
+    fail(`cannot list the repository's checkouts: git worktree list exited with ${git.exitCode}`);
+  }
+  return git.stdout.toString();
+}
+
 // Every checkout of one repository shares its history, so a commit from any of them publishes
 // what lands there; git's own worktree list is the set of them. A bare entry has no working tree.
 // A primary set up with --separate-git-dir is out of reach: git keeps no path back to it and lists
 // its git dir in its place. No git answer, no known roots: refuse.
 function repositoryRoots(): Set<string> {
   const roots = new Set([realpathSync(repoRoot)]);
-  const git = Bun.spawnSync(["git", "-C", repoRoot, "worktree", "list", "--porcelain"], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (git.exitCode !== 0) {
-    process.stderr.write(git.stderr.toString());
-    fail(`cannot list the repository's checkouts: git worktree list exited with ${git.exitCode}`);
-  }
-  for (const entry of git.stdout.toString().split("\n\n")) {
+  for (const entry of listCheckouts().split("\n\n")) {
     const lines = entry.split("\n");
     const path = lines[0]?.startsWith("worktree ") ? lines[0].slice("worktree ".length) : undefined;
     if (path === undefined || lines.includes("bare")) continue;
