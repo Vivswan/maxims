@@ -254,7 +254,7 @@ describe("fetch", () => {
         `fetch https://ghe.example.com/Example-User/rules/archive/${SHA}.tar.gz`,
         "exec gh auth status --hostname octo.ghe.com",
         `git clone https://octo.ghe.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer dotcom sparse=memories]`,
-        `fetch https://octo.ghe.com/Example-User/rules/archive/${SHA}.tar.gz`,
+        `fetch https://api.octo.ghe.com/repos/Example-User/rules/tarball/${SHA}`,
       ]);
       expect(seen.map((s) => s.authorization)).toEqual([
         "Bearer dotcom",

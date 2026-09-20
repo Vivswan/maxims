@@ -402,27 +402,56 @@ describe("fetchTree", () => {
   });
 });
 
-describe("enterprise endpoints", () => {
-  test("an enterprise host's endpoints change every URL and the gh hostname", async () => {
-    await withTempDir(async (dir) => {
-      const runner = scriptedRunner({
-        exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
-        fetch: (url) => httpResponse(200, url.includes("/api/v3/") ? SHA : cleanTarball()),
+// gh's URL shapes per host class, which nothing else enforces: github.com and a ghe.com tenant
+// serve their API from an `api.` subdomain, an enterprise server under its own /api/v3; archives
+// come from codeload, the REST tarball endpoint, or the repository's own path respectively.
+describe("endpoints per host class", () => {
+  const cases: [string, string, string, string, string][] = [
+    [
+      "github.com",
+      "github.com",
+      "github.com",
+      "https://api.github.com",
+      `https://codeload.github.com/example-user/rules/tar.gz/${SHA}`,
+    ],
+    [
+      "an enterprise server",
+      "GHE.example.com",
+      "ghe.example.com",
+      "https://ghe.example.com/api/v3",
+      `https://ghe.example.com/example-user/rules/archive/${SHA}.tar.gz`,
+    ],
+    [
+      "a ghe.com tenant",
+      "Octo.ghe.com",
+      "octo.ghe.com",
+      "https://api.octo.ghe.com",
+      `https://api.octo.ghe.com/repos/example-user/rules/tarball/${SHA}`,
+    ],
+  ];
+  test.each(cases)(
+    "%s: every URL and the gh hostname",
+    async (_label, host, ghHost, api, archive) => {
+      await withTempDir(async (dir) => {
+        const runner = scriptedRunner({
+          exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
+          fetch: (url) => httpResponse(200, url.includes("/commits/") ? SHA : cleanTarball()),
+        });
+        const climb = ladder(runner, { endpoints: endpointsFor(host) });
+        expect(await climb.resolveRef(REPO, "v1", AUTH)).toBe(SHA);
+        await climb.fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
+        expect(runner.calls).toEqual([
+          `exec gh auth status --hostname ${ghHost}`,
+          `exec gh api --hostname ${ghHost} repos/example-user/rules/commits/v1 --jq .sha`,
+          `git ls-remote https://${ghHost}/example-user/rules.git refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=inherited]`,
+          `fetch ${api}/repos/example-user/rules/commits/v1`,
+          `exec gh api --hostname ${ghHost} repos/example-user/rules/tarball/${SHA}`,
+          `git clone https://${ghHost}/example-user/rules.git ${SHA} [creds=inherited]`,
+          `fetch ${archive}`,
+        ]);
       });
-      const climb = ladder(runner, { endpoints: endpointsFor("GHE.example.com") });
-      expect(await climb.resolveRef(REPO, "v1", AUTH)).toBe(SHA);
-      await climb.fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
-      expect(runner.calls).toEqual([
-        "exec gh auth status --hostname ghe.example.com",
-        "exec gh api --hostname ghe.example.com repos/example-user/rules/commits/v1 --jq .sha",
-        "git ls-remote https://ghe.example.com/example-user/rules.git refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=inherited]",
-        "fetch https://ghe.example.com/api/v3/repos/example-user/rules/commits/v1",
-        `exec gh api --hostname ghe.example.com repos/example-user/rules/tarball/${SHA}`,
-        `git clone https://ghe.example.com/example-user/rules.git ${SHA} [creds=inherited]`,
-        `fetch https://ghe.example.com/example-user/rules/archive/${SHA}.tar.gz`,
-      ]);
-    });
-  });
+    },
+  );
 });
 
 describe("failure classification", () => {

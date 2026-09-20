@@ -66,24 +66,37 @@ export type Endpoints = {
   ghHost: string;
   apiBase: string;
   gitUrl(repo: RepoCoordinate): string;
-  codeloadUrl(repo: RepoCoordinate, ref: string): string;
+  archiveUrl(repo: RepoCoordinate, ref: string): string;
 };
 
 export const DEFAULT_GH_HOST = "github.com";
+const TENANCY_SUFFIX = ".ghe.com";
 
-// github.com serves archives from codeload and its API from api.github.com; an enterprise host
-// serves both itself, the API under /api/v3 and archives under the repository's own path.
+// gh's host classes (go-gh pkg/auth IsTenancy, IsEnterprise): github.com and every ghe.com tenant
+// share one class, every other host is an enterprise server.
+function isDotcomClass(host: string): boolean {
+  return host === DEFAULT_GH_HOST || host.endsWith(TENANCY_SUFFIX);
+}
+
+// gh's URL shapes (go-gh pkg/api restPrefix): the github.com class serves its API from an `api.`
+// subdomain, an enterprise server under its own /api/v3. Archives come from codeload for github.com
+// alone; a tenant has no documented archive host, so the REST tarball endpoint, which redirects to
+// wherever the tenant stores them, is asked instead; an enterprise server serves them under the
+// repository's own path.
 export function endpointsFor(host: string): Endpoints {
   const ghHost = host.toLowerCase();
   const isDotCom = ghHost === DEFAULT_GH_HOST;
+  const apiBase = isDotcomClass(ghHost) ? `https://api.${ghHost}` : `https://${ghHost}/api/v3`;
   return {
     ghHost,
-    apiBase: isDotCom ? "https://api.github.com" : `https://${ghHost}/api/v3`,
+    apiBase,
     gitUrl: ({ owner, repo }) => `https://${ghHost}/${owner}/${repo}.git`,
-    codeloadUrl: ({ owner, repo }, ref) =>
-      isDotCom
-        ? `https://codeload.github.com/${owner}/${repo}/tar.gz/${encodeURIComponent(ref)}`
-        : `https://${ghHost}/${owner}/${repo}/archive/${encodeURIComponent(ref)}.tar.gz`,
+    archiveUrl: ({ owner, repo }, ref) => {
+      const encoded = encodeURIComponent(ref);
+      if (isDotCom) return `https://codeload.github.com/${owner}/${repo}/tar.gz/${encoded}`;
+      if (isDotcomClass(ghHost)) return `${apiBase}/repos/${owner}/${repo}/tarball/${encoded}`;
+      return `https://${ghHost}/${owner}/${repo}/archive/${encoded}.tar.gz`;
+    },
   };
 }
 
@@ -129,17 +142,15 @@ export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
 }
 
-// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate github.com and its ghe.com
-// tenants, the two ENTERPRISE names every other host. A token is offered only to the host class it
-// was named for, so a github.com token never reaches an enterprise server and an enterprise token
-// never reaches a tenant.
+// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate the github.com class, the
+// two ENTERPRISE names every other host. A token is offered only to the host class it was named
+// for, so a github.com token never reaches an enterprise server and an enterprise token never
+// reaches a tenant.
 const DOTCOM_TOKEN_NAMES = ["GH_TOKEN", "GITHUB_TOKEN"];
 const ENTERPRISE_TOKEN_NAMES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
-const TENANCY_SUFFIX = ".ghe.com";
 
 export function tokenFor(env: NodeJS.ProcessEnv, host: string): string | undefined {
-  const dotcomClass = host === DEFAULT_GH_HOST || host.endsWith(TENANCY_SUFFIX);
-  const names = dotcomClass ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
+  const names = isDotcomClass(host) ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
   for (const name of names) {
     const token = env[name]?.trim();
     if (token !== undefined && token !== "") return token;
@@ -226,7 +237,7 @@ export function createLadder(options: LadderOptions): Ladder {
         {
           fallback: true,
           run: async () => {
-            const url = endpoints.codeloadUrl(repo, sha);
+            const url = endpoints.archiveUrl(repo, sha);
             const body = await http(runner, url, bearer(request), timeoutMs);
             if (body.kind !== "ok") return body;
             return extract(body.value, destDir, warn);
