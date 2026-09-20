@@ -39,14 +39,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: gh release upload "$RELEASE_TAG" dist/cli.js --clobber
 
-  # The npm-publish lane serializes publishes; queue: max keeps every queued publish (a lane drops
-  # all but one pending job by default).
+  # The npm-publish lane serializes publishes so two release runs never race the registry.
   publish-npm:
     if: github.repository == 'Vivswan/maxims'
     needs: [package]
     concurrency:
       group: npm-publish
-      queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
