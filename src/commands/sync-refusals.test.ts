@@ -45,6 +45,13 @@ import { runRemove } from "./remove.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { runSync } from "./sync.ts";
 
+// A run that refuses several sources exits with the first failure in key order. A local source's
+// key is its path, which sorts before "@acme/rules" on POSIX and after it on Windows, where the
+// drive letter leads.
+function firstRefusal(localKey: string): ExitCode {
+  return localKey < "@acme/rules" ? ExitCode.NameCollision : ExitCode.RuleCapExceeded;
+}
+
 describe("what a refused or departed source leaves behind", () => {
   test("a colliding source lands neither block nor bodies, so the owner's body stays its own", async () => {
     await world(async ({ home, dir, userHome, project }) => {
@@ -249,8 +256,8 @@ describe("what a refused or departed source leaves behind", () => {
       });
       const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
       // Both refusals are reported: the rival's first install collides with the retained alpha,
-      // and the refresh is over the cap; the exit code is the first in key order.
-      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.NameCollision);
+      // and the refresh is over the cap.
+      await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(rival));
       const notices: string[] = JSON.parse(io.out.join("")).report.notices;
       expect(notices.some((line) => line.includes("26 rule lines exceed the cap"))).toBe(true);
       expect(notices.some((line) => line.includes("alpha is owned by @acme/rules"))).toBe(true);
@@ -382,7 +389,7 @@ describe("what a refused or departed source leaves behind", () => {
         sha: "b".repeat(40),
       });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.NameCollision);
+      await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(first));
       const document = JSON.parse(io.out.join(""));
       const collisions = document.report.notices.filter((line: string) =>
         line.includes("is owned by"),
@@ -487,7 +494,7 @@ describe("what a refused or departed source leaves behind", () => {
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: grown, sha: "b".repeat(40) });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.NameCollision);
+      await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(rival));
       const document = JSON.parse(io.out.join(""));
       const notices: string[] = document.report.notices;
       expect(notices.filter((line) => line.includes("alpha is owned by @acme/rules"))).toHaveLength(

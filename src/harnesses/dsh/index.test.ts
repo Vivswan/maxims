@@ -31,7 +31,7 @@ function ourRow(dshHome: string, indent = ""): string {
     `- id: ${BRIDGE_ROW_ID}`,
     '  name: "@deepseek-ai/dsh-hooks-claude-code"',
     "  config:",
-    `    configPath: ${dshHome}/maxims-hooks.json`,
+    `    configPath: ${join(dshHome, "maxims-hooks.json")}`,
     "",
   ]
     .map((line) => (line === "" ? line : `${indent}${line}`))

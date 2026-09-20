@@ -11,7 +11,6 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -35,6 +34,7 @@ import {
   writeState,
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
@@ -242,7 +242,7 @@ describe("remove", () => {
       expect(second.plan.changes).toEqual([]);
       const link = join(project, ".agents", "memories", "always-review.md");
       const target = resolve(dirname(link), readlinkSync(link));
-      expect(target.startsWith(realpathSync(homePaths(home).store))).toBe(true);
+      expect(target.startsWith(homePaths(home).store)).toBe(true);
       await runRemove({ ...REMOVE, all: true }, io);
       expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined();
     });
@@ -547,31 +547,34 @@ describe("remove", () => {
     });
   });
 
-  test("--json prints one document even when a native error interrupts the removal", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const live = writeSource(join(dir, "live"), TWO_MEMORIES);
-      writeState(home, stateWith({ [live]: entryFor(localFrom(live, true)) }));
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const rules = globalRulesFile(userHome, sourceSlug(localFrom(live, true)));
-      rmSync(live, { recursive: true });
-      chmodSync(rules, 0o000);
-      try {
-        io.out.length = 0;
-        const thrown = await runRemove({ ...REMOVE, json: true, targets: ["always-review"] }, io)
-          .then(() => null)
-          .catch((error: unknown) => error);
-        // The document is the run's one; what escapes is marked as already reported, so a caller
-        // printing its own document for an unreported failure prints none here.
-        expect(thrown).toBeInstanceOf(ReportedMaximsError);
-        const document = JSON.parse(io.out.join(""));
-        expect(document.ok).toBe(false);
-        expect(document.message).toContain("EACCES");
-      } finally {
-        chmodSync(rules, 0o644);
-      }
-    });
-  });
+  test.skipIf(!CHMOD_DENIES)(
+    "--json prints one document even when a native error interrupts the removal",
+    async () => {
+      await world(async ({ home, dir, userHome }) => {
+        const live = writeSource(join(dir, "live"), TWO_MEMORIES);
+        writeState(home, stateWith({ [live]: entryFor(localFrom(live, true)) }));
+        const io = fakeIo({ home, userHome, cwd: dir });
+        await runSync(SYNC, io);
+        const rules = globalRulesFile(userHome, sourceSlug(localFrom(live, true)));
+        rmSync(live, { recursive: true });
+        chmodSync(rules, 0o000);
+        try {
+          io.out.length = 0;
+          const thrown = await runRemove({ ...REMOVE, json: true, targets: ["always-review"] }, io)
+            .then(() => null)
+            .catch((error: unknown) => error);
+          // The document is the run's one; what escapes is marked as already reported, so a caller
+          // printing its own document for an unreported failure prints none here.
+          expect(thrown).toBeInstanceOf(ReportedMaximsError);
+          const document = JSON.parse(io.out.join(""));
+          expect(document.ok).toBe(false);
+          expect(document.message).toContain("EACCES");
+        } finally {
+          chmodSync(rules, 0o644);
+        }
+      });
+    },
+  );
 
   test("nothing installed, or a name nobody provides, is a clean exit with the mirrored line", async () => {
     await world(async ({ home, dir, userHome }) => {

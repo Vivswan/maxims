@@ -10,7 +10,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { withTempDir, withTempHome } from "../../tests/shared/temp_dir.ts";
 import { applyChanges } from "../util/change.ts";
 import { homePaths } from "../util/home.ts";
@@ -52,9 +52,8 @@ describe("materializeLocal", () => {
         const planB = materializeLocal({ type: "local", path: b }, home, files);
         const store = homePaths(home).store;
         expect(planA.map((c) => c.kind)).toEqual(["delete", "mkdir", "write"]);
-        expect(planA[0]?.path).toMatch(
-          new RegExp(`^${join(store, "_local", "memories-")}[0-9a-f]{8}$`),
-        );
+        expect(dirname(planA[0]?.path ?? "")).toBe(join(store, "_local"));
+        expect(basename(planA[0]?.path ?? "")).toMatch(/^memories-[0-9a-f]{8}$/);
         expect(planA[0]?.path).not.toBe(planB[0]?.path);
         await applyChanges({ changes: [...planA, ...planB], notices: [] }, { dryRun: false });
         const written = [planA[2], planB[2]].map((c) =>
@@ -99,7 +98,8 @@ describe("materializeLocal", () => {
         seedSource(dir);
         const plan = materializeLocal({ type: "local", path: dir, live: true }, home, []);
         const entry = plan[0]?.path ?? "";
-        expect(entry).toMatch(/_local\/[^/]+-[0-9a-f]{8}$/);
+        expect(basename(dirname(entry))).toBe("_local");
+        expect(basename(entry)).toMatch(/^[^/\\]+-[0-9a-f]{8}$/);
         expect(plan).toEqual([
           { kind: "delete", path: entry },
           { kind: "symlink", path: entry, target: dir },

@@ -4,11 +4,11 @@
 // the other platform) and no timeout field, and the global block goes into the single
 // `global_rules.md` under `~/.codeium/windsurf/memories`.
 import { expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { hookSpecFor, scopeRoot } from "../contract.ts";
 import { windsurf } from "./index.ts";
 
-const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
 
 test("a project rule file is always-on by frontmatter and glob-triggered under --paths", () => {
   const target = windsurf.targets.project;
@@ -27,14 +27,18 @@ test("the pre_user_prompt entry carries both shells and no timeout", () => {
   expect(JSON.stringify(windsurf.hook.handler(hookSpecFor(windsurf)))).toBe(
     '{"command":"npx -y @vivswan/maxims sync --quiet","powershell":"npx -y @vivswan/maxims sync --quiet","show_output":false}',
   );
-  expect(windsurf.hook.path("project", ctx)).toBe("/home/user/project/.windsurf/hooks.json");
-  expect(windsurf.hook.path("global", ctx)).toBe("/home/user/.codeium/windsurf/hooks.json");
+  expect(windsurf.hook.path("project", ctx)).toBe(
+    resolve("/home/user/project/.windsurf/hooks.json"),
+  );
+  expect(windsurf.hook.path("global", ctx)).toBe(
+    resolve("/home/user/.codeium/windsurf/hooks.json"),
+  );
 });
 
 test("the global block goes into the one memories file Cascade reads", () => {
   const target = windsurf.targets.global;
   if (target?.kind !== "shared-block") throw new Error("expected a shared block");
   expect(join(scopeRoot(windsurf, "global", ctx), target.file)).toBe(
-    "/home/user/.codeium/windsurf/memories/global_rules.md",
+    resolve("/home/user/.codeium/windsurf/memories/global_rules.md"),
   );
 });

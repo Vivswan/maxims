@@ -4,7 +4,7 @@
 // follows `$XDG_CONFIG_HOME/zed`.
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { scopeRoot, sharedBlockFile } from "../contract.ts";
 import { zed } from "./index.ts";
@@ -43,11 +43,11 @@ test.each(repos)(
 test("the personal AGENTS.md follows XDG_CONFIG_HOME/zed and defaults to ~/.config/zed", () => {
   const target = zed.targets.global;
   if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-  const home = "/home/user";
+  const home = resolve("/home/user");
   expect(join(scopeRoot(zed, "global", { home, projectRoot: null, env: {} }), target.file)).toBe(
-    "/home/user/.config/zed/AGENTS.md",
+    resolve("/home/user/.config/zed/AGENTS.md"),
   );
-  const xdg = { home, projectRoot: null, env: { XDG_CONFIG_HOME: "/xdg" } };
-  expect(join(scopeRoot(zed, "global", xdg), target.file)).toBe("/xdg/zed/AGENTS.md");
-  expect(zed.mcp?.path("global", xdg)).toBe("/xdg/zed/settings.json");
+  const xdg = { home, projectRoot: null, env: { XDG_CONFIG_HOME: resolve("/xdg") } };
+  expect(join(scopeRoot(zed, "global", xdg), target.file)).toBe(resolve("/xdg/zed/AGENTS.md"));
+  expect(zed.mcp?.path("global", xdg)).toBe(resolve("/xdg/zed/settings.json"));
 });

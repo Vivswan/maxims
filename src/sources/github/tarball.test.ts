@@ -2,7 +2,7 @@
 // crafted tarball would put attacker-chosen bytes outside the temp dir or a secret inside the store.
 import { describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import {
   absolutePathTarball,
@@ -15,10 +15,12 @@ import {
 } from "./fixtures/tarballs.ts";
 import { extractTarball } from "./tarball.ts";
 
+// Entries are listed with forward slashes on every platform: the cases spell tar paths, which
+// carry no other separator.
 function listTree(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-    const rel = join(entry.parentPath, entry.name).slice(dir.length + 1);
+    const rel = relative(dir, join(entry.parentPath, entry.name)).split(sep).join("/");
     out.push(entry.isDirectory() ? `${rel}/` : rel);
   }
   return out.sort();

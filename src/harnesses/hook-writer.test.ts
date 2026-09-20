@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
+import { WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -611,7 +612,7 @@ describe("planFileHookWrite", () => {
     expect(result.changes).toEqual(changes);
   });
 
-  test.skipIf(process.platform === "win32")(
+  test.skipIf(WINDOWS)(
     "a hook whose execute bit was stripped is repaired through applyChanges (mode bits are POSIX)",
     async () => {
       await withTempDir(async (root) => {

@@ -6,7 +6,7 @@
 // it instead of AGENTS.md.
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { hookSpecFor, scopeRoot, sharedBlockFile } from "../contract.ts";
 import { pi } from "./index.ts";
@@ -39,19 +39,21 @@ test("$PI_CODING_AGENT_DIR moves the global AGENTS.md and the extension, even wh
   if (pi.hook.kind !== "file") throw new Error("expected a file hook");
   const target = pi.targets.global;
   if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-  const home = "/home/user";
+  const home = resolve("/home/user");
   const plain = { home, projectRoot: null, env: {} };
-  expect(join(scopeRoot(pi, "global", plain), target.file)).toBe("/home/user/.pi/agent/AGENTS.md");
-  expect(pi.hook.path("global", plain)).toBe("/home/user/.pi/agent/extensions/maxims.ts");
-  const moved = { home, projectRoot: null, env: { PI_CODING_AGENT_DIR: "/opt/pi" } };
-  expect(join(scopeRoot(pi, "global", moved), target.file)).toBe("/opt/pi/AGENTS.md");
-  expect(pi.hook.path("global", moved)).toBe("/opt/pi/extensions/maxims.ts");
+  expect(join(scopeRoot(pi, "global", plain), target.file)).toBe(
+    resolve("/home/user/.pi/agent/AGENTS.md"),
+  );
+  expect(pi.hook.path("global", plain)).toBe(resolve("/home/user/.pi/agent/extensions/maxims.ts"));
+  const moved = { home, projectRoot: null, env: { PI_CODING_AGENT_DIR: resolve("/opt/pi") } };
+  expect(join(scopeRoot(pi, "global", moved), target.file)).toBe(resolve("/opt/pi/AGENTS.md"));
+  expect(pi.hook.path("global", moved)).toBe(resolve("/opt/pi/extensions/maxims.ts"));
   const relative = { home, projectRoot: null, env: { PI_CODING_AGENT_DIR: "custom-pi" } };
   expect(pi.hook.path("global", relative)).toBe(
     join(process.cwd(), "custom-pi/extensions/maxims.ts"),
   );
-  expect(pi.hook.path("project", { ...plain, projectRoot: "/home/user/project" })).toBe(
-    "/home/user/project/.pi/extensions/maxims.ts",
+  expect(pi.hook.path("project", { ...plain, projectRoot: resolve("/home/user/project") })).toBe(
+    resolve("/home/user/project/.pi/extensions/maxims.ts"),
   );
 });
 

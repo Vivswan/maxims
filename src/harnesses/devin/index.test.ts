@@ -4,27 +4,29 @@
 // milliseconds, or a hook written where only the project layer looks, would leave the rules never
 // refreshing with nothing to show for it.
 import { expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { hookSpecFor, scopeRoot } from "../contract.ts";
 import { devin } from "./index.ts";
 
-const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
 
 test("the SessionStart handler and its registry paths are what Devin reads", () => {
   if (devin.hook.kind !== "registry") throw new Error("expected a registry hook");
   expect(JSON.stringify(devin.hook.handler(hookSpecFor(devin)))).toBe(
     '{"type":"command","command":"npx -y @vivswan/maxims sync --quiet","timeout":20}',
   );
-  expect(devin.hook.path("project", ctx)).toBe("/home/user/project/.devin/config.json");
-  expect(devin.hook.path("global", ctx)).toBe("/home/user/.config/devin/config.json");
+  expect(devin.hook.path("project", ctx)).toBe(resolve("/home/user/project/.devin/config.json"));
+  expect(devin.hook.path("global", ctx)).toBe(resolve("/home/user/.config/devin/config.json"));
 });
 
 test("the global rule block and MCP config live under ~/.config/devin", () => {
   const target = devin.targets.global;
   if (target?.kind !== "shared-block") throw new Error("expected a shared block");
   expect(join(scopeRoot(devin, "global", ctx), target.file)).toBe(
-    "/home/user/.config/devin/AGENTS.md",
+    resolve("/home/user/.config/devin/AGENTS.md"),
   );
-  expect(devin.mcp?.path("global", ctx)).toBe("/home/user/.config/devin/mcp_config.json");
-  expect(devin.mcp?.path("project", ctx)).toBe("/home/user/project/.devin/mcp_config.json");
+  expect(devin.mcp?.path("global", ctx)).toBe(resolve("/home/user/.config/devin/mcp_config.json"));
+  expect(devin.mcp?.path("project", ctx)).toBe(
+    resolve("/home/user/project/.devin/mcp_config.json"),
+  );
 });

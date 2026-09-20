@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { simpleGit } from "simple-git";
 
 export type FixtureRepo = {
@@ -29,5 +30,5 @@ export async function createFixtureRepo(dir: string): Promise<FixtureRepo> {
   await git.add(".");
   await git.commit("two");
   const head = (await git.revparse(["HEAD"])).trim();
-  return { url: `file://${dir}`, head, tagged };
+  return { url: pathToFileURL(dir).href, head, tagged };
 }

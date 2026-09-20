@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { WINDOWS } from "../../tests/shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { applyChanges, type Plan, planToJson, renderPlan } from "./change.ts";
 import { ExitCode, type MaximsError } from "./exit-codes.ts";
@@ -181,8 +181,7 @@ describe("applyChanges", () => {
     });
   });
 
-  // Root reads through a 0000 mode, and Windows has no mode to deny with.
-  test.skipIf(process.getuid?.() === 0 || WINDOWS)(
+  test.skipIf(!CHMOD_DENIES)(
     "a path that cannot be inspected is exit 4, never a silent no-op",
     async () => {
       await withTempDir(async (dir) => {

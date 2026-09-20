@@ -5,7 +5,7 @@
 // user's file from Amp's context.
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { hookSpecFor, sharedBlockFile } from "../contract.ts";
 import { amp } from "./index.ts";
@@ -31,10 +31,10 @@ test("the plugin file is written byte for byte as Amp loads it", () => {
       "",
     ].join("\n"),
   );
-  const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
-  expect(amp.hook.path("global", ctx)).toBe("/home/user/.config/amp/plugins/maxims.ts");
-  expect(amp.hook.path("project", ctx)).toBe("/home/user/project/.amp/plugins/maxims.ts");
-  expect(amp.mcp?.path("global", ctx)).toBe("/home/user/.config/amp/settings.json");
+  const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
+  expect(amp.hook.path("global", ctx)).toBe(resolve("/home/user/.config/amp/plugins/maxims.ts"));
+  expect(amp.hook.path("project", ctx)).toBe(resolve("/home/user/project/.amp/plugins/maxims.ts"));
+  expect(amp.mcp?.path("global", ctx)).toBe(resolve("/home/user/.config/amp/settings.json"));
 });
 
 test("a project with only a fallback instructions file keeps it as the block's home", async () => {

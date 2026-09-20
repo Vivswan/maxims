@@ -31,6 +31,7 @@ import {
   writeState,
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import type { HarnessDefinition } from "../harnesses/contract.ts";
 import { HARNESSES } from "../harnesses/registry.ts";
 import { parseBlocks } from "../rulefile/block.ts";
@@ -189,7 +190,9 @@ describe("fail-soft rungs under --quiet", () => {
   });
 });
 
-describe("write failures under --quiet --json", () => {
+// Every scene below denies a read or a write through a chmod, which only takes effect on a POSIX
+// runner that is not root.
+describe.skipIf(!CHMOD_DENIES)("write failures under --quiet --json", () => {
   test("a destination that cannot be written is reported as a failure in the document", async () => {
     await world(async (w) => {
       const { io, rules } = await lastGood(w, 1);
@@ -209,7 +212,7 @@ describe("write failures under --quiet --json", () => {
   });
 });
 
-describe("bodies directories that cannot be listed", () => {
+describe.skipIf(!CHMOD_DENIES)("bodies directories that cannot be listed", () => {
   test("an unlistable bodies directory stops the run instead of reading as empty", async () => {
     await world(async (w) => {
       const source = writeSource(join(w.dir, "live"), TWO_MEMORIES);
@@ -258,7 +261,7 @@ describe("planning failures under --quiet --json", () => {
   });
 });
 
-describe("native errors under --quiet --json", () => {
+describe.skipIf(!CHMOD_DENIES)("native errors under --quiet --json", () => {
   test("a rule file that cannot be read yields one ok:false document and a logged stack", async () => {
     await world(async (w) => {
       const { io, rules } = await lastGood(w, 1);

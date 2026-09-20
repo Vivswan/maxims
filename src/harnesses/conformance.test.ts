@@ -6,7 +6,8 @@
 // harness loads wrongly or not at all.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { parseMemoryName } from "../memory/contract.ts";
 import { parseBlocks, renderBlock } from "../rulefile/block.ts";
@@ -24,7 +25,13 @@ import { HARNESSES } from "./registry.ts";
 import { planRulesDirWrite } from "./strategies/rules-dir.ts";
 import { planSharedBlockWrite } from "./strategies/shared-block.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+// The roots are spelled through resolve so the plans, which resolve every path, agree with them on
+// either separator.
+const ctx: HarnessContext = {
+  home: resolve("/home/user"),
+  projectRoot: resolve("/home/user/project"),
+  env: {},
+};
 const scopes: Scope[] = ["project", "global"];
 const source = "@example-user/doctrine";
 const sourceSlug = "example-user-doctrine";
@@ -190,9 +197,8 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
   });
 
   // A probe that answers "not installed" for a lookup it was not allowed to make would hide a
-  // locked home behind a quiet skip. Mode bits do not stop root, so the row skips under a root
-  // runner.
-  test.skipIf(process.getuid?.() === 0)(
+  // locked home behind a quiet skip.
+  test.skipIf(!CHMOD_DENIES)(
     "detection surfaces a home it may not read instead of reading not installed",
     async () => {
       await withTempDir(async (dir) => {

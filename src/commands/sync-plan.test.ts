@@ -33,6 +33,7 @@ import {
   writeState,
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import {
   budgetedReader,
   fetchedOf,
@@ -90,26 +91,34 @@ describe("plan surfaces", () => {
     });
   });
 
-  test("a read-only rules directory is exit 4 interactively and one loud line under --quiet", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
-      const rules = join(userHome, ".fixture", "rules");
-      mkdirSync(rules);
-      chmodSync(rules, 0o500);
-      try {
-        const io = fakeIo({ home, userHome, cwd: dir });
-        await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
-        const quiet = fakeIo({ home, userHome, cwd: dir, now: new Date(NOW.getTime() + 120_000) });
-        await runSync(QUIET, quiet);
-        expect(quiet.out.join("")).toMatch(
-          /^maxims: cannot write .*maxims-local-src--[0-9a-f]+\.md: .*\n$/,
-        );
-      } finally {
-        chmodSync(rules, 0o700);
-      }
-    });
-  });
+  test.skipIf(!CHMOD_DENIES)(
+    "a read-only rules directory is exit 4 interactively and one loud line under --quiet",
+    async () => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+        const rules = join(userHome, ".fixture", "rules");
+        mkdirSync(rules);
+        chmodSync(rules, 0o500);
+        try {
+          const io = fakeIo({ home, userHome, cwd: dir });
+          await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+          const quiet = fakeIo({
+            home,
+            userHome,
+            cwd: dir,
+            now: new Date(NOW.getTime() + 120_000),
+          });
+          await runSync(QUIET, quiet);
+          expect(quiet.out.join("")).toMatch(
+            /^maxims: cannot write .*maxims-local-src--[0-9a-f]+\.md: .*\n$/,
+          );
+        } finally {
+          chmodSync(rules, 0o700);
+        }
+      });
+    },
+  );
 
   test("a forced refresh fetches whatever -a limits the run to, a due one does not, and only names who", async () => {
     await world(async ({ home, dir, userHome }) => {

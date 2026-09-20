@@ -4,9 +4,9 @@
 // install.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { simpleGit } from "simple-git";
-import { withTempDir } from "../../../tests/shared/temp_dir.ts";
+import { tmpdirEnv, withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { createFixtureRepo } from "./fixtures/repo.ts";
 import {
   brokenBodyResponse,
@@ -82,6 +82,10 @@ function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fe
     },
   };
 }
+
+// A credential helper and a GIT_SSH_COMMAND are run by git through sh, on Windows the one Git for
+// Windows ships, which reads a forward-slash path where a backslash would start an escape.
+const shellPath = (path: string): string => path.split(sep).join("/");
 
 describe("resolveRef without auth", () => {
   test("starts with ls-remote and never runs gh, even with a token in reach", async () => {
@@ -871,24 +875,29 @@ describe("git rung against a file:// fixture repo", () => {
       await withTempDir(async (dir) => {
         const marker = join(dir, "helper-ran");
         const helper = join(dir, "helper.sh");
-        writeFileSync(helper, `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+        writeFileSync(helper, `#!/bin/sh\ntouch '${shellPath(marker)}'\n`, { mode: 0o755 });
         const gitconfig = join(dir, "gitconfig");
-        writeFileSync(gitconfig, `[credential]\n\thelper = ${helper}\n`);
+        writeFileSync(gitconfig, `[credential]\n\thelper = ${shellPath(helper)}\n`);
         const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
         const url = `http://127.0.0.1:${server.port ?? 0}/rules.git`;
         // The call's private include file lands under os.tmpdir(), which every other process on
-        // the machine shares; pointing TMPDIR at an empty directory for the call is what makes
-        // "gone when the call returns" a census of this call alone.
+        // the machine shares; pointing the tmpdir variables at an empty directory for the call is
+        // what makes "gone when the call returns" a census of this call alone.
         const tmp = join(dir, "tmp");
         mkdirSync(tmp);
-        const previousTmpdir = process.env.TMPDIR;
-        process.env.TMPDIR = tmp;
+        const moved = tmpdirEnv(tmp);
+        const previous = Object.fromEntries(
+          Object.keys(moved).map((name) => [name, process.env[name]]),
+        );
+        Object.assign(process.env, moved);
         try {
           const outcome = await simpleGitRunner({ env }).lsRemote(url, ["HEAD"], { credentials });
           expect(outcome.kind).toBe("failed");
         } finally {
-          if (previousTmpdir === undefined) delete process.env.TMPDIR;
-          else process.env.TMPDIR = previousTmpdir;
+          for (const [name, value] of Object.entries(previous)) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+          }
         }
         expect(existsSync(marker)).toBe(consulted);
         expect(readdirSync(tmp)).toEqual([]);
@@ -902,10 +911,12 @@ describe("git rung against a file:// fixture repo", () => {
     await withTempDir(async (dir) => {
       const record = join(dir, "ssh-args");
       const fakeSsh = join(dir, "ssh.sh");
-      writeFileSync(fakeSsh, `#!/bin/sh\necho "$@" > ${record}\nexit 255\n`, { mode: 0o755 });
+      writeFileSync(fakeSsh, `#!/bin/sh\necho "$@" > '${shellPath(record)}'\nexit 255\n`, {
+        mode: 0o755,
+      });
       const env = gitEnvironment({
         ...process.env,
-        GIT_SSH_COMMAND: `${fakeSsh} -o BatchMode=no -i /home/user/.ssh/key`,
+        GIT_SSH_COMMAND: `${shellPath(fakeSsh)} -o BatchMode=no -i /home/user/.ssh/key`,
       });
       const outcome = await simpleGitRunner({ env }).lsRemote(
         "ssh://example.com/rules.git",

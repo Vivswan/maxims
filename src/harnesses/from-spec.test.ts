@@ -2,7 +2,8 @@
 // otherwise break only in the one harness that happens to use it, with nothing else going red.
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { hookSpecFor } from "./contract.ts";
@@ -142,17 +143,20 @@ test("a null paths key among the scoped fields fixes where the paths land", () =
 
 test("the global root joins the env override with its subdirectory and strips ~/ from the default", () => {
   const def = toDefinition(rendering);
-  const home = "/home/user";
-  expect(def.globalRoot?.({ home, projectRoot: null, env: {} })).toBe("/home/user/.config/example");
-  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "/xdg" } })).toBe(
-    "/xdg/example",
+  const home = resolve("/home/user");
+  const xdg = resolve("/xdg");
+  expect(def.globalRoot?.({ home, projectRoot: null, env: {} })).toBe(
+    resolve("/home/user/.config/example"),
+  );
+  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } })).toBe(
+    resolve("/xdg/example"),
   );
   expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "" } })).toBe(
-    "/home/user/.config/example",
+    resolve("/home/user/.config/example"),
   );
-  expect(def.mcp?.path("project", { home, projectRoot: "/p", env: {} })).toBeNull();
+  expect(def.mcp?.path("project", { home, projectRoot: resolve("/p"), env: {} })).toBeNull();
   expect(def.mcp?.path("global", { home, projectRoot: null, env: {} })).toBe(
-    "/home/user/.config/example/mcp.json",
+    resolve("/home/user/.config/example/mcp.json"),
   );
 });
 
@@ -166,38 +170,33 @@ test("a reconcile quirk becomes the custom hook of a spec that declares none", (
 // included; a quirk written against a root of its own would read a stale path once the spec's
 // `globalRoot` moved.
 test("quirks given as a function receive the compiled data definition", async () => {
+  const xdg = resolve("/xdg");
   const def = toDefinition(rendering, (declared) => ({
-    achievedTier: async (ctx) => (declared.globalRoot?.(ctx) === "/xdg/example" ? 2 : 1),
+    achievedTier: async (ctx) => (declared.globalRoot?.(ctx) === join(xdg, "example") ? 2 : 1),
   }));
-  expect(await def.achievedTier?.({ home: "/home/user", projectRoot: null, env: {} })).toBe(1);
-  expect(
-    await def.achievedTier?.({
-      home: "/home/user",
-      projectRoot: null,
-      env: { XDG_CONFIG_HOME: "/xdg" },
-    }),
-  ).toBe(2);
+  const home = resolve("/home/user");
+  expect(await def.achievedTier?.({ home, projectRoot: null, env: {} })).toBe(1);
+  expect(await def.achievedTier?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } })).toBe(
+    2,
+  );
 });
 
 // Detection reads a directory it cannot inspect as an error, not as "not installed": a
 // permission problem on the config directory is something to show, and a silent false would
 // hide the harness from every command.
-test.skipIf(process.getuid?.() === 0)(
-  "a detection lookup that fails surfaces its error",
-  async () => {
-    await withTempDir((dir) => {
-      const def = toDefinition({
-        ...rendering,
-        globalRoot: undefined,
-        detect: { dirs: ["locked/inner"] },
-      });
-      mkdirSync(join(dir, "locked", "inner"), { recursive: true });
-      chmodSync(join(dir, "locked"), 0o000);
-      try {
-        expect(() => def.detect({ home: dir, projectRoot: null, env: {} })).toThrow(/EACCES/);
-      } finally {
-        chmodSync(join(dir, "locked"), 0o755);
-      }
+test.skipIf(!CHMOD_DENIES)("a detection lookup that fails surfaces its error", async () => {
+  await withTempDir((dir) => {
+    const def = toDefinition({
+      ...rendering,
+      globalRoot: undefined,
+      detect: { dirs: ["locked/inner"] },
     });
-  },
-);
+    mkdirSync(join(dir, "locked", "inner"), { recursive: true });
+    chmodSync(join(dir, "locked"), 0o000);
+    try {
+      expect(() => def.detect({ home: dir, projectRoot: null, env: {} })).toThrow(/EACCES/);
+    } finally {
+      chmodSync(join(dir, "locked"), 0o755);
+    }
+  });
+});

@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { configDirExists } from "./detect.ts";
 
@@ -25,8 +26,7 @@ test.each(readings)(
   },
 );
 
-// Mode bits do not stop root, so the locked directory reads fine under a root runner.
-test.skipIf(process.getuid?.() === 0)(
+test.skipIf(!CHMOD_DENIES)(
   "a lookup the process may not make surfaces instead of reading as absent",
   async () => {
     await withTempDir(async (dir) => {

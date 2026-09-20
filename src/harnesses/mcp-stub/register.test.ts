@@ -4,6 +4,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { CHMOD_DENIES } from "../../../tests/shared/platform.ts";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
@@ -119,8 +120,7 @@ test.each(refusals)("%s is refused with exit 4 and no plan", async (_, arrange) 
   await withTempDir((dir) => expectRefused(dir, arrange));
 });
 
-// Mode bits do not stop root, so the unreadable file reads fine under a root runner.
-test.skipIf(process.getuid?.() === 0)(
+test.skipIf(!CHMOD_DENIES)(
   "an existing file that cannot be read is refused with exit 4 and no plan",
   async () => {
     await withTempDir((dir) =>

@@ -5,7 +5,7 @@
 // that dropped a bad entry and went on would leave a harness the user declared silently unsynced.
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { loadUserDefinedHarnesses } from "./user-defined.ts";
@@ -72,9 +72,13 @@ test("a declared harness compiles under its own global root and is labelled user
     if (def === undefined || def.hook.kind !== "registry") throw new Error("expected a registry");
     expect(def.userDefined).toBe(true);
     expect(String(def.id)).toBe("acme");
-    const ctx = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
-    expect(def.hook.path("global", ctx)).toBe("/home/user/.acme/hooks.json");
-    expect(def.hook.path("project", ctx)).toBe("/home/user/project/.acme/hooks.json");
+    const ctx = {
+      home: resolve("/home/user"),
+      projectRoot: resolve("/home/user/project"),
+      env: {},
+    };
+    expect(def.hook.path("global", ctx)).toBe(resolve("/home/user/.acme/hooks.json"));
+    expect(def.hook.path("project", ctx)).toBe(resolve("/home/user/project/.acme/hooks.json"));
     expect(def.detect({ ...ctx, env: { ACME_HOME: home } })).toBe(true);
   });
 });
