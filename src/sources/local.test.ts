@@ -28,7 +28,7 @@ describe("createLocalResolver", () => {
     await withTempDir(async (dir) => {
       seedSource(dir);
       const resolver = createLocalResolver(() => {});
-      const opts = { memoryPath: "memories", fullDepth: false, tempDir: dir };
+      const opts = { memoryPath: "memories", fullDepth: false, tempDir: dir, auth: false };
       const from = { type: "local" as const, path: dir };
       const first = await resolver.fetch(from, opts);
       expect(first.memoryPath).toBe("memories");

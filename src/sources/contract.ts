@@ -6,6 +6,7 @@ export type FetchOptions = {
   memoryPath: string;
   fullDepth: boolean;
   tempDir: string;
+  auth: boolean;
 };
 
 export type FetchResult = {
@@ -19,7 +20,7 @@ export type FetchResult = {
 // to resolve: its `fetch` hashes the tree and reports that as the sha, which is what lets change
 // detection work identically for every variant.
 export interface SourceResolver<F extends SourceFrom = SourceFrom> {
-  resolveRef?(from: F, pin?: string): Promise<string>;
+  resolveRef?(from: F, pin?: string, options?: { auth?: boolean }): Promise<string>;
   fetch(from: F, opts: FetchOptions): Promise<FetchResult>;
 }
 

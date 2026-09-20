@@ -1,17 +1,16 @@
 import { join, resolve } from "node:path";
-import { canonicalSourceKey, type SourceFrom } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
 import { assertInsideRoot } from "../util/fs.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
-import type { SourceResolver } from "./contract.ts";
+import type { SourceFrom, SourceResolver } from "./contract.ts";
 import { hashFiles, readMemoryTree, type TreeFile, type WarnSink } from "./tree.ts";
 
 export type LocalSourceFrom = Extract<SourceFrom, { type: "local" }>;
 
-export function createLocalResolver(warn: WarnSink): SourceResolver {
+export function createLocalResolver(warn: WarnSink): SourceResolver<LocalSourceFrom> {
   return {
     async fetch(from, opts) {
-      const tree = await readMemoryTree(expectLocal(from).path, opts, warn);
+      const tree = await readMemoryTree(from.path, opts, warn);
       return { sha: hashFiles(tree.files), memoryPath: opts.memoryPath, files: tree.files };
     },
   };
@@ -36,11 +35,4 @@ export function materializeLocal(from: LocalSourceFrom, home: string, files: Tre
     });
   }
   return changes;
-}
-
-function expectLocal(from: SourceFrom): LocalSourceFrom {
-  if (from.type !== "local") {
-    throw new Error(`the local resolver cannot fetch ${canonicalSourceKey(from)}`);
-  }
-  return from;
 }

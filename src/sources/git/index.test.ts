@@ -82,21 +82,18 @@ describe("createGitResolver", () => {
       });
       const resolver = createGitResolver({ runner, warn: () => {}, env: {} });
       const error = await failure(
-        resolver.fetch(FROM, { memoryPath: "memories", fullDepth: false, tempDir }),
+        resolver.fetch(FROM, { memoryPath: "memories", fullDepth: false, tempDir, auth: false }),
       );
       expect(error.kind).toBe("network");
       expect(runner.calls).toEqual([`git ls-remote ${MIRROR} HEAD HEAD^{} [creds=inherited]`]);
     });
   });
 
-  test("a full sha pin resolves without a rung; a github source is refused", async () => {
+  test("a full sha pin resolves without a rung", async () => {
     const runner = scriptedRunner();
     const resolver = createGitResolver({ runner, warn: () => {}, env: {} });
     expect(await resolver.resolveRef(FROM, SHA.toUpperCase())).toBe(SHA);
     expect(runner.calls).toEqual([]);
-    await expect(
-      resolver.resolveRef({ type: "github", repo: "example-user/rules", ref: "HEAD" }),
-    ).rejects.toThrow("the git resolver cannot fetch @example-user/rules");
   });
 
   test("the auth notice never repeats credentials embedded in the URL", async () => {
@@ -151,6 +148,7 @@ describe("createGitResolver", () => {
         memoryPath: "memories",
         fullDepth: false,
         tempDir,
+        auth: false,
       });
       expect(result.sha).toBe(repo.tagged);
       expect(result.files).toEqual([{ relPath: "memories/first-rule.md", text: "first\n" }]);
@@ -169,7 +167,7 @@ describe("createGitResolver", () => {
       });
       const result = await resolver.fetch(
         { type: "git", url: repo.url, ref: repo.head },
-        { memoryPath: "./", fullDepth: false, tempDir: join(dir, "temp") },
+        { memoryPath: "./", fullDepth: false, tempDir: join(dir, "temp"), auth: false },
       );
       expect(result.files.map((f) => f.relPath)).toEqual([
         "-dashed/odd-rule.md",

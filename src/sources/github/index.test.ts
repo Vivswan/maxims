@@ -72,7 +72,7 @@ describe("needsFetch", () => {
 });
 
 describe("fetch", () => {
-  test("anonymous by default: sparse clone first, tarball only when git is absent, gh never", async () => {
+  test("anonymous: sparse clone first, tarball only when git is absent, gh never", async () => {
     await withTempDir(async (tempDir) => {
       const runner = scriptedRunner({
         exec: ghScript(() => exited(0, SHA)),
@@ -88,6 +88,7 @@ describe("fetch", () => {
         memoryPath: "memories",
         fullDepth: false,
         tempDir,
+        auth: false,
       });
       expect(result).toEqual({
         sha: SHA,
@@ -176,7 +177,7 @@ describe("fetch", () => {
       });
       await resolver.fetch(
         { ...FROM, ref: SHA },
-        { memoryPath: "memories", fullDepth: false, tempDir },
+        { memoryPath: "memories", fullDepth: false, tempDir, auth: false },
       );
       expect(runner.calls).toEqual([
         `git clone https://ghe.example.com/Example-User/rules.git ${SHA} [creds=none sparse=memories]`,

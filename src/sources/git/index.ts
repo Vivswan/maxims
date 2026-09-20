@@ -1,7 +1,5 @@
 import { join } from "node:path";
-import { canonicalSourceKey, type SourceFrom } from "../../state/schema.ts";
-import type { FetchResult, SourceResolver } from "../contract.ts";
-import type { AuthOptions, GithubFetchOptions } from "../github/index.ts";
+import type { FetchResult, SourceFrom, SourceResolver } from "../contract.ts";
 import {
   climb,
   cloneRung,
@@ -21,9 +19,8 @@ export type GitResolverOptions = {
   env?: NodeJS.ProcessEnv;
 };
 
-export interface GitResolver extends SourceResolver {
-  resolveRef(from: SourceFrom, pin?: string, options?: AuthOptions): Promise<string>;
-  fetch(from: SourceFrom, opts: GithubFetchOptions): Promise<FetchResult>;
+export interface GitResolver extends SourceResolver<GitSourceFrom> {
+  resolveRef(from: GitSourceFrom, pin?: string, options?: { auth?: boolean }): Promise<string>;
 }
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
@@ -35,8 +32,8 @@ const FULL_SHA = /^[0-9a-f]{40}$/i;
 export function createGitResolver(options: GitResolverOptions): GitResolver {
   const env = options.env ?? process.env;
   const runner = options.runner ?? systemRunner(env);
-  const noteAuth = (from: GitSourceFrom, auth: AuthOptions): void => {
-    if (auth.auth === true) {
+  const noteAuth = (from: GitSourceFrom, auth: boolean | undefined): void => {
+    if (auth === true) {
       options.warn(
         `${displayUrl(from.url)}: --auth does not apply a GitHub token to this host; git's own credential helpers are used`,
       );
@@ -44,26 +41,24 @@ export function createGitResolver(options: GitResolverOptions): GitResolver {
   };
   const inherited = { credentials: { kind: "inherited" } } as const;
   const resolveRef = async (
-    from: SourceFrom,
+    from: GitSourceFrom,
     pin?: string,
-    auth: AuthOptions = {},
+    request: { auth?: boolean } = {},
   ): Promise<string> => {
-    const git = expectGit(from);
-    noteAuth(git, auth);
-    const ref = pin ?? git.ref;
+    noteAuth(from, request.auth);
+    const ref = pin ?? from.ref;
     if (FULL_SHA.test(ref)) return ref.toLowerCase();
     return withoutRateLimitClass(
-      climb(options.warn, [lsRemoteRung(runner, git.url, ref, inherited)]),
+      climb(options.warn, [lsRemoteRung(runner, from.url, ref, inherited)]),
     );
   };
   return {
     resolveRef,
-    async fetch(from: SourceFrom, opts: GithubFetchOptions): Promise<FetchResult> {
-      const git = expectGit(from);
-      const sha = await resolveRef(git, undefined, { auth: opts.auth });
+    async fetch(from, opts): Promise<FetchResult> {
+      const sha = await resolveRef(from, undefined, { auth: opts.auth });
       const treeDir = join(opts.tempDir, "tree");
       const sparsePath = sparsePathFor(opts);
-      const clone = cloneRung(runner, git.url, sha, treeDir, {
+      const clone = cloneRung(runner, from.url, sha, treeDir, {
         ...inherited,
         ...(sparsePath === undefined ? {} : { sparsePath }),
       });
@@ -97,11 +92,4 @@ function displayUrl(url: string): string {
   } catch {
     return url;
   }
-}
-
-function expectGit(from: SourceFrom): GitSourceFrom {
-  if (from.type !== "git") {
-    throw new Error(`the git resolver cannot fetch ${canonicalSourceKey(from)}`);
-  }
-  return from;
 }
