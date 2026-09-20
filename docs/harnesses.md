@@ -9,7 +9,7 @@ Every registered harness gets a rule file in its always-loaded layer, and every 
 
 ## The matrix
 
-Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](cli.md#flags).
+Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](installing.md#where-it-lands).
 
 <!-- BEGIN GENERATED: harness-matrix -->
 
@@ -81,7 +81,7 @@ Beneath that line, and only there, maxims writes the self-refresh line: if the s
 
 On tier 1 harnesses the self-refresh line is not written, because the hook already guarantees freshness and the line would be wasted context.
 
-Neither the notice line nor the self-refresh line counts against the [rule cap](cli.md#the-cap-and-the-cooldown); the cap governs how many of a source's memories reach the file, not what maxims says about its own state.
+Neither the notice line nor the self-refresh line counts against the [rule cap](fetching.md#the-cap-and-the-cooldown); the cap governs how many of a source's memories reach the file, not what maxims says about its own state.
 
 ## The rule file
 

@@ -65,4 +65,4 @@ Rules also come from reviewable repos instead of hand-copied files, so one machi
 | --- | --- |
 | one rule line in the rule file | about 25 tokens, loaded every session |
 | the memory body | zero tokens until an agent opens the file |
-| a source at the default [rule cap](cli.md#the-cap-and-the-cooldown) | about 600 to 700 tokens |
+| a source at the default [rule cap](fetching.md#the-cap-and-the-cooldown) | about 600 to 700 tokens |

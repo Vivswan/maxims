@@ -23,7 +23,7 @@ maxims takes text from a GitHub repo and guarantees it enters an agent's context
 | state as a write target | a hand-edited or corrupt state file drives what lands in every session | state is parsed at the boundary into strict unions; an unparsable file is quarantined, never partly obeyed. Guard: corrupt and hostile state fixtures asserting quarantine. |
 | supply chain of maxims itself | the unpinned `npx -y @vivswan/maxims` in a hook runs whatever npm serves | accepted deliberately, because a pinned hook never gets fixes. Dependencies are pinned and bundled, so the dependencies are reviewed once per upgrade; `writtenBy` in state makes a bad release bisectable from a user's machine. |
 | the MCP stub | a server maxims registers is a process the harness spawns and talks to | it exposes zero tools and its only behavior is one sync at process start; it is spawned over stdio, never a network listener. Guard: a test that the tool list is empty. |
-| context exhaustion | a source adds 400 memories and the rule file swamps the window | the [rule cap](cli.md#the-cap-and-the-cooldown) refuses the install outright. Guard: a fixture of 26 memories asserting exit 8 and an unchanged rule file. |
+| context exhaustion | a source adds 400 memories and the rule file swamps the window | the [rule cap](fetching.md#the-cap-and-the-cooldown) refuses the install outright. Guard: a fixture of 26 memories asserting exit 8 and an unchanged rule file. |
 | hidden characters | a description carries a zero-width, bidi, or ANSI sequence, or an HTML comment, so the plan a reviewer confirms is not the text that lands | the [hidden-character rule](memory-files.md#hidden-characters-are-refused) refuses the install, exit 3, unless `--allow-hidden`. Guard: a fixture with one memory per character class asserting exit 3 and nothing written. |
 | telemetry | `skills` has a `--metadata` flag for install telemetry | maxims ships no telemetry and no analog flag; `add` reads sources and writes local files, and nothing is uploaded anywhere. |
 
@@ -32,7 +32,7 @@ maxims takes text from a GitHub repo and guarantees it enters an agent's context
 | asset | how it could leak | mitigation |
 | --- | --- | --- |
 | personal memory text | committed into a project rule file that gets pushed | a local-directory source defaults to `-g`, outside any repo; a project-scoped install of a local source prints a warning naming the git repo it writes into |
-| private repo contents | fetched into the local store, where another process could read them | fetching is anonymous by default and reads no `gh` login or token unless you pass `--auth`, per the [fetch section](cli.md#how-a-source-is-fetched); the store is created `0700`; maxims never re-publishes and has no write-back path |
+| private repo contents | fetched into the local store, where another process could read them | fetching is anonymous by default and reads no `gh` login or token unless you pass `--auth`, per the [fetch section](fetching.md#how-a-source-is-fetched); the store is created `0700`; maxims never re-publishes and has no write-back path |
 | file paths in rule lines | a pointer path contains your username and appears in agent context | true and accepted, since it is already in every tool call's working directory |
 | the list of repos you follow | none over the wire; `state.json` is local and inherits its directory's permissions | |
 | a memory naming an internal system | pushed to a public source repo by its author | out of scope for the tool; that is the source repo's review gate |
@@ -41,4 +41,4 @@ maxims takes text from a GitHub repo and guarantees it enters an agent's context
 
 Content heuristics are not attempted. A rule file is instructions by definition, so a classifier asking "does this description look like an injection" would be guessing, and nobody should count on it.
 
-The token estimate is a report, not a control. The [cap section](cli.md#the-cap-and-the-cooldown) owns the difference between the count that gates and the estimate that only informs.
+The token estimate is a report, not a control. The [cap section](fetching.md#the-cap-and-the-cooldown) owns the difference between the count that gates and the estimate that only informs.

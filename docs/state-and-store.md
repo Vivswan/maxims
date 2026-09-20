@@ -34,7 +34,7 @@ The home sits inside `.agents`, the directory `npx skills` already owns, so no n
 
 A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
 
-Two files are not state. `config.json`, beside it, holds the [user defaults](cli.md#user-defaults-in-configjson), which are preferences about future commands. The project manifest, in the project's `.agents/`, is the committed record a fresh clone replays.
+Two files are not state. `config.json`, beside it, holds the [user defaults](fetching.md#user-defaults-in-configjson), which are preferences about future commands. The project manifest, in the project's `.agents/`, is the committed record a fresh clone replays.
 
 ## State holds intent, never actuality
 

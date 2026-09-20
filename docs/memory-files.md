@@ -61,7 +61,7 @@ The refusal is exit 3, nothing written, with the file and the character named. `
 
 A `[[name]]` in the body names another memory this rule depends on. `add` requires every link target to resolve, either inside the same install or among memories already installed. A dangling link aborts the add and names the unmet dependency, with [exit 7](cli.md#exit-codes), the way a package manager refuses a missing dependency.
 
-Resolution runs through the rename map, so a memory renamed locally after a [name collision](cli.md#name-collisions-and-renames) still satisfies links written against its upstream name. The file content is never rewritten to match.
+Resolution runs through the rename map, so a memory renamed locally after a [name collision](installing.md#name-collisions-and-renames) still satisfies links written against its upstream name. The file content is never rewritten to match.
 
 ## Layout in a source
 
@@ -85,4 +85,4 @@ Autodetecting memories by frontmatter is not attempted, because any README with 
 
 ## Scaffolding a new file
 
-`maxims init <name>` writes a contract-valid file at `memories/<name>.md` for you to fill in. The [cli page](cli.md#init) owns what it writes and when it refuses.
+`maxims init <name>` writes a contract-valid file at `memories/<name>.md` for you to fill in. The [cli page](doctor.md#init) owns what it writes and when it refuses.

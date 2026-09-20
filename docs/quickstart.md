@@ -82,7 +82,7 @@ maxims: @Vivswan/skills refreshed, +1 -1 rule (renamed: no-sleep-* -> no-polling
 maxims: @Vivswan/skills offline, kept last-good from 2026-08-26 (4 rules)
 ```
 
-`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](cli.md#the-cap-and-the-cooldown) sets the window; the [failure paths](state-and-store.md#failure-paths) own what each failure does.
+`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](fetching.md#the-cap-and-the-cooldown) sets the window; the [failure paths](state-and-store.md#failure-paths) own what each failure does.
 
 ## Refresh now: update
 
@@ -126,7 +126,7 @@ npx -y @vivswan/maxims remove @Vivswan/skills                  # a whole source
 npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by name
 ```
 
-In a terminal, `remove` lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)"; the [non-interactive rules](cli.md#non-interactive-behavior) own what happens without a TTY. `remove` takes the source or memory out of state and syncs. There is no separate uninstall path. The same convergence that installs also removes, because the regenerated output no longer contains those lines.
+In a terminal, `remove` lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)"; the [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY. `remove` takes the source or memory out of state and syncs. There is no separate uninstall path. The same convergence that installs also removes, because the regenerated output no longer contains those lines.
 
 | after `remove` | result |
 | --- | --- |
@@ -153,4 +153,4 @@ A project that committed `.agents/maxims.lock` carries its own source list. `ins
 npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit
 ```
 
-`doctor` checks each harness's rule file and hook against what that harness loads, and `--expect` turns one memory into an assertion with exit 1 when it is missing; the [doctor section](cli.md#doctor) owns the report.
+`doctor` checks each harness's rule file and hook against what that harness loads, and `--expect` turns one memory into an assertion with exit 1 when it is missing; the [doctor section](doctor.md#doctor) owns the report.
