@@ -22,13 +22,16 @@ function configToml(scope: Scope, ctx: HarnessContext): string {
   return join(configDir(scope, ctx), "config.toml");
 }
 
-// Only a missing file means "this layer sets nothing"; a config that exists but cannot be read
-// must not pass for one that leaves hooks enabled.
+// Only a missing file, or a regular file where the config directory would be, means "this layer
+// sets nothing"; a config that exists but cannot be read must not pass for one that leaves hooks
+// enabled.
+const absentCodes: ReadonlySet<unknown> = new Set(["ENOENT", "ENOTDIR"]);
+
 async function readIfPresent(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
+    if (cause instanceof Error && "code" in cause && absentCodes.has(cause.code)) return null;
     throw cause;
   }
 }

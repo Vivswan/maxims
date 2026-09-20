@@ -49,6 +49,18 @@ test("achievedTier surfaces a config.toml it cannot read instead of counting it 
   });
 });
 
+test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
+  await withTempDir(async (dir) => {
+    const home = join(dir, "home");
+    const project = join(dir, "project");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, ".codex"), "not a directory\n");
+    writeFileSync(join(home, ".codex", "config.toml"), disabled);
+    expect(await codex.achievedTier({ home, projectRoot: project, env: {} })).toBe(2);
+  });
+});
+
 test("$CODEX_HOME moves the user AGENTS.md, config and hook registry, even when relative", async () => {
   await withTempDir(async (dir) => {
     const codexHome = join(dir, "elsewhere");
