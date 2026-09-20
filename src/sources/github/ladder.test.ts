@@ -402,8 +402,8 @@ describe("fetchTree", () => {
   });
 });
 
-describe("GH_HOST", () => {
-  test("an enterprise host changes every URL and the gh hostname", async () => {
+describe("enterprise endpoints", () => {
+  test("an enterprise host's endpoints change every URL and the gh hostname", async () => {
     await withTempDir(async (dir) => {
       const runner = scriptedRunner({
         exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),

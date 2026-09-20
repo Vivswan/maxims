@@ -72,11 +72,15 @@ describe("needsFetch", () => {
 });
 
 describe("fetch", () => {
-  test("anonymous: sparse clone first, tarball only when git is absent, gh never", async () => {
+  test("anonymous: sparse clone first, tarball only when git is absent, gh never, no token", async () => {
     await withTempDir(async (tempDir) => {
+      const seen: (string | undefined)[] = [];
       const runner = scriptedRunner({
         exec: ghScript(() => exited(0, SHA)),
-        fetch: (url) => httpResponse(200, url.includes("/commits/") ? SHA : cleanTarball()),
+        fetch: (url, init) => {
+          seen.push(authorizationOf(init));
+          return httpResponse(200, url.includes("/commits/") ? SHA : cleanTarball());
+        },
       });
       const warnings: string[] = [];
       const resolver = createGithubResolver({
@@ -105,6 +109,7 @@ describe("fetch", () => {
         `git clone https://github.com/Example-User/rules.git ${SHA} [creds=none sparse=memories]`,
         `fetch https://codeload.github.com/Example-User/rules/tar.gz/${SHA}`,
       ]);
+      expect(seen).toEqual([undefined, undefined]);
     });
   });
 
@@ -215,8 +220,9 @@ describe("fetch", () => {
     });
   });
 
-  // gh's own convention: GITHUB_TOKEN and GH_TOKEN belong to github.com, the two ENTERPRISE names
-  // to every other host. A github.com token sent to an enterprise host would hand it to a third party.
+  // gh's own convention: GITHUB_TOKEN and GH_TOKEN belong to github.com and its ghe.com tenants,
+  // the two ENTERPRISE names to every other host. A github.com token sent to an enterprise server
+  // would hand it to a third party; an enterprise token sent to a tenant is a leak the other way.
   test("with auth, each host is offered only its own token, and gh is asked per host", async () => {
     await withTempDir(async (tempDir) => {
       const seen: { url: string; authorization: string | undefined }[] = [];
@@ -236,6 +242,7 @@ describe("fetch", () => {
       await resolver.fetch({ ...FROM, ref: SHA }, opts);
       await resolver.fetch({ ...FROM, ref: SHA, host: "ghe.example.com" }, opts);
       await resolver.fetch({ ...FROM, ref: SHA, host: "ghe.example.com" }, opts);
+      await resolver.fetch({ ...FROM, ref: SHA, host: "octo.ghe.com" }, opts);
       expect(runner.calls).toEqual([
         "exec gh auth status --hostname github.com",
         `git clone https://github.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer dotcom sparse=memories]`,
@@ -245,11 +252,15 @@ describe("fetch", () => {
         `fetch https://ghe.example.com/Example-User/rules/archive/${SHA}.tar.gz`,
         `git clone https://ghe.example.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer ghe sparse=memories]`,
         `fetch https://ghe.example.com/Example-User/rules/archive/${SHA}.tar.gz`,
+        "exec gh auth status --hostname octo.ghe.com",
+        `git clone https://octo.ghe.com/Example-User/rules.git ${SHA} [header=Authorization: Bearer dotcom sparse=memories]`,
+        `fetch https://octo.ghe.com/Example-User/rules/archive/${SHA}.tar.gz`,
       ]);
       expect(seen.map((s) => s.authorization)).toEqual([
         "Bearer dotcom",
         "Bearer ghe",
         "Bearer ghe",
+        "Bearer dotcom",
       ]);
     });
   });

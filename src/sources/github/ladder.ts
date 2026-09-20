@@ -129,14 +129,17 @@ export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
 }
 
-// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate github.com, the two
-// ENTERPRISE names every other host. A token is offered only to the host it was named for, so a
-// github.com token never reaches an enterprise server.
+// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate github.com and its ghe.com
+// tenants, the two ENTERPRISE names every other host. A token is offered only to the host class it
+// was named for, so a github.com token never reaches an enterprise server and an enterprise token
+// never reaches a tenant.
 const DOTCOM_TOKEN_NAMES = ["GH_TOKEN", "GITHUB_TOKEN"];
 const ENTERPRISE_TOKEN_NAMES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+const TENANCY_SUFFIX = ".ghe.com";
 
 export function tokenFor(env: NodeJS.ProcessEnv, host: string): string | undefined {
-  const names = host === DEFAULT_GH_HOST ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
+  const dotcomClass = host === DEFAULT_GH_HOST || host.endsWith(TENANCY_SUFFIX);
+  const names = dotcomClass ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
   for (const name of names) {
     const token = env[name]?.trim();
     if (token !== undefined && token !== "") return token;
