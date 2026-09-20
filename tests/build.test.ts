@@ -2,15 +2,32 @@
 // shebang, a dropped exec bit, a stray node_modules reference, or a size line that lies would all
 // ship silently, since nothing in the repo runs dist/cli.js under plain node except this test.
 // Also fails if relative --outfile and --size-json paths stop landing where the caller stands,
-// which the repo-root chdir inside the build would otherwise move without a word.
+// which the repo-root chdir inside the build would otherwise move without a word, if one path
+// given for both lets the size report overwrite the bundle, or if a bundle that fails to build
+// stops reporting the bundler's message and a non-zero exit.
 import { expect, test } from "bun:test";
-import { lstatSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse, relative, resolve, sep } from "node:path";
 import { VERSION } from "../src/version.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
+const buildScript = join(repoRoot, "scripts", "build.ts");
 const SHEBANG = "#!/usr/bin/env node\n";
+const USAGE = "usage: bun scripts/build.ts [--entry path] [--outfile path] [--size-json path]\n";
+
+function runBuild(args: string[], cwd: string) {
+  return Bun.spawnSync(["bun", buildScript, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+}
 
 interface Invocation {
   cwd: string;
@@ -77,17 +94,7 @@ test.each(invocations)(
       const { cwd, outfileArg, sizeJsonArg, outfile, sizeJson, strays } = invocation(dir);
       const removeStrays = removerOfCreated(strays);
       try {
-        const build = Bun.spawnSync(
-          [
-            "bun",
-            join(repoRoot, "scripts", "build.ts"),
-            "--outfile",
-            outfileArg,
-            "--size-json",
-            sizeJsonArg,
-          ],
-          { cwd, stdout: "pipe", stderr: "pipe" },
-        );
+        const build = runBuild(["--outfile", outfileArg, "--size-json", sizeJsonArg], cwd);
         expect(build.stderr.toString()).toBe("");
         expect(build.exitCode).toBe(0);
 
@@ -99,7 +106,7 @@ test.each(invocations)(
         expect(text.startsWith(SHEBANG)).toBe(true);
         expect(text.slice(SHEBANG.length).startsWith("#!")).toBe(false);
         expect(text).not.toContain("node_modules");
-        expect(statSync(outfile).mode & 0o111).toBe(0o111);
+        expect(statSync(outfile).mode & 0o777).toBe(0o755);
 
         const run = Bun.spawnSync(["node", outfile], { stdout: "pipe", stderr: "pipe" });
         expect(run.stderr.toString()).toBe("");
@@ -113,3 +120,60 @@ test.each(invocations)(
     }
   },
 );
+
+const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]][] = [
+  ["an unknown flag", () => ["--minify"], () => ["unknown argument --minify"]],
+  ["a flag without its value", () => ["--outfile"], () => ["--outfile needs a value"]],
+  [
+    "a flag whose value is the next flag",
+    () => ["--outfile", "--size-json", "x"],
+    () => ["--outfile needs a value"],
+  ],
+  [
+    "one path for the bundle and the size report",
+    (dir) => ["--outfile", join(dir, "cli.js"), "--size-json", join(dir, "cli.js")],
+    (dir) => ["--outfile and --size-json both name", join(dir, "cli.js")],
+  ],
+  [
+    "two spellings of one path for the bundle and the size report",
+    (dir) => ["--outfile", join(dir, "cli.js"), "--size-json", join("sub", "..", "cli.js")],
+    (dir) => ["--outfile and --size-json both name", join(dir, "cli.js")],
+  ],
+];
+
+test.each(usageErrors)(
+  "bun scripts/build.ts with %s exits 2 before writing anything",
+  (_name, args, fragments) => {
+    const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
+    try {
+      const build = runBuild(args(dir), dir);
+      expect(build.exitCode).toBe(2);
+      expect(build.stdout.toString()).toBe("");
+      const stderr = build.stderr.toString();
+      for (const fragment of fragments(dir)) expect(stderr).toContain(fragment);
+      expect(stderr.endsWith(USAGE)).toBe(true);
+      expect(readdirSync(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("an entry that does not parse exits 1 with the bundler's message and writes no bundle", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
+  try {
+    const entry = join(dir, "broken.ts");
+    writeFileSync(entry, "const x = ;\n");
+    const outfile = join(dir, "cli.js");
+    const build = runBuild(["--entry", entry, "--outfile", outfile], dir);
+    expect(build.exitCode).toBe(1);
+    expect(build.stdout.toString()).toBe("");
+    const stderr = build.stderr.toString();
+    expect(stderr).toContain("Unexpected ;");
+    expect(stderr).toContain(`${entry}:1:11`);
+    expect(stderr.endsWith("build: bundling failed\n")).toBe(true);
+    expect(existsSync(outfile)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
