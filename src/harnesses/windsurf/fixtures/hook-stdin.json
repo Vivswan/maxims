@@ -1,0 +1,10 @@
+{
+  "agent_action_name": "pre_user_prompt",
+  "trajectory_id": "7a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d",
+  "execution_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "model_name": "example-model",
+  "tool_info": {
+    "user_prompt": "Add a retry to the upload client"
+  }
+}

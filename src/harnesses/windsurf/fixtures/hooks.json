@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "pre_run_command": [
+      {
+        "command": "/home/user/.codeium/hooks/audit-command.sh",
+        "show_output": false
+      }
+    ],
+    "post_write_code": [
+      {
+        "command": "/home/user/.codeium/hooks/format.sh",
+        "powershell": "C:\\Users\\user\\.codeium\\hooks\\format.ps1",
+        "show_output": true,
+        "working_directory": "/home/user/projects/example"
+      }
+    ]
+  }
+}
