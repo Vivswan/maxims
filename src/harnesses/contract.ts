@@ -1,5 +1,6 @@
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 
 export const HARNESS_IDS = [
   "claude-code",
@@ -24,6 +25,8 @@ export type HarnessContext = {
 
 // Strategy A writes one whole file per source into a rules directory; strategy B writes a managed
 // block into a file the user also owns. A harness only chooses; the two writers exist once.
+// `dir` and `file` are RELATIVE to the scope root from `scopeRoot`; `HookShape.path`,
+// `bodiesDir` and `tierCheck.path` return ABSOLUTE paths.
 export type Target =
   | {
       kind: "rules-dir";
@@ -69,7 +72,12 @@ export type RegistryHook = {
   stdout: HookStdout;
   async: boolean;
   debounceMs?: number;
-  tierCheck?: { path: string; format: ConfigFormat; key: string; expectedValue: unknown };
+  tierCheck?: {
+    path: (scope: Scope, ctx: HarnessContext) => string;
+    format: ConfigFormat;
+    key: string;
+    demotesWhen: unknown;
+  };
 };
 
 export type HookShape =
@@ -80,6 +88,7 @@ export type HookShape =
       path: (scope: Scope, ctx: HarnessContext) => string;
       render: (spec: HookSpec) => string;
       executable: boolean;
+      stdout: HookStdout;
     }
   | {
       kind: "custom";
@@ -119,6 +128,23 @@ export interface HarnessDefinition {
   scopeFrontmatter?: (globs: string[]) => string | null;
   verifiedAgainst: { url: string; date: string; contentHash?: string };
   fixtures?: HarnessFixtures;
+  globalRoot?: (ctx: HarnessContext) => string;
+}
+
+// The one place a scope becomes a directory: a harness whose global files honor an environment
+// override (`$CODEX_HOME`, `$COPILOT_HOME`) declares `globalRoot`; everyone else gets the home.
+export function scopeRoot(
+  def: Pick<HarnessDefinition, "globalRoot">,
+  scope: Scope,
+  ctx: HarnessContext,
+): string {
+  if (scope === "global") return def.globalRoot?.(ctx) ?? ctx.home;
+  if (ctx.projectRoot === null) {
+    throw new MaximsError(ExitCode.Usage, "a project-scoped target needs a project root", {
+      hint: "run inside a project, or pass -g for the global scope",
+    });
+  }
+  return ctx.projectRoot;
 }
 
 /** @public */
