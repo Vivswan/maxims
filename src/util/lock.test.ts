@@ -124,7 +124,7 @@ describe("withLock", () => {
     });
   });
 
-  test("a fresh but still empty lock is put back rather than stolen", async () => {
+  test("a fresh lock with no record yet is neither stolen nor clobbered", async () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
       writeFileSync(lockPath, "");

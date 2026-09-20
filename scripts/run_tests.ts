@@ -30,22 +30,23 @@ Object.assign(env, {
 const removeHome = (): void => rmSync(home, { recursive: true, force: true });
 
 // The test process is spawned asynchronously so a SIGINT or SIGTERM aimed at the launcher still
-// reaches the handlers below and removes the temp HOME; a synchronous spawn would block them.
-const proc = Bun.spawn(["bun", "test", ...process.argv.slice(2)], {
-  cwd: repoRoot,
-  env,
-  stdio: ["inherit", "inherit", "inherit"],
-});
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(signal, () => {
-    proc.kill(signal);
-    removeHome();
-    process.exit(130);
-  });
-}
-
+// reaches the handlers below and removes the temp HOME; a synchronous spawn would block them. The
+// spawn itself sits inside the try because it throws when no `bun` is on PATH, and that path must
+// remove the HOME too.
 let exitCode = 1;
 try {
+  const proc = Bun.spawn(["bun", "test", ...process.argv.slice(2)], {
+    cwd: repoRoot,
+    env,
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(signal, () => {
+      proc.kill(signal);
+      removeHome();
+      process.exit(130);
+    });
+  }
   exitCode = await proc.exited;
 } finally {
   removeHome();
