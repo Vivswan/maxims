@@ -38,6 +38,7 @@ import type { LastError } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
+import { PACKAGE_COMMAND } from "../util/package.ts";
 import { runList } from "./list.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { classifyInvoker, renderHookStdout } from "./shared/stdin.ts";
@@ -345,11 +346,12 @@ describe("staleness", () => {
       const io = fakeIo({ ...w, cwd: w.dir, harnesses: [tierTwo, shared] });
       await runSync({ ...SYNC, noFetch: true }, io);
       const sharedText = readFileSync(join(w.userHome, ".fixture", "FIXTURE.md"), "utf8");
-      expect(sharedText.split("run `maxims sync --quiet` before continuing").length - 1).toBe(1);
+      const selfRefresh = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
+      expect(sharedText.split(selfRefresh).length - 1).toBe(1);
       expect(parseBlocks(sharedText).blocks).toHaveLength(3);
       for (const name of ["a", "b", "c"]) {
         const text = readFileSync(globalRulesFile(w.userHome, `acme-${name}`), "utf8");
-        expect(text.split("run `maxims sync --quiet` before continuing").length - 1).toBe(1);
+        expect(text.split(selfRefresh).length - 1).toBe(1);
       }
     });
   });

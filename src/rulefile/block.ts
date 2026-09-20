@@ -7,8 +7,7 @@ const ELLIPSIS = "...";
 // dotAll: a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
 const BEGIN_LINE = /^<!-- maxims:begin (.+) sha=(\S+) -->$/s;
 const END_LINE = /^<!-- maxims:end (.+) -->$/s;
-const SELF_REFRESH_LINE =
-  "- If the staleness line above is present, run `maxims sync --quiet` before continuing.";
+const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
 
 const STALE_REASON: Record<Staleness["kind"], string> = {
   age: "no successful fetch",

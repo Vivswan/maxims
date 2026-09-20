@@ -66,7 +66,7 @@ describe("renderBlock", () => {
   const NOTICE =
     "- maxims: the rules below from @Vivswan/skills have not refreshed since 2026-09-01T00:00:00Z (network unreachable) and may be out of date.";
   const SELF_REFRESH =
-    "- If the staleness line above is present, run `maxims sync --quiet` before continuing.";
+    "- If the staleness line above is present, run `npx -y @vivswan/maxims sync --quiet` before continuing.";
 
   test("the staleness notice and the self-refresh line precede the rules, in that order", () => {
     const base = { markers: "counted" as const, expands: ["none"] as ExpansionSyntax[] };
