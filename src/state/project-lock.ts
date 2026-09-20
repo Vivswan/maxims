@@ -85,6 +85,8 @@ export const ProjectLockSchema = z
   .strictObject({
     version: z.literal(PROJECT_LOCK_VERSION),
     sources: z.record(z.string(), LockSourceSchema),
+    // A committed copy of this project's list from state, for `install` on a fresh checkout; the
+    // CLI writes it from state and never reads it back as the answer.
     disabled: DisabledNamesSchema.optional(),
   })
   .check((ctx) => {

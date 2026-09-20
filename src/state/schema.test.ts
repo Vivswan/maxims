@@ -148,21 +148,50 @@ describe("parseState", () => {
     expect(parseState(json).ok).toBe("corrupt");
   });
 
-  // `disable <name>` at user scope records the name here; the list is kept sorted and unique so
-  // two syncs that disable the same names write the same bytes and a diff of the file is readable.
-  const disabledLists: [string, string[], "parsed" | "corrupt"][] = [
-    ["a sorted unique list", ["alpha", "beta"], "parsed"],
-    ["an empty list", [], "parsed"],
-    ["an unsorted list", ["beta", "alpha"], "corrupt"],
-    ["a duplicate", ["alpha", "alpha"], "corrupt"],
-    ["a name that is not kebab-case", ["Alpha"], "corrupt"],
+  // `disable <name>` records the name in state at either scope: the global list, or the project
+  // list keyed by the project root, so one file owns every answer and the project lock only
+  // carries a committed copy. Each list is sorted and unique so two syncs that disable the same
+  // names write the same bytes.
+  // Every row has four members: a shorter row would make the runner pass its `done` callback as
+  // the missing argument and wait on it.
+  const disabledShapes: [string, unknown, "parsed" | "corrupt", RegExp | null][] = [
+    ["a sorted global list", { global: ["alpha", "beta"] }, "parsed", null],
+    [
+      "sorted project lists keyed by project root",
+      { project: { "/home/user/a": ["alpha"], "/home/user/b": ["beta", "gamma"] } },
+      "parsed",
+      null,
+    ],
+    ["both scopes", { global: [], project: {} }, "parsed", null],
+    ["an unsorted global list", { global: ["beta", "alpha"] }, "corrupt", /^disabled\.global\.1/],
+    [
+      "a duplicate",
+      { global: ["alpha", "alpha"] },
+      "corrupt",
+      /^disabled\.global\.1: listed twice/,
+    ],
+    ["a name that is not kebab-case", { global: ["Alpha"] }, "corrupt", /^disabled\.global\.0/],
+    [
+      "an unsorted project list",
+      { project: { "/home/user/a": ["beta", "alpha"] } },
+      "corrupt",
+      /^disabled\.project\./,
+    ],
+    [
+      "a project keyed by a relative path",
+      { project: { "./a": ["alpha"] } },
+      "corrupt",
+      /^disabled\.project\..*absolute path/,
+    ],
+    ["a bare list, the shape without scopes", ["alpha"], "corrupt", /^disabled/],
   ];
-  test.each(disabledLists)("disabled: %s %p is %s", (_title, disabled, outcome) => {
+  test.each(disabledShapes)("disabled: %s", (_title, disabled, outcome, issue) => {
     const result = parseState({ ...clone(VALID), disabled });
     expect(result.ok).toBe(outcome);
-    if (result.ok === "parsed")
-      expect<string[] | undefined>(result.state.disabled).toEqual(disabled);
-    if (result.ok === "corrupt") expect(result.issues.some((l) => /^disabled/.test(l))).toBe(true);
+    if (result.ok === "parsed") expect<unknown>(result.state.disabled).toEqual(disabled);
+    if (result.ok === "corrupt" && issue !== null) {
+      expect(result.issues.some((line) => issue.test(line))).toBe(true);
+    }
   });
 
   test("a newer version is reported as such, never parsed", () => {

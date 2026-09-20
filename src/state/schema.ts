@@ -137,9 +137,9 @@ export type RenameMap = z.infer<typeof RenameMapSchema>;
 
 export const HarnessIdSchema = z.enum(HARNESS_IDS);
 
-// Names the user has switched off at one scope. Sorted and unique so the same intent always
-// serializes to the same bytes; the writer sorts, and a hand edit that does not is refused whole
-// like any other shape error.
+// Names the user has switched off. Sorted and unique so the same intent always serializes to the
+// same bytes; the writer sorts, and a hand edit that does not is refused whole like any other
+// shape error.
 export const DisabledNamesSchema = z.array(MemoryNameSchema).check((ctx) => {
   const names = ctx.value;
   for (let index = 1; index < names.length; index += 1) {
@@ -224,6 +224,16 @@ export const SourceEntrySchema = z.union([
 /** @public */
 export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 
+// State owns the disabled names of BOTH scopes: the global list, and one list per project keyed
+// by its root. A project's lock file carries a committed copy of its list for `install` to read,
+// never the answer itself, so there is one place to change and nothing to reconcile.
+const DisabledSchema = z.strictObject({
+  global: DisabledNamesSchema.optional(),
+  project: z.record(AbsolutePath, DisabledNamesSchema).optional(),
+});
+/** @public */
+export type Disabled = z.infer<typeof DisabledSchema>;
+
 export const StateSchema = z
   .strictObject({
     version: z.literal(CURRENT_STATE_VERSION),
@@ -231,7 +241,7 @@ export const StateSchema = z
     hooks: z.array(HarnessIdSchema),
     overrides: z.record(z.string(), z.unknown()).optional(),
     sources: z.record(z.string(), SourceEntrySchema),
-    disabled: DisabledNamesSchema.optional(),
+    disabled: DisabledSchema.optional(),
   })
   .check((ctx) => {
     ctx.issues.push(
