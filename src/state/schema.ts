@@ -8,6 +8,7 @@ import {
   parseMemoryName,
 } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { flattenIssues } from "../util/zod-issues.ts";
 
 export const CURRENT_STATE_VERSION = 1;
 
@@ -295,23 +296,7 @@ export function parseState(json: unknown): ParsedState {
   }
   const result = StateSchema.safeParse(json);
   if (result.success) return { ok: "parsed", state: result.data };
-  return { ok: "corrupt", issues: flattenIssues(result.error.issues, []) };
-}
-
-// Union and record issues nest the branch that actually failed one level down; the flattened
-// text names it so a quarantine notice can say which key was wrong rather than "invalid input".
-export function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): string[] {
-  return issues.flatMap((issue) => {
-    const path = [...prefix, ...issue.path];
-    if (issue.code === "invalid_union" && issue.errors.length > 0) {
-      return issue.errors.flatMap((branch) => flattenIssues(branch, path));
-    }
-    if (issue.code === "invalid_key" || issue.code === "invalid_element") {
-      return flattenIssues(issue.issues, path);
-    }
-    const where = path.map(String).join(".");
-    return [where === "" ? issue.message : `${where}: ${issue.message}`];
-  });
+  return { ok: "corrupt", issues: flattenIssues(result.error.issues) };
 }
 
 // A pinned source is a different source from the tracking one: `@acme/rules` and `@acme/rules#v2`

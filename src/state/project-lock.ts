@@ -1,10 +1,10 @@
 import { join, win32 } from "node:path";
 import { z } from "zod";
+import { flattenIssues } from "../util/zod-issues.ts";
 import {
   canonicalSourceKey,
   DEFAULT_GIT_REF,
   DisabledNamesSchema,
-  flattenIssues,
   GithubRepoSchema,
   GitRefSchema,
   GitUrlSchema,
@@ -109,7 +109,7 @@ export function parseProjectLock(text: string): ParsedProjectLock {
   }
   const result = ProjectLockSchema.safeParse(json);
   if (result.success) return { ok: "parsed", lock: result.data };
-  return { ok: "corrupt", issues: flattenIssues(result.error.issues, []) };
+  return { ok: "corrupt", issues: flattenIssues(result.error.issues) };
 }
 
 // The same key the state file uses for the source, so a lock entry and its state entry are found
