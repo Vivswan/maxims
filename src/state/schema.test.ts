@@ -64,6 +64,25 @@ const VALID = {
       },
       addedAt: "2026-08-20T08:38:04.471Z",
     },
+    "/home/user/shared/memories": {
+      intent: {
+        from: { type: "local", path: "/home/user/shared/memories" },
+        select: "*",
+        rename: {},
+        rule: true,
+        destination: { scope: "project" },
+        copy: false,
+        harnesses: ["claude-code"],
+      },
+      fetched: {
+        at: "2026-08-27T04:12:09.113Z",
+        sha: `sha256:${"ab".repeat(32)}`,
+        memoryPath: "memories",
+        memories: {},
+        lastError: null,
+      },
+      addedAt: "2026-08-20T08:38:04.471Z",
+    },
     "/home/user/dotfiles/memories": {
       intent: {
         from: { type: "local", path: "/home/user/dotfiles/memories", live: true },
@@ -254,6 +273,202 @@ describe("parseState", () => {
     expect(result.issues.some((line) => issue.test(line))).toBe(true);
   });
 
+  // The rule-file renderer asserts these as invariants of its inputs; each row shows the byte
+  // that would break a marker being refused, and the same value without it parsing.
+  type Refusal = { title: string; bad: string; good: string; issue: RegExp; set: Setter };
+  type Setter = (j: typeof VALID, value: string) => unknown;
+  const localPath: Setter = (j, value) => {
+    const entry = j.sources["/home/user/dotfiles/memories"];
+    return {
+      ...j,
+      sources: {
+        [value]: {
+          ...entry,
+          intent: { ...entry.intent, from: { ...entry.intent.from, path: value } },
+        },
+      },
+    };
+  };
+  const outPath: Setter = (j, value) => {
+    j.sources["/home/user/dotfiles/memories"].intent.destination = { scope: "out", path: value };
+    return j;
+  };
+  const githubRef: Setter = (j, value) => {
+    const entry = j.sources["@example-user/rules"];
+    const from = { ...entry.intent.from, ref: value };
+    return {
+      ...j,
+      sources: {
+        [`@example-user/rules#${value}`]: { ...entry, intent: { ...entry.intent, from } },
+      },
+    };
+  };
+  const gitRef: Setter = (j, value) => {
+    const entry = j.sources["https://gitlab.example.com/team/rules.git"];
+    const from = { ...entry.intent.from, ref: value };
+    return {
+      ...j,
+      sources: {
+        [`https://gitlab.example.com/team/rules.git#${value}`]: {
+          ...entry,
+          intent: { ...entry.intent, from },
+        },
+      },
+    };
+  };
+  const gitUrl: Setter = (j, value) => {
+    const entry = j.sources["https://gitlab.example.com/team/rules.git"];
+    const from = { ...entry.intent.from, url: value };
+    return { ...j, sources: { [value]: { ...entry, intent: { ...entry.intent, from } } } };
+  };
+  const remoteSha: Setter = (j, value) => {
+    j.sources["@example-user/rules"].fetched.sha = value;
+    return j;
+  };
+  const localSha: Setter = (j, value) => {
+    j.sources["/home/user/shared/memories"].fetched.sha = value;
+    return j;
+  };
+  const GIT_SHA = "fc675572711b0a1c9e0000000000000000000000";
+  const refusals: Refusal[] = [
+    {
+      title: "local path with -->",
+      set: localPath,
+      bad: "/home/user/a-->b",
+      good: "/home/user/a-b",
+      issue: /intent\.from\.path: a path cannot contain -->/,
+    },
+    {
+      title: "local path with LF",
+      set: localPath,
+      bad: "/home/user/a\nb",
+      good: "/home/user/ab",
+      issue: /intent\.from\.path: .*line break/,
+    },
+    {
+      title: "local path with trailing space",
+      set: localPath,
+      bad: "/home/user/a ",
+      good: "/home/user/a",
+      issue: /intent\.from\.path: .*whitespace/,
+    },
+    {
+      title: "out path with -->",
+      set: outPath,
+      bad: "/home/user/x-->y",
+      good: "/home/user/x-y",
+      issue: /destination\.path: a path cannot contain -->/,
+    },
+    {
+      title: "out path with CR",
+      set: outPath,
+      bad: "/home/user/x\ry",
+      good: "/home/user/xy",
+      issue: /destination\.path: .*line break/,
+    },
+    {
+      title: "out path with leading space",
+      set: outPath,
+      bad: " /home/user/x",
+      good: "/home/user/x",
+      issue: /destination\.path: .*whitespace/,
+    },
+    {
+      title: "github ref with -->",
+      set: githubRef,
+      bad: "v1-->",
+      good: "v1",
+      issue: /intent\.from\.ref: a ref cannot contain -->/,
+    },
+    {
+      title: "github ref with LF",
+      set: githubRef,
+      bad: "v1\n",
+      good: "v1",
+      issue: /intent\.from\.ref: .*line break/,
+    },
+    {
+      title: "github ref with trailing space",
+      set: githubRef,
+      bad: "v1 ",
+      good: "v1",
+      issue: /intent\.from\.ref: .*whitespace/,
+    },
+    {
+      title: "git ref with CR",
+      set: gitRef,
+      bad: "v1\r",
+      good: "v1",
+      issue: /intent\.from\.ref: .*line break/,
+    },
+    {
+      title: "git ref with leading space",
+      set: gitRef,
+      bad: " v1",
+      good: "v1",
+      issue: /intent\.from\.ref: .*whitespace/,
+    },
+    {
+      title: "git URL with -->",
+      set: gitUrl,
+      bad: "https://gitlab.example.com/team/a-->b.git",
+      good: "https://gitlab.example.com/team/a-b.git",
+      issue: /intent\.from\.url: expected a git remote URL/,
+    },
+    {
+      title: "git URL with LF",
+      set: gitUrl,
+      bad: "https://gitlab.example.com/team/rules.git\n",
+      good: "https://gitlab.example.com/team/rules.git",
+      issue: /intent\.from\.url: expected a git remote URL/,
+    },
+    {
+      title: "git URL with trailing space",
+      set: gitUrl,
+      bad: "https://gitlab.example.com/team/rules.git ",
+      good: "https://gitlab.example.com/team/rules.git",
+      issue: /intent\.from\.url: expected a git remote URL/,
+    },
+    {
+      title: "remote sha of 39 hex digits",
+      set: remoteSha,
+      bad: GIT_SHA.slice(1),
+      good: GIT_SHA,
+      issue: /fetched\.sha: .*40-character/,
+    },
+    {
+      title: "remote sha in upper case",
+      set: remoteSha,
+      bad: GIT_SHA.toUpperCase(),
+      good: GIT_SHA,
+      issue: /fetched\.sha: .*lower-case/,
+    },
+    {
+      title: "remote sha given as a content hash",
+      set: remoteSha,
+      bad: `sha256:${"ab".repeat(32)}`,
+      good: GIT_SHA,
+      issue: /fetched\.sha: .*40-character/,
+    },
+    {
+      title: "copied local sha given as a commit id",
+      set: localSha,
+      bad: GIT_SHA,
+      good: `sha256:${"ab".repeat(32)}`,
+      issue: /fetched\.sha: expected sha256/,
+    },
+  ];
+  test.each(refusals)(
+    "refuses $title and accepts the same value without it",
+    ({ set, bad, good, issue }) => {
+      const refused = parseState(set(clone(VALID), bad));
+      expect(refused.ok).toBe("corrupt");
+      if (refused.ok !== "corrupt") return;
+      expect(refused.issues.some((line) => issue.test(line))).toBe(true);
+      expect(parseState(set(clone(VALID), good)).ok).toBe("parsed");
+    },
+  );
+
   test("emptyState round-trips through the parser", () => {
     const state = emptyState("maxims@0.0.0");
     expect(parseState(clone(state))).toEqual({ ok: "parsed", state });
@@ -413,6 +628,8 @@ describe("parseSourceArgument", () => {
     "https://gitlab.example.com/acme/rules#",
     "https://gitlab.example.com/...git",
     "https://github.com/example-user/rules/tree/release/1.0",
+    "https://gitlab.example.com/team/a-->b.git",
+    "https://gitlab.example.com/team/rules.git\n",
     "https://gitlab.example.com/team/100%.git",
     "https://gitlab.example.com/team/a%00b.git",
     "https://gitlab.example.com/team/a%2Fb.git",

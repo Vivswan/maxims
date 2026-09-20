@@ -20,7 +20,14 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { legacyHooksStep } from "./fixtures/migration-step-v0.ts";
 import type { MigrationStep } from "./migrations/index.ts";
-import { emptyState, parseState, type SourceEntry, type State } from "./schema.ts";
+import {
+  emptyState,
+  type GitSha,
+  parseGitSha,
+  parseState,
+  type SourceEntry,
+  type State,
+} from "./schema.ts";
 import { readState, serializeState, WRITTEN_BY, withStateLock, writeState } from "./store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -32,6 +39,12 @@ function memoryName(candidate: string): MemoryName {
   const name = parseMemoryName(candidate);
   if (name === null) throw new Error(`${candidate} is not a memory name`);
   return name;
+}
+
+function gitSha(candidate: string): GitSha {
+  const sha = parseGitSha(candidate);
+  if (sha === null) throw new Error(`${candidate} is not a git sha`);
+  return sha;
 }
 
 // The v1 fixture as the parser hands it back: defaults filled, everything else byte-for-byte.
@@ -55,7 +68,7 @@ const VALID_STATE: State = {
       },
       fetched: {
         at: "2026-08-27T04:12:09.113Z",
-        sha: "fc675572711b0a1c9e00000000000000000000aa",
+        sha: gitSha("fc675572711b0a1c9e00000000000000000000aa"),
         memoryPath: "memories",
         memories: {
           [RUBBER_DUCK]: {

@@ -20,12 +20,56 @@ export const MemoryNameSchema = z.custom<MemoryName>(
   { error: "expected a kebab-case memory name" },
 );
 
+// The rule-file renderer stamps a source's key and sha into a one-line HTML comment marker and
+// treats "no terminator, no line break, no padding" as an invariant; the state boundary is where
+// that invariant is made true, so every string that can reach a marker is refused here.
+const MARKER_RULES: [(value: string) => boolean, string][] = [
+  [(value) => !value.includes("-->"), "cannot contain -->"],
+  [(value) => !/[\r\n]/.test(value), "cannot contain a line break"],
+  [(value) => value === value.trim(), "cannot start or end with whitespace"],
+];
+
+function markerSafe<T extends z.ZodString>(schema: T, noun: string): T {
+  return MARKER_RULES.reduce(
+    (current, [holds, message]) => current.refine(holds, { message: `${noun} ${message}` }),
+    schema,
+  );
+}
+
+function isMarkerSafe(value: string): boolean {
+  return MARKER_RULES.every(([holds]) => holds(value));
+}
+
 // A NUL would reach the filesystem calls as ERR_INVALID_ARG_VALUE long after parsing, so the state
 // boundary refuses it here with the other shape errors.
-const AbsolutePath = z
-  .string()
-  .refine((value) => isAbsolute(value), { message: "expected an absolute path" })
-  .refine((value) => !value.includes("\0"), { message: "a path cannot contain NUL" });
+const AbsolutePath = markerSafe(
+  z
+    .string()
+    .refine((value) => isAbsolute(value), { message: "expected an absolute path" })
+    .refine((value) => !value.includes("\0"), { message: "a path cannot contain NUL" }),
+  "a path",
+);
+
+const GitRef = markerSafe(z.string().min(1), "a ref");
+
+declare const gitShaBrand: unique symbol;
+
+// What a git remote reports as a commit id; a copied local source has no commit and records a
+// content hash instead, so the two fetched shapes are split by source variant below and the two
+// hash types are distinct brands, never one `string`.
+export type GitSha = string & { readonly [gitShaBrand]: true };
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+// The one place a resolver's answer becomes a `GitSha`: what a remote reported is parsed here
+// before it is written into state, so the state file never has to be read back to learn it.
+export function parseGitSha(candidate: string): GitSha | null {
+  return GIT_SHA_PATTERN.test(candidate) ? (candidate as GitSha) : null;
+}
+
+const GitShaSchema = z.custom<GitSha>(
+  (value) => typeof value === "string" && parseGitSha(value) !== null,
+  { error: "expected a 40-character lower-case hex sha" },
+);
 
 const IsoTimestamp = z.iso.datetime();
 
@@ -36,7 +80,7 @@ const IsoTimestamp = z.iso.datetime();
 const GithubFrom = z.strictObject({
   type: z.literal("github"),
   repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
-  ref: z.string().min(1),
+  ref: GitRef,
   host: z.string().regex(HOSTNAME, "expected a hostname").optional(),
 });
 // Any non-GitHub git remote (GitLab, Gitea, a mirror, an air-gapped proxy). The URL is stored as
@@ -44,7 +88,7 @@ const GithubFrom = z.strictObject({
 const GitFrom = z.strictObject({
   type: z.literal("git"),
   url: z.string().refine(isUsableRemote, { error: "expected a git remote URL" }),
-  ref: z.string().min(1),
+  ref: GitRef,
 });
 const CopiedLocalFrom = z.strictObject({
   type: z.literal("local"),
@@ -57,8 +101,10 @@ const LiveLocalFrom = z.strictObject({
   live: z.literal(true),
 });
 // A live source is split from the fetched sources at the schema level so that `SourceEntry` is a
-// union in which the live variant has no `fetched` member at all; nothing has to check for it.
-const FetchedFrom = z.union([GithubFrom, GitFrom, CopiedLocalFrom]);
+// union in which the live variant has no `fetched` member at all; nothing has to check for it. The
+// remote variants are split from the copied local one the same way, because only a remote has a
+// commit sha to record.
+const RemoteFrom = z.union([GithubFrom, GitFrom]);
 export const SourceFromSchema = z.union([GithubFrom, GitFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
 
@@ -92,9 +138,10 @@ const IntentFields = {
   fullDepth: z.boolean().default(false),
   paths: z.array(z.string().min(1)).optional(),
 };
-const FetchedIntent = z.strictObject({ from: FetchedFrom, ...IntentFields });
+const RemoteIntent = z.strictObject({ from: RemoteFrom, ...IntentFields });
+const CopiedLocalIntent = z.strictObject({ from: CopiedLocalFrom, ...IntentFields });
 const LiveIntent = z.strictObject({ from: LiveLocalFrom, ...IntentFields });
-export const SourceIntentSchema = z.union([FetchedIntent, LiveIntent]);
+export const SourceIntentSchema = z.union([RemoteIntent, CopiedLocalIntent, LiveIntent]);
 /** @public */
 export type SourceIntent = z.infer<typeof SourceIntentSchema>;
 
@@ -110,20 +157,29 @@ export type LastError = z.infer<typeof LastErrorSchema>;
 
 const Sha256 = z.string().regex(/^sha256:[0-9a-f]{64}$/, "expected sha256:<hex>");
 
-export const FetchedSchema = z.strictObject({
-  at: IsoTimestamp,
-  sha: z.string().min(1),
-  memoryPath: z.string().min(1),
-  memories: z.record(MemoryNameSchema, z.strictObject({ content: Sha256, description: Sha256 })),
-  lastError: LastErrorSchema.nullable(),
-});
+function fetchedSchema<S extends z.ZodType<string>>(sha: S) {
+  return z.strictObject({
+    at: IsoTimestamp,
+    sha,
+    memoryPath: z.string().min(1),
+    memories: z.record(MemoryNameSchema, z.strictObject({ content: Sha256, description: Sha256 })),
+    lastError: LastErrorSchema.nullable(),
+  });
+}
+const RemoteFetched = fetchedSchema(GitShaSchema);
+const CopiedLocalFetched = fetchedSchema(Sha256);
 /** @public */
-export type Fetched = z.infer<typeof FetchedSchema>;
+export type Fetched = z.infer<typeof RemoteFetched> | z.infer<typeof CopiedLocalFetched>;
 
 export const SourceEntrySchema = z.union([
   z.strictObject({
-    intent: FetchedIntent,
-    fetched: FetchedSchema.optional(),
+    intent: RemoteIntent,
+    fetched: RemoteFetched.optional(),
+    addedAt: IsoTimestamp,
+  }),
+  z.strictObject({
+    intent: CopiedLocalIntent,
+    fetched: CopiedLocalFetched.optional(),
     addedAt: IsoTimestamp,
   }),
   z.strictObject({ intent: LiveIntent, addedAt: IsoTimestamp }),
@@ -410,7 +466,9 @@ export function stripGitSuffix(segment: string): string {
 // and every path segment are real directory names: no dot segments, no control characters, no
 // separators, and the repository segment must survive `.git` stripping. A `#` anywhere makes the
 // URL unusable: a fragment means nothing to git, and the canonical key relies on the first `#`
-// separating the URL from a pin. This is checked once here, at the source boundary.
+// separating the URL from a pin. The URL is also the source key a rule-file marker carries, so it
+// is held to the marker rule too; `new URL` would silently trim surrounding whitespace that the
+// key would then keep. This is checked once here, at the source boundary.
 // `/` and `\\` would split a segment; `@` and `#` are what the store suffix and the canonical
 // key add for a pin, so a repository name may not carry them or a tracking source could forge a
 // pinned one's identity.
@@ -425,6 +483,7 @@ function isUnsafeSegment(segment: string): boolean {
 }
 
 export function isUsableRemote(url: string): boolean {
+  if (!isMarkerSafe(url)) return false;
   const remote = parseRemote(url);
   if (remote === null || !HOSTNAME.test(remote.host) || remote.segments.length === 0) return false;
   const last = remote.segments.length - 1;
