@@ -129,7 +129,7 @@ type OpenBlock =
 // closer the blank line before the appended block would sit inside the user's fence, a closer at
 // column 0 would end the item and open a new fence that swallows the block, and an HTML closer
 // indented past the column would put that indentation inside the user's raw HTML.
-type OpenLeaf = { block: OpenBlock; column: number };
+export type OpenLeaf = { block: OpenBlock; column: number };
 
 // `items` holds the content column of each open list item, outermost first; a non-blank line
 // indented short of one ends it unless it lazily continues an open paragraph, and a blank line
@@ -263,7 +263,7 @@ export function markdownLines(fileText: string): MarkdownLine[] {
 
 // A leading byte order mark is not part of the first line: Markdown parsers drop it, so the line
 // behind it opens a block as if it were at column 0, and the mark stays outside any block's span.
-function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenLeaf | null } {
+export function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenLeaf | null } {
   const lines: MarkdownLine[] = [];
   const scanner = newScanner();
   let start = fileText.startsWith(BOM) ? BOM.length : 0;
@@ -694,7 +694,7 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
   return `${terminated}${closer}${ending}${rendered}`;
 }
 
-function closerFor({ block, column }: OpenLeaf, ending: string): string {
+export function closerFor({ block, column }: OpenLeaf, ending: string): string {
   if (block.kind === "fence") return `${" ".repeat(column + block.indent)}${block.opener}${ending}`;
   const closer = block.kind === "comment" ? "-->" : block.closer;
   return closer === "" ? "" : `${" ".repeat(column)}${closer}${ending}`;
