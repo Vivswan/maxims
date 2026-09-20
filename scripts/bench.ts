@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): Options {
     }
     if (flag !== "--runs" && flag !== "--json") fail(`unknown argument ${flag}`);
     const value = argv[i + 1];
-    if (value === undefined) fail(`${flag} needs a value`);
+    if (value === undefined || value.startsWith("--")) fail(`${flag} needs a value`);
     if (flag === "--runs") {
       const runs = Number(value);
       if (!Number.isInteger(runs) || runs < 1)
@@ -53,7 +53,16 @@ function parseArgs(argv: string[]): Options {
   return options;
 }
 
-function timeOneRun(command: string[]): number {
+interface RunResult {
+  elapsedMs: number;
+  exitCode: number | null;
+  signalCode: string | undefined;
+  stderr: string;
+}
+
+// The exit-code check lives in the caller: exiting from inside this try would skip the finally and
+// leave the run's HOME behind.
+function timeOneRun(command: string[]): RunResult {
   const home = mkdtempSync(join(tmpdir(), "maxims-bench-home-"));
   try {
     const env = {
@@ -65,13 +74,13 @@ function timeOneRun(command: string[]): number {
     };
     const started = performance.now();
     const proc = Bun.spawnSync(command, { env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-    const elapsed = performance.now() - started;
-    if (proc.exitCode !== 0) {
-      process.stderr.write(proc.stderr.toString());
-      process.stderr.write(`bench: ${command.join(" ")} exited with code ${proc.exitCode}\n`);
-      process.exit(1);
-    }
-    return elapsed;
+    const elapsedMs = performance.now() - started;
+    return {
+      elapsedMs,
+      exitCode: proc.exitCode,
+      signalCode: proc.signalCode,
+      stderr: proc.stderr.toString(),
+    };
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -88,7 +97,19 @@ const round = (ms: number): number => Math.round(ms * 1000) / 1000;
 
 const options = parseArgs(process.argv.slice(2));
 const timings: number[] = [];
-for (let run = 0; run < options.runs; run++) timings.push(timeOneRun(options.command));
+for (let run = 0; run < options.runs; run++) {
+  const result = timeOneRun(options.command);
+  if (result.exitCode !== 0) {
+    const how =
+      result.exitCode === null
+        ? `was killed by ${result.signalCode}`
+        : `exited with code ${result.exitCode}`;
+    process.stderr.write(result.stderr);
+    process.stderr.write(`bench: ${options.command.join(" ")} ${how}\n`);
+    process.exit(1);
+  }
+  timings.push(result.elapsedMs);
+}
 timings.sort((a, b) => a - b);
 
 const record: BenchRecord = {

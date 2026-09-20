@@ -23,7 +23,7 @@ function parseArgs(argv: string[]): Options {
     const flag = argv[i];
     if (flag !== "--outfile" && flag !== "--size-json") fail(`unknown argument ${flag}`);
     const value = argv[i + 1];
-    if (value === undefined) fail(`${flag} needs a value`);
+    if (value === undefined || value.startsWith("--")) fail(`${flag} needs a value`);
     if (flag === "--outfile") options.outfile = value;
     else options.sizeJson = value;
     i++;
