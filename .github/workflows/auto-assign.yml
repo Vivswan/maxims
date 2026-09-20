@@ -1,0 +1,34 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits are replaced on the next sync.
+# The workflow_dispatch input `issue` is a consumer contract: repository-owned workflows run `gh workflow run auto-assign.yml -f issue=<n>`, so its name stays.
+name: Auto Assign
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue or PR number to assign (leave empty to sweep every open unassigned item)
+        required: false
+        default: ""
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+  # Nightly sweep: every open unassigned issue and PR, whether created with a workflow token (no open event fired)
+  # or opened by Dependabot or from a fork (an open event fired, but with a token the job cannot write with).
+  schedule:
+    - cron: "13 6 * * *"
+
+permissions: {}
+
+jobs:
+  # The nightly sweep runs in public repositories only: a private repository pays for every job that runs, and a
+  # skipped job bills nothing. The open events and a dispatch still assign there.
+  auto-assign:
+    if: github.event_name != 'schedule' || !github.event.repository.private
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: Vivswan/repo-platform/.github/workflows/reusable-auto-assign.yml@stable
+    with:
+      issue: ${{ inputs.issue || '' }}

@@ -1,0 +1,35 @@
+# Repo-owned: seeded once by the fleet sync, never overwritten by a later sync. ci.yml's `site` leg runs this action
+# on the judged commit before the fleet renders docs/ and deploys: build this repository's own website here.
+# Contract and examples: the fleet's docs/site.md.
+
+name: Site Build
+description: Builds this repository's own website for the fleet's Pages deploy.
+
+inputs:
+  base-path:
+    description: The URL path the site is served under, "/<repo>/"
+    required: true
+  origin:
+    description: The site's origin, https://<owner>.github.io
+    required: true
+
+outputs:
+  dist:
+    description: The built site's directory, relative to the repository root; empty = no repository site
+    value: ${{ steps.build.outputs.dist }}
+
+runs:
+  using: composite
+  steps:
+    # A repository with a website replaces the no-op step below with its toolchain setup and, for example:
+    #   - id: build
+    #     shell: bash
+    #     env: {PAGES_BASE_PATH: "${{ inputs.base-path }}", PAGES_ORIGIN: "${{ inputs.origin }}"}
+    #     run: |
+    #       <your build command>
+    #       echo "dist=<the built site directory>" >> "$GITHUB_OUTPUT"
+    - id: build
+      shell: bash
+      run: |
+        echo "site-build hook: no repository site configured; docs/ publishes alone when present"
+        echo "dist=" >> "$GITHUB_OUTPUT"

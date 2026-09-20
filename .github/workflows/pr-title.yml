@@ -1,0 +1,31 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits are replaced on the next sync.
+#
+# The module's settings layer makes this job's own check run (`pr-title`)
+# a required status check, so the workflow must run on every event that
+# changes what the check judges - the title (opened, edited, reopened) -
+# AND on synchronize: a required check must exist at the PR's NEWEST head
+# commit, so a push without a fresh run would leave the merge box waiting
+# on a check nothing creates.
+
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+# The title arrives in the event payload; the job reads nothing else.
+permissions: {}
+
+jobs:
+  # PRs are squash-merged, so the PR title becomes the commit subject and
+  # drives release-please versioning. The job id is the check-run name the
+  # ruleset requires.
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The judge the commit-names gate runs on commit subjects, so no title passes here and lands red there.
+      - uses: Vivswan/repo-platform/actions/validate-commit-names@stable
+        with:
+          title: ${{ github.event.pull_request.title }}
