@@ -15,7 +15,6 @@
   "ignoreDependencies": [
     "@clack/prompts",
     "@vercel/detect-agent",
-    "jsonc-parser",
     "picocolors",
     "picomatch",
     "@types/picomatch"

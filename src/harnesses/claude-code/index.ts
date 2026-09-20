@@ -1,0 +1,65 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { stringify } from "yaml";
+import type { HarnessDefinition, HookSpec, Target } from "../contract.ts";
+import { destinationRoot } from "../strategies/destination.ts";
+
+// `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
+// only a path-scoped install adds the `paths:` preamble.
+const rulesDir: Target = {
+  kind: "rules-dir",
+  dir: join(".claude", "rules"),
+  fileName: (sourceSlug) => `maxims-${sourceSlug}.md`,
+};
+
+// The whole command line goes in `command`: the registry is searched by that key's prefix, and
+// the constant carries no user input, so the shell form costs nothing. `disableAllHooks: true` in
+// the same settings file silences every hook, ours included, which is what demotes to tier 2.
+function sessionStartHandler(spec: HookSpec): Record<string, unknown> {
+  return {
+    type: "command",
+    command: [spec.command, ...spec.args].join(" "),
+    async: spec.async,
+    timeout: spec.timeoutSeconds,
+    statusMessage: "Syncing maxims",
+  };
+}
+
+export const claudeCode = {
+  id: "claude-code",
+  displayName: "Claude Code",
+  tier: 1,
+  targets: { project: rulesDir, global: rulesDir },
+  bodiesDir: (scope, ctx) =>
+    scope === "project" && ctx.projectRoot !== null
+      ? join(ctx.projectRoot, ".agents", "memories")
+      : null,
+  hook: {
+    kind: "registry",
+    path: (scope, ctx) => join(destinationRoot(scope, ctx), ".claude", "settings.json"),
+    format: "json",
+    eventPath: ["hooks", "SessionStart"],
+    grouped: true,
+    handler: sessionStartHandler,
+    commandKey: "command",
+    stdout: "plain",
+    async: true,
+    tierCheck: {
+      path: "settings.json",
+      format: "json",
+      key: "disableAllHooks",
+      expectedValue: false,
+    },
+  },
+  markers: "stripped",
+  expands: ["at-import"],
+  byteBudget: 4 * 1024 * 1024,
+  detect: (ctx) =>
+    ctx.env.CLAUDECODE !== undefined ||
+    ctx.env.CLAUDE_CODE_ENTRYPOINT !== undefined ||
+    existsSync(join(ctx.home, ".claude")),
+  scopeFrontmatter: (globs) =>
+    globs.length === 0 ? null : `---\n${stringify({ paths: globs })}---\n`,
+  verifiedAgainst: { url: "https://code.claude.com/docs/en/memory", date: "2026-09-20" },
+  fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
+} satisfies HarnessDefinition;
