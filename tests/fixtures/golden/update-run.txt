@@ -2,4 +2,4 @@
 o  Checking for memory updates...
 o  Found 1 update(s)
 o  Updated @a/b (+1 -1 rule)
-!  @a/b has 3 memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit
+!  maxims: @a/b has new memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit

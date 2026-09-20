@@ -2,7 +2,6 @@ import {
   failedToUpdate,
   foundUpdates,
   isLive,
-  notInSelection,
   ownedBy,
   renameHint,
   STRINGS,
@@ -15,6 +14,7 @@ import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
 import { loadIntentFor, persistCooldownCap, updateIntent } from "./shared/cli-context.ts";
+import { exitForFailed, framed } from "./shared/engine-io.ts";
 import {
   agentsFilter,
   type Command,
@@ -27,22 +27,22 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
-import { planProjectLock } from "./shared/project-lock-io.ts";
+import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
   findInstalledSource,
   installedSources,
   knownHarnessIds,
+  resolveIncoming,
   upstreamNames,
   withIntent,
 } from "./shared/sources.ts";
-import type { SyncPreview } from "./types.ts";
+import type { SyncOptions, SyncPreview } from "./types.ts";
 
 const UPDATE_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.rename, FLAGS.cooldown, FLAGS.cap];
 
 // `update` is `sync` with the refresh forced: every fetched source, or the one named, is fetched
-// again whatever the cooldown says. The lines afterwards come from the engine's report (what was
-// fetched, what failed) and from the state it wrote: a selection that no longer covers every
-// upstream memory is pointed out.
+// again whatever the cooldown says, and whatever `-a` limits the writes to. The lines afterwards
+// come from the engine's report: what was fetched, what each refresh changed, what failed.
 export const update: Command = {
   summary: "refetch every source, ignoring the cooldown, then sync",
   usage: "update [source]",
@@ -78,44 +78,25 @@ export const update: Command = {
       )
       .map(([key]) => key);
     for (const key of liveKeys) console.step(isLive(key));
-    const report = await ctx.engine.runSync(
-      {
-        ...commonOptions(ctx.global),
-        noFetch: false,
-        force: true,
-        ...agentsFilter(selection.kind === "ids" ? selection.ids : []),
-        ...(only === undefined ? {} : { only }),
-        ...(ctx.global.dryRun && preview !== undefined ? { preview } : {}),
-      },
-      io,
-    );
-    const after = await loadIntentFor(io.home, ctx.global.dryRun);
-    const lines: string[] = [];
-    const failures = report.failed
-      .filter((failure) => only === undefined || only.includes(failure.key))
-      .map((failure) => failedToUpdate(failure.key, failure.message));
-    for (const [key, entry] of Object.entries(after.state.sources)) {
-      if (only !== undefined && !only.includes(key)) continue;
-      if (!("fetched" in entry) || entry.fetched === undefined) continue;
-      if (report.failed.some((failure) => failure.key === key)) continue;
-      if (report.fetched.includes(key)) {
-        const added = report.changed.filter((line) => line.startsWith(`+${key} `)).length;
-        const removed = report.changed.filter((line) => line.startsWith(`-${key} `)).length;
-        lines.push(updated(key, added, removed));
-      }
-      // The selection notice reads the fetch record this run wrote; a dry run wrote none.
-      if (entry.intent.select !== "*" && !ctx.global.dryRun) {
-        const upstream = Object.keys(entry.fetched.memories).flatMap((name) => {
-          const parsed = parseMemoryName(name);
-          return parsed === null ? [] : [parsed];
-        });
-        const missing = upstream.filter((name) => !entry.intent.select.includes(name));
-        if (missing.length > 0) report.notices.push(notInSelection(key, missing));
-      }
-    }
-    if (failures.length > 0) {
+    const options: SyncOptions = {
+      ...commonOptions(ctx.global),
+      quiet: false,
+      fetch: "force",
+      ...agentsFilter(selection.kind === "ids" ? selection.ids : []),
+      ...(only === undefined ? {} : { only }),
+      ...(ctx.global.dryRun && preview !== undefined ? { preview } : {}),
+    };
+    const report = await framed(io, (engine) => ctx.engine.runSync(options, engine));
+    const lines = report.fetched.map((key) => {
+      const changes = report.upstreamChanges[key] ?? [];
+      const added = changes.filter((line) => line.startsWith("+ ")).length;
+      const removed = changes.filter((line) => line.startsWith("- ")).length;
+      return updated(key, added, removed);
+    });
+    if (report.failed.length > 0) {
       for (const line of lines) console.step(line);
-      throw new MaximsError(ExitCode.SourceUnresolvable, failures.join("\n"), {
+      const failures = report.failed.map((failure) => failedToUpdate(failure.key, failure.message));
+      throw new MaximsError(exitForFailed(report.failed), failures.join("\n"), {
         hint: "the last good copy of each failed source stays installed",
       });
     }
@@ -127,7 +108,7 @@ export const update: Command = {
         notices: [],
       },
       notices: report.notices,
-      json: { fetched: report.fetched, changed: report.changed },
+      json: { fetched: report.fetched, upstreamChanges: report.upstreamChanges },
       lines: [summary, ...lines],
     });
   },
@@ -165,7 +146,7 @@ async function recordRenames(
         const parsed = parseMemoryName(name);
         return parsed === null || known.includes(parsed) ? [] : [parsed];
       });
-      const outcome = ctx.engine.resolveIncoming({
+      const outcome = resolveIncoming({
         source: key,
         memories: [...known, ...incoming].map((name) => ({
           name,
@@ -193,7 +174,7 @@ async function recordRenames(
       };
       const changes =
         existing.intent.destination.scope === "project" && ctx.io.projectRoot !== null
-          ? [planProjectLock(ctx.io.projectRoot, next)]
+          ? [projectLockChange(ctx.io.projectRoot, next)]
           : [];
       return { state: next, changes, notices: current.notices };
     },

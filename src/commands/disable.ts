@@ -1,7 +1,12 @@
 import { wasNotDisabled } from "../console/strings.ts";
-import type { Scope } from "../harnesses/contract.ts";
-import { syncAfterCommit } from "./add.ts";
-import { loadIntentFor } from "./shared/cli-context.ts";
+import { applyChanges } from "../util/change.ts";
+import { syncCommitted } from "./add.ts";
+import {
+  type DisabledScope,
+  loadIntentFor,
+  updateIntent,
+  withDisabled,
+} from "./shared/cli-context.ts";
 import {
   type Args,
   type Command,
@@ -12,6 +17,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
+import { projectLockChange } from "./shared/project-lock-io.ts";
 import { resolveMemoryName } from "./shared/sources.ts";
 
 const DISABLE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.agent];
@@ -29,15 +35,18 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
   }
   const destination = parseDestination(args, ctx.io.cwd);
   if (destination?.scope === "out") throw usage(`${verb} takes -g or -p, not -o`);
-  const scope: Scope = destination?.scope ?? (ctx.io.projectRoot === null ? "global" : "project");
-  if (scope === "project" && ctx.io.projectRoot === null) {
+  const scope = destination?.scope ?? (ctx.io.projectRoot === null ? "global" : "project");
+  let at: DisabledScope;
+  if (scope === "global") at = { scope };
+  else if (ctx.io.projectRoot !== null) at = { scope, root: ctx.io.projectRoot };
+  else {
     throw usage("a project-scoped change needs a project root", {
       hint: "run inside a git checkout, or pass -g",
     });
   }
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const resolved = resolveMemoryName(state, ctx.io, positional);
-  return { scope, name: resolved.name, key: resolved.key };
+  return { at, name: resolved.name, key: resolved.key };
 }
 
 function command(verb: "disable" | "enable"): Command {
@@ -50,23 +59,37 @@ function command(verb: "disable" | "enable"): Command {
     arity: 1,
     flags: DISABLE_FLAGS,
     async run(args, ctx) {
+      const { io } = ctx;
       const console = await ctx.openConsole(true);
       const edit = await resolveEdit(args, ctx, verb);
-      const { changed, state, changes } = await ctx.engine.editDisabled(
-        { scope: edit.scope, name: edit.name, disabled, dryRun: ctx.global.dryRun },
-        ctx.io,
+      let changed = false;
+      const update = await updateIntent(
+        io.home,
+        ctx.global.dryRun,
+        async (current) => {
+          const next = withDisabled(current.state, edit.at, edit.name, disabled);
+          changed = next.changed;
+          // The manifest carries a copy of the project's list, so the list's edit rewrites it.
+          const changes =
+            next.changed && edit.at.scope === "project"
+              ? [projectLockChange(edit.at.root, next.state)]
+              : [];
+          return { state: next.state, changes, notices: current.notices };
+        },
+        (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
       );
-      if (!changed && !disabled) console.step(wasNotDisabled(edit.name, edit.scope));
-      const report = await ctx.engine.runSync(
-        syncAfterCommit(ctx, { state, config: ctx.config, changes }, []),
-        ctx.io,
+      if (!changed && !disabled) console.step(wasNotDisabled(edit.name, edit.at.scope));
+      const report = await syncCommitted(
+        ctx,
+        { state: update.state, config: ctx.config, changes: update.changes },
+        [],
       );
       return finish(ctx, console, {
-        plan: { changes: [...changes, ...report.plan.changes], notices: [] },
-        notices: report.notices,
-        json: { memory: edit.name, source: edit.key, scope: edit.scope, disabled, changed },
+        plan: { changes: [...update.changes, ...report.plan.changes], notices: [] },
+        notices: [...update.notices, ...report.notices],
+        json: { memory: edit.name, source: edit.key, scope: edit.at.scope, disabled, changed },
         lines: changed
-          ? [`${disabled ? "Disabled" : "Enabled"} ${edit.name} at ${edit.scope} scope`]
+          ? [`${disabled ? "Disabled" : "Enabled"} ${edit.name} at ${edit.at.scope} scope`]
           : [],
       });
     },

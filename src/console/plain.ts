@@ -1,9 +1,9 @@
-import type { Sink } from "../commands/types.ts";
 import type {
   Console,
   ConsoleMode,
   SelectAnswer,
   SelectOption,
+  Sink,
   Spinner,
   TextPrompt,
 } from "./contract.ts";

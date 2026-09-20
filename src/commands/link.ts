@@ -3,8 +3,9 @@ import type { HarnessId } from "../harnesses/contract.ts";
 import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { syncAfterCommit } from "./add.ts";
+import { admitIntent, syncCommitted } from "./add.ts";
 import { loadIntentFor, updateIntent } from "./shared/cli-context.ts";
+import { framed } from "./shared/engine-io.ts";
 import {
   type Args,
   type Command,
@@ -16,7 +17,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
-import { planProjectLock } from "./shared/project-lock-io.ts";
+import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
   findInstalledSource,
   harnessById,
@@ -24,10 +25,11 @@ import {
   scopeOf,
   withIntent,
 } from "./shared/sources.ts";
+import type { HarnessFilter } from "./types.ts";
 
 const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent];
 
-type LinkTarget = { key: string; ids: HarnessId[] };
+type LinkTarget = { key: string; ids: HarnessFilter };
 
 // `link` and `unlink` edit one intent field, the source's harness list, and never refetch.
 async function linkTarget(
@@ -39,10 +41,11 @@ async function linkTarget(
   if (positional === undefined)
     throw usage(`${verb} needs a source`, { hint: `maxims ${verb} <source> -a <harness>` });
   const selection = parseAgents(args, knownHarnessIds(ctx.io));
-  if (selection.kind !== "ids") throw usage(`${verb} needs -a <harness>`);
+  const [first, ...rest] = selection.kind === "ids" ? selection.ids : [];
+  if (first === undefined) throw usage(`${verb} needs -a <harness>`);
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const key = findInstalledSource(state, positional, ctx.io);
-  return { target: { key, ids: selection.ids }, state };
+  return { target: { key, ids: [first, ...rest] }, state };
 }
 
 export const link: Command = {
@@ -94,14 +97,15 @@ export const link: Command = {
         };
         const changes =
           existing.intent.destination.scope === "project" && io.projectRoot !== null
-            ? [planProjectLock(io.projectRoot, next)]
+            ? [projectLockChange(io.projectRoot, next)]
             : [];
+        await admitIntent(ctx, { state: next, config: ctx.config, changes }, added);
         return { state: next, changes, notices: current.notices };
       },
       (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
     );
     const preview = { state: update.state, config: ctx.config, changes: update.changes };
-    const report = await ctx.engine.runSync(syncAfterCommit(ctx, preview, added), io);
+    const report = await syncCommitted(ctx, preview, added);
     return finish(ctx, console, {
       plan: { changes: [...update.changes, ...report.plan.changes], notices: [] },
       notices: [...update.notices, ...report.notices],
@@ -111,6 +115,9 @@ export const link: Command = {
   },
 };
 
+// The harness drop is the engine's own removal with `-a`: the entry stays while other harnesses
+// still use it and leaves with its last one. The prompt was `link`'s to skip: dropping a
+// harness's copy is what the user asked for by name, so the removal is confirmed here.
 export const unlink: Command = {
   summary: "drop a harness from a source's recorded list, then sync",
   usage: "unlink <source> -a <harness>",
@@ -119,17 +126,23 @@ export const unlink: Command = {
   async run(args, ctx) {
     const console = await ctx.openConsole(true);
     const { target } = await linkTarget(args, ctx, "unlink");
-    const report = await ctx.engine.runRemove(
-      {
-        ...commonOptions(ctx.global),
-        target: { kind: "source", key: target.key, memories: null, agents: target.ids },
-      },
-      ctx.io,
+    const report = await framed(ctx.io, (io) =>
+      ctx.engine.runRemove(
+        {
+          ...commonOptions(ctx.global),
+          quiet: false,
+          targets: [target.key],
+          all: false,
+          agents: target.ids,
+          confirmed: true,
+        },
+        io,
+      ),
     );
     return finish(ctx, console, {
       plan: report.plan,
       notices: report.notices,
-      json: { source: target.key, unlinked: target.ids, removed: report.removed },
+      json: { source: target.key, unlinked: target.ids },
       lines: [`Unlinked ${target.key} from ${target.ids.join(", ")}`],
     });
   },

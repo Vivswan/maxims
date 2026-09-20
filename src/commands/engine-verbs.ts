@@ -1,13 +1,15 @@
 import { promptsAllowed } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../harnesses/contract.ts";
-import { canonicalSourceKey, type State } from "../state/schema.ts";
+import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { loadIntentFor, persistCooldownCap } from "./shared/cli-context.ts";
+import { engineIo, exitForFailed } from "./shared/engine-io.ts";
 import {
   type Args,
   agentsFilter,
   type Command,
+  type CommandContext,
   commonOptions,
   FLAGS,
   type FlagSpec,
@@ -16,27 +18,25 @@ import {
   parseSelect,
   usage,
 } from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
-import { projectLockPath, readProjectLock, sourceFromLock } from "./shared/project-lock-io.ts";
 import {
   findInstalledSource,
-  findSourceKey,
   knownHarnessIds,
+  type ResolvedMemory,
   resolveMemoryName,
-  tildify,
 } from "./shared/sources.ts";
-import type { EngineIo, HarnessFilter, RemoveTarget } from "./types.ts";
+import type { CliIo, CommonOptions, HarnessFilter, RemoveOptions, RemoveTarget } from "./types.ts";
 
 // The three engine verbs as the command line dispatches them: parse, hand the typed options to
-// the engine, print its report through the one output path.
+// the engine, and let the engine speak. Its output is the frame here: the `--json` document, the
+// dry-run plan, the hook protocol under `--quiet`, the notices and the summary interactively.
 
-function agentIds(args: Args, io: EngineIo): HarnessId[] | undefined {
+function agentIds(args: Args, io: CliIo): HarnessId[] | undefined {
   const selection = parseAgents(args, knownHarnessIds(io));
   return selection.kind === "ids" ? selection.ids : undefined;
 }
 
 // `-a` on `sync` narrows the run; without it every harness is meant, spelled as an absent key.
-function syncAgents(args: Args, io: EngineIo): { agents?: HarnessFilter } {
+function syncAgents(args: Args, io: CliIo): { agents?: HarnessFilter } {
   return agentsFilter(agentIds(args, io) ?? []);
 }
 
@@ -48,8 +48,6 @@ export const sync: Command = {
   arity: 0,
   flags: SYNC_FLAGS,
   async run(args, ctx) {
-    const console = await ctx.openConsole(true);
-    const noFetch = args.flag(FLAGS.noFetch);
     const agents = syncAgents(args, ctx.io);
     const persisted = await persistCooldownCap(args, ctx);
     const preview =
@@ -60,49 +58,21 @@ export const sync: Command = {
             changes: persisted.changes,
           }
         : undefined;
+    // The config write is the verb's own, so its dry-run plan is printed here, ahead of the
+    // engine's; `--json` is the engine's one document.
+    if (preview !== undefined && !ctx.global.json) {
+      ctx.io.stdout.write(renderPlan({ changes: preview.changes, notices: [] }));
+    }
     const report = await ctx.engine.runSync(
       {
         ...commonOptions(ctx.global),
-        noFetch,
+        fetch: args.flag(FLAGS.noFetch) ? "none" : "due",
         ...agents,
-        force: false,
         ...(preview === undefined ? {} : { preview }),
       },
-      ctx.io,
+      engineIo(ctx.io, { stdout: ctx.io.stdout }),
     );
-    if (ctx.io.projectRoot !== null && !ctx.global.quiet && !ctx.global.json) {
-      const lock = readProjectLock(ctx.io.projectRoot);
-      const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
-      const root = ctx.io.projectRoot;
-      const missing =
-        lock.kind === "present"
-          ? Object.entries(lock.lock.sources)
-              .filter(
-                ([, source]) =>
-                  findSourceKey(state, canonicalSourceKey(sourceFromLock(source, root))) === null,
-              )
-              .map(([key]) => key)
-          : [];
-      if (missing.length > 0) {
-        report.notices.push(
-          `${tildify(projectLockPath(ctx.io.projectRoot), ctx.io.userHome)} lists sources this machine has not installed (${missing.join(", ")}); run maxims install`,
-        );
-      }
-    }
-    for (const failure of report.failed) console.error(`${failure.key}: ${failure.message}`);
-    return finish(ctx, console, {
-      plan: { changes: [...persisted.changes, ...report.plan.changes], notices: [] },
-      notices: report.notices,
-      json: {
-        sources: report.sources,
-        rules: report.rules,
-        fetched: report.fetched,
-        failed: report.failed,
-        changed: report.changed,
-      },
-      lines: [`Synced ${report.sources} sources, ${report.rules} rule lines`],
-      code: report.failed.length === 0 ? ExitCode.Ok : ExitCode.SourceUnresolvable,
-    });
+    return exitForFailed(report.failed);
   },
 };
 
@@ -116,6 +86,9 @@ const REMOVE_FLAGS: readonly FlagSpec[] = [
   FLAGS.all,
 ];
 
+// The prompt is the command line's: the engine takes a confirmed removal or none. Without `-y`
+// on a terminal the user is asked; without one anywhere else the run stops before the engine,
+// as `skills remove` does.
 export const remove: Command = {
   summary: "take a source or a memory out of state, then sync",
   usage: "remove <source or memory>",
@@ -126,33 +99,62 @@ export const remove: Command = {
     const yes = args.flag(FLAGS.yes) || all;
     const console = await ctx.openConsole(yes);
     const target = await removeTarget(args, ctx, all);
-    console.intro();
-    console.step(`Memories to remove: ${describeTarget(target)}`);
-    const confirmed = await console.confirm("Are you sure you want to remove them?", false);
-    if (!confirmed && !yes) {
-      if (!promptsAllowed(console.mode))
-        throw new MaximsError(ExitCode.Usage, STRINGS.removeNeedsTty);
-      console.step(STRINGS.removalCancelled);
-      return ExitCode.Ok;
+    if (!yes) {
+      console.intro();
+      console.step(`Memories to remove: ${describeTarget(target)}`);
+      const confirmed = await console.confirm("Are you sure you want to remove them?", false);
+      if (!confirmed) {
+        if (!promptsAllowed(console.mode))
+          throw new MaximsError(ExitCode.Usage, STRINGS.removeNeedsTty);
+        console.step(STRINGS.removalCancelled);
+        return ExitCode.Ok;
+      }
     }
-    const report = await ctx.engine.runRemove({ ...commonOptions(ctx.global), target }, ctx.io);
-    return finish(ctx, console, {
-      plan: report.plan,
-      notices: report.notices,
-      json: { removed: report.removed },
-      lines: [`Removed ${report.removed.length} source(s)`],
-    });
+    const report = await ctx.engine.runRemove(
+      removeOptions(target, commonOptions(ctx.global)),
+      engineIo(ctx.io, { stdout: ctx.io.stdout }),
+    );
+    return exitForFailed(report.failed);
   },
 };
 
-async function removeTarget(
-  args: Parameters<Command["run"]>[0],
-  ctx: Parameters<Command["run"]>[1],
-  all: boolean,
-): Promise<RemoveTarget> {
+// The engine takes source keys, bare memory names, and memories named with their source, which
+// is how a narrowed selection reaches it without a spelling a source key could share.
+export function removeOptions(target: RemoveTarget, common: CommonOptions): RemoveOptions {
+  switch (target.kind) {
+    case "all":
+      return {
+        ...common,
+        targets: [],
+        all: true,
+        ...agentsFilter(target.agents ?? []),
+        confirmed: true,
+      };
+    case "source":
+      return {
+        ...common,
+        targets: [target.key],
+        all: false,
+        ...agentsFilter(target.agents ?? []),
+        confirmed: true,
+      };
+    case "memories":
+      return {
+        ...common,
+        targets: target.names.map((memory) => ({ source: target.source, memory })),
+        all: false,
+        confirmed: true,
+      };
+  }
+}
+
+// `-a` drops harnesses from a whole source; on a memory or a narrowed selection it has no
+// meaning, so the two are refused here, once, and the target type cannot hold them together.
+async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Promise<RemoveTarget> {
   const positional = args.positionals[0];
   const destination = parseDestination(args, ctx.io.cwd);
   const agents = agentIds(args, ctx.io) ?? null;
+  const select = parseSelect(args);
   if (all) {
     if (positional !== undefined || args.list(FLAGS.memory).length > 0) {
       throw usage(STRINGS.allWithNames);
@@ -167,24 +169,32 @@ async function removeTarget(
     if (destination !== null) {
       throw usage(`${key} has one recorded destination; drop -g, -p or -o`);
     }
-    const select = parseSelect(args);
-    return {
-      kind: "source",
-      key,
-      memories: select === null || select === "*" ? null : select,
-      agents,
-    };
+    if (select === null || select === "*") return { kind: "source", key, agents };
+    if (agents !== null) throw usage(`-a applies to a whole source; drop -m to unlink ${key}`);
+    return { kind: "memories", source: key, names: select };
   }
   if (args.list(FLAGS.memory).length > 0) {
     throw usage(`${positional} names a memory; -m narrows a source, so name the source instead`);
   }
-  const resolved = resolveMemoryName(state, ctx.io, positional);
-  return { kind: "memory", source: resolved.key, name: resolved.name, agents, destination };
+  if (agents !== null) {
+    throw usage(`-a applies to a source, not to the memory ${positional}`, {
+      hint: "name the source to drop a harness from, or drop the name without -a",
+    });
+  }
+  if (destination !== null) {
+    throw usage(`${positional} names a memory of one recorded source; drop -g, -p or -o`);
+  }
+  const resolved: ResolvedMemory = resolveMemoryName(state, ctx.io, positional);
+  return { kind: "memories", source: resolved.key, names: [resolved.name] };
 }
 
 // `@owner/repo` names a source and `@owner/repo/name` a memory of one, so the argument is read
 // as a source first and as a memory when no recorded source answers to it.
-function installedSourceOrNull(state: State, arg: string, io: EngineIo): string | null {
+function installedSourceOrNull(
+  state: Parameters<typeof findInstalledSource>[0],
+  arg: string,
+  io: CliIo,
+): string | null {
   try {
     return findInstalledSource(state, arg, io);
   } catch (error) {
@@ -198,11 +208,9 @@ function describeTarget(target: RemoveTarget): string {
     case "all":
       return "every source";
     case "source":
-      return target.memories === null
-        ? target.key
-        : `${target.key} (${target.memories.join(", ")})`;
-    case "memory":
-      return target.name;
+      return target.agents === null ? target.key : `${target.key} from ${target.agents.join(", ")}`;
+    case "memories":
+      return target.names.join(", ");
   }
 }
 
@@ -212,41 +220,10 @@ export const list: Command = {
   arity: 0,
   flags: [],
   async run(_args, ctx) {
-    const console = await ctx.openConsole(true);
-    const report = await ctx.engine.runList(commonOptions(ctx.global), ctx.io);
-    if (ctx.global.json) {
-      ctx.io.stdout.write(`${JSON.stringify({ ok: true, sources: report.sources }, null, 2)}\n`);
-      return ExitCode.Ok;
-    }
-    if (report.sources.length === 0) {
-      console.step("No sources installed.");
-      return ExitCode.Ok;
-    }
-    for (const scope of ["project", "global", "out"] as const) {
-      const entries = report.sources.filter((source) => source.intent.destination.scope === scope);
-      if (entries.length === 0) continue;
-      console.step(
-        scope === "project"
-          ? "Project Memories"
-          : scope === "global"
-            ? "Global Memories"
-            : "Output Memories",
-      );
-      for (const source of entries) {
-        const where =
-          source.intent.destination.scope === "out" ? `  ${source.intent.destination.path}` : "";
-        console.line(`${source.key}${where}`);
-        console.line(
-          `  Agents: ${source.intent.harnesses.join(", ")}  Memories: ${source.memories.length}`,
-        );
-        if (source.renamesStale.length > 0) {
-          console.warn(
-            `  renames no longer resolving a collision: ${source.renamesStale.join(", ")}`,
-          );
-        }
-        if (source.lastError !== null) console.warn(`  last fetch failed: ${source.lastError}`);
-      }
-    }
+    await ctx.engine.runList(
+      commonOptions(ctx.global),
+      engineIo(ctx.io, { stdout: ctx.io.stdout }),
+    );
     return ExitCode.Ok;
   },
 };

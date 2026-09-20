@@ -9,7 +9,7 @@ import {
 } from "../console/strings.ts";
 import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
-import type { LockSource } from "../state/project-lock.ts";
+import type { LockSource, ProjectLock } from "../state/project-lock.ts";
 import { canonicalSourceKey } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
@@ -21,7 +21,7 @@ import {
   planAdd,
   type StagedAdd,
   stageAdd,
-  syncAfterCommit,
+  syncCommitted,
 } from "./add.ts";
 import {
   type Command,
@@ -33,17 +33,21 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import { projectLockPath, readProjectLock, sourceFromLock } from "./shared/project-lock-io.ts";
+import {
+  type LoadedProjectLock,
+  projectLockPath,
+  readProjectLock,
+  sourceFromLock,
+} from "./shared/project-lock-io.ts";
 import { effectiveNames, knownHarnessIds, tildify } from "./shared/sources.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes];
 
 // Replays the project's manifest: every entry is prepared (fetched, validated, shown) before any
-// is recorded, then all are recorded in one write, the manifest's disabled names are replayed as
-// project-scope disables, and one sync runs, so a bad or declined entry leaves the machine and
-// the manifest untouched. A rename accepted at one entry's prompt is what the entries planned
-// after it validate against. The manifest is how a fresh clone learns what to add; state
-// stays the only thing `sync` reads.
+// is recorded, then all are recorded in one write together with the manifest's disabled names,
+// and one sync runs, so a bad or declined entry leaves the machine and the manifest untouched. A
+// rename accepted at one entry's prompt is what the entries planned after it validate against.
+// The manifest is how a fresh clone learns what to add; state stays the only thing `sync` reads.
 export const install: Command = {
   summary: "replay the project manifest: add every source it names, then sync",
   usage: "install",
@@ -55,9 +59,9 @@ export const install: Command = {
       throw usage("install needs a project root", { hint: "run inside a git checkout" });
     }
     const console = await ctx.openConsole(args.flag(FLAGS.yes) || ctx.config.yes === true);
-    const lock = readProjectLock(io.projectRoot);
+    const lock = manifestOrUsage(await readProjectLock(io.projectRoot));
     console.intro();
-    if (lock.kind === "absent") {
+    if (lock === null) {
       return finish(ctx, console, {
         plan: { changes: [], notices: [] },
         notices: [],
@@ -65,7 +69,7 @@ export const install: Command = {
         lines: [STRINGS.noManifest],
       });
     }
-    const entries = Object.entries(lock.lock.sources);
+    const entries = Object.entries(lock.sources);
     console.step(
       foundInManifest(entries.length, tildify(projectLockPath(io.projectRoot), io.userHome)),
     );
@@ -100,24 +104,13 @@ export const install: Command = {
       current[index] = { ...item, request: { ...item.request, rename: outcome.prepared.rename } };
     }
     assertBatchConsistent(prepared, ctx);
-    const commit = await commitAdd(prepared, ctx, false);
-    for (const name of lock.lock.disabled ?? []) {
-      const edit = await ctx.engine.editDisabled(
-        {
-          scope: "project",
-          name,
-          disabled: true,
-          dryRun: ctx.global.dryRun,
-          ...(ctx.global.dryRun ? { base: commit.state } : {}),
-        },
-        io,
-      );
-      commit.state = edit.state;
-      commit.changes.push(...edit.changes);
-    }
+    const commit = await commitAdd(prepared, ctx, {
+      writeManifest: false,
+      disabledAtProject: lock.disabled ?? [],
+    });
     const harnesses = [...new Set(prepared.flatMap((item) => item.harnesses.ids))];
     const names = prepared.flatMap((item) => item.names);
-    const report = await ctx.engine.runSync(syncAfterCommit(ctx, commit, harnesses), io);
+    const report = await syncCommitted(ctx, commit, commit.harnesses);
     const lines = [installed(names.length, report.rules, report.tokens)];
     for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND));
     const code = finish(ctx, console, {
@@ -130,6 +123,22 @@ export const install: Command = {
     return code;
   },
 };
+
+// The manifest is committed and edited by teammates, so a shape error names the file and stops
+// the replay rather than installing the entries that happened to parse.
+function manifestOrUsage(lock: LoadedProjectLock): ProjectLock | null {
+  switch (lock.kind) {
+    case "absent":
+      return null;
+    case "parsed":
+      return lock.lock;
+    case "corrupt":
+      throw new MaximsError(
+        ExitCode.Usage,
+        `${lock.path} is not a valid manifest: ${lock.issues.join("; ")}`,
+      );
+  }
+}
 
 // Entries are planned against each other's names as STAGED; a rename answered at a prompt can
 // move a name after a sibling validated against it. The final batch is therefore checked once

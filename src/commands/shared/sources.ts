@@ -8,23 +8,34 @@ import {
   scopeRoot,
   sharedBlockFile,
 } from "../../harnesses/contract.ts";
-import { type MemoryName, parseMemory, parseMemoryName } from "../../memory/contract.ts";
+import {
+  type ContentHash,
+  type MemoryName,
+  parseMemory,
+  parseMemoryName,
+} from "../../memory/contract.ts";
+import {
+  buildNameIndex,
+  type IndexedSource,
+  resolveSourceCandidates,
+} from "../../rulefile/dedupe.ts";
 import {
   canonicalSourceKey,
   type Destination,
   parseSourceArgument,
+  type RenameMap,
+  type Select,
   type SourceEntry,
   type SourceFrom,
   type SourceIntent,
   type State,
 } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { sha256 } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { EngineIo, InstalledSource } from "../types.ts";
+import type { CliIo } from "../types.ts";
 import { readDirIfPresent, realpathOfExistingPrefix } from "./fs-probe.ts";
 
-export function harnessContext(io: EngineIo): HarnessContext {
+export function harnessContext(io: CliIo): HarnessContext {
   return { home: io.userHome, projectRoot: io.projectRoot, env: io.env };
 }
 
@@ -34,7 +45,7 @@ export function scopeOf(destination: Destination): Scope {
   return destination.scope === "global" ? "global" : "project";
 }
 
-export function harnessById(io: EngineIo, id: HarnessId): HarnessDefinition {
+export function harnessById(io: CliIo, id: HarnessId): HarnessDefinition {
   const def = io.harnesses.find((candidate) => candidate.id === id);
   if (def === undefined) {
     throw new MaximsError(ExitCode.Usage, `no harness definition for ${id}`, {
@@ -44,7 +55,7 @@ export function harnessById(io: EngineIo, id: HarnessId): HarnessDefinition {
   return def;
 }
 
-export function detectedHarnesses(io: EngineIo): HarnessId[] {
+export function detectedHarnesses(io: CliIo): HarnessId[] {
   const ctx = harnessContext(io);
   return io.harnesses.filter((def) => def.detect(ctx)).map((def) => def.id);
 }
@@ -66,33 +77,10 @@ export function targetPath(
   return join(root, target.dir, target.fileName(sourceSlug));
 }
 
-// The file-name stem of a source, shared by the plan screen and the rules-dir file names. A key
-// of two alphanumeric words folds losslessly to `owner-repo` (`@Vivswan/skills` becomes
-// `vivswan-skills`); any other key (a hyphen in a name, a `#ref` pin, a `_` or `.`, a URL) folds
-// ambiguously, so it also carries a short digest of the exact key: `@a-b/c`, `@a/b-c` and
-// `@a/b#v1` never share a file.
-export function sourceSlug(key: string): string {
-  const bare = key.replace(/^@/, "");
-  const readable = bare
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  if (/^[A-Za-z0-9]+\/[A-Za-z0-9]+$/.test(bare)) return readable;
-  const digest = sha256(key).slice("sha256:".length, "sha256:".length + 8);
-  return `${readable.slice(0, SLUG_READABLE_MAX)}-${digest}`;
-}
-
-// A git ref may be hundreds of bytes; the readable part is capped well under NAME_MAX with room
-// for the `maxims-` prefix and a harness's extension, and the digest keeps the identity.
-const SLUG_READABLE_MAX = 60;
-
 // The memory names a recorded source currently offers: the fetch record for a fetched source, the
 // store entry's tree for a live one, read with the same contract and internal-memory rule `add`
 // applies, so a name `add` would hide is not a name the index can collide on.
-export function upstreamNames(
-  entry: SourceEntry,
-  io: Pick<EngineIo, "home" | "env">,
-): MemoryName[] {
+export function upstreamNames(entry: SourceEntry, io: Pick<CliIo, "home" | "env">): MemoryName[] {
   if ("fetched" in entry && entry.fetched !== undefined) {
     return Object.keys(entry.fetched.memories).flatMap((name) => {
       const parsed = parseMemoryName(name);
@@ -129,26 +117,61 @@ export function localName(entry: SourceEntry, name: MemoryName): MemoryName {
   return Object.hasOwn(rename, name) ? rename[name] : name;
 }
 
-export function effectiveNames(
-  entry: SourceEntry,
-  io: Pick<EngineIo, "home" | "env">,
-): MemoryName[] {
+export function effectiveNames(entry: SourceEntry, io: Pick<CliIo, "home" | "env">): MemoryName[] {
   const select = entry.intent.select;
   return upstreamNames(entry, io)
     .filter((name) => select === "*" || select.includes(name))
     .map((name) => localName(entry, name));
 }
 
-export function installedSources(
-  state: State,
-  io: Pick<EngineIo, "home" | "env">,
-): InstalledSource[] {
+export function installedSources(state: State, io: Pick<CliIo, "home" | "env">): IndexedSource[] {
   return Object.entries(state.sources).map(([key, entry]) => ({
     key,
     addedAt: entry.addedAt,
     intent: { select: entry.intent.select, rename: entry.intent.rename },
     names: upstreamNames(entry, io),
   }));
+}
+
+export type IncomingMemory = {
+  name: MemoryName;
+  description: string;
+  contentHash: ContentHash;
+};
+
+export type ResolveIncomingInput = {
+  source: string;
+  memories: readonly IncomingMemory[];
+  select: Select;
+  rename: RenameMap;
+  cap: number;
+  installed: readonly IndexedSource[];
+};
+
+export type ResolveIncomingOutcome =
+  | { ok: true; names: MemoryName[] }
+  | { ok: false; code: ExitCode.NameCollision; collisions: { name: MemoryName; ownedBy: string }[] }
+  | { ok: false; code: ExitCode.RuleCapExceeded; count: number; cap: number; hint: string };
+
+// The dedupe walk and the cap check a source about to be recorded is judged by, the same ones
+// every sync runs: what is installed owns its names in installation order, the incoming memories
+// take theirs through the rename map, and the survivors are counted against the cap. The detail
+// path is a rendering concern the walk carries through untouched, so it is blank here.
+export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOutcome {
+  const resolution = resolveSourceCandidates({
+    source: input.source,
+    memories: input.memories.map((memory) => ({ ...memory, detailPath: "" })),
+    select: input.select,
+    rename: input.rename,
+    index: buildNameIndex(input.installed),
+    cap: input.cap,
+  });
+  if (resolution.ok) return { ok: true, names: resolution.lines.map((line) => line.name) };
+  if (resolution.code === ExitCode.NameCollision) {
+    return { ok: false, code: resolution.code, collisions: resolution.collisions };
+  }
+  const { code, count, cap, hint } = resolution;
+  return { ok: false, code, count, cap, hint };
 }
 
 // A source argument on `remove`, `update`, `link` and `unlink` is either a recorded key as
@@ -160,7 +183,7 @@ export function realLocal<F extends SourceFrom>(from: F): F {
   return { ...from, path: realpathOfExistingPrefix(from.path) };
 }
 
-export function findInstalledSource(state: State, arg: string, io: EngineIo): string {
+export function findInstalledSource(state: State, arg: string, io: CliIo): string {
   const direct = findSourceKey(state, arg);
   if (direct !== null) return direct;
   const from = realLocal(parseSourceArgument(arg, io.cwd, { ghHost: io.env.GH_HOST }));
@@ -195,7 +218,7 @@ export type ResolvedMemory = { key: string; name: MemoryName };
 // the qualified `@owner/repo/name` forms are the way out. A qualified name looks up one source.
 export function resolveMemoryName(
   state: State,
-  io: Pick<EngineIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "env">,
   raw: string,
 ): ResolvedMemory {
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
@@ -267,6 +290,6 @@ function isCopiedEntry(entry: SourceEntry): entry is CopiedEntry {
   return entry.intent.from.type === "local" && entry.intent.from.live !== true;
 }
 
-export function knownHarnessIds(io: Pick<EngineIo, "harnesses">): HarnessId[] {
+export function knownHarnessIds(io: Pick<CliIo, "harnesses">): HarnessId[] {
   return io.harnesses.map((def) => def.id);
 }

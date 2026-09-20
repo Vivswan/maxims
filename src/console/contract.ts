@@ -1,6 +1,10 @@
 import type { Readable, Writable } from "node:stream";
-import type { Sink } from "../commands/types.ts";
 import { createPlainConsole } from "./plain.ts";
+
+// Where a line of output goes: the process stream in the bin, a capturing function in a test.
+export type Sink = {
+  write(chunk: string): unknown;
+};
 
 // Derived once from the streams, the environment and the flags; every prompt decision below reads
 // it, so a verb never asks "is this interactive" itself. `agent` is the detected agent's id or

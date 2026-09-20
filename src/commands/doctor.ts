@@ -5,6 +5,7 @@ import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
+import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { readTextIfPresent } from "./shared/fs-probe.ts";
 import {
@@ -14,16 +15,16 @@ import {
   type FlagSpec,
   usage,
 } from "./shared/options.ts";
+import { sourceSlug } from "./shared/slug.ts";
 import {
   effectiveNames,
   findSourceKey,
   harnessContext,
+  localName,
   scopeOf,
-  sourceSlug,
   targetPath,
   tildify,
 } from "./shared/sources.ts";
-import type { RuleBlock } from "./types.ts";
 
 type Finding = { level: "ok" | "warn" | "fail"; text: string };
 
@@ -145,9 +146,14 @@ async function checkHarness(
     if (!entry.intent.harnesses.includes(def.id) || !entry.intent.rule) continue;
     if (scopeOf(entry.intent.destination) !== scope) continue;
     if (entry.intent.destination.scope === "out") continue;
-    const path = targetPath(def, entry.intent.destination, harnessCtx, sourceSlug(key));
+    const path = targetPath(
+      def,
+      entry.intent.destination,
+      harnessCtx,
+      sourceSlug(entry.intent.from),
+    );
     if (path === null) continue;
-    const blocks = ruleBlocks(path, ctx);
+    const blocks = ruleBlocks(path);
     ruleFiles.push({
       source: key,
       path,
@@ -159,7 +165,8 @@ async function checkHarness(
   let hook: HarnessReport["hook"] = "not-wanted";
   if (def.hook.kind === "none") hook = "none";
   else if (wanted) {
-    const plan = await ctx.engine.planHookWrite({ def, scope, ctx: harnessCtx, wanted: true });
+    // The hook alone: a pending config edit beside it is not a missing hook.
+    const plan = await ctx.engine.planHookAlone(def, scope, harnessCtx, true);
     hook = plan.changes.length === 0 ? "current" : "missing";
   }
   const tier = await ctx.engine.achievedTier(def, scope, harnessCtx);
@@ -167,9 +174,9 @@ async function checkHarness(
 }
 
 // Null when the file is absent; an empty list when it exists but carries no managed block.
-function ruleBlocks(path: string, ctx: CommandContext): RuleBlock[] | null {
+function ruleBlocks(path: string): RuleBlock[] | null {
   const text = readTextIfPresent(path);
-  return text === null ? null : ctx.engine.parseRuleFile(text);
+  return text === null ? null : parseRuleBlocks(text);
 }
 
 // The target's frontmatter is the whole preamble the rules-dir strategy writes, fences included,
@@ -255,17 +262,32 @@ function checkExpect(raw: string, state: State, ctx: CommandContext): ExpectRepo
         missing.push(`${id} (not defined on this machine)`);
         continue;
       }
-      const path = targetPath(def, entry.intent.destination, harnessCtx, sourceSlug(key));
+      const path = targetPath(
+        def,
+        entry.intent.destination,
+        harnessCtx,
+        sourceSlug(entry.intent.from),
+      );
       if (path === null) continue;
       checked += 1;
-      if (!hasRuleLine(ruleBlocks(path, ctx), key, name)) missing.push(tildify(path, io.userHome));
+      if (!hasRuleLine(ruleBlocks(path), key, entry, name))
+        missing.push(tildify(path, io.userHome));
     }
   }
   return { name: raw, met: checked > 0 && missing.length === 0, checked, missing };
 }
 
-function hasRuleLine(blocks: RuleBlock[] | null, source: string, name: MemoryName): boolean {
-  return (blocks ?? []).some((b) => b.source === source && b.names.includes(name));
+// A rule line's detail path names the store file at user scope, so it carries the upstream name
+// and goes through the rename map; at project scope it names the body, already local.
+function hasRuleLine(
+  blocks: RuleBlock[] | null,
+  source: string,
+  entry: SourceEntry,
+  name: MemoryName,
+): boolean {
+  const local = (upstream: MemoryName): MemoryName =>
+    entry.intent.destination.scope === "global" ? localName(entry, upstream) : upstream;
+  return (blocks ?? []).some((b) => b.source === source && b.names.some((n) => local(n) === name));
 }
 
 function expectFinding(report: ExpectReport): Finding {

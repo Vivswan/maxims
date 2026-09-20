@@ -1,18 +1,12 @@
+import type { Readable } from "node:stream";
+import type { Sink } from "../console/contract.ts";
 import type { HarnessContext, HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
-import type { ContentHash, MemoryName } from "../memory/contract.ts";
+import type { HookPlan } from "../harnesses/hook-writer.ts";
+import type { MemoryName } from "../memory/contract.ts";
 import type { ResolverFor } from "../sources/contract.ts";
 import type { UserConfig } from "../state/config.ts";
-import type {
-  Destination,
-  LastError,
-  RenameMap,
-  Select,
-  SourceFrom,
-  SourceIntent,
-  State,
-} from "../state/schema.ts";
+import type { LastError, SourceEntry, State } from "../state/schema.ts";
 import type { Change, Plan } from "../util/change.ts";
-import type { ExitCode } from "../util/exit-codes.ts";
 
 export type CommonOptions = {
   quiet: boolean;
@@ -42,11 +36,14 @@ export type FetchIntent = "due" | "force" | "none";
 
 // `only` limits the refresh to the named source keys; every other source is left as it is.
 // `preview` is set only under `dryRun`, by a verb that would have written something first.
+// `retired` are the entries the caller replaced under another destination: their old `-o`
+// folders are swept and their bodies told from the user's own files, as after a removal.
 export type SyncOptions = CommonOptions & {
   fetch: FetchIntent;
   agents?: HarnessFilter;
   only?: string[];
   preview?: SyncPreview;
+  retired?: SourceEntry[];
 };
 
 // `failed` lists the sources this run could not bring current, in key order: a refresh that
@@ -68,29 +65,20 @@ export type SyncReport = {
   plan: Plan;
 };
 
-// `targets` are sources or bare memory names as typed; `agents` turns the removal into dropping
-// those harnesses from each named source instead of the source itself. `confirmed` is `-y` or
-// `--all`; without it a removal that would change anything is refused.
+// A removal target as typed: a source key or a bare memory name in one string, or one memory of
+// one source, spelled apart so a memory can never be read as a source that happens to share its
+// spelling.
+export type RemoveTargetSpec = string | { source: string; memory: MemoryName };
+
+// `agents` turns the removal into dropping those harnesses from each named source instead of the
+// source itself. `confirmed` is `-y` or `--all`; without it a removal that would change anything
+// is refused.
 export type RemoveOptions = CommonOptions & {
-  targets: string[];
+  targets: RemoveTargetSpec[];
   all: boolean;
   agents?: HarnessFilter;
   confirmed: boolean;
 };
-
-// What `remove` is asked to take out of intent. A source key with `memories` narrows that
-// source's selection instead of dropping the entry; `agents` drops only those harnesses' artifacts
-// and keeps the entry while other harnesses still use it.
-export type RemoveTarget =
-  | { kind: "all"; agents: HarnessId[] | null }
-  | { kind: "source"; key: string; memories: MemoryName[] | null; agents: HarnessId[] | null }
-  | {
-      kind: "memory";
-      source: string;
-      name: MemoryName;
-      agents: HarnessId[] | null;
-      destination: Destination | null;
-    };
 
 export type ListOptions = CommonOptions;
 
@@ -159,10 +147,6 @@ export type ListReport = {
   notices: string[];
 };
 
-export type Sink = {
-  write(chunk: string): unknown;
-};
-
 // Everything a command reads from the machine, injected once so a test can run the whole CLI
 // against a temp home and captured streams without touching the real ones.
 export type MachineIo = {
@@ -172,9 +156,17 @@ export type MachineIo = {
   userHome: string;
   projectRoot: string | null;
   now: () => Date;
-  stdin: NodeJS.ReadableStream;
+  stdin: Readable;
   stdout: Sink;
   stderr: Sink;
+};
+
+// The machine plus the two registries a verb dispatches on: the harness definitions and the
+// source resolvers, fixtures in a test and the real ones in the bin. The engine's own `EngineIo`
+// is derived from this in one place, `engineIo`.
+export type CliIo = MachineIo & {
+  harnesses: readonly HarnessDefinition[];
+  resolvers: ResolverFor;
 };
 
 export type EngineBundle = {
@@ -183,95 +175,36 @@ export type EngineBundle = {
   resolvers: ResolverFor;
 };
 
-export type TreeFile = { relPath: string; text: string };
+// What `remove` is asked to take out of intent, parsed once so the shape cannot hold what the
+// engine refuses: a harness drop applies to a whole source, never to a memory or a narrowed
+// selection.
+export type RemoveTarget =
+  | { kind: "all"; agents: HarnessId[] | null }
+  | { kind: "source"; key: string; agents: HarnessId[] | null }
+  | { kind: "memories"; source: string; names: MemoryName[] };
 
-export type IncomingMemory = {
-  name: MemoryName;
-  description: string;
-  contentHash: ContentHash;
-};
-
-export type InstalledSource = {
-  key: string;
-  addedAt: string;
-  intent: Pick<SourceIntent, "select" | "rename">;
-  names: readonly MemoryName[];
-};
-
-export type ResolveIncomingInput = {
-  source: string;
-  memories: readonly IncomingMemory[];
-  select: Select;
-  rename: RenameMap;
-  cap: number;
-  installed: readonly InstalledSource[];
-};
-
-export type ResolveIncomingOutcome =
-  | { ok: true; names: MemoryName[] }
-  | { ok: false; code: ExitCode.NameCollision; collisions: { name: MemoryName; ownedBy: string }[] }
-  | { ok: false; code: ExitCode.RuleCapExceeded; count: number; cap: number; hint: string };
-
-export type HookPlanInput = {
-  def: HarnessDefinition;
-  scope: Scope;
-  ctx: HarnessContext;
-  wanted: boolean;
-};
-
-export type HookPlan = {
-  changes: Change[];
-  notice?: string;
-};
-
-// `base` is the state to edit instead of the file: a dry run whose earlier edits were never
-// written hands the engine the state they would have produced.
-export type DisabledEdit = {
-  scope: Scope;
-  name: MemoryName;
-  disabled: boolean;
-  dryRun: boolean;
-  base?: State;
-};
-
-// The engine's answer to a disabled-list edit: whether the list changed, the state as written (or
-// as it would be under --dry-run), and the writes that carried it (the state file, a manifest).
-export type DisabledOutcome = {
-  changed: boolean;
-  state: State;
-  changes: Change[];
-};
-
-// A managed block as the rule-file parser reads it back: the source it belongs to and the local
-// names of the rule lines it carries.
-export type RuleBlock = {
-  source: string;
-  names: MemoryName[];
-};
-
+// The stub speaks its protocol on `output`; the sync it starts writes nowhere a client reads.
 export type McpStubOptions = {
   runSync: () => Promise<unknown>;
-  input: NodeJS.ReadableStream;
+  input: Readable;
   output: Sink;
   stderr: Sink;
 };
 
-// The engine as the command line sees it. Every mutating verb ends in `runSync`; the other members
-// are the derivations the verbs need before that call and have no home of their own in the CLI:
-// `planStoreEntry` lays a fetched tree (or a live symlink) into the store, `resolveIncoming` is
-// the dedupe walk plus the cap check over a source about to be recorded, `planHookWrite` and
-// `achievedTier` and `parseRuleFile` are what `doctor` compares disk against, `editDisabled` is
-// the one intent field the CLI does not write itself, and `serveMcpStub` is the hidden
-// `mcp-serve` verb's body.
+// The engine as the command line sees it, loaded only once a verb runs. The three runners are the
+// engine's verbs; `planHookAlone` and `achievedTier` are what `doctor` and `list` compare disk
+// against; `serveMcpStub` is the hidden `mcp-serve` verb's body. Everything else a verb derives
+// (a store entry's changes, the dedupe walk, a rule file's blocks) is a module function.
 export type Engine = {
   runSync(options: SyncOptions, io: EngineIo): Promise<SyncReport>;
   runRemove(options: RemoveOptions, io: EngineIo): Promise<SyncReport>;
   runList(options: ListOptions, io: EngineIo): Promise<ListReport>;
-  planStoreEntry(from: SourceFrom, home: string, files: readonly TreeFile[]): Change[];
-  resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOutcome;
-  planHookWrite(input: HookPlanInput): Promise<HookPlan>;
+  planHookAlone(
+    def: HarnessDefinition,
+    scope: Scope,
+    ctx: HarnessContext,
+    wanted: boolean,
+  ): Promise<HookPlan>;
   achievedTier(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Promise<1 | 2>;
-  parseRuleFile(text: string): RuleBlock[];
-  editDisabled(edit: DisabledEdit, io: EngineIo): Promise<DisabledOutcome>;
   serveMcpStub(options: McpStubOptions): Promise<void>;
 };

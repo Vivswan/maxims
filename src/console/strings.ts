@@ -124,10 +124,6 @@ export function isLive(path: string): string {
   return `${path} is live; nothing to fetch`;
 }
 
-export function notInSelection(key: string, names: readonly string[]): string {
-  return `${key} has ${memories(names.length)} not in your selection: ${names.join(", ")}`;
-}
-
 export function foundUpdates(n: number): string {
   return `Found ${n} update(s)`;
 }

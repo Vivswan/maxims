@@ -1,9 +1,11 @@
 import { ExitCode } from "../util/exit-codes.ts";
+import { engineIo, SILENT } from "./shared/engine-io.ts";
 import { type Command, usage } from "./shared/options.ts";
 
 // Hidden from `--help`: a harness that starts its MCP servers eagerly spawns `maxims mcp-serve`
 // and the sync runs before the agent reads a word. The server exposes zero tools; the quiet sync
-// at start is its entire behavior.
+// at start is its entire behavior. Both streams belong to the protocol, so the sync it starts
+// prints nowhere and reads no hook payload.
 export const mcpServe: Command = {
   summary: "serve the tool-less MCP stub whose start runs a quiet sync",
   usage: "mcp-serve",
@@ -11,11 +13,12 @@ export const mcpServe: Command = {
   flags: [],
   async run(_args, ctx) {
     if (ctx.global.json) throw usage("mcp-serve speaks MCP on stdout; drop --json");
+    const io = engineIo(ctx.io, { stdout: SILENT, readStdin: async () => null });
     await ctx.engine.serveMcpStub({
       runSync: () =>
         ctx.engine.runSync(
-          { quiet: true, dryRun: ctx.global.dryRun, json: false, noFetch: false, force: false },
-          ctx.io,
+          { quiet: true, dryRun: ctx.global.dryRun, json: false, fetch: "due" },
+          io,
         ),
       input: ctx.io.stdin,
       output: ctx.io.stdout,

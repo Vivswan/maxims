@@ -2,42 +2,36 @@ import { mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } fro
 import { join, relative, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { type CliDeps, main } from "../../src/commands/main.ts";
+import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
 import type {
-  DisabledEdit,
   Engine,
   EngineBundle,
-  ListedSource,
   ListOptions,
+  ListReport,
   RemoveOptions,
-  ResolveIncomingInput,
-  ResolveIncomingOutcome,
-  RuleBlock,
   SyncOptions,
   SyncReport,
 } from "../../src/commands/types.ts";
 import type { InteractiveStreams } from "../../src/console/contract.ts";
 import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
-import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
-import type { Change } from "../../src/util/change.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot, hashDirectory } from "../../src/util/fs.ts";
-import { homePaths, storePathFor } from "../../src/util/home.ts";
+import { homePaths } from "../../src/util/home.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { FIXTURE_HARNESSES } from "./fixture-harnesses.ts";
 
 export const FIXTURES = resolve(import.meta.dir, "..", "fixtures", "cli");
 
-// A recording engine: `runSync`, `runRemove`, `runList` and the disabled-list edit record their
-// options and answer with the report the scenario dictates; `planStoreEntry` and
-// `resolveIncoming` implement the contract for real over the fixture data, because `add` and the
-// exit-family tests depend on their outcomes, not merely on their having been called.
+// A recording engine: the three runners record their options and answer with the report the
+// scenario dictates, printing nothing (the real engine's own output is pinned by its own tests);
+// the hook and tier probes answer from the scenario so `doctor` can be driven through both
+// branches; the stub counts its starts and runs the sync it was handed.
 export type FakeEngine = Engine & {
   calls: {
     sync: SyncOptions[];
     remove: RemoveOptions[];
     list: ListOptions[];
-    disabled: DisabledEdit[];
     mcpServe: number;
   };
 };
@@ -53,12 +47,14 @@ export type ScenarioOptions = {
   // The registry the CLI runs against; the three fixture shapes unless a test names real ones.
   harnesses?: readonly HarnessDefinition[];
   syncReport?: Partial<
-    Pick<SyncReport, "rules" | "tokens" | "fetched" | "failed" | "changed" | "notices">
+    Pick<SyncReport, "rules" | "tokens" | "fetched" | "upstreamChanges" | "failed" | "notices">
   >;
-  listReport?: ListedSource[];
+  listReport?: ListReport;
   hookMissing?: HarnessId[];
   tier2?: HarnessId[];
-  disabledChanged?: boolean;
+  // The refusal the engine's planner would raise for what a verb is about to install (a
+  // collision, a cap, a byte budget): thrown, already reported, from every planning run.
+  refuse?: { code: ExitCode; message: string };
   // Scripted prompt answers: the keystrokes to type once the interactive frame shows the prompt
   // whose message contains the key. Without this the CLI gets no interactive streams and every
   // prompt takes its silent branch.
@@ -78,55 +74,46 @@ export type Scenario = {
 
 export type RunResult = { code: number; stdout: string; stderr: string };
 
+const EMPTY_LIST: ListReport = {
+  sources: [],
+  lockOnly: [],
+  defaults: { agents: null, rule: false, cooldownDays: 7, ruleCap: 25 },
+  notices: [],
+};
+
 export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): FakeEngine {
-  const calls: FakeEngine["calls"] = { sync: [], remove: [], list: [], disabled: [], mcpServe: 0 };
+  const calls: FakeEngine["calls"] = { sync: [], remove: [], list: [], mcpServe: 0 };
+  const report = (): SyncReport => ({
+    sources: 1,
+    memories: 1,
+    rules: options.syncReport?.rules ?? 0,
+    tokens: options.syncReport?.tokens ?? 0,
+    fetched: options.syncReport?.fetched ?? [],
+    upstreamChanges: options.syncReport?.upstreamChanges ?? {},
+    failed: [...(options.syncReport?.failed ?? [])],
+    changed: [],
+    notices: [...(options.syncReport?.notices ?? [])],
+    plan: { changes: [], notices: [] },
+  });
   const engine: FakeEngine = {
     calls,
     async runSync(syncOptions) {
       calls.sync.push(syncOptions);
-      return {
-        sources: 1,
-        rules: options.syncReport?.rules ?? 0,
-        tokens: options.syncReport?.tokens ?? 0,
-        fetched: options.syncReport?.fetched ?? [],
-        failed: [...(options.syncReport?.failed ?? [])],
-        changed: options.syncReport?.changed ?? [],
-        notices: [...(options.syncReport?.notices ?? [])],
-        plan: { changes: [], notices: [] },
-      };
+      if (options.refuse !== undefined) {
+        throw new ReportedMaximsError(options.refuse.code, options.refuse.message);
+      }
+      return report();
     },
     async runRemove(removeOptions) {
       calls.remove.push(removeOptions);
-      return {
-        removed: [describeTarget(removeOptions)],
-        notices: [],
-        plan: { changes: [], notices: [] },
-      };
+      return report();
     },
     async runList(listOptions) {
       calls.list.push(listOptions);
-      return { sources: options.listReport ?? [] };
+      return options.listReport ?? EMPTY_LIST;
     },
-    planStoreEntry(from, home, files) {
-      const entry = assertInsideRoot(homePaths(home).store, storePathFor(home, from));
-      const changes: Change[] = [{ kind: "delete", path: entry }];
-      if (from.type === "local" && from.live === true) {
-        changes.push({ kind: "symlink", path: entry, target: from.path });
-        return changes;
-      }
-      changes.push({ kind: "mkdir", path: entry });
-      for (const file of files) {
-        changes.push({
-          kind: "write",
-          path: assertInsideRoot(entry, join(entry, file.relPath)),
-          content: file.text,
-        });
-      }
-      return changes;
-    },
-    resolveIncoming: resolveIncomingForReal,
-    async planHookWrite(input) {
-      const missing = (options.hookMissing ?? []).includes(input.def.id);
+    async planHookAlone(def) {
+      const missing = (options.hookMissing ?? []).includes(def.id);
       return missing
         ? {
             changes: [
@@ -142,95 +129,12 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     async achievedTier(def) {
       return (options.tier2 ?? []).includes(def.id) ? 2 : 1;
     },
-    parseRuleFile: parseFixtureRuleFile,
-    async editDisabled(edit) {
-      calls.disabled.push(edit);
-      const state =
-        edit.base ??
-        (JSON.parse(
-          readFileSync(homePaths(scenario().home).state, "utf8"),
-        ) as import("../../src/state/schema.ts").State);
-      const path = assertInsideRoot(scenario().home, homePaths(scenario().home).state);
-      return {
-        changed: options.disabledChanged ?? true,
-        state,
-        changes: [{ kind: "write", path, content: JSON.stringify(state) }],
-      };
-    },
     async serveMcpStub(stubOptions) {
       calls.mcpServe += 1;
       await stubOptions.runSync();
     },
   };
   return engine;
-}
-
-// The fixture block grammar: `<!-- maxims:<key> -->`, one `- <name>` per rule line, `<!-- /maxims -->`.
-export function parseFixtureRuleFile(text: string): RuleBlock[] {
-  const blocks: RuleBlock[] = [];
-  let current: RuleBlock | null = null;
-  for (const line of text.split("\n")) {
-    const open = /^<!-- maxims:(\S+) -->$/.exec(line);
-    if (open !== null && open[1] !== undefined) {
-      current = { source: open[1], names: [] };
-      continue;
-    }
-    if (line === "<!-- /maxims -->" && current !== null) {
-      blocks.push(current);
-      current = null;
-      continue;
-    }
-    const rule = /^- ([a-z0-9-]+)/.exec(line);
-    const name = rule?.[1] === undefined ? null : parseMemoryName(rule[1]);
-    if (current !== null && name !== null) current.names.push(name);
-  }
-  return blocks;
-}
-
-function describeTarget(options: RemoveOptions): string {
-  const target = options.target;
-  return target.kind === "all" ? "*" : target.kind === "source" ? target.key : target.name;
-}
-
-// The dedupe contract over the fixture data: installation order owns a name, a rename moves the
-// incoming memory under its local name, a name another source owns collides, and the survivors
-// are counted against the cap.
-export function resolveIncomingForReal(input: ResolveIncomingInput): ResolveIncomingOutcome {
-  const index = new Map<string, string>();
-  const ordered = [...input.installed].sort(
-    (a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || (a.key < b.key ? -1 : 1),
-  );
-  for (const source of ordered) {
-    for (const name of source.names) {
-      if (source.intent.select !== "*" && !source.intent.select.includes(name)) continue;
-      const local = Object.hasOwn(source.intent.rename, name) ? source.intent.rename[name] : name;
-      if (local !== undefined && !index.has(local)) index.set(local, source.key);
-    }
-  }
-  const collisions: { name: MemoryName; ownedBy: string }[] = [];
-  const names: MemoryName[] = [];
-  for (const memory of input.memories) {
-    if (input.select !== "*" && !input.select.includes(memory.name)) continue;
-    const local = Object.hasOwn(input.rename, memory.name)
-      ? input.rename[memory.name]
-      : memory.name;
-    if (local === undefined) continue;
-    const owner = index.get(local);
-    if (owner !== undefined && owner !== input.source)
-      collisions.push({ name: local, ownedBy: owner });
-    else names.push(local);
-  }
-  if (collisions.length > 0) return { ok: false, code: ExitCode.NameCollision, collisions };
-  if (names.length > input.cap) {
-    return {
-      ok: false,
-      code: ExitCode.RuleCapExceeded,
-      count: names.length,
-      cap: input.cap,
-      hint: `narrow the source with --memory <name>..., or raise the cap (currently ${input.cap})`,
-    };
-  }
-  return { ok: true, names: names.sort() };
 }
 
 // Resolvers over fixture directories: a github repo maps to the directory the scenario names, a

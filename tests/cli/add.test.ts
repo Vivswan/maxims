@@ -1,7 +1,7 @@
 // Fails if `add` stops honoring its one-commit-point contract: a validation failure (exit 3, 6,
 // 7, 8) that writes anything, a `--list` that fetches under `--no-fetch` or touches state, a
 // re-add that unions instead of replacing the selection, a `.` source that registers a hook, or
-// a sync that stops receiving `noFetch: true` and the chosen harnesses.
+// a sync that stops receiving `fetch: "none"` and the chosen harnesses.
 import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,7 +44,7 @@ function source(scenario: Scenario, key: string): SourceRecord {
   return entry;
 }
 
-test("add records intent and the fetch, lays the store entry, then syncs once with noFetch", async () => {
+test("add records intent and the fetch, lays the store entry, then syncs once without a fetch", async () => {
   await withScenario(
     { github: { "vivswan/skills": SKILLS }, syncReport: { rules: 4, tokens: 103 } },
     async (scenario) => {
@@ -80,18 +80,65 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
       expect((readState(scenario) as { hooks: string[] }).hooks).toEqual(["claude-code", "codex"]);
       const store = join(scenario.home, "store", "vivswan", "skills", "memories");
       expect(existsSync(join(store, "skip-unfit-skills.md"))).toBe(true);
+      // The plan that admits the install runs first, against the would-be state; the sync that
+      // writes follows once.
       expect(scenario.engine.calls.sync).toEqual([
+        {
+          quiet: false,
+          dryRun: true,
+          json: false,
+          fetch: "none",
+          agents: ["claude-code", "codex"],
+          preview: expect.objectContaining({ changes: expect.any(Array) }),
+        },
         {
           quiet: false,
           dryRun: false,
           json: false,
-          noFetch: true,
+          fetch: "none",
           agents: ["claude-code", "codex"],
-          force: false,
         },
       ]);
     },
   );
+});
+
+// The engine judges what a rendered file admits (a byte budget) only once it plans; the commit
+// waits for that plan, so a refusal leaves neither state nor store behind.
+test("a refusal from the admission plan leaves nothing written", async () => {
+  await withScenario(
+    { github: { "a/b": SKILLS }, refuse: { code: 8, message: "over the 6000-byte limit" } },
+    async (scenario) => {
+      const before = await snapshot(scenario.root);
+      const run = await runCli(scenario, ["add", "@a/b", "-g", "--rule", "-a", "codex"]);
+      expect(run.code).toBe(8);
+      expect(run.stderr).toBe(" ERROR  over the 6000-byte limit\n");
+      expect(await snapshot(scenario.root)).toBe(before);
+      expect(scenario.engine.calls.sync).toHaveLength(1);
+      scenario.options.refuse = undefined;
+      expect((await runCli(scenario, ["add", "@a/b", "-g", "--rule", "-a", "codex"])).code).toBe(0);
+      expect(existsSync(homePaths(scenario.home).state)).toBe(true);
+    },
+  );
+});
+
+// A re-add replaces the harness list, so the sync after it must reach the harnesses that left
+// the list as well as the ones on it; `--quiet` on a framed verb is the frame's silence, never
+// the hook's debounce, so the engine is asked for an interactive run.
+test("a re-add with fewer harnesses syncs the dropped ones too, and --quiet stays out of the engine", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await runCli(scenario, ["add", "@a/b", "-g", "-a", "claude-code,codex"]);
+    const fewer = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--quiet"]);
+    expect(fewer.code).toBe(0);
+    expect(lastSyncCall(scenario)).toEqual({
+      quiet: false,
+      dryRun: false,
+      json: false,
+      fetch: "none",
+      agents: ["claude-code", "codex"],
+    });
+    expect(source(scenario, "@a/b").intent.harnesses).toEqual(["codex"]);
+  });
 });
 
 test("a file that fails the contract is skipped with one warning naming the reason", async () => {
@@ -383,7 +430,7 @@ test("harness selection: detected first, then config.agents, then a global-less 
       const none = await runCli(scenario, ["add", "@a/b", "-g", "-a", "cursor"]);
       expect(none.code).toBe(0);
       expect(source(scenario, "@a/b").intent.harnesses).toEqual([]);
-      expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
+      expect(lastSyncCall(scenario).agents).toEqual(["codex"]);
       writeConfig(scenario, {});
       const star = await runCli(scenario, ["add", "@a/b", "-g", "-a", "*"]);
       expect(star.code).toBe(0);
@@ -526,6 +573,19 @@ test("moving a source from the project to the user scope retires it from the man
   });
 });
 
+// The old folder is nobody's destination any more, and only the caller knows it existed: the
+// sync is handed the replaced entry so its rule file and bodies leave as after a removal.
+test("re-adding a source under another -o folder hands the sync the entry it replaced", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    expect((await runCli(scenario, ["add", "@a/b", "-o", "./one", "-a", "codex"])).code).toBe(0);
+    const previous = source(scenario, "@a/b");
+    expect((await runCli(scenario, ["add", "@a/b", "-o", "./two", "-a", "codex"])).code).toBe(0);
+    expect(lastSyncCall(scenario).retired).toEqual([expect.objectContaining(previous)]);
+    expect((await runCli(scenario, ["add", "@a/b", "-o", "./two", "-a", "codex"])).code).toBe(0);
+    expect(lastSyncCall(scenario).retired).toBeUndefined();
+  });
+});
+
 test("an -o folder outside any git checkout is planned without a project root", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", "-o", "./team-rules", "-a", "codex"]);
@@ -567,7 +627,7 @@ test("pinned sources get their own rules-file stem on the plan screen", async ()
     const argv = ["add", "@a/b", "-g", "--rule", "-a", "claude-code", "--pin", "v2"];
     const run = await runCli(scenario, argv);
     expect(run.code).toBe(0);
-    const pinnedPath = /A B -> (~\/\.claude\/rules\/maxims-a-b-v2-[0-9a-f]{8}\.md)\n/.exec(
+    const pinnedPath = /A B -> (~\/\.claude\/rules\/maxims-a-b-v2--[0-9a-f]{6}\.md)\n/.exec(
       run.stdout,
     );
     expect(pinnedPath).not.toBeNull();
@@ -585,7 +645,7 @@ test("pinned sources get their own rules-file stem on the plan screen", async ()
       "skip-unfit-skills=skip-unfit-v2",
     ]);
     expect(hyphen.code).toBe(0);
-    const hyphenPath = /A B V2 -> (~\/\.claude\/rules\/maxims-a-b-v2-[0-9a-f]{8}\.md)\n/.exec(
+    const hyphenPath = /A B V2 -> (~\/\.claude\/rules\/maxims-a-b-v2--[0-9a-f]{6}\.md)\n/.exec(
       hyphen.stdout,
     );
     expect(hyphenPath).not.toBeNull();
@@ -711,9 +771,9 @@ test("--from, --full-depth and --copy round-trip through the manifest into a fre
     const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
     const written = readFileSync(lockPath, "utf8");
     const lock = JSON.parse(written) as { sources: Record<string, unknown> };
-    expect(Object.keys(lock.sources)).toEqual(["@a/b", "src"]);
-    expect(lock.sources.src).toEqual({
-      from: { type: "local", path: "src" },
+    expect(Object.keys(lock.sources)).toEqual(["./src", "@a/b"]);
+    expect(lock.sources["./src"]).toEqual({
+      from: { type: "local", path: "./src" },
       select: "*",
       rule: false,
       harnesses: ["codex"],

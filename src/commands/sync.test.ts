@@ -1903,6 +1903,48 @@ describe("plan surfaces", () => {
     });
   });
 
+  test("a sync handed a retired entry sweeps the -o folder it left behind", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const team = writeSource(join(dir, "team"), { "team-rule": { description: "Team." } });
+      const one = join(dir, "one");
+      const two = join(dir, "two");
+      mkdirSync(one);
+      mkdirSync(two);
+      const from = githubFrom("acme/team");
+      const at = (path: string) =>
+        fetchedEntry(from, facts, { destination: { scope: "out", path } });
+      const facts = await fetchedFacts(team, daysAgo(NOW, 1));
+      seedStore(home, from, team);
+      writeState(home, stateWith({ "@acme/team": at(one) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync({ ...SYNC, fetch: "none" }, io);
+      expect(existsSync(join(one, "maxims-acme-team.md"))).toBe(true);
+      writeState(home, stateWith({ "@acme/team": at(two) }));
+      await runSync({ ...SYNC, fetch: "none", retired: [at(one)] }, io);
+      expect(existsSync(join(one, "maxims-acme-team.md"))).toBe(false);
+      expect(
+        lstatSync(join(one, "memories", "team-rule.md"), { throwIfNoEntry: false }),
+      ).toBeUndefined();
+      expect(existsSync(join(two, "maxims-acme-team.md"))).toBe(true);
+      // The retired folder may be the new destination's own rules directory, where the rule file
+      // this run writes has the same name: it is kept.
+      const rulesDir = join(userHome, ".fixture", "rules");
+      const local = writeSource(join(dir, "local"), TWO_MEMORIES);
+      const outEntry = entryFor(localFrom(local), {
+        destination: { scope: "out", path: rulesDir },
+      });
+      seedStore(home, localFrom(local), local);
+      writeState(home, stateWith({ [local]: outEntry }));
+      await runSync({ ...SYNC, fetch: "none" }, io);
+      const file = join(rulesDir, `maxims-${sourceSlug(localFrom(local))}.md`);
+      expect(existsSync(file)).toBe(true);
+      writeState(home, stateWith({ [local]: entryFor(localFrom(local)) }));
+      await runSync({ ...SYNC, fetch: "none", retired: [outEntry] }, io);
+      expect(existsSync(file)).toBe(true);
+      expect(readFileSync(file, "utf8")).toContain("Never merge red.");
+    });
+  });
+
   test("a forced refresh that fails keeps last-good and reports the source as failed", async () => {
     await world(async ({ home, dir, userHome }) => {
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);

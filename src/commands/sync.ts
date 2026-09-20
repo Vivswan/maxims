@@ -5,14 +5,13 @@ import { maximsHome } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { type EngineContext, loadContext } from "./shared/context.ts";
 import { isDebounced, stampLastSync } from "./shared/debounce.ts";
-import { planSync } from "./shared/engine.ts";
+import { planSync, recordedCopies } from "./shared/engine.ts";
 import {
   EMPTY_REPORT,
   emptyDocument,
-  errorDocument,
   finishSync,
   previewState,
-  ReportedMaximsError,
+  reportedUnderJson,
   unusableStateLine,
 } from "./shared/report.ts";
 import type { EngineIo, SyncOptions, SyncReport } from "./types.ts";
@@ -24,12 +23,12 @@ export async function runSync(options: SyncOptions, io: EngineIo): Promise<SyncR
   try {
     return await runSyncChecked(options, io);
   } catch (error) {
-    if (options.json && !(error instanceof ReportedMaximsError)) io.stdout(errorDocument(error));
+    const reported = reportedUnderJson(error, io, options.json);
     if (options.quiet) {
       await logCrash(io, error);
       return EMPTY_REPORT;
     }
-    throw error;
+    throw reported;
   }
 }
 
@@ -94,12 +93,13 @@ async function planAndFinish(
   io: EngineIo,
   options: SyncOptions,
 ): Promise<SyncReport> {
+  const retired = options.retired ?? [];
   const outcome = await planSync(state, ctx, io, options, {
     verb: "sync",
     previousState: state,
     extraChanges: [],
-    removed: [],
-    removedCopies: new Set(),
+    removed: retired,
+    removedCopies: recordedCopies(retired),
   });
   return finishSync(outcome, ctx, io, { ...options, verb: "sync" });
 }

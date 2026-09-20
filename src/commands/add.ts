@@ -30,6 +30,8 @@ import {
   parseMemory,
 } from "../memory/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
+import { materializeLocal } from "../sources/local.ts";
+import type { TreeFile } from "../sources/tree.ts";
 import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
@@ -53,7 +55,10 @@ import {
   loadIntentFor,
   peekIntent,
   updateIntent,
+  withDisabled,
 } from "./shared/cli-context.ts";
+import { framed } from "./shared/engine-io.ts";
+import { swapStoreEntry } from "./shared/fetch.ts";
 import {
   type AgentSelection,
   type Args,
@@ -71,7 +76,8 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import { planProjectLock } from "./shared/project-lock-io.ts";
+import { projectLockChange } from "./shared/project-lock-io.ts";
+import { sourceSlug } from "./shared/slug.ts";
 import {
   detectedHarnesses,
   effectiveNames,
@@ -81,12 +87,12 @@ import {
   knownHarnessIds,
   markdownFiles,
   realLocal,
+  resolveIncoming,
   scopeOf,
-  sourceSlug,
   targetPath,
   tildify,
 } from "./shared/sources.ts";
-import type { EngineIo, SyncOptions, SyncPreview, TreeFile } from "./types.ts";
+import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "./types.ts";
 
 export const DEFAULT_RULE_CAP = 25;
 
@@ -166,11 +172,8 @@ export const add: Command = {
     }
     if (outcome.kind !== "prepared") return ExitCode.Ok;
     const { prepared } = outcome;
-    const commit = await commitAdd([prepared], ctx, true);
-    const report = await ctx.engine.runSync(
-      syncAfterCommit(ctx, commit, prepared.harnesses.ids),
-      ctx.io,
-    );
+    const commit = await commitAdd([prepared], ctx, { writeManifest: true });
+    const report = await syncCommitted(ctx, commit, commit.harnesses);
     const lines = [installed(prepared.names.length, report.rules, report.tokens)];
     for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND));
     const code = finish(ctx, console, {
@@ -189,19 +192,50 @@ export const add: Command = {
 };
 
 // The sync that follows a commit never fetches (the commit just did) and, under --dry-run, plans
-// against the state the commit would have written, since the file itself was left alone.
-export function syncAfterCommit(
+// against the state the commit would have written, since the file itself was left alone. The
+// verb frames the output, so the engine's own lines go nowhere and its report is what is shown;
+// `--quiet` is the frame's silence, never the hook's debounce or deferred deletions, so the
+// engine runs it as an interactive sync.
+export function syncCommitted(
+  ctx: CommandContext,
+  preview: SyncPreview & { retired?: readonly SourceEntry[] },
+  agents: readonly HarnessId[],
+): Promise<SyncReport> {
+  return framed(ctx.io, (io) => ctx.engine.runSync(committedSyncOptions(ctx, preview, agents), io));
+}
+
+function committedSyncOptions(
+  ctx: CommandContext,
+  preview: SyncPreview & { retired?: readonly SourceEntry[] },
+  agents: readonly HarnessId[],
+): SyncOptions {
+  const retired = preview.retired ?? [];
+  return {
+    ...commonOptions(ctx.global),
+    quiet: false,
+    fetch: "none",
+    ...agentsFilter(agents),
+    ...(retired.length === 0 ? {} : { retired: [...retired] }),
+    ...(ctx.global.dryRun ? { preview } : {}),
+  };
+}
+
+// Whether the destinations admit what an intent edit would install: the plan the edit's sync
+// would make, drawn against the state and store writes as they would land, before any of them
+// does. A collision, a cap or a byte budget the engine refuses stops here, so the one commit point
+// keeps its promise that a refused install leaves the machine as it was.
+export async function admitIntent(
   ctx: CommandContext,
   preview: SyncPreview,
   agents: readonly HarnessId[],
-): SyncOptions {
-  return {
-    ...commonOptions(ctx.global),
-    noFetch: true,
-    ...agentsFilter(agents),
-    force: false,
-    ...(ctx.global.dryRun ? { preview } : {}),
+): Promise<void> {
+  const options: SyncOptions = {
+    ...committedSyncOptions(ctx, preview, agents),
+    dryRun: true,
+    json: false,
+    preview,
   };
+  await framed(ctx.io, (io) => ctx.engine.runSync(options, io));
 }
 
 // A live source registers no hook: a refresh would clobber an unpushed edit, so the wish is
@@ -424,7 +458,7 @@ export async function prepareAdd(
 
 // A harness that declares no hook shape has nothing to register; asking for one is not an error,
 // it is a no-op that must not be reported as a registration.
-function hookable(ids: readonly HarnessId[], io: EngineIo): HarnessId[] {
+function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
   return ids.filter((id) => io.harnesses.some((def) => def.id === id && def.hook.kind !== "none"));
 }
 
@@ -438,23 +472,40 @@ function adoptRecordedKey(request: AddRequest, state: State): AddRequest {
   return { ...request, key: recorded, from: entry.intent.from };
 }
 
+// `harnesses` are the ones the sync after the commit must reach: every harness the recorded
+// entries list now and listed before, so a re-add that drops one takes its files with it; empty
+// means every harness, which a manifest's disabled names call for, since a name switched off may
+// belong to any project source. `retired` are the previous entries a re-add moved to another
+// destination, whose old folders the sync sweeps.
 export type CommitOutcome = SyncPreview & {
   notices: string[];
   hooked: HarnessId[];
+  harnesses: HarnessId[];
+  retired: SourceEntry[];
+};
+
+// `install` passes `writeManifest: false` because the manifest is its input, not a projection of
+// its result, and `disabledAtProject` because the names the manifest switches off land in the
+// same state document as the sources, so a replay is one write and one sync.
+export type CommitOptions = {
+  writeManifest: boolean;
+  disabledAtProject?: readonly MemoryName[];
 };
 
 // Steps 5 and 6: the one durable transition, for one or several prepared sources under one lock.
 // The store entries, the manifest projection and the config file ride in the same plan as the
-// state write; the caller runs the sync that writes destinations. `install` passes
-// `writeManifest: false` because the manifest is its input, not a projection of its result.
+// state write; the caller runs the sync that writes destinations.
 export async function commitAdd(
   prepared: readonly PreparedAdd[],
   ctx: CommandContext,
-  writeManifest: boolean,
+  options: CommitOptions,
 ): Promise<CommitOutcome> {
-  const { io, engine } = ctx;
+  const { io } = ctx;
   const now = io.now().toISOString();
   const hooked = new Set<HarnessId>();
+  const reached = new Set<HarnessId>();
+  const retired: SourceEntry[] = [];
+  let everyHarness = false;
   let config: UserConfig = { ...ctx.config };
   const update = await updateIntent(
     io.home,
@@ -467,6 +518,13 @@ export async function commitAdd(
       for (const item of prepared) {
         const { request, harnesses } = item;
         const previous = state.sources[request.key];
+        for (const id of [...(previous?.intent.harnesses ?? []), ...harnesses.ids]) reached.add(id);
+        if (
+          previous !== undefined &&
+          !sameDestination(previous.intent.destination, request.destination)
+        ) {
+          retired.push(previous);
+        }
         const entry = buildEntry(
           request,
           item.rename,
@@ -483,7 +541,7 @@ export async function commitAdd(
             ? [...new Set([...state.hooks, ...hookable(harnesses.ids, io)])]
             : state.hooks,
         };
-        changes.push(...engine.planStoreEntry(request.from, io.home, item.tree.files));
+        changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
         if (
           previous?.intent.destination.scope === "project" ||
           request.destination.scope === "project"
@@ -500,10 +558,19 @@ export async function commitAdd(
         }
         if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);
       }
-      if (writeManifest && touchesProject && io.projectRoot !== null) {
-        changes.push(planProjectLock(io.projectRoot, state));
+      if (io.projectRoot !== null) {
+        const at = { scope: "project", root: io.projectRoot } as const;
+        for (const name of options.disabledAtProject ?? []) {
+          const edit = withDisabled(state, at, name, true);
+          state = edit.state;
+          everyHarness ||= edit.changed;
+        }
+      }
+      if (options.writeManifest && touchesProject && io.projectRoot !== null) {
+        changes.push(projectLockChange(io.projectRoot, state));
       }
       if (configChanged) changes.push(configWrite(io.home, config));
+      await admitIntent(ctx, { state, config, changes }, everyHarness ? [] : [...reached]);
       return { state, changes, notices: [...current.notices] };
     },
     (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
@@ -514,7 +581,20 @@ export async function commitAdd(
     changes: update.changes,
     notices: update.notices,
     hooked: [...hooked],
+    harnesses: everyHarness ? [] : [...reached],
+    retired,
   };
+}
+
+function sameDestination(a: Destination, b: Destination): boolean {
+  return a.scope === b.scope && (a.scope !== "out" || b.scope !== "out" || a.path === b.path);
+}
+
+// The store entry a fetched tree lands in: a local directory through the local materializer (a
+// live one becomes a link), a remote through the same swap every refresh plans.
+function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeFile[]): Change[] {
+  if (from.type === "local") return materializeLocal(from, home, [...files]);
+  return swapStoreEntry(storePathFor(home, from), [...files]);
 }
 
 export function describeSource(from: SourceFrom): string {
@@ -530,11 +610,7 @@ export function describeSource(from: SourceFrom): string {
 
 // A fetch lands in a temp directory removed on every path; a `--list --no-fetch` reads the store
 // copy instead and never opens a socket, which is what keeps the benchmark's preview offline.
-async function fetchTree(
-  request: AddRequest,
-  io: EngineIo,
-  console: Console,
-): Promise<FetchedTree> {
+async function fetchTree(request: AddRequest, io: CliIo, console: Console): Promise<FetchedTree> {
   if (request.noFetch) {
     const root = storePathFor(io.home, request.from);
     const files = markdownFiles(join(root, request.memoryPath), request.fullDepth);
@@ -694,7 +770,7 @@ async function validate(
     })),
   ];
   for (;;) {
-    const outcome = ctx.engine.resolveIncoming({
+    const outcome = resolveIncoming({
       source: request.key,
       memories: chosen.map((memory) => ({
         name: memory.name,
@@ -736,9 +812,7 @@ async function validate(
 }
 
 function renameSuffix(from: SourceFrom): string {
-  const key = canonicalSourceKey(from);
-  const slug = sourceSlug(key);
-  const tail = slug.split("-").pop();
+  const tail = sourceSlug(from).split("-").pop();
   return tail === undefined || tail === "" ? "renamed" : tail;
 }
 
@@ -803,7 +877,7 @@ async function chooseHarnesses(
     value: def.id,
     label: def.displayName,
     hint: tildify(
-      targetPath(def, request.destination, ctxHarness, sourceSlug(request.key)) ?? "",
+      targetPath(def, request.destination, ctxHarness, sourceSlug(request.from)) ?? "",
       io.userHome,
     ),
   }));
@@ -820,9 +894,9 @@ async function chooseHarnesses(
   return { ids: withTarget(chosen, warnings), warnings, remember: answer.kind === "chosen" };
 }
 
-function planBody(request: AddRequest, ids: readonly HarnessId[], io: EngineIo): string {
+function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): string {
   const ctx = harnessContext(io);
-  const slug = sourceSlug(request.key);
+  const slug = sourceSlug(request.from);
   const lines = ids.map((id) => {
     const def = io.harnesses.find((candidate) => candidate.id === id);
     if (def === undefined) return id;

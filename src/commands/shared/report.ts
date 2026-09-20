@@ -7,6 +7,7 @@ import { appendRefreshLog } from "../../util/log.ts";
 import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 import type { SyncFailure, SyncOutcome } from "./engine.ts";
+import { ReportedMaximsError } from "./errors.ts";
 import { renderHookStdout } from "./stdin.ts";
 
 export const EMPTY_REPORT: SyncReport = {
@@ -23,10 +24,6 @@ export const EMPTY_REPORT: SyncReport = {
 };
 
 export type FinishOptions = CommonOptions & { verb: "sync" | "remove" };
-
-// A failure the run has already printed (as the `--json` document or the interactive lines), so
-// the caller maps it to an exit code without printing it a second time.
-export class ReportedMaximsError extends MaximsError {}
 
 // Step 6: apply the plan in order, log what happened, and speak in the channel the run was
 // started from. A write failure under `--quiet` stops the run at that change and reports the
@@ -159,6 +156,20 @@ export function errorDocument(error: unknown): string {
   const hint = error instanceof MaximsError ? (error.hint ?? null) : null;
   const message = error instanceof Error ? error.message : String(error);
   return `${JSON.stringify({ ok: false, code, message, hint }, null, 2)}\n`;
+}
+
+// Under `--json` a failure that escaped the plan is printed as the one document and rethrown as
+// already reported, so the caller maps it to an exit and prints nothing more; the original stays
+// on `cause` for a log. Any other failure passes through untouched.
+export function reportedUnderJson(error: unknown, io: EngineIo, json: boolean): unknown {
+  if (!json || error instanceof ReportedMaximsError) return error;
+  io.stdout(errorDocument(error));
+  const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
+  const message = error instanceof Error ? error.message : String(error);
+  return new ReportedMaximsError(code, message, {
+    cause: error,
+    ...(error instanceof MaximsError && error.hint !== undefined ? { hint: error.hint } : {}),
+  });
 }
 
 // The newer line names the version alone, so an inspection (which knows no path) can feed it.

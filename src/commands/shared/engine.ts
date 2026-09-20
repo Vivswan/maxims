@@ -7,7 +7,6 @@ import {
   type MemoryName,
   parseMemoryName,
 } from "../../memory/contract.ts";
-import { parseBlocks } from "../../rulefile/block.ts";
 import {
   buildNameIndex,
   type IndexedSource,
@@ -32,6 +31,7 @@ import type {
   SyncPreview,
   SyncReport,
 } from "../types.ts";
+import { parseRuleBlocks } from "./blocks.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
@@ -114,6 +114,17 @@ const STALE_REASON: Record<Staleness["kind"], string> = {
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
   return !(entry.intent.from.type === "local" && entry.intent.from.live === true);
+}
+
+// The content hashes a set of entries recorded at their last fetch: what a copy of theirs in a
+// bodies directory would hash to, so it is told from the user's own file with the same name.
+export function recordedCopies(entries: readonly SourceEntry[]): Set<ContentHash> {
+  const copies = new Set<ContentHash>();
+  for (const entry of entries) {
+    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
+    for (const facts of Object.values(fetched?.memories ?? {})) copies.add(facts.content);
+  }
+  return copies;
 }
 
 export function shortSha(sha: string): string {
@@ -588,7 +599,7 @@ async function planInstall(
   // cannot be read this run still wants its hook kept and its switched-off rule file gone.
   const entries = Object.values(refreshed.sources);
   const outRulesOff = entries.filter((entry) => !entry.intent.rule);
-  builder.add("removal", removedOutRuleFiles([...extras.removed, ...outRulesOff]));
+  builder.add("removal", removedOutRuleFiles([...extras.removed, ...outRulesOff], planned));
   const at = (scope: Scope, id: HarnessId) =>
     entries.filter(
       (entry) => entry.intent.destination.scope === scope && entry.intent.harnesses.includes(id),
@@ -1152,11 +1163,9 @@ export async function retainedNames(
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = readIfPresent(path);
     if (text === null) continue;
-    const span = parseBlocks(text).blocks.find((block) => block.source === key);
-    if (span === undefined) continue;
-    for (const match of text.slice(span.start, span.end).matchAll(DETAIL_PATH)) {
-      const parsed = parseMemoryName(detailStem(match[1] ?? ""));
-      if (parsed !== null) names.add(upstreamPaths ? renamed(intent.rename, parsed) : parsed);
+    const block = parseRuleBlocks(text).find((candidate) => candidate.source === key);
+    for (const name of block?.names ?? []) {
+      names.add(upstreamPaths ? renamed(intent.rename, name) : name);
     }
   }
   const entryReal = join(realDirOf(ctx.paths.store), relative(ctx.paths.store, storeEntry));
@@ -1224,24 +1233,6 @@ function installedBodies(
   return names;
 }
 
-// The renderer wraps a detail token holding a reference-looking `@` in backticks, comma
-// included, so the path is read up to the comma with an optional fence on either side.
-const DETAIL_PATH = /\(detail: `?(.+?),`? [0-9a-f]{7}\)$/gm;
-
-// The memory name a rendered detail path ends in. The renderer turns backslashes, backticks, `<`,
-// `[` and tilde runs into entities on a line holding a reference token, and a path written on
-// Windows separates with backslashes, so both are undone before the last segment is taken.
-function detailStem(rendered: string): string {
-  const path = rendered
-    .replaceAll("&#92;", "\\")
-    .replaceAll("&#96;", "`")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&#91;", "[")
-    .replaceAll("&#126;", "~");
-  const last = path.split(/[\\/]/).pop() ?? "";
-  return last.endsWith(".md") ? last.slice(0, -".md".length) : last;
-}
-
 function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo): string[] {
   const { intent } = entry;
   if (!intent.rule) return [];
@@ -1261,13 +1252,19 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
 }
 
 // The `-o` rule files of sources that left intent or switched rules off, taken only when the file
-// carries maxims markers: the name is derived, and a user's own file at it stays theirs.
-function removedOutRuleFiles(removed: readonly SourceEntry[]): Change[] {
+// carries maxims markers: the name is derived, and a user's own file at it stays theirs. A file
+// this run plans (an `-o` folder that is also a harness's rules directory) is kept: it is the
+// current destination's, written moments before.
+function removedOutRuleFiles(
+  removed: readonly SourceEntry[],
+  planned: ReadonlySet<string>,
+): Change[] {
   const changes: Change[] = [];
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
     const path = join(root, `maxims-${sourceSlug(entry.intent.from)}.md`);
+    if (planned.has(realKeyOf(path))) continue;
     const text = readIfPresent(path);
     if (text === null || !claimedByMaxims(text)) continue;
     changes.push({ kind: "delete", path: assertInsideRoot(root, path) });

@@ -80,7 +80,13 @@ const goldens: Golden[] = [
     "update-run",
     {
       github: { "a/b": SKILLS },
-      syncReport: { fetched: ["@a/b"], changed: ["+@a/b skip-unfit-skills", "-@a/b old-rule"] },
+      syncReport: {
+        fetched: ["@a/b"],
+        upstreamChanges: { "@a/b": ["+ skip-unfit-skills", "- old-rule"] },
+        notices: [
+          "maxims: @a/b has new memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit",
+        ],
+      },
     },
     async (scenario) => {
       await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "skip-unfit-skills"]);

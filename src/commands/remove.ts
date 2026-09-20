@@ -19,14 +19,13 @@ import {
   countOf,
   EMPTY_REPORT,
   emptyDocument,
-  errorDocument,
   finishSync,
   previewState,
-  ReportedMaximsError,
+  reportedUnderJson,
   unusableStateLine,
 } from "./shared/report.ts";
 import { selectMemories } from "./shared/select.ts";
-import type { EngineIo, RemoveOptions, SyncReport } from "./types.ts";
+import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "./types.ts";
 
 // Intent mutation, then the same convergence that installs: with the entry gone the regenerated
 // output no longer carries its lines and its links have no owner. Deletions apply even under
@@ -35,8 +34,7 @@ export async function runRemove(options: RemoveOptions, io: EngineIo): Promise<S
   try {
     return await runRemoveChecked(options, io);
   } catch (error) {
-    if (options.json && !(error instanceof ReportedMaximsError)) io.stdout(errorDocument(error));
-    throw error;
+    throw reportedUnderJson(error, io, options.json);
   }
 }
 
@@ -157,20 +155,25 @@ async function resolveRemoval(
     }
   };
   const taken: string[] = [];
-  const targets = options.all ? installed.map((item) => item.key) : options.targets;
+  const targets: RemoveTargetSpec[] = options.all
+    ? installed.map((item) => item.key)
+    : options.targets;
   for (const target of targets) {
-    const bySource = installed.find((item) => sameSource(item.key, target, ctx));
-    if (bySource !== undefined) {
-      taken.push(bySource.key);
-      takeOut(bySource);
-      continue;
+    if (typeof target === "string") {
+      const bySource = installed.find((item) => sameSource(item.key, target, ctx));
+      if (bySource !== undefined) {
+        taken.push(bySource.key);
+        takeOut(bySource);
+        continue;
+      }
+      if (taken.some((key) => sameSource(key, target, ctx))) continue;
     }
-    if (taken.some((key) => sameSource(key, target, ctx))) continue;
-    const name = parseMemoryName(target);
+    const spelled = typeof target === "string" ? target : `${target.source}/${target.memory}`;
+    const name = typeof target === "string" ? parseMemoryName(target) : target.memory;
     if (name === null) {
       throw new MaximsError(
         ExitCode.Usage,
-        `${target} is neither an installed source nor a memory name`,
+        `${spelled} is neither an installed source nor a memory name`,
       );
     }
     if (options.agents !== undefined) {
@@ -178,7 +181,14 @@ async function resolveRemoval(
         hint: "name the source to drop a harness from, or drop the name without -a",
       });
     }
-    const owners = installed.filter((item) => item.pairs.some((pair) => pair.localName === name));
+    const candidates =
+      typeof target === "string"
+        ? installed
+        : installed.filter((item) => sameSource(item.key, target.source, ctx));
+    if (typeof target !== "string" && candidates.length === 0) {
+      throw new MaximsError(ExitCode.Usage, `${target.source} is not installed`);
+    }
+    const owners = candidates.filter((item) => item.pairs.some((pair) => pair.localName === name));
     if (owners.length > 1) {
       const qualified = owners.map((item) => `${item.key}/${name}`).join(", ");
       throw new MaximsError(
@@ -189,7 +199,7 @@ async function resolveRemoval(
     }
     const [owner] = owners;
     if (owner === undefined) {
-      notices.push(`${target} is not installed`);
+      notices.push(`${spelled} is not installed`);
       continue;
     }
     // A single memory leaves by regenerating its source's block without it, which needs the

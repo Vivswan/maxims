@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { MemoryName } from "../../memory/contract.ts";
 import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
 import { emptyState, parseState, type State } from "../../state/schema.ts";
 import {
@@ -224,4 +225,43 @@ function writableState(state: State, path: string): string {
     ExitCode.Usage,
     `refusing to write ${path}: the state would not read back (${issues.join("; ")})`,
   );
+}
+
+export type DisabledEdit = { changed: boolean; state: State };
+
+// Which disabled list an edit means: the global one, or a project's under its root. A project
+// edit cannot be spelled without the root, so no caller substitutes one.
+export type DisabledScope = { scope: "global" } | { scope: "project"; root: string };
+
+// The one edit of the disabled lists. The list stays sorted and unique, which is the shape the
+// state schema refuses to read otherwise.
+export function withDisabled(
+  state: State,
+  at: DisabledScope,
+  name: MemoryName,
+  disabled: boolean,
+): DisabledEdit {
+  const current =
+    at.scope === "global"
+      ? (state.disabled?.global ?? [])
+      : (state.disabled?.project?.[at.root] ?? []);
+  const has = current.includes(name);
+  if (has === disabled) return { changed: false, state };
+  const next = disabled ? [...current, name].sort() : current.filter((each) => each !== name);
+  const lists = { ...state.disabled };
+  if (at.scope === "global") {
+    if (next.length === 0) delete lists.global;
+    else lists.global = next;
+  } else {
+    const project = { ...lists.project };
+    if (next.length === 0) delete project[at.root];
+    else project[at.root] = next;
+    if (Object.keys(project).length === 0) delete lists.project;
+    else lists.project = project;
+  }
+  const { disabled: _previous, ...rest } = state;
+  return {
+    changed: true,
+    state: Object.keys(lists).length === 0 ? rest : { ...rest, disabled: lists },
+  };
 }

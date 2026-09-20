@@ -1,6 +1,7 @@
 layers:
   cli: [src/cli.ts]
   commands: [src/commands/]
+  console: [src/console/]
   harnesses: [src/harnesses/]
   rulefile: [src/rulefile/]
   sources: [src/sources/]
@@ -15,8 +16,9 @@ exclude:
 
 # from -> the layers it may import; a layer absent here imports nothing outside itself.
 edges:
-  cli: [version]
-  commands: [harnesses, memory, rulefile, sources, state, util]
+  cli: [commands, console, util]
+  commands: [console, harnesses, memory, rulefile, sources, state, util, version]
+  console: [memory]
   harnesses: [memory, rulefile, util, version]
   rulefile: [memory, state, util]
   sources: [memory, state, util]

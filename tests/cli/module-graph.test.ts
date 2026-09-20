@@ -1,7 +1,8 @@
 // Fails if the hook path regrows: a static import chain from the bin entry to the sync verb that
 // reaches the interactive frame, the color library, agent detection, or the git and tarball code
 // would load them at every session start, which the latency budget forbids. Dynamic imports are
-// not followed, since that is exactly how the interactive verbs are meant to load.
+// not followed, since that is exactly how the interactive verbs are meant to load, and neither
+// are type-only imports, which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -10,7 +11,7 @@ const SRC = resolve(import.meta.dir, "..", "..", "src");
 
 const HEAVY = ["@clack/prompts", "picocolors", "@vercel/detect-agent", "simple-git", "tar"];
 
-const STATIC_IMPORT = /^\s*(?:import|export)\s[^;]*?\sfrom\s+["']([^"']+)["']/gm;
+const STATIC_IMPORT = /^\s*(?:import|export)\s(?!type\s)[^;]*?\sfrom\s+["']([^"']+)["']/gm;
 const BARE_IMPORT = /^\s*import\s+["']([^"']+)["']/gm;
 
 function staticImports(file: string): string[] {

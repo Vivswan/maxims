@@ -16,12 +16,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ListedSource } from "../../src/commands/types.ts";
-import type { HarnessId } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/index.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
-import type { Destination, SourceIntent } from "../../src/state/schema.ts";
+import { renderBlock } from "../../src/rulefile/block.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
@@ -50,11 +48,37 @@ async function installSkills(scenario: Scenario, extra: string[] = []): Promise<
   expect(run.code).toBe(0);
 }
 
+// A managed block as the engine renders one, so `doctor` reads the fixture files with the real
+// parser, which takes each rule line's name from its detail path's last segment; the hash is
+// display only.
+function block(source: string, names: string[]): string {
+  return renderBlock({
+    source,
+    sha: "a".repeat(40),
+    lines: names.map((name) => ({
+      name: mn(name),
+      description: `Rule ${name}.`,
+      detailPath: `memories/${name}.md`,
+      shortHash: "abcdef1",
+    })),
+    markers: "counted",
+    expands: [],
+    selfRefresh: false,
+  });
+}
+
+const NEW_UPSTREAM =
+  "maxims: @a/b has new memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit";
+
 test("update forces a refetch of every fetched source, or of the one named, and reports", async () => {
   await withScenario(
     {
       github: { "a/b": SKILLS, "a/d": DOTFILES },
-      syncReport: { fetched: ["@a/b"], changed: ["+@a/b skip-unfit-skills"] },
+      syncReport: {
+        fetched: ["@a/b"],
+        upstreamChanges: { "@a/b": ["+ skip-unfit-skills"] },
+        notices: [NEW_UPSTREAM],
+      },
     },
     async (scenario) => {
       await installSkills(scenario, ["-m", "skip-unfit-skills"]);
@@ -81,15 +105,13 @@ test("update forces a refetch of every fetched source, or of the one named, and 
       expect(all.stderr).toBe("");
       expect(all.code).toBe(0);
       const last = scenario.engine.calls.sync.at(-1);
-      expect(last).toMatchObject({ force: true, noFetch: false });
+      expect(last).toMatchObject({ fetch: "force" });
       expect(last?.only).toBeUndefined();
       expect(all.stdout).toContain("o  Checking for memory updates...\n");
       expect(all.stdout).toContain(`o  ${scenario.cwd} is live; nothing to fetch\n`);
       expect(all.stdout).toContain("o  Found 1 update(s)\n");
       expect(all.stdout).toContain("o  Updated @a/b (+1 -0 rule)\n");
-      expect(all.stdout).toContain(
-        "!  @a/b has 3 memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit\n",
-      );
+      expect(all.stdout).toContain(`!  ${NEW_UPSTREAM}\n`);
       const one = await runCli(scenario, ["update", "@A/D"]);
       expect(one.code).toBe(0);
       expect(scenario.engine.calls.sync.at(-1)?.only).toEqual(["@a/d"]);
@@ -129,7 +151,7 @@ test("update reports a source whose refetch failed and exits 2 after finishing t
   await withScenario(
     {
       github: { "a/b": SKILLS },
-      syncReport: { failed: [{ key: "@a/b", message: "connect timed out" }] },
+      syncReport: { failed: [{ key: "@a/b", message: "connect timed out", kind: "network" }] },
     },
     async (scenario) => {
       await installSkills(scenario);
@@ -240,7 +262,8 @@ test("install replays every manifest entry at project scope and syncs once", asy
       expect(run.stderr).toBe("");
       expect(run.code).toBe(0);
       expect(run.stdout).toContain("o  Found 2 sources in ");
-      expect(scenario.engine.calls.sync.length).toBe(syncCalls + 1);
+      expect(scenario.engine.calls.sync.filter((call) => !call.dryRun)).toHaveLength(1);
+      expect(scenario.engine.calls.sync.length).toBe(syncCalls + 2);
       const state = readState(scenario) as {
         sources: Record<
           string,
@@ -331,12 +354,12 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
       ).toBe(0);
       writeFileSync(
         join(scenario.cwd, "AGENTS.md"),
-        "# project\n\n<!-- maxims:@a/b -->\n- gate-exit-conditions-the-merge: ...\n<!-- /maxims -->\n",
+        `# project\n\n${block("@a/b", ["gate-exit-conditions-the-merge"])}`,
       );
       mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
       writeFileSync(
         join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
-        "<!-- maxims:@a/b -->\n- gate-exit-conditions-the-merge\n<!-- /maxims -->\n",
+        block("@a/b", ["gate-exit-conditions-the-merge"]),
       );
       const stamp = homePaths(scenario.home).lastSync;
       writeFileSync(stamp, "");
@@ -369,11 +392,11 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
       expect(await snapshot(scenario.root)).toBe(before);
       writeFileSync(
         join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
-        `${CURSOR_FRONTMATTER}<!-- maxims:@a/b -->\n- gate-exit-conditions-the-merge\n- skip-unfit-skills\n<!-- /maxims -->\n`,
+        `${CURSOR_FRONTMATTER}${block("@a/b", ["gate-exit-conditions-the-merge", "skip-unfit-skills"])}`,
       );
       writeFileSync(
         join(scenario.cwd, "AGENTS.md"),
-        "<!-- maxims:@a/b -->\n- skip-unfit-skills\n- gate-exit-conditions-the-merge\n<!-- /maxims -->\n",
+        block("@a/b", ["skip-unfit-skills", "gate-exit-conditions-the-merge"]),
       );
       scenario.options.hookMissing = [];
       scenario.options.tier2 = [];
@@ -410,7 +433,7 @@ test("link adds harnesses with a target and syncs them; unlink is the remove -a 
     };
     expect(state.sources["@a/b"]?.intent.harnesses).toEqual(["codex", "claude-code"]);
     expect(scenario.engine.calls.sync.at(-1)).toMatchObject({
-      noFetch: true,
+      fetch: "none",
       agents: ["claude-code"],
     });
     const nothing = await runCli(scenario, ["link", "@a/b", "-a", "cursor"]);
@@ -422,7 +445,10 @@ test("link adds harnesses with a target and syncs them; unlink is the remove -a 
         quiet: false,
         dryRun: false,
         json: false,
-        target: { kind: "source", key: "@a/b", memories: null, agents: ["claude-code"] },
+        targets: ["@a/b"],
+        all: false,
+        agents: ["claude-code"],
+        confirmed: true,
       },
     ]);
   });
@@ -438,12 +464,13 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
     );
     expect(scenario.engine.calls.remove).toEqual([]);
     expect((await runCli(scenario, ["remove", "skip-unfit-skills", "-y"])).code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toEqual({
-      kind: "memory",
-      source: "@a/b",
-      name: mn("skip-unfit-skills"),
-      agents: null,
-      destination: null,
+    expect(scenario.engine.calls.remove.at(-1)).toEqual({
+      quiet: false,
+      dryRun: false,
+      json: false,
+      targets: [{ source: "@a/b", memory: mn("skip-unfit-skills") }],
+      all: false,
+      confirmed: true,
     });
     const scopedSource = await runCli(scenario, ["remove", "@a/b", "-p", "-y"]);
     expect(scopedSource.code).toBe(1);
@@ -457,11 +484,8 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
       "codex",
       "-y",
     ]);
-    expect(oneHarness.code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toMatchObject({
-      kind: "memory",
-      agents: ["codex"],
-    });
+    expect(oneHarness.code).toBe(1);
+    expect(oneHarness.stderr).toContain("-a applies to a source, not to the memory");
     expect(
       (
         await runCli(scenario, [
@@ -493,16 +517,25 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
       "-y",
     ]);
     expect(qualified.code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toMatchObject({
-      kind: "memory",
-      source: "@a/d",
-    });
+    expect(scenario.engine.calls.remove.at(-1)?.targets).toEqual([
+      { source: "@a/d", memory: mn("gate-exit-conditions-the-merge") },
+    ]);
     const all = await runCli(scenario, ["remove", "--all", "-a", "codex"]);
     expect(all.code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toEqual({ kind: "all", agents: ["codex"] });
+    expect(scenario.engine.calls.remove.at(-1)).toMatchObject({
+      targets: [],
+      all: true,
+      agents: ["codex"],
+      confirmed: true,
+    });
     const scopedAll = await runCli(scenario, ["remove", "--all", "-g"]);
     expect(scopedAll.code).toBe(1);
     expect(scopedAll.stderr).toBe(" ERROR  --all removes every source; drop -g, -p or -o\n");
+    const narrowed = await runCli(scenario, ["remove", "@a/b", "-y", "-m", "skip-unfit-skills"]);
+    expect(narrowed.code).toBe(0);
+    expect(scenario.engine.calls.remove.at(-1)?.targets).toEqual([
+      { source: "@a/b", memory: mn("skip-unfit-skills") },
+    ]);
     const scoped = await runCli(scenario, [
       "remove",
       "@a/b",
@@ -512,77 +545,57 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
       "-a",
       "codex",
     ]);
-    expect(scoped.code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toEqual({
-      kind: "source",
-      key: "@a/b",
-      memories: [mn("skip-unfit-skills")],
-      agents: ["codex"],
-    });
+    expect(scoped.code).toBe(1);
+    expect(scoped.stderr).toBe(" ERROR  -a applies to a whole source; drop -m to unlink @a/b\n");
   });
 });
 
-test("disable and enable edit the per-scope list through the engine, then sync", async () => {
+test("disable and enable edit the per-scope list in state, then sync", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
     const disabled = await runCli(scenario, ["disable", "skip-unfit-skills"]);
     expect(disabled.code).toBe(0);
-    expect(scenario.engine.calls.disabled).toEqual([
-      { scope: "global", name: mn("skip-unfit-skills"), disabled: true, dryRun: false },
-    ]);
+    expect(readState(scenario).disabled).toEqual({ global: ["skip-unfit-skills"] });
     expect(disabled.stdout).toContain("o  Disabled skip-unfit-skills at global scope\n");
     expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
-    scenario.options.disabledChanged = false;
     const enabled = await runCli(scenario, ["enable", "@a/b/skip-unfit-skills"]);
     expect(enabled.code).toBe(0);
-    expect(enabled.stdout).toContain("o  skip-unfit-skills was not disabled at global\n");
-    expect(scenario.engine.calls.sync.length).toBe(3);
+    expect(enabled.stdout).toContain("o  Enabled skip-unfit-skills at global scope\n");
+    expect(readState(scenario).disabled).toBeUndefined();
+    const again = await runCli(scenario, ["enable", "@a/b/skip-unfit-skills"]);
+    expect(again.code).toBe(0);
+    expect(again.stdout).toContain("o  skip-unfit-skills was not disabled at global\n");
+    expect(scenario.engine.calls.sync.filter((call) => !call.dryRun)).toHaveLength(4);
+    const quiet = await runCli(scenario, ["disable", "skip-unfit-skills", "--quiet"]);
+    expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(lastSyncCall(scenario).quiet).toBe(false);
     const project = await runCli(scenario, ["disable", "skip-unfit-skills", "-p"]);
     expect(project.code).toBe(1);
     expect(project.stderr).toContain("a project-scoped change needs a project root");
   });
 });
 
-test("sync dispatches to the engine, prints the notices under --quiet, and warns about an unreplayed manifest", async () => {
+// The engine prints for `sync`, so the command line adds nothing of its own to stdout: what the
+// fake returns is not echoed, and the flags reach the engine as its own options.
+test("sync hands the engine its fetch intent, its filter and the output modes, adding no line of its own", async () => {
   await withScenario(
-    {
-      project: true,
-      syncReport: { notices: ["maxims: synced 1 sources, 4 rules (no fetch, within cooldown)"] },
-    },
+    { project: true, syncReport: { notices: ["maxims: a notice"] } },
     async (scenario) => {
       const quiet = await runCli(scenario, ["sync", "--quiet", "--no-fetch", "-a", "codex"]);
-      expect(quiet).toEqual({
-        code: 0,
-        stdout: "maxims: synced 1 sources, 4 rules (no fetch, within cooldown)\n",
-        stderr: "",
-      });
+      expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
       expect(scenario.engine.calls.sync).toEqual([
-        { quiet: true, dryRun: false, json: false, noFetch: true, agents: ["codex"], force: false },
+        { quiet: true, dryRun: false, json: false, fetch: "none", agents: ["codex"] },
       ]);
-      mkdirSync(join(scenario.cwd, ".agents"));
-      const entry = {
-        from: { type: "github", repo: "a/b" },
-        select: "*",
-        rule: false,
-        harnesses: ["codex"],
-      };
-      writeFileSync(
-        join(scenario.cwd, ".agents", "maxims.lock"),
-        JSON.stringify({ version: 1, sources: { "@a/b": entry } }),
-      );
       const loud = await runCli(scenario, ["sync"]);
-      expect(loud.code).toBe(0);
-      expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
-      expect(loud.stdout).toContain(
-        "lists sources this machine has not installed (@a/b); run maxims install",
-      );
-      writeFileSync(
-        join(scenario.cwd, ".agents", "maxims.lock"),
-        JSON.stringify({ version: 1, sources: {} }),
-      );
-      expect((await runCli(scenario, ["sync"])).stdout).not.toContain("run maxims install");
-      const json = await runCli(scenario, ["sync", "--json"]);
-      expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, sources: 1 });
+      expect(loud).toEqual({ code: 0, stdout: "", stderr: "" });
+      expect(lastSyncCall(scenario)).toEqual({
+        quiet: false,
+        dryRun: false,
+        json: false,
+        fetch: "due",
+      });
+      expect((await runCli(scenario, ["sync", "--json"])).code).toBe(0);
+      expect(lastSyncCall(scenario).json).toBe(true);
     },
   );
 });
@@ -593,7 +606,7 @@ test("mcp-serve hands the stub a quiet sync and stays out of --help", async () =
     expect(run.code).toBe(0);
     expect(scenario.engine.calls.mcpServe).toBe(1);
     expect(scenario.engine.calls.sync).toEqual([
-      { quiet: true, dryRun: false, json: false, noFetch: false, force: false },
+      { quiet: true, dryRun: false, json: false, fetch: "due" },
     ]);
     const help = await runCli(scenario, ["--help"]);
     expect(help.stdout).not.toContain("mcp-serve");
@@ -608,66 +621,13 @@ test("mcp-serve hands the stub a quiet sync and stays out of --help", async () =
   });
 });
 
-const listIntent = (
-  repo: string,
-  destination: Destination,
-  harnesses: HarnessId[],
-): SourceIntent => ({
-  from: { type: "github", repo, ref: "HEAD" },
-  select: "*",
-  rename: {},
-  rule: true,
-  destination,
-  copy: false,
-  auth: false,
-  harnesses,
-  memoryPath: "memories",
-  fullDepth: false,
-});
-
-// The engine's report is rendered by scope, project first, with each source's harnesses, memory
-// count, stale renames and last fetch error on their own lines.
-const LISTED: ListedSource[] = [
-  {
-    key: "@a/b",
-    intent: listIntent("a/b", { scope: "global" }, ["codex"]),
-    memories: [mn("skip-unfit-skills")],
-    renamesStale: [mn("old-rule")],
-    lastError: "connect timed out",
-  },
-  {
-    key: "@a/d",
-    intent: listIntent("a/d", { scope: "project" }, ["codex", "claude-code"]),
-    memories: [mn("alpha"), mn("beta")],
-    renamesStale: [],
-    lastError: null,
-  },
-];
-
-test("list renders the engine's report by scope and hands it through under --json", async () => {
+// The engine prints the listing; the command line only dispatches, so the report the fake
+// returns is not echoed and the output flags reach the engine as its own options.
+test("list dispatches to the engine with the output modes and prints nothing of its own", async () => {
   await withScenario({}, async (scenario) => {
-    const empty = await runCli(scenario, ["ls"]);
-    expect(empty.stdout).toBe("o  No sources installed.\n");
-    scenario.options.listReport = LISTED;
-    const listed = await runCli(scenario, ["list"]);
-    expect(listed.code).toBe(0);
-    expect(listed.stdout).toBe(
-      [
-        "o  Project Memories",
-        "@a/d",
-        "  Agents: codex, claude-code  Memories: 2",
-        "o  Global Memories",
-        "@a/b",
-        "  Agents: codex  Memories: 1",
-        "!    renames no longer resolving a collision: old-rule",
-        "!    last fetch failed: connect timed out",
-        "",
-      ].join("\n"),
-    );
-    const json = await runCli(scenario, ["list", "--json"]);
-    expect(JSON.parse(json.stdout)).toEqual({ ok: true, sources: LISTED });
+    expect(await runCli(scenario, ["ls"])).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect((await runCli(scenario, ["list", "--json"])).code).toBe(0);
     expect(scenario.engine.calls.list).toEqual([
-      { quiet: false, dryRun: false, json: false },
       { quiet: false, dryRun: false, json: false },
       { quiet: false, dryRun: false, json: true },
     ]);
@@ -698,10 +658,7 @@ test("a pinned source is addressed by its recorded key on link, unlink, update a
     expect(scenario.engine.calls.sync.at(-1)?.only).toEqual(["@a/b#v1"]);
     expect((await runCli(scenario, ["unlink", "@a/b#v1", "-a", "claude-code"])).code).toBe(0);
     expect((await runCli(scenario, ["remove", "@a/b#v1", "-y"])).code).toBe(0);
-    expect(scenario.engine.calls.remove.at(-1)?.target).toMatchObject({
-      kind: "source",
-      key: "@a/b#v1",
-    });
+    expect(scenario.engine.calls.remove.at(-1)?.targets).toEqual(["@a/b#v1"]);
   });
 });
 
@@ -791,11 +748,15 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
   });
 });
 
-test("--dry-run on disable hands dryRun to the engine and on link plans against the would-be state", async () => {
+test("--dry-run on disable and on link plans against the would-be state and writes nothing", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
     expect((await runCli(scenario, ["disable", "skip-unfit-skills", "--dry-run"])).code).toBe(0);
-    expect(scenario.engine.calls.disabled.at(-1)?.dryRun).toBe(true);
+    expect(lastSyncCall(scenario).dryRun).toBe(true);
+    expect(lastSyncCall(scenario).preview?.state.disabled).toEqual({
+      global: [mn("skip-unfit-skills")],
+    });
+    expect(readState(scenario).disabled).toBeUndefined();
     const before = await snapshot(scenario.home);
     expect((await runCli(scenario, ["link", "@a/b", "-a", "claude-code", "--dry-run"])).code).toBe(
       0,
@@ -865,7 +826,7 @@ test("update renders a failed refetch through the error path, also under --json"
   await withScenario(
     {
       github: { "a/b": SKILLS },
-      syncReport: { failed: [{ key: "@a/b", message: "connect timed out" }] },
+      syncReport: { failed: [{ key: "@a/b", message: "connect timed out", kind: "network" }] },
     },
     async (scenario) => {
       await installSkills(scenario);
@@ -935,8 +896,9 @@ test("a qualified memory must belong to the source it names", async () => {
     const wrong = await runCli(scenario, ["disable", "@a/b/merge-gate"]);
     expect(wrong.code).toBe(1);
     expect(wrong.stderr).toBe(" ERROR  @a/b does not provide merge-gate\n");
-    expect(scenario.engine.calls.disabled).toEqual([]);
+    expect(readState(scenario).disabled).toBeUndefined();
     expect((await runCli(scenario, ["disable", "@a/d/merge-gate"])).code).toBe(0);
+    expect(readState(scenario).disabled).toEqual({ global: ["merge-gate"] });
   });
 });
 
@@ -1011,26 +973,23 @@ test("remove refuses without -y when stdin is piped even though stdout is a term
   );
 });
 
-test("a stale fetch error is not reported as a failure by a dry-run update", async () => {
+// The exit follows the report's failure classes: every failure a source with nothing valid is 3,
+// anything else 2, and the `--json` document agrees.
+test("a failed update exits by the failure class, also under --dry-run --json", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario, ["-m", "skip-unfit-skills"]);
-    expect((await runCli(scenario, ["update"])).stdout).toContain("not in your selection");
-    const state = readState(scenario) as {
-      sources: Record<string, { fetched: { lastError: unknown } }>;
+    scenario.options.syncReport = {
+      failed: [{ key: "@a/b", message: "rate limited", kind: "ratelimit" }],
     };
-    const entry = state.sources["@a/b"];
-    if (entry !== undefined) {
-      entry.fetched.lastError = { kind: "network", message: "old", at: "2026-09-19T00:00:00.000Z" };
-    }
-    writeState(scenario, state);
-    const run = await runCli(scenario, ["update", "--dry-run"]);
-    expect(run.stderr).toBe("");
-    expect(run.code).toBe(0);
-    expect(run.stdout).not.toContain("not in your selection");
-    scenario.options.syncReport = { failed: [{ key: "@a/b", message: "rate limited" }] };
     const failed = await runCli(scenario, ["update", "--dry-run", "--json"]);
     expect(failed.code).toBe(2);
     expect(JSON.parse(failed.stdout)).toMatchObject({ ok: false, code: 2 });
+    scenario.options.syncReport = {
+      failed: [{ key: "@a/b", message: "no valid memories at memories", kind: "invalid" }],
+    };
+    const invalid = await runCli(scenario, ["update"]);
+    expect(invalid.code).toBe(3);
+    expect(invalid.stderr).toContain("Failed to update @a/b: no valid memories at memories");
   });
 });
 
@@ -1144,12 +1103,20 @@ test("install replays the manifest's disabled names as project-scope disables", 
       disabled: ["skip-unfit-skills"],
     };
     writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
+    const dry = await runCli(scenario, ["install", "--dry-run", "--json", "-y"]);
+    expect(dry.code).toBe(0);
+    const plan = JSON.parse(dry.stdout) as { plan: { changes: { path: string }[] } };
+    expect(plan.plan.changes.filter((c) => c.path.endsWith("state.json"))).toHaveLength(1);
     const run = await runCli(scenario, ["install"]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
-    expect(scenario.engine.calls.disabled).toEqual([
-      { scope: "project", name: mn("skip-unfit-skills"), disabled: true, dryRun: false },
-    ]);
+    expect(readState(scenario).disabled).toEqual({
+      project: { [scenario.cwd]: ["skip-unfit-skills"] },
+    });
+    // A name switched off may belong to any project source, so the sync reaches every harness.
+    const real = scenario.engine.calls.sync.filter((call) => !call.dryRun);
+    expect(real).toHaveLength(1);
+    expect(Object.keys(real[0] ?? {})).not.toContain("agents");
   });
 });
 
@@ -1170,11 +1137,13 @@ test("a manifest local source that leaves the project is refused", async () => {
     writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
     const run = await runCli(scenario, ["install"]);
     expect(run.code).toBe(1);
-    expect(run.stderr).toBe(" ERROR  manifest source ../outside leaves the project root\n");
+    expect(run.stderr).toContain(
+      "is not a valid manifest: manifest source ../outside leaves the project root\n",
+    );
   });
 });
 
-test("a live project source is projected as . and sync does not report it missing", async () => {
+test("a live project source is projected as .", async () => {
   await withScenario({ project: true }, async (scenario) => {
     mkdirSync(join(scenario.cwd, "memories"));
     writeFileSync(
@@ -1187,10 +1156,6 @@ test("a live project source is projected as . and sync does not report it missin
     };
     expect(Object.keys(lock.sources)).toEqual(["."]);
     expect(lock.sources["."]?.from).toEqual({ type: "local", path: ".", live: true });
-    const sync = await runCli(scenario, ["sync"]);
-    expect(sync.code).toBe(0);
-    expect(sync.stderr).toBe("");
-    expect(sync.stdout).not.toContain("run maxims install");
   });
 });
 
@@ -1212,12 +1177,12 @@ test("a dry-run install hands the disabled-list edit the state it staged", async
     writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
     const run = await runCli(scenario, ["install", "--dry-run"]);
     expect(run.code).toBe(0);
-    const edit = scenario.engine.calls.disabled.at(-1);
-    expect(edit?.dryRun).toBe(true);
-    expect(Object.keys(edit?.base?.sources ?? {})).toEqual(["@a/b"]);
-    expect(Object.keys(scenario.engine.calls.sync.at(-1)?.preview?.state.sources ?? {})).toEqual([
-      "@a/b",
-    ]);
+    const preview = lastSyncCall(scenario).preview;
+    expect(Object.keys(preview?.state.sources ?? {})).toEqual(["@a/b"]);
+    expect(preview?.state.disabled).toEqual({
+      project: { [scenario.cwd]: [mn("skip-unfit-skills")] },
+    });
+    expect(existsSync(homePaths(scenario.home).state)).toBe(false);
   });
 });
 
@@ -1271,7 +1236,9 @@ test("a manifest local source reached through a symlink out of the checkout is r
     writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
     const run = await runCli(scenario, ["install"]);
     expect(run.code).toBe(1);
-    expect(run.stderr).toBe(" ERROR  manifest source rules leaves the project root\n");
+    expect(run.stderr).toContain(
+      "is not a valid manifest: manifest source rules leaves the project root\n",
+    );
   });
 });
 
@@ -1333,24 +1300,40 @@ test("a project directory named like an object property projects into the manife
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
       sources: object;
     };
-    expect(Object.keys(lock.sources)).toEqual(["constructor"]);
+    expect(Object.keys(lock.sources)).toEqual(["./constructor"]);
   });
 });
 
+// The `./` prefix keeps a drive-relative or prototype-named directory representable; a name the
+// marker grammar refuses everywhere is still refused before anything is written.
 test("a project directory the manifest grammar cannot name is refused before anything is written", async () => {
   await withScenario({ project: true }, async (scenario) => {
-    for (const name of ["a:rules", "__proto__"]) {
+    const memory = (name: string) => `---\nname: ${name}\ndescription: Ours\n---\n`;
+    for (const [name, rule] of [
+      ["a:rules", "drive-rule"],
+      ["__proto__", "proto-rule"],
+    ]) {
       mkdirSync(join(scenario.cwd, name, "memories"), { recursive: true });
-      writeFileSync(
-        join(scenario.cwd, name, "memories", "own-rule.md"),
-        "---\nname: own-rule\ndescription: Ours\n---\n",
-      );
-      const before = await snapshot(scenario.root);
+      writeFileSync(join(scenario.cwd, name, "memories", `${rule}.md`), memory(rule));
       const run = await runCli(scenario, ["add", `./${name}`, "-p", "-a", "codex"]);
-      expect(run.code).toBe(1);
-      expect(run.stderr).toContain("cannot be written into");
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(run.stderr).toBe("");
+      expect(run.code).toBe(0);
     }
+    const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
+      sources: object;
+    };
+    expect(Object.keys(lock.sources).sort()).toEqual(["./__proto__", "./a:rules"]);
+    const unnameable = "rules-->x";
+    mkdirSync(join(scenario.cwd, unnameable, "memories"), { recursive: true });
+    writeFileSync(
+      join(scenario.cwd, unnameable, "memories", "arrow-rule.md"),
+      memory("arrow-rule"),
+    );
+    const before = await snapshot(scenario.root);
+    const run = await runCli(scenario, ["add", `./${unnameable}`, "-p", "-a", "codex"]);
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("cannot be written into");
+    expect(await snapshot(scenario.root)).toBe(before);
   });
 });
 
@@ -1369,13 +1352,10 @@ test("a project source added through an alias symlink is recorded by its real pa
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
       sources: object;
     };
-    expect(Object.keys(lock.sources)).toEqual(["rules"]);
+    expect(Object.keys(lock.sources)).toEqual(["./rules"]);
     expect(Object.keys((readState(scenario) as { sources: object }).sources)).toEqual([
       realpathSync(join(scenario.cwd, "rules")),
     ]);
-    const sync = await runCli(scenario, ["sync"]);
-    expect(sync.code).toBe(0);
-    expect(sync.stdout).not.toContain("run maxims install");
     expect((await runCli(scenario, ["link", alias, "-a", "claude-code"])).code).toBe(0);
     expect((await runCli(scenario, ["update", alias])).code).toBe(0);
   });
@@ -1403,24 +1383,20 @@ test.each(persistingInvocations)(
   },
 );
 
-test("sync names each source whose refresh failed and exits 2, except under --quiet", async () => {
+test("sync exits by the report's failure class, except under --quiet", async () => {
   await withScenario(
     {
       github: { "a/b": SKILLS },
-      syncReport: { failed: [{ key: "@a/b", message: "connect timed out" }] },
+      syncReport: { failed: [{ key: "@a/b", message: "connect timed out", kind: "network" }] },
     },
     async (scenario) => {
       await installSkills(scenario);
-      const run = await runCli(scenario, ["sync"]);
-      expect(run.code).toBe(2);
-      expect(run.stdout).toContain("x  @a/b: connect timed out\n");
-      expect(run.stdout).toContain("o  Synced 1 sources, 0 rule lines\n");
-      const json = await runCli(scenario, ["sync", "--json"]);
-      expect(json.code).toBe(2);
-      expect(JSON.parse(json.stdout)).toMatchObject({
-        ok: false,
-        failed: [{ key: "@a/b", message: "connect timed out" }],
-      });
+      expect((await runCli(scenario, ["sync"])).code).toBe(2);
+      expect((await runCli(scenario, ["sync", "--json"])).code).toBe(2);
+      scenario.options.syncReport = {
+        failed: [{ key: "@a/b", message: "no valid memories", kind: "invalid" }],
+      };
+      expect((await runCli(scenario, ["sync"])).code).toBe(3);
       const quiet = await runCli(scenario, ["sync", "--quiet"]);
       expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
     },
@@ -1437,22 +1413,22 @@ test("doctor judges the frontmatter and the precedence file the real definitions
       writeFileSync(join(scenario.cwd, ".rules"), "# zed\n");
       const add = await runCli(scenario, ["add", "@a/b", "-p", "-a", "cursor,zed", "--rule"]);
       expect(add.code).toBe(0);
-      const block = "<!-- maxims:@a/b -->\n- skip-unfit-skills\n<!-- /maxims -->\n";
+      const rendered = block("@a/b", ["skip-unfit-skills"]);
       const target = cursor.targets.project;
       if (target === null || target.kind !== "rules-dir" || target.frontmatter === undefined) {
         throw new Error("the cursor definition no longer declares a rules-dir frontmatter");
       }
       mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
       const mdc = join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc");
-      writeFileSync(mdc, `${target.frontmatter({})}${block}`);
+      writeFileSync(mdc, `${target.frontmatter({})}${rendered}`);
       const rules = join(scenario.cwd, ".rules");
-      writeFileSync(rules, `# zed\n\n${block}`);
+      writeFileSync(rules, `# zed\n\n${rendered}`);
       const healthy = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
       expect(healthy.code).toBe(0);
       expect(healthy.stdout).toContain(`ok  cursor: ${mdc}\n`);
       expect(healthy.stdout).toContain(`ok  zed: ${rules}\n`);
       expect(healthy.stdout).toContain("ok  expect skip-unfit-skills: rule line in place\n");
-      writeFileSync(mdc, block);
+      writeFileSync(mdc, rendered);
       const bare = await runCli(scenario, ["doctor"]);
       expect(bare.code).toBe(1);
       expect(bare.stdout).toContain(
@@ -1460,6 +1436,34 @@ test("doctor judges the frontmatter and the precedence file the real definitions
       );
     },
   );
+});
+
+// At user scope a rule line's detail path names the store file, so it carries the upstream name;
+// `--expect` is asked for the installed local name, which the rename map produces.
+test("doctor --expect finds a renamed memory installed at user scope", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    const add = await runCli(scenario, [
+      "add",
+      "@a/b",
+      "-g",
+      "--rule",
+      "-a",
+      "codex",
+      "--rename",
+      "skip-unfit-skills=skip-unfit",
+    ]);
+    expect(add.code).toBe(0);
+    mkdirSync(join(scenario.userHome, ".codex"), { recursive: true });
+    writeFileSync(
+      join(scenario.userHome, ".codex", "AGENTS.md"),
+      block("@a/b", ["skip-unfit-skills", "gate-exit-conditions-the-merge"]),
+    );
+    const run = await runCli(scenario, ["doctor", "--expect", "skip-unfit"]);
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("ok  expect skip-unfit: rule line in place\n");
+    const upstream = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
+    expect(upstream.code).toBe(1);
+  });
 });
 
 test("doctor names a harness id no definition answers to and fails an --expect that needs it", async () => {

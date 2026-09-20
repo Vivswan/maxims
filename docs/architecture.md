@@ -289,6 +289,7 @@ An edge is any relative import: runtime, type-only, re-export, side-effect, or a
 graph TD
   cli["src/cli.ts"]
   commands["src/commands/"]
+  console["src/console/"]
   harnesses["src/harnesses/"]
   rulefile["src/rulefile/"]
   sources["src/sources/"]
@@ -296,13 +297,18 @@ graph TD
   memory["src/memory/"]
   util["src/util/"]
   version["src/version.ts<br>package.json"]
-  cli --> version
+  cli --> commands
+  cli --> console
+  cli --> util
+  commands --> console
   commands --> harnesses
   commands --> memory
   commands --> rulefile
   commands --> sources
   commands --> state
   commands --> util
+  commands --> version
+  console --> memory
   harnesses --> memory
   harnesses --> rulefile
   harnesses --> util

@@ -22,7 +22,7 @@ import {
 } from "./shared/engine.ts";
 import { planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
-import { errorDocument, previewState } from "./shared/report.ts";
+import { previewState, reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import type {
@@ -42,8 +42,7 @@ export async function runList(options: ListOptions, io: EngineIo): Promise<ListR
   try {
     return await runListChecked(options, io);
   } catch (error) {
-    if (options.json) io.stdout(errorDocument(error));
-    throw error;
+    throw reportedUnderJson(error, io, options.json);
   }
 }
 

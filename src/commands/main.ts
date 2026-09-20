@@ -5,6 +5,7 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { VERSION } from "../version.ts";
 import { readConfig } from "./shared/cli-context.ts";
+import { ReportedMaximsError } from "./shared/errors.ts";
 import {
   type Args,
   type Command,
@@ -19,9 +20,10 @@ import {
 import type { EngineBundle, MachineIo } from "./types.ts";
 
 // The engine is a loader, called only once a verb is about to run: `--help`, `--version` and a
-// usage error never pay for it.
+// usage error never pay for it. It learns whether the run is quiet, so a hook run's resolver
+// warnings stay off stderr.
 export type CliDeps = {
-  loadEngine: () => Promise<EngineBundle>;
+  loadEngine: (options: { quiet: boolean }) => Promise<EngineBundle>;
   io: MachineIo;
   stdoutTty: { isTTY: boolean; columns?: number };
   stdinTty: boolean;
@@ -205,7 +207,7 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     if (extra !== undefined) throw usage(`unexpected argument: ${extra}`);
     const global = globalFlags(args);
     refuseJsonCombinations(command, args, json);
-    const { engine, harnesses, resolvers } = await deps.loadEngine();
+    const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet });
     const ctx: CommandContext = {
       io: { ...io, harnesses, resolvers },
       engine,
@@ -266,9 +268,11 @@ type FailureContext = {
 
 // One place turns a thrown error into an exit code. Under `--quiet` every failure becomes exit 0
 // after a log line: a session-start hook that exits non-zero renders an error in the user's
-// transcript every session, and a broken hook must never break a session start.
+// transcript every session, and a broken hook must never break a session start. A failure the
+// engine already printed (as its `--json` document or its interactive lines) is only mapped.
 async function reportFailure(error: unknown, ctx: FailureContext): Promise<number> {
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
+  if (error instanceof ReportedMaximsError) return ctx.quiet ? ExitCode.Ok : code;
   const message = error instanceof Error ? error.message : String(error);
   const hint = error instanceof MaximsError ? error.hint : undefined;
   if (ctx.json) {

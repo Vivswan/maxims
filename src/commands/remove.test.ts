@@ -39,6 +39,7 @@ import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
 import { runRemove } from "./remove.ts";
+import { ReportedMaximsError } from "./shared/errors.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { runSync } from "./sync.ts";
 import type { RemoveOptions, SyncOptions } from "./types.ts";
@@ -154,6 +155,15 @@ describe("remove", () => {
         `shared is provided by more than one source: ${first}/shared, ${third}/shared`,
       );
       expect(treeDigest(userHome)).toBe(digest);
+      // A memory named with its source narrows exactly that source.
+      const report = await runRemove(
+        { ...REMOVE, targets: [{ source: third, memory: memoryName("shared") }] },
+        io,
+      );
+      expect(report.notices).toContain("Removed 1 memory");
+      const after = readStateFile(home);
+      expect(after.sources[third]).toBeUndefined();
+      expect(after.sources[first]?.intent.select).toBe("*");
     });
   });
 
@@ -510,9 +520,12 @@ describe("remove", () => {
       chmodSync(rules, 0o000);
       try {
         io.out.length = 0;
-        await runRemove({ ...REMOVE, json: true, targets: ["always-review"] }, io).catch(
-          () => undefined,
-        );
+        const thrown = await runRemove({ ...REMOVE, json: true, targets: ["always-review"] }, io)
+          .then(() => null)
+          .catch((error: unknown) => error);
+        // The document is the run's one; what escapes is marked as already reported, so a caller
+        // printing its own document for an unreported failure prints none here.
+        expect(thrown).toBeInstanceOf(ReportedMaximsError);
         const document = JSON.parse(io.out.join(""));
         expect(document.ok).toBe(false);
         expect(document.message).toContain("EACCES");

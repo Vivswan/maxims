@@ -7,7 +7,7 @@ import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
 import type { UserConfig } from "../../state/config.ts";
 import type { Destination, RenameMap, Select } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { CommonOptions, Engine, EngineIo, HarnessFilter } from "../types.ts";
+import type { CliIo, CommonOptions, Engine, HarnessFilter } from "../types.ts";
 
 export type FlagSpec = {
   name: string;
@@ -129,7 +129,7 @@ export type Args = {
 export type OpenConsole = (yes: boolean) => Promise<Console>;
 
 export type CommandContext = {
-  io: EngineIo;
+  io: CliIo;
   engine: Engine;
   global: GlobalFlags;
   config: UserConfig;

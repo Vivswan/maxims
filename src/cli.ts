@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
-import { loadEngine } from "./commands/engine.ts";
+import { createEngine } from "./commands/engine.ts";
 import { main } from "./commands/main.ts";
 import { findProjectRoot } from "./commands/shared/cli-context.ts";
 import { detectAgent } from "./console/mode.ts";
@@ -10,7 +10,7 @@ import { maximsHome } from "./util/home.ts";
 // which the tests drive with injected fakes.
 const stdout = process.stdout;
 process.exitCode = await main(process.argv.slice(2), {
-  loadEngine,
+  loadEngine: ({ quiet }) => createEngine({ quiet, env: process.env }),
   io: {
     env: process.env,
     cwd: process.cwd(),
