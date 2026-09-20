@@ -129,12 +129,13 @@ const SPINNER_FRAME = /^[\u25d0-\u25d3|o*x!]\s*$/;
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
 
 function normalize(text: string): string {
-  let out = text.replace(ANSI, "");
+  let out = text.replace(ANSI, "").replace(/\r/g, "\n");
   for (const [glyph, ascii] of GLYPHS) out = out.replace(glyph, ascii);
   return out
     .split("\n")
     .filter(
-      (line) => !line.includes("Cloning repository...") && !SPINNER_FRAME.test(line) && line !== "",
+      (line) =>
+        !line.includes("Cloning repository...") && !SPINNER_FRAME.test(line) && line.trim() !== "",
     )
     .join("\n");
 }
@@ -176,6 +177,9 @@ test("the clack and plain renderers print the same lines minus glyphs, ANSI and 
   scenarioLines(createClackConsole(mode, { output, input }));
   await new Promise((done) => setTimeout(done, 20));
   expect(normalize(clack)).toBe(normalize(plain));
+  // The control: a one-word change on one side must survive normalization, or the comparison
+  // above proves nothing.
+  expect(normalize(clack.replace("Found 4", "Found 5"))).not.toBe(normalize(plain));
 });
 
 // The non-interactive matrix, row by row: which rows show the banner and which ever prompt.
