@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   createScanner,
@@ -13,7 +12,7 @@ import {
 import { parse as parseToml } from "smol-toml";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertInsideRoot } from "../util/fs.ts";
+import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
 import {
   type ConfigFormat,
   type HarnessContext,
@@ -23,8 +22,8 @@ import {
   hookSpecFor,
   type RegistryHook,
   type Scope,
+  scopeRoot,
 } from "./contract.ts";
-import { destinationRoot } from "./strategies/destination.ts";
 
 export type HookPlan = {
   changes: Change[];
@@ -51,21 +50,30 @@ type HookIntent = {
 };
 
 // Reads the registry or artifact the shape names and hands the text to the pure planner, so the
-// same planner serves a dry run over fixture text and a real sync over the user's file.
+// same planner serves a dry run over fixture text and a real sync over the user's file. A
+// definition's config edit rides along with the same `wanted`, so the rules directory it lists
+// and the hook that refreshes it appear and leave together.
 export async function planHookWrite(
   input: HookIntent & { def: HarnessDefinition },
 ): Promise<HookPlan> {
   const { def, ...intent } = input;
+  const hook = await planHookOnly(def, intent);
+  const config = (await def.configEdit?.(intent.scope, intent.ctx, intent.wanted)) ?? [];
+  return { changes: [...hook.changes, ...config], notice: hook.notice };
+}
+
+async function planHookOnly(def: HarnessDefinition, intent: HookIntent): Promise<HookPlan> {
   if (hasHook(def, "registry")) {
-    const path = hookPath(def.hook, intent);
+    const path = hookPath(def, def.hook, intent);
     return planHookRegistryWrite({ def, ...intent, currentText: await readCurrent(path) });
   }
   if (hasHook(def, "file")) {
-    const path = hookPath(def.hook, intent);
+    const path = hookPath(def, def.hook, intent);
     return planFileHookWrite({ def, ...intent, currentText: await readCurrent(path) });
   }
   if (hasHook(def, "custom")) {
-    return { changes: await def.hook.reconcile(intent.ctx, hookSpecFor(def), intent.wanted) };
+    const spec = hookSpecFor(def);
+    return { changes: await def.hook.reconcile(intent.scope, intent.ctx, spec, intent.wanted) };
   }
   return { changes: [] };
 }
@@ -76,7 +84,7 @@ export type RegistryWriteInput = HookIntent & {
 };
 
 export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
-  const path = hookPath(input.def.hook, input);
+  const path = hookPath(input.def, input.def.hook, input);
   if (input.def.hook.format === "toml") {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
@@ -138,7 +146,7 @@ class JsonRegistry {
 
   constructor(
     private readonly hook: RegistryHook,
-    private readonly path: string,
+    private readonly path: RootedPath,
     currentText: string,
   ) {
     this.text = currentText;
@@ -462,7 +470,7 @@ export type FileHookWriteInput = HookIntent & {
 };
 
 export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
-  const path = hookPath(input.def.hook, input);
+  const path = hookPath(input.def, input.def.hook, input);
   if (!input.wanted) {
     return { changes: input.currentText === null ? [] : [{ kind: "delete", path }] };
   }
@@ -475,9 +483,9 @@ export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
 }
 
 // The tier a harness reaches on this machine: a definition's own probe wins, then a declared
-// config flag whose value differs from the expected one demotes to 2, else the declared tier. A
-// missing or unreadable config means the harness runs on its defaults, which the declaration
-// already accounts for.
+// config flag holding its demoting value demotes to 2, else the declared tier. A missing or
+// unreadable config means the harness runs on its defaults, which the declaration already
+// accounts for.
 export async function achievedTier(
   def: HarnessDefinition,
   scope: Scope,
@@ -486,14 +494,13 @@ export async function achievedTier(
   if (def.achievedTier !== undefined) return def.achievedTier(ctx);
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return def.tier;
   const check = def.hook.tierCheck;
-  const path = resolve(dirname(def.hook.path(scope, ctx)), check.path);
-  const text = await readFile(path, "utf8").catch(() => null);
+  const text = await readFile(check.path(scope, ctx), "utf8").catch(() => null);
   if (text === null) return def.tier;
   const config = parseConfig(text, check.format);
   if (config === undefined) return def.tier;
   const value = valueAt(config, check.key.split("."));
-  if (value === undefined || sameJson(value, check.expectedValue)) return def.tier;
-  return 2;
+  if (value !== undefined && sameJson(value, check.demotesWhen)) return 2;
+  return def.tier;
 }
 
 function parseConfig(text: string, format: ConfigFormat): unknown {
@@ -521,11 +528,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function hookPath(
+  def: Pick<HarnessDefinition, "globalRoot">,
   hook: RegistryHook | FileHook,
   intent: Pick<HookIntent, "scope" | "ctx">,
-): string {
+): RootedPath {
   return assertInsideRoot(
-    destinationRoot(intent.scope, intent.ctx),
+    scopeRoot(def, intent.scope, intent.ctx),
     hook.path(intent.scope, intent.ctx),
   );
 }

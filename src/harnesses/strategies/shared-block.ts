@@ -1,8 +1,13 @@
 import { join } from "node:path";
 import type { Change } from "../../util/change.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
-import type { HarnessContext, HarnessDefinition, Scope, Target } from "../contract.ts";
-import { destinationRoot } from "./destination.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type Scope,
+  scopeRoot,
+  type Target,
+} from "../contract.ts";
 import { assertWithinBudget } from "./rules-dir.ts";
 
 export type SharedBlockTarget = Extract<Target, { kind: "shared-block" }>;
@@ -62,9 +67,9 @@ export function planSharedBlockRemove(input: SharedBlockLocation): Change[] {
 }
 
 export function sharedBlockPath(
-  input: Pick<SharedBlockLocation, "target" | "scope" | "ctx">,
-): string {
-  const root = destinationRoot(input.scope, input.ctx);
+  input: Pick<SharedBlockLocation, "def" | "target" | "scope" | "ctx">,
+): RootedPath {
+  const root = scopeRoot(input.def, input.scope, input.ctx);
   return assertInsideRoot(root, join(root, input.target.file));
 }
 

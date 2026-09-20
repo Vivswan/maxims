@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { applyChanges } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
 import { planRulesDirRemove, planRulesDirWrite, type RulesDirTarget } from "./rules-dir.ts";
 
 const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
+const rooted = (path: string) => assertInsideRoot(ctx.home, path);
 const block = "<!-- maxims:begin @a/b sha=1 -->\n- rule\n<!-- maxims:end @a/b -->\n";
 
 function definition(overrides: Partial<HarnessDefinition> = {}): HarnessDefinition {
@@ -109,9 +111,9 @@ describe("planRulesDirWrite", () => {
 
   test.each(cases)("$name", ({ def, target, scope, paths, path, content }) => {
     const changes = planRulesDirWrite({ def, target, scope, ctx, sourceSlug: "a-b", block, paths });
-    expect(changes).toEqual([{ kind: "write", path, content }]);
+    expect(changes).toEqual([{ kind: "write", path: rooted(path), content }]);
     expect(planRulesDirRemove({ def, target, scope, ctx, sourceSlug: "a-b" })).toEqual([
-      { kind: "delete", path },
+      { kind: "delete", path: rooted(path) },
     ]);
   });
 

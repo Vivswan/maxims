@@ -5,8 +5,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessContext } from "../contract.ts";
-import { achievedTier, planHookRegistryWrite } from "../hook-writer.ts";
+import { achievedTier, hasHook, planHookRegistryWrite } from "../hook-writer.ts";
 import { planRulesDirWrite } from "../strategies/rules-dir.ts";
 import { claudeCode } from "./index.ts";
 
@@ -14,6 +15,7 @@ const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/proje
 
 describe("claude-code", () => {
   test("a fresh settings.json receives the documented async SessionStart command entry", () => {
+    if (!hasHook(claudeCode, "registry")) throw new Error("the hook is a registry entry");
     const plan = planHookRegistryWrite({
       def: claudeCode,
       scope: "global",
@@ -24,7 +26,7 @@ describe("claude-code", () => {
     expect(plan.changes).toEqual([
       {
         kind: "write",
-        path: "/home/user/.claude/settings.json",
+        path: assertInsideRoot(ctx.home, "/home/user/.claude/settings.json"),
         content: [
           "{",
           '  "hooks": {',
@@ -33,7 +35,7 @@ describe("claude-code", () => {
           '        "hooks": [',
           "          {",
           '            "type": "command",',
-          '            "command": "npx -y maxims sync --quiet",',
+          '            "command": "npx -y @vivswan/maxims sync --quiet",',
           '            "async": true,',
           '            "timeout": 20,',
           '            "statusMessage": "Syncing maxims"',
@@ -50,9 +52,11 @@ describe("claude-code", () => {
   });
 
   test("a path-scoped rule file opens with the paths frontmatter Claude Code reads", () => {
+    const target = claudeCode.targets.project;
+    if (target?.kind !== "rules-dir") throw new Error("the project target is a rules directory");
     const [change] = planRulesDirWrite({
       def: claudeCode,
-      target: claudeCode.targets.project,
+      target,
       scope: "project",
       ctx,
       sourceSlug: "example-user-doctrine",
@@ -62,7 +66,10 @@ describe("claude-code", () => {
     });
     expect(change).toEqual({
       kind: "write",
-      path: "/home/user/project/.claude/rules/maxims-example-user-doctrine.md",
+      path: assertInsideRoot(
+        ctx.home,
+        "/home/user/project/.claude/rules/maxims-example-user-doctrine.md",
+      ),
       content: [
         "---",
         "paths:",

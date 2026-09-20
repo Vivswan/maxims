@@ -14,10 +14,10 @@ import {
   HOOK_COMMAND_PREFIX,
   hookSpecFor,
   type Scope,
+  scopeRoot,
 } from "./contract.ts";
 import { hasHook, planFileHookWrite, planHookRegistryWrite } from "./hook-writer.ts";
 import { HARNESSES } from "./registry.ts";
-import { destinationRoot } from "./strategies/destination.ts";
 import { planRulesDirWrite } from "./strategies/rules-dir.ts";
 import { type ManagedBlockSpan, planSharedBlockWrite } from "./strategies/shared-block.ts";
 
@@ -114,7 +114,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
   const targeted = scopes.filter((scope) => def.targets[scope] !== null);
 
   test.each(targeted)("%s rule target is one real file inside the destination root", (scope) => {
-    const root = destinationRoot(scope, ctx);
+    const root = scopeRoot(def, scope, ctx);
     const changes = planRuleWrite(def, scope);
     expect(changes).toHaveLength(1);
     const [change] = changes;
@@ -167,7 +167,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
       planHookRegistryWrite({ def, scope, ctx, wanted: false, currentText });
     const [added] = add(original).changes;
     if (added?.kind !== "write") throw new Error("expected a write");
-    expect(added.path.startsWith(`${destinationRoot(scope, ctx)}${sep}`)).toBe(true);
+    expect(added.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
     expect(add(added.content).changes).toEqual([]);
     const [removed] = remove(added.content).changes;
     if (original === null) expect(removed).toEqual({ kind: "delete", path: added.path });
@@ -185,7 +185,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
       currentText: null,
     }).changes;
     if (written?.kind !== "write") throw new Error("expected a write");
-    expect(written.path.startsWith(`${destinationRoot(scope, ctx)}${sep}`)).toBe(true);
+    expect(written.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
     expect(written.mode).toBe(def.hook.executable ? 0o755 : undefined);
     const gone = planFileHookWrite({
       def,

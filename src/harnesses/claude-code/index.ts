@@ -1,8 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import type { HarnessDefinition, HookSpec, Target } from "../contract.ts";
-import { destinationRoot } from "../strategies/destination.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type HookSpec,
+  type Scope,
+  scopeRoot,
+  type Target,
+} from "../contract.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
 // only a path-scoped install adds the `paths:` preamble.
@@ -13,8 +19,7 @@ const rulesDir: Target = {
 };
 
 // The whole command line goes in `command`: the registry is searched by that key's prefix, and
-// the constant carries no user input, so the shell form costs nothing. `disableAllHooks: true` in
-// the same settings file silences every hook, ours included, which is what demotes to tier 2.
+// the constant carries no user input, so the shell form costs nothing.
 function sessionStartHandler(spec: HookSpec): Record<string, unknown> {
   return {
     type: "command",
@@ -25,7 +30,13 @@ function sessionStartHandler(spec: HookSpec): Record<string, unknown> {
   };
 }
 
-export const claudeCode = {
+// One settings file per scope carries both the hook and `disableAllHooks`, the switch that
+// silences every hook, ours included, and so demotes to tier 2.
+function settingsPath(scope: Scope, ctx: HarnessContext): string {
+  return join(scopeRoot(claudeCode, scope, ctx), ".claude", "settings.json");
+}
+
+export const claudeCode: HarnessDefinition = {
   id: "claude-code",
   displayName: "Claude Code",
   tier: 1,
@@ -36,7 +47,7 @@ export const claudeCode = {
       : null,
   hook: {
     kind: "registry",
-    path: (scope, ctx) => join(destinationRoot(scope, ctx), ".claude", "settings.json"),
+    path: settingsPath,
     format: "json",
     eventPath: ["hooks", "SessionStart"],
     grouped: true,
@@ -44,12 +55,7 @@ export const claudeCode = {
     commandKey: "command",
     stdout: "plain",
     async: true,
-    tierCheck: {
-      path: "settings.json",
-      format: "json",
-      key: "disableAllHooks",
-      expectedValue: false,
-    },
+    tierCheck: { path: settingsPath, format: "json", key: "disableAllHooks", demotesWhen: true },
   },
   markers: "stripped",
   expands: ["at-import"],
@@ -62,4 +68,4 @@ export const claudeCode = {
     globs.length === 0 ? null : `---\n${stringify({ paths: globs })}---\n`,
   verifiedAgainst: { url: "https://code.claude.com/docs/en/memory", date: "2026-09-20" },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
-} satisfies HarnessDefinition;
+};

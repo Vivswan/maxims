@@ -8,11 +8,14 @@ import { parse } from "jsonc-parser";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { assertInsideRoot } from "../util/fs.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND,
+  hookSpecFor,
   type RegistryHook,
+  type Scope,
 } from "./contract.ts";
 import {
   achievedTier,
@@ -22,8 +25,10 @@ import {
   planHookWrite,
 } from "./hook-writer.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
-const settingsPath = "/home/user/project/.claude/settings.json";
+const projectRoot = "/home/user/project";
+const ctx: HarnessContext = { home: "/home/user", projectRoot, env: {} };
+const rooted = (path: string) => assertInsideRoot(projectRoot, path);
+const settingsPath = rooted(`${projectRoot}/.claude/settings.json`);
 
 const base: Omit<HarnessDefinition, "hook"> = {
   id: "claude-code",
@@ -156,7 +161,9 @@ describe("planHookRegistryWrite on JSON registries", () => {
     expect(added).toContain('"permissions": { "allow": ["Bash(git status)",], },');
     const parsed = parse(added, [], { allowTrailingComma: true });
     expect(parsed.hooks.SessionStart).toHaveLength(2);
-    expect(parsed.hooks.SessionStart[1]).toEqual({ hooks: [grouped.hook.handler(hookSpec())] });
+    expect(parsed.hooks.SessionStart[1]).toEqual({
+      hooks: [grouped.hook.handler(hookSpecFor(grouped))],
+    });
     expect(plan(grouped, true, added)).toEqual({ changes: [] });
     expect(plan(grouped, false, added)).toEqual({
       changes: [{ kind: "write", path: settingsPath, content: untouched }],
@@ -171,7 +178,7 @@ describe("planHookRegistryWrite on JSON registries", () => {
       '  "hooks": {',
       '    "SessionStart": [',
       '      { "matcher": "startup", "hooks": [',
-      '        { "type": "command", "command": "npx -y maxims sync --quiet --agent claude", "async": false }',
+      '        { "type": "command", "command": "npx -y @vivswan/maxims sync --quiet --agent claude", "async": false }',
       "      ] }",
       "    ]",
       "  }",
@@ -182,7 +189,9 @@ describe("planHookRegistryWrite on JSON registries", () => {
     expect(result.notice).toBe(`updated the maxims hook in ${settingsPath}`);
     const parsed = parse(textOf(result));
     expect(parsed).toEqual({
-      hooks: { SessionStart: [{ matcher: "startup", hooks: [grouped.hook.handler(hookSpec())] }] },
+      hooks: {
+        SessionStart: [{ matcher: "startup", hooks: [grouped.hook.handler(hookSpecFor(grouped))] }],
+      },
     });
   });
 
@@ -240,7 +249,7 @@ describe("planHookRegistryWrite on JSON registries", () => {
     });
     const alone = `{"version":1,"hooks":{"sessionStart":[${flatOurs}]}}`;
     expect(plan(flat, false, alone).changes).toEqual([
-      { kind: "delete", path: "/home/user/project/.github/hooks/maxims.json" },
+      { kind: "delete", path: rooted(`${projectRoot}/.github/hooks/maxims.json`) },
     ]);
   });
 
@@ -319,7 +328,7 @@ ${flatOurs} ]}}`,
     const added = textOf(plan(grouped, true, before));
     expect(added).toContain("keep");
     expect(parse(added, [], { allowTrailingComma: true }).hooks.SessionStart).toEqual([
-      { hooks: [grouped.hook.handler(hookSpec())] },
+      { hooks: [grouped.hook.handler(hookSpecFor(grouped))] },
     ]);
     expect(textOf(plan(grouped, false, added))).toBe(after);
   });
@@ -369,7 +378,7 @@ ${flatOurs} ]}}`,
       model: "opus",
       hooks: {
         SessionStart: [
-          { hooks: [grouped.hook.handler(hookSpec())] },
+          { hooks: [grouped.hook.handler(hookSpecFor(grouped))] },
           { matcher: "resume", hooks: [parse(theirsJson)] },
         ],
       },
@@ -420,15 +429,6 @@ ${flatOurs} ]}}`,
   });
 });
 
-function hookSpec() {
-  return {
-    command: "npx",
-    args: ["-y", "maxims", "sync", "--quiet"],
-    async: true,
-    timeoutSeconds: 20,
-  };
-}
-
 describe("planFileHookWrite", () => {
   const fileDef: HarnessWithHook<"file"> = {
     ...base,
@@ -437,9 +437,10 @@ describe("planFileHookWrite", () => {
       path: (_, ctx) => join(ctx.projectRoot ?? "", ".clinerules", "hooks", "TaskStart"),
       render: (spec) => `#!/bin/sh\n${[spec.command, ...spec.args].join(" ")}\n`,
       executable: true,
+      stdout: "none",
     },
   };
-  const path = "/home/user/project/.clinerules/hooks/TaskStart";
+  const path = rooted(`${projectRoot}/.clinerules/hooks/TaskStart`);
   const rendered = `#!/bin/sh\n${HOOK_COMMAND}\n`;
   const cases: { name: string; wanted: boolean; current: string | null; changes: Change[] }[] = [
     {
@@ -525,10 +526,50 @@ describe("planHookWrite against a real directory", () => {
   });
 });
 
+describe("planHookWrite composes the hook with the definition's config edit", () => {
+  const hookFile = rooted(`${projectRoot}/.example/hook`);
+  const configFile = rooted(`${projectRoot}/example.json`);
+  const seen: { scope: Scope; wanted: boolean; command: string }[] = [];
+  const def: HarnessDefinition = {
+    ...base,
+    hook: {
+      kind: "custom",
+      reconcile: async (scope, _ctx, spec, wanted) => {
+        seen.push({ scope, wanted, command: [spec.command, ...spec.args].join(" ") });
+        return wanted ? [{ kind: "write", path: hookFile, content: "hook\n" }] : [];
+      },
+    },
+    configEdit: async (_scope, _ctx, wanted) =>
+      wanted
+        ? [{ kind: "write", path: configFile, content: "{}\n" }]
+        : [{ kind: "delete", path: configFile }],
+  };
+
+  test("both wanted: the custom hook sees the scope and the command; the config edit follows", async () => {
+    const plan = await planHookWrite({ def, scope: "global", ctx, wanted: true });
+    expect(plan.changes).toEqual([
+      { kind: "write", path: hookFile, content: "hook\n" },
+      { kind: "write", path: configFile, content: "{}\n" },
+    ]);
+    expect(seen).toEqual([{ scope: "global", wanted: true, command: HOOK_COMMAND }]);
+  });
+
+  test("both unwanted: the config edit's removal is still planned", async () => {
+    const plan = await planHookWrite({ def, scope: "project", ctx, wanted: false });
+    expect(plan.changes).toEqual([{ kind: "delete", path: configFile }]);
+    expect(seen.at(-1)).toEqual({ scope: "project", wanted: false, command: HOOK_COMMAND });
+  });
+});
+
 describe("achievedTier", () => {
   const codexLike = registryDef({
     path: (_, ctx) => join(ctx.home, ".codex", "hooks.json"),
-    tierCheck: { path: "config.toml", format: "toml", key: "features.hooks", expectedValue: true },
+    tierCheck: {
+      path: (_, ctx) => join(ctx.home, ".codex", "config.toml"),
+      format: "toml",
+      key: "features.hooks",
+      demotesWhen: false,
+    },
   });
   const cases: { name: string; config: string | null; tier: 1 | 2 }[] = [
     { name: "no config file keeps the declared tier", config: null, tier: 1 },
@@ -539,6 +580,11 @@ describe("achievedTier", () => {
     },
     { name: "the flag set to true keeps tier 1", config: "[features]\nhooks = true\n", tier: 1 },
     { name: "an absent key means the default, tier 1", config: "[features]\nother = 1\n", tier: 1 },
+    {
+      name: "a value other than the demoting one keeps the declared tier",
+      config: '[features]\nhooks = "off"\n',
+      tier: 1,
+    },
     {
       name: "an unparseable config keeps the declared tier",
       config: "[features\nhooks =",
@@ -562,10 +608,10 @@ describe("achievedTier", () => {
       const jsonCheck = registryDef({
         path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
         tierCheck: {
-          path: "settings.json",
+          path: (_, ctx) => join(ctx.home, ".example", "settings.json"),
           format: "json",
           key: "hooks.enabled",
-          expectedValue: true,
+          demotesWhen: false,
         },
       });
       mkdirSync(join(home, ".example"), { recursive: true });

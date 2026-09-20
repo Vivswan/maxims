@@ -3,6 +3,7 @@
 // litter the AGENTS.md family silently.
 import { describe, expect, test } from "bun:test";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessContext, HarnessDefinition } from "../contract.ts";
 import {
   type ManagedBlockSpan,
@@ -46,7 +47,7 @@ const blockFor = (source: string, body: string) =>
 const ours = blockFor("@a/b", "- one\n");
 const oursV2 = blockFor("@a/b", "- one\n- two\n");
 const theirs = blockFor("@c/d", "- other\n");
-const path = "/home/user/project/AGENTS.md";
+const path = assertInsideRoot(ctx.home, "/home/user/project/AGENTS.md");
 
 const location = (source: string, currentText: string | null) => ({
   def,
@@ -127,7 +128,9 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
       scope: "global",
       block: ours,
     });
-    expect(global).toEqual([{ kind: "write", path: "/home/user/AGENTS.md", content: ours }]);
+    expect(global).toEqual([
+      { kind: "write", path: assertInsideRoot(ctx.home, "/home/user/AGENTS.md"), content: ours },
+    ]);
     let caught: unknown;
     try {
       planSharedBlockWrite({

@@ -1,9 +1,14 @@
 import { join } from "node:path";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
-import type { HarnessContext, HarnessDefinition, Scope, Target } from "../contract.ts";
-import { destinationRoot } from "./destination.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type Scope,
+  scopeRoot,
+  type Target,
+} from "../contract.ts";
 
 export type RulesDirTarget = Extract<Target, { kind: "rules-dir" }>;
 
@@ -33,8 +38,8 @@ export function planRulesDirRemove(input: RulesDirLocation): Change[] {
   return [{ kind: "delete", path: rulesDirPath(input) }];
 }
 
-export function rulesDirPath(input: RulesDirLocation): string {
-  const root = destinationRoot(input.scope, input.ctx);
+export function rulesDirPath(input: RulesDirLocation): RootedPath {
+  const root = scopeRoot(input.def, input.scope, input.ctx);
   return assertInsideRoot(
     root,
     join(root, input.target.dir, input.target.fileName(input.sourceSlug)),
