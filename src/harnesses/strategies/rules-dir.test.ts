@@ -107,6 +107,14 @@ describe("planRulesDirWrite", () => {
       path: "/home/user/project/.cursor/rules/maxims-a-b.mdc",
       content: `---\nglobs: src/**\n---\n${block}`,
     },
+    {
+      name: "a budget naming only the project scope leaves a global file alone",
+      def: definition({ byteBudget: { project: block.length - 1 } }),
+      target: plain,
+      scope: "global",
+      path: "/home/user/.claude/rules/maxims-a-b.md",
+      content: block,
+    },
   ];
 
   test.each(cases)("$name", ({ def, target, scope, paths, path, content }) => {
@@ -153,6 +161,19 @@ describe("planRulesDirWrite", () => {
       run: () =>
         planRulesDirWrite({
           def: definition({ byteBudget: block.length - 1 }),
+          target: plain,
+          scope: "project",
+          ctx,
+          sourceSlug: "a-b",
+          block,
+        }),
+      code: ExitCode.RuleCapExceeded,
+    },
+    {
+      name: "a file over the budget its own scope names",
+      run: () =>
+        planRulesDirWrite({
+          def: definition({ byteBudget: { project: block.length - 1 } }),
           target: plain,
           scope: "project",
           ctx,

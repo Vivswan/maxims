@@ -78,6 +78,18 @@ export function sharedBlockFile(target: SharedBlockTarget, root: string): string
   return target.file;
 }
 
+// The largest file the harness loads, in bytes. Windsurf caps a workspace rule at 12,000
+// characters and its `global_rules.md` at 6,000, so a cap may differ per scope; the strategies
+// read it only through `byteBudgetFor`.
+export type ByteBudget =
+  | number
+  | { project: number; global?: number }
+  | { project?: number; global: number };
+
+export function byteBudgetFor(budget: ByteBudget | undefined, scope: Scope): number | undefined {
+  return typeof budget === "number" ? budget : budget?.[scope];
+}
+
 export type HookSpec = {
   command: string;
   args: string[];
@@ -182,7 +194,7 @@ export interface HarnessDefinition {
   hook: HookShape;
   markers: Markers;
   expands: ExpansionSyntax[];
-  byteBudget?: number;
+  byteBudget?: ByteBudget;
   detect: (ctx: HarnessContext) => boolean;
   achievedTier?: (ctx: HarnessContext) => Promise<1 | 2>;
   scopeFrontmatter?: (globs: string[]) => string | null;

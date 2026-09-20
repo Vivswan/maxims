@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
-import type { HarnessContext, HarnessDefinition } from "../contract.ts";
+import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
 import {
   type ManagedBlockSpan,
   planSharedBlockRemove,
@@ -125,7 +125,7 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
     expect(planSharedBlockRemove(location("@a/b", null))).toEqual([]);
   });
 
-  test("a global install writes under the home and a budget overrun is refused as exit 8", () => {
+  test("a global install writes under the home", () => {
     const global = planSharedBlockWrite({
       ...location("@a/b", null),
       scope: "global",
@@ -134,13 +134,73 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
     expect(global).toEqual([
       { kind: "write", path: assertInsideRoot(ctx.home, "/home/user/AGENTS.md"), content: ours },
     ]);
-    let caught: unknown;
-    try {
+  });
+
+  // Windsurf caps a workspace rule and its one global file differently, so a budget may name a
+  // cap per scope.
+  const budgets: {
+    name: string;
+    byteBudget: HarnessDefinition["byteBudget"];
+    scope: Scope;
+    refused: boolean;
+  }[] = [
+    {
+      name: "a plain number caps the project scope",
+      byteBudget: 60,
+      scope: "project",
+      refused: true,
+    },
+    {
+      name: "a plain number caps the global scope",
+      byteBudget: 60,
+      scope: "global",
+      refused: true,
+    },
+    {
+      name: "a project cap refuses a project file",
+      byteBudget: { project: 60 },
+      scope: "project",
+      refused: true,
+    },
+    {
+      name: "a project cap leaves a global file alone",
+      byteBudget: { project: 60 },
+      scope: "global",
+      refused: false,
+    },
+    {
+      name: "a global cap refuses a global file",
+      byteBudget: { global: 60 },
+      scope: "global",
+      refused: true,
+    },
+    {
+      name: "a global cap leaves a project file alone",
+      byteBudget: { global: 60 },
+      scope: "project",
+      refused: false,
+    },
+  ];
+
+  test.each(budgets)("$name", ({ byteBudget, scope, refused }) => {
+    const notes = "x".repeat(40);
+    const run = () =>
       planSharedBlockWrite({
-        ...location("@a/b", "x".repeat(40)),
-        def: { ...def, byteBudget: 60 },
+        ...location("@a/b", notes),
+        def: { ...def, byteBudget },
+        scope,
         block: ours,
       });
+    if (!refused) {
+      const file = scope === "project" ? "/home/user/project/AGENTS.md" : "/home/user/AGENTS.md";
+      expect(run()).toEqual([
+        { kind: "write", path: assertInsideRoot(ctx.home, file), content: `${notes}\n\n${ours}` },
+      ]);
+      return;
+    }
+    let caught: unknown;
+    try {
+      run();
     } catch (error) {
       caught = error;
     }

@@ -149,6 +149,11 @@ const refusals: [string, Mutation, string][] = [
     "hook.contentTemplate: the file must run the hook: use {{command}} or {{argv}}",
   ],
   [
+    "a per-scope budget that names no scope",
+    at(["byteBudget"], {}),
+    "byteBudget: a per-scope budget names at least one scope",
+  ],
+  [
     "a content hash that is not a sha256 digest",
     at(["verifiedAgainst", "contentHash"], "abc123"),
     "verifiedAgainst.contentHash: expected a sha256:<64 hex digits> digest",

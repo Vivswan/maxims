@@ -4,6 +4,7 @@ import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import {
+  type ByteBudget,
   type ConfigFormat,
   HARNESS_ID_PATTERN,
   type HarnessId,
@@ -270,6 +271,20 @@ const Hook = z.discriminatedUnion("kind", [
   FileHook,
 ]);
 
+const ByteCount = z.number().int().positive();
+
+// A per-scope budget that names neither scope would parse as "no cap anywhere" and hide a typo;
+// the spread re-types the scope each branch has just found present.
+const PerScopeBudget = z
+  .strictObject({ project: ByteCount.optional(), global: ByteCount.optional() })
+  .transform((budget, ctx): Exclude<ByteBudget, number> => {
+    if (budget.project !== undefined) return { ...budget, project: budget.project };
+    if (budget.global !== undefined) return { ...budget, global: budget.global };
+    ctx.addIssue({ code: "custom", message: "a per-scope budget names at least one scope" });
+    return z.NEVER;
+  });
+const ByteBudgetField = z.union([ByteCount, PerScopeBudget]);
+
 const Mcp = z.strictObject({
   path: perScope(RelPath.nullable()),
   serversPath: z.array(z.string().min(1)).min(1),
@@ -294,7 +309,7 @@ const SPEC_SHAPE = {
   bodiesDir: perScope(RelPath.nullable()),
   markers: MarkersEnum,
   expands: z.array(ExpansionEnum),
-  byteBudget: z.number().int().positive().optional(),
+  byteBudget: ByteBudgetField.optional(),
   detect: Detect,
   hook: Hook,
   scopeFrontmatter: ScopedFrontmatter.optional(),

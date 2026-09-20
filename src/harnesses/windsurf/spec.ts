@@ -4,8 +4,9 @@ import type { HarnessSpec } from "../spec.ts";
 // `trigger: always_on` in each file's frontmatter or the rule is not injected on every message;
 // a path-scoped rule is `trigger: glob` with the pattern under `globs`, documented for one
 // pattern only, so several are joined with commas. `.devin/rules/` is the location Cascade
-// prefers over `.windsurf/rules/`, and the single global file takes no frontmatter and is capped
-// at 6,000 characters. Cascade has no session-start event, so the hook rides `pre_user_prompt`
+// prefers over `.windsurf/rules/`. A workspace rule is capped at 12,000 characters and the single
+// global file, which takes no frontmatter, at 6,000; the byte caps below are the conservative
+// reading of those. Cascade has no session-start event, so the hook rides `pre_user_prompt`
 // behind the shared debounce; the hook has no stdout protocol and no timeout field, runs
 // `command` through bash and `powershell` on Windows, and silently skips an entry that names only
 // one of them on the other platform.
@@ -30,7 +31,7 @@ export const spec = {
   bodiesDir: { project: ".agents/memories", global: null },
   markers: "counted",
   expands: [],
-  byteBudget: 6000,
+  byteBudget: { project: 12_000, global: 6000 },
   detect: { dirs: ["."] },
   hook: {
     kind: "registry",

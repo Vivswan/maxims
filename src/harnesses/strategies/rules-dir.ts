@@ -3,6 +3,7 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import {
+  byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
   type Scope,
@@ -30,7 +31,7 @@ export type RulesDirWriteInput = RulesDirLocation & {
 export function planRulesDirWrite(input: RulesDirWriteInput): Change[] {
   const path = rulesDirPath(input);
   const content = `${rulesDirFrontmatter(input)}${input.block}`;
-  assertWithinBudget(input.def, path, content);
+  assertWithinBudget(input.def, input.scope, path, content);
   return [{ kind: "write", path, content }];
 }
 
@@ -72,15 +73,17 @@ function rulesDirFrontmatter(input: RulesDirWriteInput): string {
 
 export function assertWithinBudget(
   def: Pick<HarnessDefinition, "byteBudget" | "displayName">,
+  scope: Scope,
   path: string,
   content: string,
 ): void {
-  if (def.byteBudget === undefined) return;
+  const budget = byteBudgetFor(def.byteBudget, scope);
+  if (budget === undefined) return;
   const size = Buffer.byteLength(content);
-  if (size <= def.byteBudget) return;
+  if (size <= budget) return;
   throw new MaximsError(
     ExitCode.RuleCapExceeded,
-    `${path} would be ${size} bytes, over the ${def.byteBudget}-byte limit ${def.displayName} loads`,
+    `${path} would be ${size} bytes, over the ${budget}-byte limit ${def.displayName} loads`,
     { hint: "narrow the install with --memory or split the source" },
   );
 }

@@ -22,7 +22,7 @@ Every path is relative to its scope root: the project root for a project install
 | `bodiesDir` | per scope, where memory bodies land, or `null` to leave them in the store |
 | `markers` | `stripped` when the harness drops HTML comments before injection, `counted` otherwise |
 | `expands` | the reference syntaxes the harness expands inside its files: `at-import`, `none`, or empty when undocumented |
-| `byteBudget` | the largest file the harness loads, in bytes |
+| `byteBudget` | the largest file the harness loads, in bytes: one number for both scopes, or `{ project?, global? }` when the two files are capped differently |
 | `detect` | `{ dirs, env? }`: directories under the global root (`.` is the root itself) or variables that mean installed |
 | `hook` | `{ kind: "none" }`, a `registry` entry, or a whole `file`; see below |
 | `scopeFrontmatter` | for a rules directory whose always-on form needs no preamble but a `--paths` install does |

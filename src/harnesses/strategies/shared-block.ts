@@ -50,7 +50,7 @@ export function planSharedBlockWrite(input: SharedBlockWriteInput): Change[] {
     span === undefined
       ? `${separated(current)}${block}`
       : `${current.slice(0, span.start)}${block}${current.slice(span.end)}`;
-  assertWithinBudget(input.def, path, next);
+  assertWithinBudget(input.def, input.scope, path, next);
   if (next === input.currentText) return [];
   return [{ kind: "write", path, content: next }];
 }
