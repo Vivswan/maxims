@@ -45,20 +45,22 @@ export const copilot = {
   },
   bodiesDir: (scope, ctx) =>
     scope === "project" ? join(projectRoot(ctx), ".agents", "memories") : null,
-  // `bash` is the key both the CLI and the cloud agent honor; a `powershell` sibling would be
-  // needed for Windows sessions and is not written, so the hook is inert there.
+  // Copilot picks `bash` on POSIX and `powershell` on Windows and never falls back between them,
+  // so both carry the same command or the hook is silently inert on one platform.
   hook: {
     kind: "file",
     path: (scope, ctx) => join(hooksDir(scope, ctx), "maxims.json"),
-    render: (spec) =>
-      `${JSON.stringify(
+    render: (spec) => {
+      const command = [spec.command, ...spec.args].join(" ");
+      return `${JSON.stringify(
         {
           version: 1,
           hooks: {
             sessionStart: [
               {
                 type: "command",
-                bash: [spec.command, ...spec.args].join(" "),
+                bash: command,
+                powershell: command,
                 timeoutSec: spec.timeoutSeconds,
               },
             ],
@@ -66,7 +68,8 @@ export const copilot = {
         },
         null,
         2,
-      )}\n`,
+      )}\n`;
+    },
     executable: false,
   },
   markers: "counted",

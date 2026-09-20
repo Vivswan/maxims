@@ -1,6 +1,6 @@
 // Guards the two facts Copilot enforces silently: an instructions file without `applyTo: "**"` is
-// path-scoped instead of always-loaded, and a hooks file without `version: 1` or the `bash` key is
-// ignored by the CLI and the cloud agent. Both are pinned as the bytes the writer will emit.
+// path-scoped instead of always-loaded; a hooks file without `version: 1` is ignored, and one missing
+// the `bash` or `powershell` key is inert on that platform. Both are pinned as the bytes the writer emits.
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -23,7 +23,7 @@ test.each(frontmatters)(
   },
 );
 
-test("the hooks file is versioned, keyed by `bash`, and times out in seconds", () => {
+test("the hooks file is versioned, carries bash and powershell, and times out in seconds", () => {
   expect(copilot.hook.render(hookSpecFor(copilot))).toBe(
     [
       "{",
@@ -33,6 +33,7 @@ test("the hooks file is versioned, keyed by `bash`, and times out in seconds", (
       "      {",
       '        "type": "command",',
       '        "bash": "npx -y maxims sync --quiet",',
+      '        "powershell": "npx -y maxims sync --quiet",',
       '        "timeoutSec": 20',
       "      }",
       "    ]",
