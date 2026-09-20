@@ -5,7 +5,8 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { WINDOWS } from "../shared/platform.ts";
 import {
   buildArgv,
   CONTAINER_HOME,
@@ -20,6 +21,7 @@ import {
 } from "./runner.ts";
 
 const HOST_REPO = "/home/user/repo";
+const CONTEXT = resolve("/tmp/context");
 
 describe("runtime selection from injected probe results", () => {
   const cases: [readonly boolean[], number | null][] = [
@@ -79,14 +81,14 @@ describe.each([...RUNTIMES])("%s argv", (runtime) => {
   });
 
   test("build names the Dockerfile inside the context", () => {
-    expect(buildArgv(runtime, "example:tag", "/tmp/context")).toEqual([
+    expect(buildArgv(runtime, "example:tag", CONTEXT)).toEqual([
       runtime,
       "build",
       "--tag",
       "example:tag",
       "--file",
-      "/tmp/context/Dockerfile",
-      "/tmp/context",
+      join(CONTEXT, "Dockerfile"),
+      CONTEXT,
     ]);
   });
 });
@@ -97,7 +99,8 @@ test("the Dockerfile's user home is the HOME the runner injects", () => {
   expect(dockerfile).toContain(`\nENV HOME=${CONTAINER_HOME}\n`);
 });
 
-describe("hermetic probe", () => {
+// The probe is a POSIX sh script run on the host; Windows has no sh that takes these paths.
+describe.skipIf(WINDOWS)("hermetic probe", () => {
   type Scene = { name: string; arrange: (paths: ProbePaths) => ProbePaths; stdout: string };
   const passing = (paths: ProbePaths) => paths;
   // Root lists a 0300 directory through CAP_DAC_OVERRIDE, so that scene only proves anything

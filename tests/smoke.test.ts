@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { withTempDir } from "./shared/temp_dir.ts";
+import { tmpdirEnv, withTempDir } from "./shared/temp_dir.ts";
 
 test("tests run inside the hermetic launcher with a temp HOME", () => {
   expect(process.env.MAXIMS_TEST_LAUNCHER).toBe("1");
@@ -26,7 +26,7 @@ test("a launcher that cannot spawn the test process leaves no temp HOME behind",
       if (value !== undefined && key !== "MAXIMS_TEST_LAUNCHER") env[key] = value;
     }
     env.PATH = join(scratch, "empty-path");
-    env.TMPDIR = scratch;
+    Object.assign(env, tmpdirEnv(scratch));
     const proc = Bun.spawn(
       [process.execPath, resolve(import.meta.dir, "..", "scripts", "run_tests.ts")],
       {

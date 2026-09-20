@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { WINDOWS } from "../../../tests/shared/platform.ts";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import { type HarnessContext, HOOK_COMMAND, hookSpecFor, type Scope } from "../contract.ts";
@@ -23,49 +24,53 @@ const FAKE_NPX = [
   "",
 ].join("\n");
 
-test("TaskStart is an executable shebang script that runs sync and answers Cline alone", async () => {
-  if (!hasHook(cline, "file")) throw new Error("Cline runs an executable hook script");
-  const hook = cline.hook;
-  const script = hook.render(hookSpecFor(cline));
-  expect(script.startsWith("#!/usr/bin/env sh\n")).toBe(true);
-  expect(hook.executable).toBe(true);
+// The hook is a POSIX sh script executed through its shebang; Windows cannot run it.
+test.skipIf(WINDOWS)(
+  "TaskStart is an executable shebang script that runs sync and answers Cline alone",
+  async () => {
+    if (!hasHook(cline, "file")) throw new Error("Cline runs an executable hook script");
+    const hook = cline.hook;
+    const script = hook.render(hookSpecFor(cline));
+    expect(script.startsWith("#!/usr/bin/env sh\n")).toBe(true);
+    expect(hook.executable).toBe(true);
 
-  await withTempDir(async (dir) => {
-    const bin = join(dir, "bin");
-    mkdirSync(bin);
-    writeFileSync(join(bin, "npx"), FAKE_NPX);
-    chmodSync(join(bin, "npx"), 0o755);
-    const hookPath = join(dir, "TaskStart");
-    writeFileSync(hookPath, script);
-    chmodSync(hookPath, 0o755);
-    const argsFile = join(dir, "args");
-    const stdinFile = join(dir, "stdin-bytes");
+    await withTempDir(async (dir) => {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "npx"), FAKE_NPX);
+      chmodSync(join(bin, "npx"), 0o755);
+      const hookPath = join(dir, "TaskStart");
+      writeFileSync(hookPath, script);
+      chmodSync(hookPath, 0o755);
+      const argsFile = join(dir, "args");
+      const stdinFile = join(dir, "stdin-bytes");
 
-    const proc = Bun.spawn([hookPath], {
-      env: {
-        PATH: `${bin}:${process.env.PATH ?? ""}`,
-        MAXIMS_FAKE_ARGS: argsFile,
-        MAXIMS_FAKE_STDIN_BYTES: stdinFile,
-      },
-      stdin: new Blob([readFileSync(join(import.meta.dir, "fixtures", "hook-stdin.json"))]),
-      stdout: "pipe",
-      stderr: "pipe",
+      const proc = Bun.spawn([hookPath], {
+        env: {
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          MAXIMS_FAKE_ARGS: argsFile,
+          MAXIMS_FAKE_STDIN_BYTES: stdinFile,
+        },
+        stdin: new Blob([readFileSync(join(import.meta.dir, "fixtures", "hook-stdin.json"))]),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+
+      expect({ stdout, stderr, exitCode }).toEqual({
+        stdout: '{"cancel": false}\n',
+        stderr: "",
+        exitCode: 0,
+      });
+      expect(`npx ${readFileSync(argsFile, "utf8")}`).toBe(HOOK_COMMAND);
+      expect(readFileSync(stdinFile, "utf8").trim()).toBe("0");
     });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-
-    expect({ stdout, stderr, exitCode }).toEqual({
-      stdout: '{"cancel": false}\n',
-      stderr: "",
-      exitCode: 0,
-    });
-    expect(`npx ${readFileSync(argsFile, "utf8")}`).toBe(HOOK_COMMAND);
-    expect(readFileSync(stdinFile, "utf8").trim()).toBe("0");
-  });
-});
+  },
+);
 
 const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const block =

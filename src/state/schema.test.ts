@@ -2,6 +2,7 @@
 // obeyed, a newer file must never be rewritten, and the source grammar must keep `owner/repo`,
 // URLs, `.` and relative paths landing on the shapes the rest of the tool switches on.
 import { describe, expect, test } from "bun:test";
+import { dirname, join, resolve } from "node:path";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { ExitCode, type MaximsError } from "../util/exit-codes.ts";
 import {
@@ -649,7 +650,8 @@ describe("parseState", () => {
 });
 
 describe("parseSourceArgument", () => {
-  const cwd = "/home/user/project";
+  const cwd = resolve("/home/user/project");
+  const dotfiles = resolve("/home/user/dotfiles/memories");
   const github = (repo: string): SourceFrom => ({ type: "github", repo, ref: "HEAD" });
   const git = (url: string): SourceFrom => ({ type: "git", url, ref: "HEAD" });
   const accepted: [string, SourceFrom][] = [
@@ -696,10 +698,10 @@ describe("parseSourceArgument", () => {
     ["https://github.com/example-user/rules/", github("example-user/rules")],
     ["https://GitHub.com/Example-User/rules", github("Example-User/rules")],
     [".", { type: "local", path: cwd, live: true }],
-    ["./memories", { type: "local", path: `${cwd}/memories` }],
-    ["../shared/memories", { type: "local", path: "/home/user/shared/memories" }],
-    ["/home/user/dotfiles/memories", { type: "local", path: "/home/user/dotfiles/memories" }],
-    ["memories", { type: "local", path: `${cwd}/memories` }],
+    ["./memories", { type: "local", path: join(cwd, "memories") }],
+    ["../shared/memories", { type: "local", path: join(dirname(cwd), "shared", "memories") }],
+    [dotfiles, { type: "local", path: dotfiles }],
+    ["memories", { type: "local", path: join(cwd, "memories") }],
   ];
   test.each(accepted)("%s", (arg, expected) => {
     expect(parseSourceArgument(arg, cwd)).toEqual(expected);

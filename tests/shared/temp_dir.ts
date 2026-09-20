@@ -32,3 +32,9 @@ export async function withTempHome<T>(fn: (home: string) => Promise<T> | T): Pro
     rmSync(home, { recursive: true, force: true });
   }
 }
+
+// A child's os.tmpdir() reads TMPDIR on POSIX but TEMP, then TMP, on Windows; a test that watches
+// where a child puts its throwaway homes has to move all three.
+export function tmpdirEnv(dir: string): Record<string, string> {
+  return { TMPDIR: dir, TEMP: dir, TMP: dir };
+}

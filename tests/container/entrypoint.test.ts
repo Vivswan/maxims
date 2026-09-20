@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { WINDOWS } from "../shared/platform.ts";
 import { REPO_ROOT } from "./runner.ts";
 
 const ENTRYPOINT = join(REPO_ROOT, "tests", "container", "entrypoint.sh");
@@ -73,7 +74,8 @@ function runCopy(arrange: (repo: string) => void): Outcome {
   }
 }
 
-describe("the entrypoint's copy from the mounted checkout", () => {
+// The entrypoint is a POSIX sh script run on the host; Git Bash's ln -s copies instead of linking.
+describe.skipIf(WINDOWS)("the entrypoint's copy from the mounted checkout", () => {
   test("carries only the source tree and links the image's dependencies", () => {
     expect(runCopy(() => {})).toEqual({
       ok: true,
@@ -87,10 +89,10 @@ describe("the entrypoint's copy from the mounted checkout", () => {
   });
 
   // Root reads a 0000 file through CAP_DAC_OVERRIDE, so this scene only proves anything for an
-  // unprivileged suite.
+  // unprivileged suite. The file carries bytes because bsdtar never opens a zero-length entry.
   test.skipIf(process.getuid?.() === 0)("stops before the handoff on an unreadable file", () => {
     const outcome = runCopy((repo) => {
-      writeFileSync(join(repo, "src", "secret"), "");
+      writeFileSync(join(repo, "src", "secret"), "token\n");
       chmodSync(join(repo, "src", "secret"), 0o000);
     });
     expect(outcome).toEqual({ ok: false, stdout: "", work: [] });

@@ -5,13 +5,13 @@
 // `pending/` instead of `store/`, or a pinned source's hold would be swapped into its tracking
 // twin's slot.
 import { describe, expect, test } from "bun:test";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { SourceFrom } from "../state/schema.ts";
 import type { RootedPath } from "./fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "./home.ts";
 
 describe("storePathFor", () => {
-  const home = "/home/user/.agents/maxims";
+  const home = resolve("/home/user/.agents/maxims");
   const store = homePaths(home).store;
 
   test("github sources key on lower-cased owner/repo", () => {
@@ -46,9 +46,8 @@ describe("storePathFor", () => {
       host: "github.example.com",
     });
     expect<string>(tracking).toBe(join(store, "acme", "rules"));
-    expect<string>(pinnedV2).toMatch(
-      new RegExp(`^${join(store, "acme", "rules@v2-")}[0-9a-f]{8}$`),
-    );
+    expect(dirname(pinnedV2)).toBe(join(store, "acme"));
+    expect(basename(pinnedV2)).toMatch(/^rules@v2-[0-9a-f]{8}$/);
     expect(new Set([tracking, pinnedV2, pinnedSlash, pinnedDash, hosted]).size).toBe(5);
     const longRef = storePathFor(home, {
       type: "github",
@@ -65,9 +64,8 @@ describe("storePathFor", () => {
       url: "https://gitlab.example.com/team/rules.git",
       ref: "v2",
     });
-    expect<string>(gitPinned).toMatch(
-      new RegExp(`^${join(store, "_git", "gitlab.example.com", "team", "rules@v2-")}[0-9a-f]{8}$`),
-    );
+    expect(dirname(gitPinned)).toBe(join(store, "_git", "gitlab.example.com", "team"));
+    expect(basename(gitPinned)).toMatch(/^rules@v2-[0-9a-f]{8}$/);
   });
 
   test("git remotes key on host and path under _git, with .git stripped and slashes kept", () => {
@@ -96,8 +94,10 @@ describe("storePathFor", () => {
     const a = storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories" });
     const b = storePathFor(home, { type: "local", path: "/home/user/work/notes/memories" });
     expect<string>(a).not.toBe(b);
-    expect<string>(a).toMatch(new RegExp(`^${join(store, "_local", "memories-")}[0-9a-f]{8}$`));
-    expect<string>(b).toMatch(new RegExp(`^${join(store, "_local", "memories-")}[0-9a-f]{8}$`));
+    for (const entry of [a, b]) {
+      expect(dirname(entry)).toBe(join(store, "_local"));
+      expect(basename(entry)).toMatch(/^memories-[0-9a-f]{8}$/);
+    }
     expect<string>(
       storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
     ).toBe(a);
@@ -112,33 +112,34 @@ const heldSources: [string, SourceFrom, string | RegExp][] = [
   [
     "a tracking github source",
     { type: "github", repo: "Acme/Rules", ref: "HEAD" },
-    join("pending", "acme", "rules"),
+    "pending/acme/rules",
   ],
   [
     "a pinned github source",
     { type: "github", repo: "acme/rules", ref: "release/1.0" },
-    new RegExp(`^${join("pending", "acme", "rules@release-1.0-")}${HEX8}$`),
+    new RegExp(`^pending/acme/rules@release-1.0-${HEX8}$`),
   ],
   [
     "an enterprise github source",
     { type: "github", repo: "acme/rules", ref: "HEAD", host: "github.example.com" },
-    join("pending", "_github", "github.example.com", "acme", "rules"),
+    "pending/_github/github.example.com/acme/rules",
   ],
   [
     "a git remote with a port and a pin",
     { type: "git", url: "ssh://git@git.example.com:2222/team/rules.git", ref: "v2" },
-    new RegExp(`^${join("pending", "_git", "git.example.com_2222", "team", "rules@v2-")}${HEX8}$`),
+    new RegExp(`^pending/_git/git.example.com_2222/team/rules@v2-${HEX8}$`),
   ],
   [
     "a copied local directory",
     { type: "local", path: "/home/user/dotfiles/memories" },
-    new RegExp(`^${join("pending", "_local", "memories-")}${HEX8}$`),
+    new RegExp(`^pending/_local/memories-${HEX8}$`),
   ],
 ];
 test.each(heldSources)("pendingPathFor lays %s out under the pending root", (_title, from, at) => {
-  const home = "/home/user/.agents/maxims";
+  const home = resolve("/home/user/.agents/maxims");
   const held: RootedPath = pendingPathFor(home, from);
-  const inHome = relative(home, held);
+  // The layout is spelled with forward slashes so the same table holds on either separator.
+  const inHome = relative(home, held).split(sep).join("/");
   if (typeof at === "string") expect(inHome).toBe(at);
   else expect(inHome).toMatch(at);
   expect(relative(homePaths(home).store, storePathFor(home, from))).toBe(
@@ -149,7 +150,7 @@ test.each(heldSources)("pendingPathFor lays %s out under the pending root", (_ti
 // The canonical key keeps the URL verbatim, so two ports are two sources; the store must not fold
 // them onto one directory where a fetch of one would overwrite the other.
 test("a git remote's port becomes part of the store host segment", () => {
-  const home = "/home/user/.agents/maxims";
+  const home = resolve("/home/user/.agents/maxims");
   const store = homePaths(home).store;
   const at = (url: string) => storePathFor(home, { type: "git", url, ref: "HEAD" });
   expect<string>(at("ssh://git@git.example.com:2222/team/rules")).toBe(

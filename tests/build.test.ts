@@ -23,6 +23,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, parse, relative, resolve, sep } from "node:path";
 import { VERSION } from "../src/version.ts";
+import { WINDOWS } from "./shared/platform.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const buildScript = join(repoRoot, "scripts", "build.ts");
@@ -141,7 +142,8 @@ test.each(invocations)(
         expect(text.startsWith(SHEBANG)).toBe(true);
         expect(text.slice(SHEBANG.length).startsWith("#!")).toBe(false);
         expect(text).not.toMatch(/(?:require\(|from\s+)["'][^"']*node_modules/);
-        expect(statSync(outfile).mode & 0o777).toBe(0o755);
+        // Windows has no exec bit; the bundle is still run under node below.
+        if (!WINDOWS) expect(statSync(outfile).mode & 0o777).toBe(0o755);
 
         const run = Bun.spawnSync(["node", outfile, "--version"], {
           stdout: "pipe",

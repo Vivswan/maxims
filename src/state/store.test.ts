@@ -13,7 +13,8 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempHome } from "../../tests/shared/temp_dir.ts";
 import {
   type ContentHash,
@@ -273,8 +274,9 @@ describe("readState", () => {
         const result = await readState(home);
         expect(result.kind).toBe("quarantined");
         if (result.kind !== "quarantined") return;
-        expect(result.movedTo).toMatch(
-          /\/state\.json\.corrupt-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/,
+        expect(dirname(result.movedTo)).toBe(home);
+        expect(basename(result.movedTo)).toMatch(
+          /^state\.json\.corrupt-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/,
         );
         expect(result.issues.some((line) => issue.test(line))).toBe(true);
         expect(readFileSync(result.movedTo, "utf8")).toBe(original);
@@ -383,7 +385,7 @@ describe("readState", () => {
 });
 
 describe("writeState", () => {
-  test("writes once, stamps writtenBy, locks down modes, and skips an identical rewrite", async () => {
+  test("writes once, stamps writtenBy, and skips an identical rewrite", async () => {
     await withTempHome(async (home) => {
       const state = emptyState("maxims@0.3.0");
       expect(await writeState(home, state, "maxims@0.4.1")).toEqual({ written: true });
@@ -391,8 +393,6 @@ describe("writeState", () => {
       expect(readFileSync(path, "utf8")).toBe(
         serializeState({ ...state, writtenBy: "maxims@0.4.1" }),
       );
-      expect(statSync(path).mode & 0o777).toBe(0o600);
-      expect(statSync(home).mode & 0o777).toBe(0o700);
       expect(readdirSync(home)).toEqual(["state.json"]);
       const mtime = statSync(path).mtimeMs;
       await Bun.sleep(5);
@@ -403,6 +403,15 @@ describe("writeState", () => {
         state: { ...state, writtenBy: "maxims@0.4.1" },
         migrated: false,
       });
+    });
+  });
+
+  // Windows has no mode bits to lock down.
+  test.skipIf(WINDOWS)("leaves the state file owner-only and the home owner-only", async () => {
+    await withTempHome(async (home) => {
+      await writeState(home, emptyState("maxims@0.3.0"), "maxims@0.4.1");
+      expect(statSync(homePaths(home).state).mode & 0o777).toBe(0o600);
+      expect(statSync(home).mode & 0o777).toBe(0o700);
     });
   });
 

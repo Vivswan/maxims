@@ -23,6 +23,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, parse, relative, resolve, sep } from "node:path";
 import { summarize } from "../scripts/bench.ts";
+import { tmpdirEnv } from "./shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const realRepoRoot = realpathSync.native(repoRoot);
@@ -44,12 +45,12 @@ test.each(summaries)(
   },
 );
 
-// The bench creates its per-run HOME under the OS tmpdir; pointing TMPDIR at a directory the test
-// owns lets the test see whether every run cleaned up after itself.
+// The bench creates its per-run HOME under the OS tmpdir; pointing the tmpdir at a directory the
+// test owns lets the test see whether every run cleaned up after itself.
 function runBench(args: string[], scratch: string) {
   return Bun.spawnSync(["bun", "scripts/bench.ts", ...args], {
     cwd: repoRoot,
-    env: { ...process.env, TMPDIR: scratch },
+    env: { ...process.env, ...tmpdirEnv(scratch) },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -305,7 +306,7 @@ test.each(worktreeTargets)(
         ["bun", fixture.bench, "--runs", "1", "--json", out, "--", ...command],
         {
           cwd: fixture.linked,
-          env: { ...process.env, TMPDIR: dir },
+          env: { ...process.env, ...tmpdirEnv(dir) },
           stdout: "pipe",
           stderr: "pipe",
         },
@@ -387,7 +388,7 @@ test.each(gitFailures)(
       ];
       const ran = Bun.spawnSync([process.execPath, bench, "--json", out, "--", ...command], {
         cwd: dirname(dirname(bench)),
-        env: { ...process.env, TMPDIR: dir, ...env },
+        env: { ...process.env, ...tmpdirEnv(dir), ...env },
         stdout: "pipe",
         stderr: "pipe",
       });

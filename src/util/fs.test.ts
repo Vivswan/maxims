@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import {
@@ -24,13 +25,12 @@ import {
 } from "./fs.ts";
 
 describe("writeFileAtomic", () => {
-  test("writes the content with the requested mode and leaves no temp file behind", async () => {
+  test("writes the content, replaces it in place, and leaves no temp file behind", async () => {
     await withTempDir((dir) => {
       const target = assertInsideRoot(dir, join(dir, "nested", "rules.md"));
       writeFileAtomic(target, "one\n", { mode: 0o600 });
       writeFileAtomic(target, "two\n", { mode: 0o600 });
       expect(readFileSync(target, "utf8")).toBe("two\n");
-      expect(statSync(target).mode & 0o777).toBe(0o600);
       expect(readdirSync(join(dir, "nested"))).toEqual(["rules.md"]);
     });
   });
@@ -126,18 +126,29 @@ test("assertInsideRoot resolves symlinked ancestors but judges the final entry b
   });
 });
 
-test("writeFileAtomic applies the requested mode regardless of the umask", async () => {
-  await withTempDir((dir) => {
-    const previous = process.umask(0o077);
-    try {
-      const target = assertInsideRoot(dir, join(dir, "hook.sh"));
-      writeFileAtomic(target, "#!/bin/sh\n", { mode: 0o755 });
-      expect(statSync(target).mode & 0o777).toBe(0o755);
-    } finally {
-      process.umask(previous);
-    }
-  });
-});
+// Windows has no mode bits: the option is accepted there and changes nothing.
+test.skipIf(WINDOWS)(
+  "writeFileAtomic applies the requested mode on create and on rewrite regardless of the umask",
+  async () => {
+    await withTempDir((dir) => {
+      // A permissive umask for the private file, where a lost mode shows as 0644; a restrictive
+      // one for the executable, where a mode taken from the open call alone would show as 0700.
+      const previous = process.umask(0o022);
+      try {
+        const state = assertInsideRoot(dir, join(dir, "state.json"));
+        writeFileAtomic(state, "{}\n", { mode: 0o600 });
+        writeFileAtomic(state, "{ }\n", { mode: 0o600 });
+        expect(statSync(state).mode & 0o777).toBe(0o600);
+        process.umask(0o077);
+        const hook = assertInsideRoot(dir, join(dir, "hook.sh"));
+        writeFileAtomic(hook, "#!/bin/sh\n", { mode: 0o755 });
+        expect(statSync(hook).mode & 0o777).toBe(0o755);
+      } finally {
+        process.umask(previous);
+      }
+    });
+  },
+);
 
 test("sha256 renders the prefixed digest the state schema stores", () => {
   expect(sha256("abc")).toBe(
@@ -175,7 +186,9 @@ test("ensureDir0700 creates the chain and leaves the leaf owner-only", async () 
     const leaf = join(dir, "x", "y");
     await ensureDir0700(leaf);
     await ensureDir0700(leaf);
-    expect(statSync(leaf).mode & 0o777).toBe(0o700);
+    expect(statSync(leaf).isDirectory()).toBe(true);
+    // Windows has no mode bits, so the leaf is only proven to exist there.
+    if (!WINDOWS) expect(statSync(leaf).mode & 0o777).toBe(0o700);
   });
 });
 

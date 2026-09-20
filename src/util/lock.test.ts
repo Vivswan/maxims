@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { type LockOptions, withLock } from "./lock.ts";
@@ -221,7 +222,7 @@ describe("withLock", () => {
 
   // On Windows a kill is TerminateProcess, with no signal for the exit hook to see; the analogue is
   // a console Ctrl-C event, which a test cannot aim at one child.
-  const signalTest = test.skipIf(process.platform === "win32");
+  const signalTest = test.skipIf(WINDOWS);
 
   signalTest(
     "a holder killed by SIGTERM removes its own lock before dying of the signal",
