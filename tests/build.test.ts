@@ -1,10 +1,10 @@
 // Fails if the published artifact stops being a self-contained node executable: a lost or doubled
 // shebang, a dropped exec bit, a stray node_modules reference, or a size line that lies would all
 // ship silently, since nothing in the repo runs dist/cli.js under plain node except this test.
-// Also fails if relative --outfile and --size-json paths stop landing where the caller stands,
-// which the repo-root chdir inside the build would otherwise move without a word, if one path
-// given for both lets the size report overwrite the bundle, or if a bundle that fails to build
-// stops reporting the bundler's message and a non-zero exit.
+// Also fails if relative --entry, --outfile, and --size-json paths stop landing where the caller
+// stands, which the repo-root chdir inside the build would otherwise move without a word, if one
+// path given for both lets the size report overwrite the bundle, or if a bundle that fails to
+// build stops reporting the bundler's message and a non-zero exit.
 import { expect, test } from "bun:test";
 import {
   existsSync,
@@ -165,7 +165,7 @@ test("an entry that does not parse exits 1 with the bundler's message and writes
     const entry = join(dir, "broken.ts");
     writeFileSync(entry, "const x = ;\n");
     const outfile = join(dir, "cli.js");
-    const build = runBuild(["--entry", entry, "--outfile", outfile], dir);
+    const build = runBuild(["--entry", "broken.ts", "--outfile", outfile], dir);
     expect(build.exitCode).toBe(1);
     expect(build.stdout.toString()).toBe("");
     const stderr = build.stderr.toString();
