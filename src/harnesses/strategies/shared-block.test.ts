@@ -1,6 +1,7 @@
 // Strategy B shares a file with the user: a splice that shifts a byte outside the pair, a
-// separator that add-then-remove fails to undo, or a leftover empty file would each corrupt or
-// litter the AGENTS.md family silently.
+// separator that add-then-remove fails to undo, a block appended inside a fence the user left
+// open (invisible to the parser, so every sync would append again), or a leftover empty file
+// would each corrupt or litter the AGENTS.md family silently.
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,6 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
 import {
-  type ManagedBlockSpan,
   planSharedBlockRemove,
   planSharedBlockWrite,
   type SharedBlockTarget,
@@ -30,21 +30,6 @@ const def: HarnessDefinition = {
   verifiedAgainst: { url: "https://example.com/docs", date: "2026-09-20" },
 };
 
-// Marker pairs at line start, the same shape src/rulefile/block.ts reports; the span runs from
-// the begin marker through the end marker's line break.
-function parseBlocks(text: string): ManagedBlockSpan[] {
-  const spans: ManagedBlockSpan[] = [];
-  const begin = /^<!-- maxims:begin (\S+) sha=\S+ -->\n/gm;
-  for (const match of text.matchAll(begin)) {
-    const source = match[1] ?? "";
-    const endMarker = `<!-- maxims:end ${source} -->\n`;
-    const endAt = text.indexOf(endMarker, match.index);
-    if (endAt === -1) continue;
-    spans.push({ source, start: match.index, end: endAt + endMarker.length });
-  }
-  return spans;
-}
-
 const blockFor = (source: string, body: string) =>
   `<!-- maxims:begin ${source} sha=abc -->\n${body}<!-- maxims:end ${source} -->\n`;
 const ours = blockFor("@a/b", "- one\n");
@@ -59,7 +44,6 @@ const location = (source: string, currentText: string | null) => ({
   ctx,
   source,
   currentText,
-  parseBlocks,
 });
 
 describe("planSharedBlockWrite then planSharedBlockRemove", () => {
@@ -94,6 +78,12 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
       before: `\n${blockFor("@a/b", "- old\n")}\n`,
       after: `\n${ours}\n`,
       restored: null,
+    },
+    {
+      name: "user text ending inside an open fence has the fence closed so the markers stay visible",
+      before: "```md\nnotes\n",
+      after: `\`\`\`md\nnotes\n\`\`\`\n\n${ours}`,
+      restored: "```md\nnotes\n```\n",
     },
   ];
 
@@ -226,7 +216,7 @@ test("a precedence target plans the block into the file the harness reads first"
       ctx: { ...ctx, projectRoot: root },
     };
     const plan = (currentText: string | null) =>
-      planSharedBlockWrite({ ...at, source: "@a/b", currentText, parseBlocks, block: ours });
+      planSharedBlockWrite({ ...at, source: "@a/b", currentText, block: ours });
     expect(plan(null).map((change) => String(change.path))).toEqual([join(root, "AGENTS.md")]);
     writeFileSync(join(root, ".rules"), "house rules\n");
     expect(plan("house rules\n").map((change) => String(change.path))).toEqual([
@@ -237,7 +227,6 @@ test("a precedence target plans the block into the file the harness reads first"
         ...at,
         source: "@a/b",
         currentText: `house rules\n\n${ours}`,
-        parseBlocks,
       }),
     ).toEqual([
       {
