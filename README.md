@@ -1,21 +1,23 @@
 # maxims
 
-One-line rule memories, installed from GitHub repos or local folders into the always-loaded instruction layer of coding agents, and kept fresh by one session-start hook per agent. An agent can hold a rule in its memory and still not act on it, because memory bodies load on recall; maxims puts each rule's one-liner where loading is guaranteed and leaves the body on disk behind a pointer.
+Rules your coding agent reads at every session start, installed from a GitHub repo and kept current by a small hook that runs when a session opens.
 
-```text
- always-loaded layer: the rule file           on-demand layer: the memory body
- | - one-liner A   (detail: .../A.md) |----->| A.md  frontmatter, Why, How to apply   |
-   read by the harness every session            opened by the agent when it wants detail
-```
+An agent can hold a rule in its memory and still not act on it, because memory bodies load only when the agent goes looking. maxims puts each rule's one-liner where loading is guaranteed and leaves the body on disk behind a pointer.
 
 ```bash
 npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 ```
 
+What that writes for Claude Code, one line per memory:
+
+```markdown
+<!-- maxims:begin @Vivswan/skills sha=fc67557 -->
+- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
+<!-- maxims:end @Vivswan/skills -->
+```
+
 - [Why maxims](docs/why.md): the problem, the two layers, what a rule costs.
 - [Quickstart](docs/quickstart.md): the install command and what it writes.
-- [CLI reference](docs/cli.md): every verb, flag, and exit code.
-- [Harnesses](docs/harnesses.md): which agents are supported and what each one gets.
-- [All documentation](docs/README.md).
+- [All documentation](docs/README.md): every verb, flag, harness, and design decision.
 
 Status: the code is being built against these pages, so every page states specified behavior rather than observed behavior.

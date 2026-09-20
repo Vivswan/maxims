@@ -7,6 +7,21 @@ group: Start here
 
 An agent can hold a rule in its memory and still not act on it, because memory bodies load on recall and recall is probabilistic. maxims puts each rule's one-line summary in the layer the agent loads every session and leaves the body on disk behind a pointer. This page is the reasoning; the [quickstart](quickstart.md) is the commands.
 
+## How it works in one picture
+
+```mermaid
+flowchart LR
+    repo["source repo<br/>memories/*.md"] -->|add, update, or a sync past the cooldown| store["store<br/>~/.agents/maxims/store/"]
+    state["state.json<br/>what should be installed"] --> sync["sync"]
+    store --> sync
+    sync --> cc["Claude Code<br/>~/.claude/rules/maxims-*.md"]
+    sync --> cx["Codex<br/>~/.codex/AGENTS.md block"]
+    sync --> more["every other harness in the matrix"]
+    hook["session-start hook<br/>npx -y @vivswan/maxims sync --quiet"] -.->|every session| sync
+```
+
+`state.json` is the only record `sync` trusts. A rule file on disk is compared to what it should be, never read back as a record, so the next sync repairs a crash or a hand edit.
+
 ## The rule the agent held but did not act on
 
 The failure that started this tool was a "review before every commit" rule that existed as a memory file while commits went out unreviewed. The memory system had the rule. The session did not.
