@@ -19,13 +19,20 @@ Everything maxims owns lives under one directory, and one file in it, `state.jso
 |   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>
 |-- state.json                          # intent: what should be true
 |-- state.json.lock                     # the writer mutex, present only while a process writes
+|-- config.json                         # user defaults for future commands; never read as intent
 |-- last-sync                           # the stamp quiet-mode syncs debounce on
 `-- log/refresh.log                     # rolling, capped: what each run changed
+
+<project>/.agents/
+|-- memories/                           # bodies linked in by a project install
+`-- maxims.lock                         # the project manifest, committed; replayed by `maxims install`
 ```
 
 The home sits inside `.agents`, the directory `npx skills` already owns, so no new dotfolder appears and the layout is the same whether or not Claude Code is installed. Project memory directories link into it and rule lines point into it; the store is the only place a body lives, so a stale body cannot exist.
 
 A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
+
+Two files are not state. `config.json`, beside it, holds the [user defaults](cli.md#user-defaults-in-configjson), which are preferences about future commands. The project manifest, in the project's `.agents/`, is the committed record a fresh clone replays.
 
 ## State holds intent, never actuality
 
@@ -46,8 +53,25 @@ Each fact has exactly one owner. State records only what nothing else on the mac
 | collisions | re-derived by walking the name index; a resolution is a rename entry |
 | retired memories | the log; a retired memory drops out of the regenerated block on its own |
 | `updatedAt` | the state file's mtime, plus the log |
+| user defaults: which harnesses, `--yes`, `--rule`, `--add-hook`, the cooldown, the cap | `config.json`, beside state; `sync` reads the cooldown and the cap from it, and every other key fills in a flag on `add`, whose result is ordinary intent |
+| the project's source list for a fresh clone | `.agents/maxims.lock` in the project, below; state is per machine and the manifest is per repository |
 
 Storing "it is installed" beside "it should be installed" creates two fields that can disagree the moment a user hand-edits a settings file. With no actuality fields there is nothing to reconcile, and recovery from any crash is `maxims sync` again.
+
+## The project manifest
+
+`.agents/maxims.lock` is the file maxims writes to be committed. A project-scope `add`, `remove`, `link`, `unlink`, `disable`, or `enable` rewrites it from state as a projection of the sources whose destination is this project. `maxims install` in a fresh clone reads it, adds each source at project scope, then syncs.
+
+Strategy B rule files also land in the repo, but as the harness's target, never as a record maxims reads.
+
+| property | reason |
+| --- | --- |
+| keys sorted, no timestamps, no fetch facts | two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else |
+| holds a projection of intent only: every `intent` field `add` recorded for the source, so `from` with its ref, selection, renames, rule flag, harnesses, memory folder, full depth, copy, and paths, plus the project-scope disabled list | a sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder |
+| written whole, temp plus rename, like state | a half-written manifest has no representation |
+| absent means no project sources | `install` with no manifest exits 0 and prints "no manifest" |
+
+The manifest never replaces state on the machine that wrote it, and `sync` never reads it. `install` is an `add` per entry plus a `disable` per disabled name, so the result is ordinary state that `sync` drives; the manifest is only how a clone learns what to add.
 
 ## The schema
 
@@ -56,11 +80,12 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
   "version": 1,
   "writtenBy": "maxims@0.4.1",
   "hooks": ["claude-code", "codex"],
-  "config": { "cooldownDays": 7, "ruleCap": 25 },
+  "disabled": { "global": ["gate-exit-conditions-the-merge-dotfiles"], "project": [] },
   "sources": {
     "@Vivswan/skills": {
       "intent": {
         "from": { "type": "github", "repo": "Vivswan/skills", "ref": "HEAD" },
+        "auth": false,
         "select": ["rubber-duck-before-every-commit"],
         "rename": { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
         "rule": true,
@@ -92,8 +117,9 @@ The sha and hash values above are shortened for display; state stores full diges
 | `version` | integer schema version, bumped on any breaking shape change |
 | `writtenBy` | which maxims wrote this, so a bug report is reproducible without asking |
 | `hooks` | the harnesses where the user wants a sync hook kept: a list, not records |
-| `config` | the [cap and cooldown](cli.md#the-cap-and-the-cooldown), when set |
+| `disabled` | the memories `disable` withheld, by local name, one list per scope, so a memory disabled at project scope stays live for `-g`; the [project manifest](#the-project-manifest) copies the project list so `install` can replay it |
 | `intent.from` | `github` with `repo` and `ref`; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
+| `intent.auth` | whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own |
 | `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
 | `intent.rename` | upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision |
 | `intent.rule` | whether this source publishes one-liners; the field that separates `--rule` from `--add-hook` |
@@ -116,7 +142,7 @@ Running the same `add` twice against an unchanged source, or `sync` any number o
 | store | the recorded sha is compared to the remote's before any download; equal means the fetch is skipped entirely. A live local source has no sha, so sync reads its tree and lets the output comparison decide. |
 | bodies | written only when the file's content differs from the recorded content hash |
 | rule file | regenerated from intent plus store, then compared; identical output means no write, so mtime does not churn |
-| state | `addedAt` is set once and intent changes only when the user changes it; a sync writes state only to record a refresh it performed or a `--cooldown` or `--cap` it was given |
+| state | `addedAt` is set once and intent changes only when the user changes it; a sync writes state only to record a refresh it performed |
 | hook | keyed by harness, not by source; the registry is rewritten only when the constructed entry differs |
 | ordering | rule lines sort by memory name, so the "nothing changed" fast path fires across machines |
 

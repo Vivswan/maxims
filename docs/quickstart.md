@@ -21,7 +21,7 @@ The [flag reference](cli.md#flags) has the full table. Run from inside an agent 
 
 ```text
 |
-o   claude-code_2-1-226_agent  Agent detected - installing non-interactively
+o   claude-code  Agent detected - installing non-interactively
 |
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
@@ -138,3 +138,19 @@ In a terminal, `remove` lists "Memories to remove:" and asks "Are you sure you w
 ## Preview before writing
 
 Add `--dry-run` to any verb to see the plan without writing anything; the [flag reference](cli.md#flags) owns it and `--json`.
+
+## A cloned project: install
+
+```bash
+npx -y @vivswan/maxims install
+```
+
+A project that committed `.agents/maxims.lock` carries its own source list. `install` in a fresh clone adds every source the [manifest](state-and-store.md#the-project-manifest) names at project scope, then syncs, so the first session start already holds the team's rules.
+
+## Check what a harness loads: doctor
+
+```bash
+npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit
+```
+
+`doctor` checks each harness's rule file and hook against what that harness loads, and `--expect` turns one memory into an assertion with exit 1 when it is missing; the [doctor section](cli.md#doctor) owns the report.

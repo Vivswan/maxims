@@ -73,13 +73,13 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 
 | rule | reason |
 | --- | --- |
-| the rule file is a real file on every harness, never a symlink | Claude Code skips a symlinked rule file pointing outside the working directory; a rule file that silently never loads is the failure maxims exists to prevent |
+| the rule file is a real file on every harness, never a symlink | a rule file that silently never loads is the failure maxims exists to prevent; the [design decision](design-decisions.md#harnesses) records the reported Claude Code behavior behind it |
 | strategy A writes one file per source, `maxims-<source>` plus the harness's suffix; strategy B writes one block per source | removal is a file delete or a block cut, provenance is visible, and two sources never fight over one file |
 | markers are HTML comments matched at line start only | every target is markdown; a marker quoted inside someone's fenced code block is not a marker |
 | everything outside the marker pair is preserved byte for byte | a user may keep hand-written rules in the same file |
 | rule lines are sorted by memory name | two machines with the same source produce the same file, and "nothing changed" is detectable |
 | `-->` in a description is escaped, and a token a harness would expand (Claude Code's and Gemini's `@path` imports) is wrapped in backticks | an unescaped one would end the comment early or read a file into context; an undocumented syntax is escaped conservatively |
-| on Claude Code the marker pair may be verbose; elsewhere it shrinks to one line | Claude Code strips block-level HTML comments before injection, so provenance is free there and costs tokens everywhere else |
+| on Claude Code the marker pair may be verbose; elsewhere it shrinks to one line | stripping of block-level HTML comments before injection is verified only for Claude Code, so provenance is free there; on every other harness it is not known to be stripped, so the markers are assumed to cost tokens |
 | a description longer than 300 characters is cut with an ellipsis | a rule file is a budget, not a document |
 | where the format requires frontmatter, maxims owns it and regenerates it with the block | the frontmatter is what keeps the file always-loaded on Cursor and Copilot; the catches below name the keys |
 
@@ -93,7 +93,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 | Gemini CLI | a project hook is fingerprinted and must be trusted again whenever it changes. The hook must print nothing to stdout except one JSON object, so the staleness notice goes out as `hookSpecificOutput.additionalContext`, never as plain text. Its hook timeout is in milliseconds where the others use seconds. |
 | Cline | hooks run only after "Enable Hooks" is switched on in Cline's feature settings, and the hook is an executable file named exactly `TaskStart` with a shebang. Windows is not supported by Cline's hooks. |
 | OpenCode | `AGENTS.md` does not expand file references, so the per-source project file must be listed in the `instructions` array of `opencode.json`; maxims edits that array surgically. Freshness comes from a plugin file maxims writes whole and deletes on removal. |
-| DeepSeek Harness | a 65,536-byte instruction budget applies to the whole file, so the writer refuses past it rather than truncating. The bridge reads its config path once at process start, so a change needs a dsh restart, and there is no per-project discovery yet. |
+| DeepSeek Harness | a 65,536-byte instruction budget applies to the whole file, so the writer refuses past it rather than truncating. The spec reports, unverified here, that the bridge reads its config path once at process start, so a change would need a dsh restart, and that it has no per-project discovery. |
 | Codex, Gemini CLI, DeepSeek Harness | the block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses |
 | every hook | a repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once |
 | MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It ships dormant: no shipped harness needs it while all eight reach tier 1. |

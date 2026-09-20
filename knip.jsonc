@@ -1,7 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/cli.ts", "scripts/*.ts", "tests/**/*.test.ts", "src/**/*.test.ts"],
-  "project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+  "entry": [
+    "src/cli.ts",
+    "scripts/*.ts",
+    "scripts/**/*.mts",
+    "tests/**/*.test.ts",
+    "src/**/*.test.ts"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"],
   "ignoreExportsUsedInFile": true,
   // Contract-only modules and pinned dependencies whose first importer has not landed yet. Knip
   // reports each entry below as a configuration hint once it is genuinely used; drop it then.

@@ -35,12 +35,26 @@ The `description` is the one-liner that reaches the rule file. Everything below 
 | `description` | yes | non-empty, one line after YAML unquoting; this is the one-liner that reaches the rule file |
 | `metadata.node_type` | no | `memory` when present; absent is accepted |
 | `metadata.type` | no | `user`, `feedback`, `project`, or `reference`; an unknown value passes with a warning |
+| `metadata.internal` | no | `true` hides the memory from every `add` and refresh unless `MAXIMS_INSTALL_INTERNAL=1` is set, for a source repo's own maintainers; absent or `false` is a normal memory |
 | `metadata.scope`, any other key | no | carried in the store, never interpreted |
 | body | no | may be empty; `**Why:**` and `**How to apply:**` are conventions maxims preserves verbatim and never parses; `[[links]]` are preserved too, and resolved as dependencies (below) |
 
 A file that fails the contract is skipped with one warning line, never fatally. A source repo that gains a README must not break every session's hook.
 
 `MEMORY.md` is reserved and is never a memory. It is the index the auto-memory format keeps beside its files, and it is skipped by name.
+
+## Hidden characters are refused
+
+A memory carrying a character the reader cannot see fails the whole install, because the plan shown at `add` is the review gate and a hidden instruction passes it unseen. The check runs over the whole file, frontmatter and body.
+
+| refused | why |
+| --- | --- |
+| zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`) | invisible in a terminal, so a one-liner can differ from what the plan showed |
+| bidi control characters (`U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree |
+| ANSI escape sequences | a terminal executes them while printing the plan |
+| HTML comments | invisible in a rendered rule file, and the block markers are HTML comments |
+
+The refusal is exit 3, nothing written, with the file and the character named. `--allow-hidden` on `add` installs the source anyway; the [flag table](cli.md#flags) owns it. Unlike a contract failure, this is not a per-file skip, because an unseen instruction is the failure the gate exists to catch.
 
 ## Wikilinks are dependencies
 
