@@ -32,3 +32,39 @@ jobs:
         run: bun run build
       - name: Dead code
         run: bun run knip
+
+  # Latency and bundle-size tripwire: HEAD and the base ref are built and timed on this runner,
+  # and a gross regression on the hook path or the bundle fails the job. The report goes to the
+  # step summary here; the sticky PR comment is posted by bench-comment.yml from the uploaded
+  # artifact, because this workflow's caller caps it at contents: read and a comment needs
+  # pull-requests: write.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base ref must be present to build; a shallow clone holds only the judged commit.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Bench HEAD against the base
+        env:
+          # A pull request compares against its base branch; a push to main compares against the
+          # commit main was at before it, so every merge gets a real delta rather than a self-compare.
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
+          OUT: ${{ runner.temp }}/bench
+        run: bun scripts/bench_ci.ts --base "$BASE" --out "$OUT"
+      - name: Publish the report to the step summary
+        if: ${{ !cancelled() }}
+        env:
+          OUT: ${{ runner.temp }}/bench
+        run: if [ -f "$OUT/report.md" ]; then cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: bench-report
+          path: ${{ runner.temp }}/bench
+          if-no-files-found: ignore

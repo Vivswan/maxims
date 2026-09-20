@@ -31,6 +31,7 @@
     "build": "bun scripts/build.ts",
     "knip": "bun x knip",
     "bench": "bun scripts/bench.ts",
+    "bench:ci": "bun scripts/bench_ci.ts",
     "nightly": "bun scripts/nightly.ts",
     "test:container": "bun scripts/container_tests.ts"
   },
