@@ -103,39 +103,43 @@ const ENTITIES: Record<string, string> = {
 const unescapeEntities = (s: string) =>
   s.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => ENTITIES[m] ?? m);
 
-/** Characters at block depth 0 of `s`: nested block segments (and their contents) removed, inline markers kept. */
-function ownText(s: string): string {
-  let out = "";
-  let depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i] as string;
-    if (ch === OPEN && isBlockKind(s[i + 1])) depth++;
-    else if (ch === BLOCK_END) depth--;
-    else if (depth === 0) out += ch;
-  }
-  return out;
+interface Segment {
+  /** true: a nested block segment with its markers; false: text at block depth 0, inline markers kept. */
+  readonly block: boolean;
+  readonly text: string;
 }
 
-/** The nested block segments of `s`, in order, each with its markers. */
-function nestedBlocks(s: string): string[] {
-  const blocks: string[] = [];
+/** `s` cut into nested block segments and the own text between them, in source order. */
+function segments(s: string): Segment[] {
+  const out: Segment[] = [];
+  let own = "";
   let depth = 0;
   let start = -1;
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
+    const ch = s[i] as string;
     if (ch === OPEN && isBlockKind(s[i + 1])) {
-      if (depth === 0) start = i;
+      if (depth === 0) {
+        start = i;
+        if (own !== "") out.push({ block: false, text: own });
+        own = "";
+      }
       depth++;
     } else if (ch === BLOCK_END) {
       depth--;
       if (depth === 0 && start !== -1) {
-        blocks.push(s.slice(start, i + 1));
+        out.push({ block: true, text: s.slice(start, i + 1) });
         start = -1;
       }
-    }
+    } else if (depth === 0) own += ch;
   }
-  return blocks;
+  if (own !== "") out.push({ block: false, text: own });
+  return out;
 }
+
+const nestedBlocks = (s: string) =>
+  segments(s)
+    .filter((p) => p.block)
+    .map((p) => p.text);
 
 /** Removes HTML comments innermost-first until none opens, so remains never reassemble into one. */
 function stripComments(text: string): string {
@@ -221,14 +225,20 @@ export function scanPage(text: string): Scan {
   const scan: Scan = { units: [], codespans: [], links: [] };
   let cursor = 0;
   // Rendered text has lost its markup (**bold**, [label](url) with the url between label and text),
-  // so a line matches when it carries the unit's first two words, letters and digits only.
+  // so a line matches when it carries the unit's first two words, letters and digits only. A link's
+  // destination sits between its label and a suffix (`[GitHub](url)-hosted`) and nowhere in the
+  // rendered word, so a line is also tried with destinations removed (a destination may hold one
+  // level of parentheses); a destination is itself the needle when a link is located, so the line
+  // as written is tried too.
   const letters = (text: string) => text.replace(/[^A-Za-z0-9]+/g, "");
+  const DESTINATION = /\]\((?:[^()]|\([^()]*\))*\)/g;
+  const forms = (line: string) => [letters(line), letters(line.replace(DESTINATION, "]"))];
   const search = (needle: string): number => {
     const probes = unescapeEntities(needle).split(/\s+/).map(letters).filter(Boolean).slice(0, 2);
     if (probes.length === 0) return -1;
     for (let i = cursor; i < lines.length; i++) {
-      const line = letters(lines[i] ?? "");
-      if (probes.every((probe) => line.includes(probe))) return i;
+      if (forms(lines[i] ?? "").some((form) => probes.every((probe) => form.includes(probe))))
+        return i;
     }
     return -1;
   };
@@ -240,6 +250,7 @@ export function scanPage(text: string): Scan {
     return found === -1 ? cursor : found;
   };
   const KINDS: Record<string, Unit["kind"] | undefined> = { P: "paragraph", L: "item", D: "cell" };
+  const nonBlank = (s: string) => s.split("\n").find((l) => l.trim() !== "");
   // A skipped block's source lines pass under the cursor, or a fence quoting a table example would
   // be where the next table's header is looked for. Its content is verbatim source, so its first
   // non-blank line is matched whole: a line may have no letters at all, and a fence's info string
@@ -279,25 +290,57 @@ export function scanPage(text: string): Scan {
       return;
     }
     const kind = KINDS[block[1] ?? ""];
-    const own = ownText(inner);
-    const plain = visibleText(own);
-    const firstLine = plain.split("\n").find((l) => l.trim() !== "") ?? "";
-    const line = locate(firstLine);
-    if (kind !== undefined && plain.trim() !== "") {
-      scan.units.push({ kind, line: line + 1, text: unescapeEntities(plain) });
+    // The inner stream is walked in source order: a nested block moves the cursor at its place,
+    // so a fence that opens a list item, or splits the item's text, passes under the cursor
+    // before the text after it is located, and never lands on a later paragraph it quotes.
+    const parts = segments(inner).map((part) => ({
+      ...part,
+      plain: part.block ? "" : visibleText(part.text),
+    }));
+    const text = parts.map((part) => part.plain).join("");
+    let placed = false;
+    for (const part of parts) {
+      if (part.block) {
+        visit(part.text);
+        continue;
+      }
+      // The segment sits at its first visible line. One that shows no words (a link labelled by
+      // an image or a tag, a lone tag) still holds a line, and sits at its first link, or else at
+      // its markup, so it passes under the cursor like any other.
+      const links = [...part.text.matchAll(new RegExp(LINK, "g"))].map((m) =>
+        unescapeEntities(m[1] ?? ""),
+      );
+      const visible = nonBlank(part.plain);
+      const markup = part.text
+        .replace(new RegExp(CODESPAN, "g"), "")
+        .replace(new RegExp(LINK, "g"), "");
+      const anchor = visible ?? links[0] ?? nonBlank(markup);
+      if (anchor === undefined) continue;
+      const at = locate(anchor);
+      if (visible !== undefined && !placed) {
+        placed = true;
+        if (kind !== undefined)
+          scan.units.push({ kind, line: at + 1, text: unescapeEntities(text) });
+      }
+      let last = at;
+      const place = (needle: string) => {
+        const line = locate(needle);
+        last = Math.max(last, line);
+        return line + 1;
+      };
+      for (const m of part.text.matchAll(new RegExp(CODESPAN, "g"))) {
+        const code = unescapeEntities(m[1] ?? "");
+        scan.codespans.push({ text: code, line: place(`\`${code}\``) });
+      }
+      for (const href of links) scan.links.push({ href, line: place(href) });
+      // The segment's lines pass under the cursor, so a repeated opening line, or a fence quoting
+      // one of them, finds its own line and not this one again. A segment with words spans its
+      // visible lines, and a code span found elsewhere (one wrapped across two source lines) does
+      // not drag the cursor; one without words spans the lines its links were placed on. A table
+      // moves the cursor itself, past its last row.
+      if (rowLine === null)
+        cursor = visible === undefined ? last + 1 : at + part.plain.trim().split("\n").length;
     }
-    for (const m of own.matchAll(new RegExp(CODESPAN, "g"))) {
-      const code = unescapeEntities(m[1] ?? "");
-      scan.codespans.push({ text: code, line: locate(`\`${code}\``) + 1 });
-    }
-    for (const m of own.matchAll(new RegExp(LINK, "g"))) {
-      const href = unescapeEntities(m[1] ?? "");
-      scan.links.push({ href, line: locate(href) + 1 });
-    }
-    // The next unit starts after this one, so a repeated opening line finds its own line, not this
-    // one again; a table moves the cursor itself, past its last row.
-    if (plain.trim() !== "" && rowLine === null) cursor = line + plain.trim().split("\n").length;
-    for (const nested of nestedBlocks(inner)) visit(nested);
   };
   for (const block of nestedBlocks(prose)) visit(block);
   return scan;
