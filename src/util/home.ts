@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import type { SourceFrom } from "../state/schema.ts";
+import { parseRemote, type SourceFrom } from "../state/schema.ts";
+import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { assertInsideRoot, sha256 } from "./fs.ts";
 
 /** @public */
@@ -33,12 +34,20 @@ export function homePaths(home: string): HomePaths {
 
 // GitHub owner and repo names are case-insensitive, so the store folds them to lower case: two
 // spellings of one repo must land in one entry even on a case-sensitive filesystem. The `_local`
-// prefix is unreachable for a github owner, whose names never start with an underscore.
+// and `_git` prefixes are unreachable for a github owner, whose names never start with an
+// underscore; a git remote keys on its host and path with `.git` stripped and slashes kept.
 export function storePathFor(home: string, from: SourceFrom): string {
   const store = homePaths(home).store;
   if (from.type === "github") {
     const [owner, repo] = from.repo.toLowerCase().split("/", 2);
     return assertInsideRoot(store, join(store, owner ?? "", repo ?? ""));
+  }
+  if (from.type === "git") {
+    const remote = parseRemote(from.url);
+    if (remote === null) {
+      throw new MaximsError(ExitCode.SourceUnresolvable, `${from.url} is not a git remote URL`);
+    }
+    return assertInsideRoot(store, join(store, "_git", remote.host, ...remote.segments));
   }
   const absolute = resolve(from.path);
   const stem = basename(absolute) || "root";

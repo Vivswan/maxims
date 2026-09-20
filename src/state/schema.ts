@@ -6,9 +6,9 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 
 export const CURRENT_STATE_VERSION = 1;
 
-// "HEAD" asks the source resolver for the default branch's head; `--pin` replaces it with a tag or
-// sha. The default branch NAME is never stored because a repo can rename it without notice.
-export const DEFAULT_GITHUB_REF = "HEAD";
+// "HEAD" asks the source resolver for the remote's default branch head; `--pin` replaces it with a
+// tag or sha. The default branch NAME is never stored because a repo can rename it without notice.
+export const DEFAULT_GIT_REF = "HEAD";
 
 // A repo segment of only dots would collapse the derived store path onto the store root itself.
 const GITHUB_REPO_PATTERN =
@@ -32,6 +32,13 @@ const GithubFrom = z.strictObject({
   repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
   ref: z.string().min(1),
 });
+// Any non-GitHub git remote (GitLab, Gitea, a mirror, an air-gapped proxy). The URL is stored as
+// the user gave it and never rewritten, so a proxy path or an ssh alias survives round trips.
+const GitFrom = z.strictObject({
+  type: z.literal("git"),
+  url: z.string().refine(isUsableRemote, { error: "expected a git remote URL" }),
+  ref: z.string().min(1),
+});
 const CopiedLocalFrom = z.strictObject({
   type: z.literal("local"),
   path: AbsolutePath,
@@ -44,8 +51,8 @@ const LiveLocalFrom = z.strictObject({
 });
 // A live source is split from the fetched sources at the schema level so that `SourceEntry` is a
 // union in which the live variant has no `fetched` member at all; nothing has to check for it.
-const FetchedFrom = z.union([GithubFrom, CopiedLocalFrom]);
-export const SourceFromSchema = z.union([GithubFrom, CopiedLocalFrom, LiveLocalFrom]);
+const FetchedFrom = z.union([GithubFrom, GitFrom, CopiedLocalFrom]);
+export const SourceFromSchema = z.union([GithubFrom, GitFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
 
 export const DestinationSchema = z.discriminatedUnion("scope", [
@@ -72,6 +79,7 @@ const IntentFields = {
   rule: z.boolean(),
   destination: DestinationSchema,
   copy: z.boolean(),
+  auth: z.boolean().default(false),
   harnesses: z.array(HarnessIdSchema),
   memoryPath: z.string().min(1).default("memories"),
   fullDepth: z.boolean().default(false),
@@ -156,8 +164,13 @@ export type ParsedState =
 export function parseState(json: unknown): ParsedState {
   if (typeof json === "object" && json !== null && "version" in json) {
     const version = (json as { version: unknown }).version;
-    if (typeof version === "number" && version > CURRENT_STATE_VERSION)
+    if (
+      typeof version === "number" &&
+      Number.isInteger(version) &&
+      version > CURRENT_STATE_VERSION
+    ) {
       return { ok: "newer", version };
+    }
   }
   const result = StateSchema.safeParse(json);
   if (result.success) return { ok: "parsed", state: result.data };
@@ -181,19 +194,52 @@ function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): strin
 }
 
 export function canonicalSourceKey(from: SourceFrom): string {
-  return from.type === "github" ? `@${from.repo}` : from.path;
+  switch (from.type) {
+    case "github":
+      return `@${from.repo}`;
+    case "git":
+      return from.url;
+    case "local":
+      return from.path;
+  }
 }
 
-const GITHUB_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
+const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
+const GIT_SCHEMES = new Set(["https", "http", "ssh", "git"]);
+// scp-like `git@host:path`, which has no scheme; git also accepts an absolute path after the colon.
+const SCP_LIKE = /^[\w.-]+@([\w.-]+):(.+)$/;
+
+export type SourceArgumentOptions = {
+  ghHost?: string;
+};
 
 // `owner/repo` with exactly one slash and no path prefix is a GitHub source, mirroring `skills`; a
-// relative directory that happens to look like one is spelled `./owner/repo`.
-export function parseSourceArgument(arg: string, cwd: string): SourceFrom {
-  if (arg === "") throw usage("a source is required: @owner/repo or a local directory");
-  const url = GITHUB_URL.exec(arg);
-  if (url !== null) return github(`${url[1]}/${url[2]}`, arg);
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(arg)) {
-    throw usage(`${arg} is not a github.com URL; only https://github.com/owner/repo is accepted`);
+// relative directory that happens to look like one is spelled `./owner/repo`. A URL is GitHub
+// only when its HOST is github.com (or `GH_HOST`): a mirror carrying "github.com" in its path
+// stays a plain git source, stored verbatim.
+export function parseSourceArgument(
+  arg: string,
+  cwd: string,
+  options: SourceArgumentOptions = {},
+): SourceFrom {
+  if (arg === "") throw usage("a source is required: @owner/repo, a git URL, or a local directory");
+  const remote = parseRemote(arg);
+  if (remote !== null) {
+    const ghHost = (options.ghHost ?? "github.com").toLowerCase();
+    if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
+    if (remote.host === ghHost) {
+      const repo = remote.segments.join("/");
+      if (remote.segments.length !== 2 || !GITHUB_REPO_PATTERN.test(repo)) {
+        throw usage(`${arg} is not a GitHub owner/repo URL`);
+      }
+      return { type: "github", repo, ref: DEFAULT_GIT_REF };
+    }
+    return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
+  }
+  if (URL_SCHEME.test(arg) || SCP_LIKE.test(arg)) {
+    throw usage(
+      `${arg} is not a usable git URL; https, http, ssh, git and git@host:path are accepted`,
+    );
   }
   if (arg.startsWith("@")) return github(arg.slice(1), arg);
   const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(arg);
@@ -203,9 +249,72 @@ export function parseSourceArgument(arg: string, cwd: string): SourceFrom {
   return arg === "." ? { type: "local", path, live: true } : { type: "local", path };
 }
 
+export type GitRemote = {
+  host: string;
+  segments: string[];
+};
+
+// The host is lower-cased and stripped of user and port. The path is kept as SEGMENTS, each
+// decoded on its own with the trailing `.git` removed, so an encoded slash stays inside its
+// segment where the usability check rejects it instead of splitting into two directories.
+// `parseSourceArgument` and the store-path derivation both read a remote this way.
+export function parseRemote(url: string): GitRemote | null {
+  const scp = SCP_LIKE.exec(url);
+  if (scp !== null && !URL_SCHEME.test(url)) {
+    return { host: (scp[1] ?? "").toLowerCase(), segments: toSegments((scp[2] ?? "").split("/")) };
+  }
+  const scheme = URL_SCHEME.exec(url)?.[1]?.toLowerCase();
+  if (scheme === undefined || !GIT_SCHEMES.has(scheme)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  let segments: string[];
+  try {
+    segments = toSegments(parsed.pathname.split("/").map(decodeURIComponent));
+  } catch {
+    return null;
+  }
+  if (parsed.hostname === "" || segments.length === 0) return null;
+  return { host: parsed.hostname.toLowerCase(), segments };
+}
+
+function toSegments(raw: string[]): string[] {
+  const segments = [...raw];
+  while (segments.length > 0 && segments[0] === "") segments.shift();
+  while (segments.length > 0 && segments[segments.length - 1] === "") segments.pop();
+  const last = segments.length - 1;
+  if (last >= 0) segments[last] = (segments[last] ?? "").replace(/\.git$/i, "");
+  return segments;
+}
+
+// The store derives `_git/<host>/<path>` from a remote, so a remote is usable only when the host
+// and every path segment are real directory names: no dot segments, no control characters, no
+// separators. This is checked once here, at the source boundary.
+const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+const SEGMENT_SEPARATORS = new Set(["/", "\\"]);
+
+function isUnsafeSegment(segment: string): boolean {
+  for (const char of segment) {
+    const code = char.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f || SEGMENT_SEPARATORS.has(char)) return true;
+  }
+  return false;
+}
+
+export function isUsableRemote(url: string): boolean {
+  const remote = parseRemote(url);
+  if (remote === null || !HOSTNAME.test(remote.host) || remote.segments.length === 0) return false;
+  return remote.segments.every(
+    (segment) => segment !== "" && segment !== "." && segment !== ".." && !isUnsafeSegment(segment),
+  );
+}
+
 function github(repo: string, original: string): SourceFrom {
   if (!GITHUB_REPO_PATTERN.test(repo)) throw usage(`${original} is not a valid @owner/repo source`);
-  return { type: "github", repo, ref: DEFAULT_GITHUB_REF };
+  return { type: "github", repo, ref: DEFAULT_GIT_REF };
 }
 
 function usage(message: string): MaximsError {

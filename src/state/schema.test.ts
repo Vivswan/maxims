@@ -2,7 +2,7 @@
 // obeyed, a newer file must never be rewritten, and the source grammar must keep `owner/repo`,
 // URLs, `.` and relative paths landing on the shapes the rest of the tool switches on.
 import { describe, expect, test } from "bun:test";
-import type { MemoryName } from "../memory/contract.ts";
+import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { ExitCode, type MaximsError } from "../util/exit-codes.ts";
 import {
   CURRENT_STATE_VERSION,
@@ -13,7 +13,13 @@ import {
   type SourceFrom,
 } from "./schema.ts";
 
-const RUBBER_DUCK = "rubber-duck-before-every-commit" as MemoryName;
+function memoryName(candidate: string): MemoryName {
+  const name = parseMemoryName(candidate);
+  if (name === null) throw new Error(`test fixture name is not kebab-case: ${candidate}`);
+  return name;
+}
+
+const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 
 const VALID = {
   version: 1,
@@ -29,6 +35,7 @@ const VALID = {
         rule: true,
         destination: { scope: "global" },
         copy: false,
+        auth: true,
         harnesses: ["claude-code", "codex"],
       },
       fetched: {
@@ -42,6 +49,18 @@ const VALID = {
           },
         },
         lastError: null,
+      },
+      addedAt: "2026-08-20T08:38:04.471Z",
+    },
+    "https://gitlab.example.com/team/rules.git": {
+      intent: {
+        from: { type: "git", url: "https://gitlab.example.com/team/rules.git", ref: "HEAD" },
+        select: "*",
+        rename: {},
+        rule: false,
+        destination: { scope: "project" },
+        copy: false,
+        harnesses: ["codex"],
       },
       addedAt: "2026-08-20T08:38:04.471Z",
     },
@@ -75,6 +94,10 @@ describe("parseState", () => {
     const github = result.state.sources["@example-user/rules"];
     expect(github?.intent.memoryPath).toBe("memories");
     expect(github?.intent.fullDepth).toBe(false);
+    expect(github?.intent.auth).toBe(true);
+    const git = result.state.sources["https://gitlab.example.com/team/rules.git"];
+    expect(git?.intent.from.type).toBe("git");
+    expect(git?.intent.auth).toBe(false);
     expect(github !== undefined && "fetched" in github).toBe(true);
     if (github === undefined || !("fetched" in github)) return;
     expect(github.fetched?.memories[RUBBER_DUCK]?.content).toMatch(/^sha256:/);
@@ -93,10 +116,12 @@ describe("parseState", () => {
       ok: "newer",
       version: CURRENT_STATE_VERSION + 1,
     });
+    expect(parseState({ version: 99 })).toEqual({ ok: "newer", version: 99 });
   });
 
   const corrupt: { title: string; mutate: (json: typeof VALID) => unknown; issue: RegExp }[] = [
     { title: "not an object", mutate: () => "state", issue: /expected object/i },
+    { title: "a fractional version", mutate: (j) => ({ ...j, version: 1.5 }), issue: /^version:/ },
     { title: "missing version", mutate: (j) => ({ ...j, version: undefined }), issue: /^version:/ },
     {
       title: "a -g destination smuggling an -o path",
@@ -139,6 +164,14 @@ describe("parseState", () => {
         return j;
       },
       issue: /intent\.from/,
+    },
+    {
+      title: "a git source whose URL is not a usable remote",
+      mutate: (j) => {
+        j.sources["https://gitlab.example.com/team/rules.git"].intent.from.url = "not-a-url";
+        return j;
+      },
+      issue: /git remote URL/,
     },
     {
       title: "a traversal name in select",
@@ -186,7 +219,23 @@ describe("parseState", () => {
 describe("parseSourceArgument", () => {
   const cwd = "/home/user/project";
   const github = (repo: string): SourceFrom => ({ type: "github", repo, ref: "HEAD" });
+  const git = (url: string): SourceFrom => ({ type: "git", url, ref: "HEAD" });
   const accepted: [string, SourceFrom][] = [
+    ["https://gitlab.example.com/team/rules.git", git("https://gitlab.example.com/team/rules.git")],
+    [
+      "ssh://git@gitea.example.com:2222/team/rules",
+      git("ssh://git@gitea.example.com:2222/team/rules"),
+    ],
+    ["git@gitlab.example.com:team/rules.git", git("git@gitlab.example.com:team/rules.git")],
+    [
+      "git@gitlab.example.com:/srv/team/rules.git",
+      git("git@gitlab.example.com:/srv/team/rules.git"),
+    ],
+    ["git@github.com:example-user/rules.git", github("example-user/rules")],
+    [
+      "https://mirror.example.com/github.com/example-user/rules",
+      git("https://mirror.example.com/github.com/example-user/rules"),
+    ],
     ["@Example-User/rules", github("Example-User/rules")],
     ["example-user/rules", github("example-user/rules")],
     ["https://github.com/example-user/rules", github("example-user/rules")],
@@ -201,8 +250,19 @@ describe("parseSourceArgument", () => {
   ];
   test.each(accepted)("%s", (arg, expected) => {
     expect(parseSourceArgument(arg, cwd)).toEqual(expected);
-    expect(canonicalSourceKey(expected)).toBe(
-      expected.type === "github" ? `@${expected.repo}` : expected.path,
+    const key = canonicalSourceKey(expected);
+    if (expected.type === "github") expect(key).toBe(`@${expected.repo}`);
+    else if (expected.type === "git") expect(key).toBe(arg);
+    else expect(key).toBe(expected.path);
+  });
+
+  test("GH_HOST moves the github host; github.com then becomes a plain git remote", () => {
+    const ghHost = "github.example.com";
+    expect(parseSourceArgument("https://github.example.com/team/rules", cwd, { ghHost })).toEqual(
+      github("team/rules"),
+    );
+    expect(parseSourceArgument("https://github.com/team/rules", cwd, { ghHost })).toEqual(
+      git("https://github.com/team/rules"),
     );
   });
 
@@ -210,7 +270,16 @@ describe("parseSourceArgument", () => {
     "",
     "@only-owner",
     "@a/b/c",
-    "https://gitlab.com/a/b",
+    "ftp://gitlab.example.com/a/b",
+    "https://github.com/only-owner",
+    "https://gitlab.example.com/team/100%.git",
+    "https://gitlab.example.com/team/a%00b.git",
+    "https://gitlab.example.com/team/a%2Fb.git",
+    "https://github.com/example-user%2Frules.git",
+    "git@gitlab.example.com:/",
+    "git@..:example-user/rules.git",
+    "git@gitlab.example.com:a/../b",
+    "https://gitlab.example.com/",
     "~/dotfiles",
     "@-bad/repo",
     "@octocat/..",
