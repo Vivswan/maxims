@@ -149,6 +149,11 @@ const refusals: [string, Mutation, string][] = [
     "hook.contentTemplate: the file must run the hook: use {{command}} or {{argv}}",
   ],
   [
+    "a registry hook in a toml file",
+    at(["hook", "format"], "toml"),
+    "hook.format: a registry hook is json; toml is read for tierCheck and never written",
+  ],
+  [
     "a per-scope budget that names no scope",
     at(["byteBudget"], {}),
     "byteBudget: a per-scope budget names at least one scope",

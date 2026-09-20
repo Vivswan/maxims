@@ -214,7 +214,9 @@ const RegistryHook = z
   .strictObject({
     kind: z.literal("registry"),
     path: perScope(RelPath),
-    format: ConfigFormatEnum,
+    format: z.literal("json", {
+      error: "a registry hook is json; toml is read for tierCheck and never written",
+    }),
     eventPath: z.array(z.string().min(1)).min(1),
     grouped: z.boolean(),
     wrapper: Fields.optional(),

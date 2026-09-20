@@ -42,7 +42,7 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | Field | Meaning |
 | --- | --- |
 | `path` | the registry file per scope |
-| `format` | the registry file's syntax, `json` or `toml` |
+| `format` | `json`; `toml` is read for `tierCheck` and never written |
 | `eventPath` | the key path to the event's handler list, such as `["hooks", "SessionStart"]` |
 | `grouped` | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups |
 | `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
