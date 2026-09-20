@@ -1,7 +1,14 @@
 // Guards the write path every destination relies on: a temp file left behind, a traversal that
 // escapes its root, or a directory hash that follows symlinks would each fail silently in sync.
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
@@ -69,6 +76,41 @@ describe("assertInsideRoot", () => {
     }
     expect(caught).toBeInstanceOf(MaximsError);
     expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+  });
+});
+
+test("assertInsideRoot follows a symlinked ancestor and refuses one that leaves the root", async () => {
+  await withTempDir((dir) => {
+    const root = join(dir, "root");
+    const outside = join(dir, "outside");
+    mkdirSync(root);
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, "escape"));
+    symlinkSync(join(root, "real"), join(root, "alias"));
+    mkdirSync(join(root, "real"));
+    let caught: unknown;
+    try {
+      assertInsideRoot(root, join(root, "escape", "victim.md"));
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+    expect(assertInsideRoot(root, join(root, "alias", "ok.md"))).toBe(
+      join(root, "alias", "ok.md") as RootedPath,
+    );
+  });
+});
+
+test("writeFileAtomic applies the requested mode regardless of the umask", async () => {
+  await withTempDir((dir) => {
+    const previous = process.umask(0o077);
+    try {
+      const target = assertInsideRoot(dir, join(dir, "hook.sh"));
+      writeFileAtomic(target, "#!/bin/sh\n", { mode: 0o755 });
+      expect(statSync(target).mode & 0o777).toBe(0o755);
+    } finally {
+      process.umask(previous);
+    }
   });
 });
 

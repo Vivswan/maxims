@@ -1,5 +1,5 @@
 import { closeSync, openSync, unlinkSync, writeSync } from "node:fs";
-import { readFile, rename, stat, unlink } from "node:fs/promises";
+import { link, readFile, rename, stat, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
@@ -41,8 +41,10 @@ export async function withLock<T>(
   const deadline = Date.now() + waitMs;
   let stolen: StolenLock | null = null;
   let delayMs = 25;
+  let ours: LockHolder | null = null;
   for (;;) {
-    if (tryCreate(lockPath)) break;
+    ours = tryCreate(lockPath);
+    if (ours !== null) break;
     const holder = await readHolder(lockPath);
     const theft = await stealIfStale(lockPath, holder, staleMs);
     if (theft !== null) {
@@ -56,16 +58,28 @@ export async function withLock<T>(
   try {
     return await fn({ stolen });
   } finally {
-    await unlink(lockPath).catch(() => undefined);
+    await releaseOwn(lockPath, ours);
   }
 }
 
-function tryCreate(lockPath: string): boolean {
+// A holder that outlived staleMs may have been displaced by a stealer; releasing then must not
+// remove the stealer's lock, so the file is unlinked only while it still records this holder.
+async function releaseOwn(lockPath: string, ours: LockHolder): Promise<void> {
+  const current = await readHolder(lockPath);
+  if (current !== null && !sameHolder(current, ours)) return;
+  await unlink(lockPath).catch(() => undefined);
+}
+
+function sameHolder(a: LockHolder | null, b: LockHolder | null): boolean {
+  return a !== null && b !== null && a.pid === b.pid && a.startedAt === b.startedAt;
+}
+
+function tryCreate(lockPath: string): LockHolder | null {
   let fd: number;
   try {
     fd = openSync(lockPath, "wx", 0o600);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return null;
     throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot create lock ${lockPath}`, {
       cause: error,
     });
@@ -86,7 +100,7 @@ function tryCreate(lockPath: string): boolean {
     });
   }
   closeSync(fd);
-  return true;
+  return holder;
 }
 
 async function readHolder(lockPath: string): Promise<LockHolder | null> {
@@ -117,7 +131,10 @@ async function lockAgeMs(lockPath: string, holder: LockHolder | null): Promise<n
 }
 
 // The stale file is renamed aside before the new lock is created so two stealers racing on one
-// stale lock cannot both believe they removed it: only the rename's winner proceeds to create.
+// stale lock cannot both believe they removed it: only the rename's winner proceeds. The moved
+// file is then checked against the holder that was judged stale; if a faster stealer had already
+// replaced it with a fresh lock, that lock is put back (a hard link fails rather than clobbers a
+// newer one) and nothing was stolen.
 async function stealIfStale(
   lockPath: string,
   holder: LockHolder | null,
@@ -131,7 +148,11 @@ async function stealIfStale(
   } catch {
     return null;
   }
+  const moved = await readHolder(aside);
+  const grabbedFreshLock = moved !== null && !sameHolder(moved, holder);
+  if (grabbedFreshLock) await link(aside, lockPath).catch(() => undefined);
   await unlink(aside).catch(() => undefined);
+  if (grabbedFreshLock) return null;
   return { holder, ageMs, holderAlive: holder !== null && pidAlive(holder.pid) };
 }
 

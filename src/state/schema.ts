@@ -189,21 +189,18 @@ const GITHUB_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/
 // `owner/repo` with exactly one slash and no path prefix is a GitHub source, mirroring `skills`; a
 // relative directory that happens to look like one is spelled `./owner/repo`.
 export function parseSourceArgument(arg: string, cwd: string): SourceFrom {
-  const trimmed = arg;
-  if (trimmed === "") throw usage("a source is required: @owner/repo or a local directory");
-  const url = GITHUB_URL.exec(trimmed);
-  if (url !== null) return github(`${url[1]}/${url[2]}`, trimmed);
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
-    throw usage(
-      `${trimmed} is not a github.com URL; only https://github.com/owner/repo is accepted`,
-    );
+  if (arg === "") throw usage("a source is required: @owner/repo or a local directory");
+  const url = GITHUB_URL.exec(arg);
+  if (url !== null) return github(`${url[1]}/${url[2]}`, arg);
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(arg)) {
+    throw usage(`${arg} is not a github.com URL; only https://github.com/owner/repo is accepted`);
   }
-  if (trimmed.startsWith("@")) return github(trimmed.slice(1), trimmed);
-  const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(trimmed);
-  if (!looksLocal && GITHUB_REPO_PATTERN.test(trimmed)) return github(trimmed, trimmed);
-  if (trimmed.startsWith("~")) throw usage(`cannot expand "~" in ${trimmed}; give the full path`);
-  const path = resolve(cwd, trimmed);
-  return trimmed === "." ? { type: "local", path, live: true } : { type: "local", path };
+  if (arg.startsWith("@")) return github(arg.slice(1), arg);
+  const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(arg);
+  if (!looksLocal && GITHUB_REPO_PATTERN.test(arg)) return github(arg, arg);
+  if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
+  const path = resolve(cwd, arg);
+  return arg === "." ? { type: "local", path, live: true } : { type: "local", path };
 }
 
 function github(repo: string, original: string): SourceFrom {

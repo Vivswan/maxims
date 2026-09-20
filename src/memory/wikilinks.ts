@@ -25,12 +25,13 @@ export function resolveWikilinks(
   installedNames: Set<string>,
   rename: Record<string, string>,
 ): { unmet: UnmetWikilink[] } {
+  const localName = (name: string) => (Object.hasOwn(rename, name) ? rename[name] : name);
   const available = new Set(installedNames);
-  for (const memory of incoming) available.add(rename[memory.name] ?? memory.name);
+  for (const memory of incoming) available.add(localName(memory.name));
   const unmet: UnmetWikilink[] = [];
   for (const memory of incoming) {
     for (const link of extractWikilinks(memory.body)) {
-      if (available.has(rename[link] ?? link)) continue;
+      if (available.has(localName(link))) continue;
       unmet.push({ memory: memory.name, link });
     }
   }

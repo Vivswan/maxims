@@ -1,6 +1,17 @@
+import { randomBytes } from "node:crypto";
 import type { Stats } from "node:fs";
-import { chmod, lstat, mkdir, readFile, readlink, rm, symlink, unlink } from "node:fs/promises";
-import { dirname } from "node:path";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  unlink,
+} from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { type RootedPath, writeFileAtomic } from "./fs.ts";
 
@@ -27,7 +38,8 @@ export type ApplyResult = {
 };
 
 // `unlink` and `symlink` refuse a real file or directory at the path: the only thing maxims may
-// replace without an explicit `delete` in the plan is a link it could have written itself.
+// replace without an explicit `delete` in the plan is a link it could have written itself. A
+// repointed link is created beside the old one and renamed over it, so no reader sees it absent.
 export async function applyChanges(plan: Plan, options: ApplyOptions): Promise<ApplyResult> {
   if (options.dryRun) return { applied: 0 };
   let applied = 0;
@@ -41,7 +53,9 @@ async function applyOne(change: Change): Promise<boolean> {
   switch (change.kind) {
     case "write": {
       const existing = await lstatOrNull(change.path);
-      const current = existing?.isFile() ? await readFile(change.path, "utf8") : null;
+      const current = existing?.isFile()
+        ? await guardedValue(change.path, () => readFile(change.path, "utf8"))
+        : null;
       if (current !== change.content) {
         writeFileAtomic(change.path, change.content, { mode: change.mode });
         return true;
@@ -74,11 +88,16 @@ async function applyOne(change: Change): Promise<boolean> {
           );
         }
         if ((await readlink(change.path)) === change.target) return false;
-        await guarded(change.path, () => unlink(change.path));
       }
       await guarded(change.path, async () => {
-        await mkdir(dirname(change.path), { recursive: true });
-        await symlink(change.target, change.path);
+        const dir = dirname(change.path);
+        await mkdir(dir, { recursive: true });
+        const temp = join(dir, `.${randomBytes(6).toString("hex")}.lnk`);
+        await symlink(change.target, temp);
+        await rename(temp, change.path).catch(async (error: unknown) => {
+          await unlink(temp).catch(() => undefined);
+          throw error;
+        });
       });
       return true;
     }
@@ -122,8 +141,12 @@ async function lstatOrNull(path: string): Promise<Stats | null> {
 }
 
 async function guarded(path: string, action: () => Promise<unknown>): Promise<void> {
+  await guardedValue(path, action);
+}
+
+async function guardedValue<T>(path: string, action: () => Promise<T>): Promise<T> {
   try {
-    await action();
+    return await action();
   } catch (cause) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,

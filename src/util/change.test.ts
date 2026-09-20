@@ -136,6 +136,14 @@ describe("applyChanges", () => {
     "a path that cannot be inspected is exit 4, never a silent no-op",
     async () => {
       await withTempDir(async (dir) => {
+        const unreadable = assertInsideRoot(dir, join(dir, "unreadable.md"));
+        writeFileSync(unreadable, "secret", { mode: 0o000 });
+        await expectWriteFailed(() =>
+          applyChanges(
+            { changes: [{ kind: "write", path: unreadable, content: "y" }], notices: [] },
+            { dryRun: false },
+          ),
+        );
         const sealed = join(dir, "sealed");
         mkdirSync(sealed);
         writeFileSync(join(sealed, "x.md"), "");

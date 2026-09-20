@@ -61,6 +61,13 @@ describe("resolveWikilinks", () => {
     ).toEqual({ unmet: [] });
   });
 
+  test("a memory named like an Object prototype member is looked up as an own key only", () => {
+    const incoming = [memory("caller", "[[constructor]] and [[has-own-property]]")];
+    expect(resolveWikilinks(incoming, new Set(["constructor"]), {})).toEqual({
+      unmet: [{ memory: "caller", link: "has-own-property" }],
+    });
+  });
+
   test("reports every dangling link with the memory that carries it", () => {
     const incoming = [
       memory("one", "[[missing-a]] [[already-installed]] [[missing-b]]"),

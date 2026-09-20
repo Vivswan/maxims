@@ -1,7 +1,7 @@
 // Guards the concurrency table: a second writer that waits forever, a hook that blocks a session
 // start, or a crashed holder's lock that is never stolen would each show up only under load.
 import { describe, expect, test } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
@@ -96,6 +96,42 @@ describe("withLock", () => {
       expect(seen.stolen?.ageMs).toBeGreaterThanOrEqual(120_000);
       expect(seen.stolen?.holderAlive).toBe(false);
       expect(existsSync(lockPath)).toBe(false);
+    });
+  });
+
+  test("two stealers racing on one stale lock: one theft, and their callbacks never overlap", async () => {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "state.json.lock");
+      const startedAt = new Date(Date.now() - 120_000).toISOString();
+      writeFileSync(
+        lockPath,
+        `${JSON.stringify({ pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: [] })}\n`,
+      );
+      let inside = 0;
+      let overlap = 0;
+      const run = () =>
+        withLock(lockPath, { waitMs: 3000, staleMs: 60_000 }, async (lock) => {
+          inside += 1;
+          if (inside > 1) overlap += 1;
+          await Bun.sleep(40);
+          inside -= 1;
+          return lock.stolen !== null;
+        });
+      const thefts = (await Promise.all([run(), run()])).filter(Boolean).length;
+      expect(overlap).toBe(0);
+      expect(thefts).toBe(1);
+      expect(existsSync(lockPath)).toBe(false);
+    });
+  });
+
+  test("a displaced holder's release leaves the newer lock in place", async () => {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "state.json.lock");
+      const newer = `${JSON.stringify({ pid: 2 ** 31 - 2, host: "example.com", startedAt: new Date().toISOString(), argv: ["maxims", "add"] })}\n`;
+      await withLock(lockPath, {}, async () => {
+        writeFileSync(lockPath, newer);
+      });
+      expect(readFileSync(lockPath, "utf8")).toBe(newer);
     });
   });
 

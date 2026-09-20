@@ -1,15 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   closeSync,
+  fchmodSync,
   fsyncSync,
   mkdirSync,
   openSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
 import { chmod, readdir, readFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
 export type WriteFileAtomicOptions = {
@@ -24,7 +26,8 @@ declare const rootedPathBrand: unique symbol;
 export type RootedPath = string & { readonly [rootedPathBrand]: true };
 
 // Every destination write is temp + rename so a reader in another process sees the old file or the
-// new one, never a partial one; the memory-file and rule-file guarantees in sync rely on this.
+// new one, never a partial one; the memory-file and rule-file guarantees in sync rely on this. A
+// requested mode is set on the descriptor because the open mode is masked by the umask.
 export function writeFileAtomic(
   path: RootedPath,
   data: string | Uint8Array,
@@ -37,6 +40,7 @@ export function writeFileAtomic(
     const fd = openSync(tempPath, "w", options.mode ?? 0o644);
     try {
       writeAll(fd, typeof data === "string" ? Buffer.from(data) : data);
+      if (options.mode !== undefined) fchmodSync(fd, options.mode);
       fsyncSync(fd);
     } finally {
       closeSync(fd);
@@ -70,17 +74,36 @@ function writeAll(fd: number, data: Uint8Array): void {
   }
 }
 
+// Containment is checked on real paths, not lexical ones: a symlinked directory planted under the
+// root would otherwise carry a write or delete to wherever it points. The deepest existing
+// ancestor of the candidate is resolved and the not-yet-created tail appended to it.
 export function assertInsideRoot(root: string, candidate: string): RootedPath {
-  const resolvedRoot = resolve(root);
   const resolved = resolve(candidate);
-  const rel = relative(resolvedRoot, resolved);
+  const realRoot = realpathOfExistingPrefix(resolve(root));
+  const realCandidate = realpathOfExistingPrefix(resolved);
+  const rel = relative(realRoot, realCandidate);
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
-      `refusing to write outside ${resolvedRoot}: ${resolved}`,
+      `refusing to write outside ${realRoot}: ${resolved}`,
     );
   }
   return resolved as RootedPath;
+}
+
+function realpathOfExistingPrefix(path: string): string {
+  let prefix = path;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(prefix), ...tail.reverse());
+    } catch {
+      const parent = dirname(prefix);
+      if (parent === prefix) return path;
+      tail.push(basename(prefix));
+      prefix = parent;
+    }
+  }
 }
 
 export function sha256(text: string | Uint8Array): string {
