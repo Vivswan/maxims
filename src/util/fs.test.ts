@@ -163,3 +163,23 @@ test("ensureDir0700 creates the chain and leaves the leaf owner-only", async () 
     expect(statSync(leaf).mode & 0o777).toBe(0o700);
   });
 });
+
+test("assertInsideRoot accepts a root whose own name is a symlink, for itself and its children", async () => {
+  await withTempDir((dir) => {
+    const real = join(dir, "real");
+    const link = join(dir, "link");
+    mkdirSync(real);
+    symlinkSync(real, link);
+    expect(assertInsideRoot(link, link)).toBe(link as RootedPath);
+    expect(assertInsideRoot(link, join(link, "file.md"))).toBe(join(link, "file.md") as RootedPath);
+    for (const outside of [join(link, "..", "escape.md"), join(dir, "outside.md"), dir]) {
+      let caught: unknown;
+      try {
+        assertInsideRoot(link, outside);
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+    }
+  });
+});

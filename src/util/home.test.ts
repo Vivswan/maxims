@@ -73,7 +73,7 @@ describe("storePathFor", () => {
       }),
     ).toBe(https);
     expect(
-      storePathFor(home, { type: "git", url: "ssh://git@gitea.example.com:2222/a/b", ref: "HEAD" }),
+      storePathFor(home, { type: "git", url: "ssh://git@gitea.example.com/a/b", ref: "HEAD" }),
     ).toBe(join(store, "_git", "gitea.example.com", "a", "b"));
     expect(
       storePathFor(home, { type: "git", url: "git@gitea.example.com:/srv/a/b.git", ref: "HEAD" }),
@@ -90,4 +90,24 @@ describe("storePathFor", () => {
       storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
     ).toBe(a);
   });
+});
+
+// The canonical key keeps the URL verbatim, so two ports are two sources; the store must not fold
+// them onto one directory where a fetch of one would overwrite the other.
+test("a git remote's port becomes part of the store host segment", () => {
+  const home = "/home/user/.agents/maxims";
+  const store = homePaths(home).store;
+  const at = (url: string) => storePathFor(home, { type: "git", url, ref: "HEAD" });
+  expect(at("ssh://git@git.example.com:2222/team/rules")).toBe(
+    join(store, "_git", "git.example.com_2222", "team", "rules"),
+  );
+  expect(at("ssh://git@git.example.com:2223/team/rules")).toBe(
+    join(store, "_git", "git.example.com_2223", "team", "rules"),
+  );
+  expect(at("ssh://git@git.example.com/team/rules")).toBe(
+    join(store, "_git", "git.example.com", "team", "rules"),
+  );
+  expect(at("https://git.example.com:443/team/rules")).toBe(
+    join(store, "_git", "git.example.com", "team", "rules"),
+  );
 });

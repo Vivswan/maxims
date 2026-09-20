@@ -37,7 +37,8 @@ export function homePaths(home: string): HomePaths {
 // GitHub owner and repo names are case-insensitive, so the store folds them to lower case: two
 // spellings of one repo must land in one entry even on a case-sensitive filesystem. The `_local`,
 // `_git` and `_github` prefixes are unreachable for a github owner, whose names never start with an
-// underscore; a git remote keys on its host and path with `.git` stripped and slashes kept. A
+// underscore; a git remote keys on its host and path with `.git` stripped and slashes kept, and
+// an explicit port joins the host with `_` because `:` is not a portable directory character. A
 // pinned source is a distinct source, so its entry carries the pin as a suffix.
 // A ref may hold characters a directory name cannot (`release/1.0`), so the readable form is
 // sanitized and capped well under NAME_MAX, and a short hash of the exact ref keeps two refs that
@@ -66,7 +67,8 @@ export function storePathFor(home: string, from: SourceFrom): string {
     const segments = [...remote.segments];
     const last = segments.length - 1;
     segments[last] = pinned(stripGitSuffix(segments[last] ?? ""), from.ref);
-    return assertInsideRoot(store, join(store, "_git", remote.host, ...segments));
+    const host = remote.port === null ? remote.host : `${remote.host}_${remote.port}`;
+    return assertInsideRoot(store, join(store, "_git", host, ...segments));
   }
   const absolute = resolve(from.path);
   const stem = basename(absolute) || "root";

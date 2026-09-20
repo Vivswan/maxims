@@ -325,10 +325,13 @@ function github(
 
 export type GitRemote = {
   host: string;
+  // The explicit port, or null when the URL names none; the URL parser already drops a default
+  // http(s) port, and the scp-like form has no port syntax at all.
+  port: string | null;
   segments: string[];
 };
 
-// The host is lower-cased and stripped of user and port. The path is kept as SEGMENTS, each
+// The host is lower-cased and stripped of its user part. The path is kept as SEGMENTS, each
 // decoded on its own and otherwise verbatim (`.git` included), so an encoded slash stays inside
 // its segment where the usability check rejects it instead of splitting into two directories.
 // `parseSourceArgument` and the store-path derivation both read a remote this way.
@@ -336,7 +339,11 @@ export function parseRemote(url: string): GitRemote | null {
   if (url.includes("#")) return null;
   const scp = SCP_LIKE.exec(url);
   if (scp !== null && !URL_SCHEME.test(url)) {
-    return { host: (scp[1] ?? "").toLowerCase(), segments: toSegments((scp[2] ?? "").split("/")) };
+    return {
+      host: (scp[1] ?? "").toLowerCase(),
+      port: null,
+      segments: toSegments((scp[2] ?? "").split("/")),
+    };
   }
   const scheme = URL_SCHEME.exec(url)?.[1]?.toLowerCase();
   if (scheme === undefined || !GIT_SCHEMES.has(scheme)) return null;
@@ -353,7 +360,11 @@ export function parseRemote(url: string): GitRemote | null {
     return null;
   }
   if (parsed.hostname === "" || segments.length === 0) return null;
-  return { host: parsed.hostname.toLowerCase(), segments };
+  return {
+    host: parsed.hostname.toLowerCase(),
+    port: parsed.port === "" ? null : parsed.port,
+    segments,
+  };
 }
 
 function toSegments(raw: string[]): string[] {

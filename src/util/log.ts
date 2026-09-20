@@ -7,13 +7,13 @@ import { homePaths } from "./home.ts";
 export const MAX_LOG_BYTES = 256 * 1024;
 
 export async function appendRefreshLog(home: string, line: string): Promise<void> {
-  const path = homePaths(home).log;
+  const path = assertInsideRoot(home, homePaths(home).log);
   try {
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, `${line.replace(/\r?\n$/, "")}\n`);
     const size = (await stat(path)).size;
     if (size > MAX_LOG_BYTES) {
-      writeFileAtomic(assertInsideRoot(home, path), trimOldest(await readFile(path, "utf8")));
+      writeFileAtomic(path, trimOldest(await readFile(path, "utf8")));
     }
   } catch (cause) {
     if (cause instanceof MaximsError) throw cause;
