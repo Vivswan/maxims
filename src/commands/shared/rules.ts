@@ -71,11 +71,17 @@ export async function planRuleFile(
     };
   }
   const current = linked ? null : readIfPresent(file.path);
-  const rendering = await renderingFor(file, options.ctx);
+  const rendering = renderingFor(file);
   const staleKeys = file.blocks
     .filter((block) => block.stale !== undefined)
     .map((block) => block.key);
-  const selfRefresh = chooseSelfRefreshSource({ tier: rendering.tier }, staleKeys);
+  // The tier decides only which stale block carries the self-refresh line, so the harness configs
+  // behind it are read only when a block is stale: a file this run renders no block for (a kept
+  // block, an orphan strip) must plan on a machine whose config a probe refuses to read.
+  const selfRefresh =
+    staleKeys.length === 0
+      ? null
+      : chooseSelfRefreshSource({ tier: await fileTier(file, options.ctx) }, staleKeys);
   const rendered = file.blocks.map((block) => ({
     block,
     text: renderBlock({
@@ -151,24 +157,28 @@ export async function planRuleFile(
   return { writes, removals, notices, tokens };
 }
 
-type Rendering = { markers: Markers; expands: ExpansionSyntax[]; tier: 1 | 2 };
+type Rendering = { markers: Markers; expands: ExpansionSyntax[] };
 
 // A file several harnesses read is rendered for the most demanding of them: markers count if any
-// counts them, escaping is conservative if any declares no syntax, and one hooked (tier 1) reader
-// is enough to make the self-refresh line redundant.
-async function renderingFor(file: RuleFile, ctx: EngineContext): Promise<Rendering> {
-  if (file.kind === "out") return { markers: "counted", expands: [], tier: 1 };
+// counts them, escaping is conservative if any declares no syntax.
+function renderingFor(file: RuleFile): Rendering {
+  if (file.kind === "out") return { markers: "counted", expands: [] };
   const defs = file.targets.map((target) => target.def);
   const markers: Markers = defs.some((def) => def.markers === "counted") ? "counted" : "stripped";
   const expands = defs.some((def) => def.expands.length === 0)
     ? []
     : [...new Set(defs.flatMap((def) => def.expands))];
+  return { markers, expands };
+}
+
+// One hooked (tier 1) reader is enough to make the self-refresh line redundant.
+async function fileTier(file: RuleFile, ctx: EngineContext): Promise<1 | 2> {
+  if (file.kind === "out") return 1;
   const harnessCtx = harnessContext(ctx);
-  let tier: 1 | 2 = 2;
   for (const target of file.targets) {
-    if ((await achievedTier(target.def, target.scope, harnessCtx)) === 1) tier = 1;
+    if ((await achievedTier(target.def, target.scope, harnessCtx)) === 1) return 1;
   }
-  return { markers, expands, tier };
+  return 2;
 }
 
 // The strategy owns the frontmatter and the byte budget; the file it names is `file.path`.

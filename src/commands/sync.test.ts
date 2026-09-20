@@ -61,6 +61,10 @@ const QUIET: SyncOptions = { ...SYNC, quiet: true };
 const NOW = new Date("2026-09-20T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function budgetedReader(byteBudget: number): HarnessDefinition {
+  return { ...sharedBlockHarness, id: "dsh", displayName: "Fixture Budgeted", byteBudget };
+}
+
 function fetchedOf(home: string, key: string) {
   const entry = readStateFile(home).sources[key];
   return entry !== undefined && "fetched" in entry ? entry.fetched : undefined;
@@ -392,13 +396,12 @@ describe("shared files and dedupe", () => {
       await world(async ({ home, dir, userHome }) => {
         const source = writeSource(join(dir, "src"), TWO_MEMORIES);
         writeState(home, stateWith({ [source]: entryFor(localFrom(source), { harnesses }) }));
-        const budgeted: HarnessDefinition = {
-          ...sharedBlockHarness,
-          id: "dsh",
-          displayName: "Fixture Budgeted",
-          byteBudget: 64,
-        };
-        const io = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness, budgeted] });
+        const io = fakeIo({
+          home,
+          userHome,
+          cwd: dir,
+          harnesses: [sharedBlockHarness, budgetedReader(64)],
+        });
         const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
         expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
         expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
@@ -417,13 +420,12 @@ describe("shared files and dedupe", () => {
           [second]: entryFor(localFrom(second), { harnesses: ["codex", "dsh"] }),
         }),
       );
-      const budgeted: HarnessDefinition = {
-        ...sharedBlockHarness,
-        id: "dsh",
-        displayName: "Fixture Budgeted",
-        byteBudget: 64,
-      };
-      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness, budgeted] });
+      const io = fakeIo({
+        home,
+        userHome,
+        cwd: dir,
+        harnesses: [sharedBlockHarness, budgetedReader(64)],
+      });
       const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
       expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
       expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
@@ -1606,6 +1608,41 @@ describe("what a refused or departed source leaves behind", () => {
   });
 });
 
+describe("a vanished source's destination", () => {
+  // Its rule file has that source as its only writer and nothing to render this run, so the
+  // destination is not visited: a parent that became a regular file is a write failure for a
+  // readable source, never a stop for a run that only keeps the file. The shared fixture's hook
+  // file lives in the same folder and would be reported as its own failure, so it is left out.
+  const parents: [string, HarnessDefinition, string][] = [
+    ["a rules directory", rulesDirHarness, join(".fixture", "rules")],
+    [
+      "the folder holding a shared file",
+      { ...sharedBlockHarness, hook: { kind: "none" } },
+      ".fixture",
+    ],
+  ];
+  for (const [label, def, parent] of parents) {
+    test(`${label} is not visited, even once it has become a regular file`, async () => {
+      await world(async ({ home, dir, userHome }) => {
+        const live = writeSource(join(dir, "live"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith({ [live]: entryFor(localFrom(live, true), { harnesses: [def.id] }) }),
+        );
+        const io = fakeIo({ home, userHome, cwd: dir, harnesses: [def] });
+        await runSync(SYNC, io);
+        rmSync(live, { recursive: true });
+        const path = join(userHome, parent);
+        rmSync(path, { recursive: true });
+        writeFileSync(path, "not a directory\n");
+        const report = await runSync(SYNC, io);
+        expect(report.failed.map((failure) => failure.key)).toEqual([live]);
+        expect(readFileSync(path, "utf8")).toBe("not a directory\n");
+      });
+    });
+  }
+});
+
 describe("plan surfaces", () => {
   test("--dry-run prints the plan and touches nothing; --json is one value, also on a collision", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -1722,6 +1759,94 @@ describe("shared file byte budget", () => {
       expect(parseBlocks(text).blocks).toHaveLength(2);
       expect(text.match(/alpha-rule-\d/g)).toHaveLength(6);
       expect(text.match(/bravo-rule-\d/g)).toHaveLength(2);
+    });
+  });
+
+  // A harness may refuse to read its own config when probed for the tier it reaches (Codex on a
+  // config.toml that does not parse). The probe decides only the self-refresh line, so a run that
+  // renders no stale block never asks: a kept block of a vanished source plans without it.
+  test("the tier probe runs only for a file with a stale block", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const probing: HarnessDefinition = {
+        ...sharedBlockHarness,
+        achievedTier: () => Promise.reject(new Error("probed the config")),
+      };
+      const live = writeSource(join(dir, "live"), TWO_MEMORIES);
+      writeState(
+        home,
+        stateWith({ [live]: entryFor(localFrom(live, true), { harnesses: ["codex"] }) }),
+      );
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [probing] });
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      await runSync(SYNC, io);
+      const before = readFileSync(shared, "utf8");
+      rmSync(live, { recursive: true });
+      const report = await runSync(SYNC, io);
+      expect(report.failed.map((failure) => failure.key)).toEqual([live]);
+      expect(readFileSync(shared, "utf8")).toBe(before);
+      const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
+      const from = githubFrom("acme/rules");
+      seedStore(home, from, upstream);
+      const facts = await fetchedFacts(upstream, daysAgo(NOW, 40));
+      writeState(
+        home,
+        stateWith({ "@acme/rules": fetchedEntry(from, facts, { harnesses: ["codex"] }) }),
+      );
+      const fake = fakeResolvers();
+      fake.set(from, { kind: "fail", failure: "network" });
+      const stale = fakeIo({
+        home,
+        userHome,
+        cwd: dir,
+        harnesses: [probing],
+        resolvers: fake.resolvers,
+      });
+      await expect(runSync(SYNC, stale)).rejects.toThrow("probed the config");
+    });
+  });
+
+  // An unreadable source keeps its block in the shared file, and the harness that loads the file
+  // through that source keeps loading it, so the finished file answers to that reader's budget.
+  test("a grown shared file is judged against the budget of a reader only an emptied source brings", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const codexSource = writeSource(join(dir, "codex-src"), { alpha: { description: "Alpha." } });
+      const dshSource = writeSource(join(dir, "dsh-src"), { beta: { description: "Beta." } });
+      const projectScoped = (harness: HarnessId) => ({
+        destination: { scope: "project" as const },
+        harnesses: [harness],
+      });
+      const codexEntry = entryFor(localFrom(codexSource, true), projectScoped("codex"));
+      const dshEntry = entryFor(localFrom(dshSource, true), projectScoped("dsh"));
+      writeState(home, stateWith({ [codexSource]: codexEntry, [dshSource]: dshEntry }));
+      const shared = join(project, "FIXTURE.md");
+      const roomy = fakeIo({
+        home,
+        userHome,
+        cwd: project,
+        harnesses: [sharedBlockHarness, budgetedReader(1 << 20)],
+      });
+      await runSync(SYNC, roomy);
+      const before = readFileSync(shared, "utf8");
+      expect(before).toContain("Beta.");
+      rmSync(join(dshSource, "memories", "beta.md"));
+      const grown = memoryFile("alpha-two", { description: "Alpha, grown past the budget." });
+      writeFileSync(join(codexSource, "memories", "alpha-two.md"), grown);
+      const limit = Buffer.byteLength(before) + 16;
+      const io = fakeIo({
+        home,
+        userHome,
+        cwd: project,
+        harnesses: [sharedBlockHarness, budgetedReader(limit)],
+      });
+      const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
+      expect(error.message).toContain(`${shared} would be`);
+      expect(error.message).toContain(`over the ${limit}-byte limit Fixture Budgeted loads`);
+      expect(readFileSync(shared, "utf8")).toBe(before);
+      // The control: the same growth with no source bringing the budgeted reader is written.
+      writeState(home, stateWith({ [codexSource]: codexEntry }));
+      const report = await runSync(SYNC, io);
+      expect(report.rules).toBe(2);
+      expect(readFileSync(shared, "utf8")).toContain("Alpha, grown past the budget.");
     });
   });
 });

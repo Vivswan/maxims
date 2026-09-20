@@ -449,14 +449,18 @@ async function planInstall(
   // An unreadable source keeps its files: its rule files stay off the sweep's list and the
   // bodies directories it writes to are left alone. Its harnesses are resolved like a readable
   // source's, so one whose config folder is absent stays unreachable for the hook planner too.
+  // Its harnesses also join the readers of a file another source renders this run, because one
+  // that loads the file only through this source still loads it and the finished file must fit
+  // its budget. A file no source renders is not visited for it.
   for (const source of read.unreadable) {
     const scope = source.entry.intent.destination.scope;
     for (const dir of bodiesDirsFor(source.entry, ctx, io, undefined)) unsweepable.add(dir.id);
     if (scope === "out") continue;
+    const slug = sourceSlug(source.entry.intent.from);
     const resolved = resolveTargets({
       intent: source.entry.intent,
       scope,
-      sourceSlug: sourceSlug(source.entry.intent.from),
+      sourceSlug: slug,
       ctx,
       harnesses: io.harnesses,
       agents: options.agents,
@@ -465,9 +469,13 @@ async function planInstall(
       if (skipped.kind === "unreachable") unreachable.add(`${skipped.id}@${scope}`);
     }
     if (!source.entry.intent.rule) continue;
-    for (const target of resolved.targets) {
-      planned.add(target.realKey);
-      keepBlock(source.key, target.realKey);
+    for (const group of groupTargets(resolved.targets)) {
+      const [first] = group;
+      if (first === undefined) continue;
+      planned.add(first.realKey);
+      keepBlock(source.key, first.realKey);
+      const rendered = files.get(first.realKey);
+      if (rendered?.kind === "harness") addReaders(rendered, group);
     }
   }
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
@@ -596,8 +604,6 @@ async function planInstall(
   };
 }
 
-// Sources sharing one file each bring their own readers; the file carries the union, so its
-// rendering and its byte budget answer to every harness that reads it, not the first source's.
 function harnessFile(
   files: Map<string, RuleFile>,
   group: HarnessTarget[],
@@ -609,13 +615,19 @@ function harnessFile(
     existing?.kind === "harness"
       ? existing
       : { kind: "harness", path: first.path, sourceSlug: slug, targets: [], blocks: [] };
+  addReaders(file, group);
+  return file;
+}
+
+// Sources sharing one file each bring their own readers; the file carries the union, so its
+// rendering and its byte budget answer to every harness that reads it, not the first source's.
+function addReaders(file: Extract<RuleFile, { kind: "harness" }>, group: HarnessTarget[]): void {
   for (const target of group) {
     const seen = file.targets.some(
       (known) => known.def.id === target.def.id && known.scope === target.scope,
     );
     if (!seen) file.targets.push(target);
   }
-  return file;
 }
 
 // The identity a rule file is kept and grouped under: the real path of the target file.
