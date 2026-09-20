@@ -10,10 +10,14 @@ import { CURRENT_STATE_VERSION, parseState, type State } from "./schema.ts";
 
 export const WRITTEN_BY = `maxims@${VERSION}`;
 
+// `corrupt` is the lock-free reader's report of a file it could not move aside: another process
+// holds the store, and that holder's own read quarantines the file. `quarantined` names the file
+// that was moved, so it is never returned for a file still in place.
 export type LoadedState =
   | { kind: "absent" }
   | { kind: "loaded"; state: State; migrated: boolean }
   | { kind: "newer"; version: number; path: string }
+  | { kind: "corrupt"; path: string; issues: string[]; lockedBy: string }
   | { kind: "quarantined"; movedTo: string; issues: string[] };
 
 export type WriteResult = { written: boolean };
@@ -41,26 +45,38 @@ export type StateLockOptions = {
 
 type StatePaths = { home: string; state: RootedPath; lock: string };
 
+// What the bytes on disk call for. Only `corrupt` and `migrated` mutate the file, and only under
+// the lock: a quarantine or a write-back decided from bytes read outside it may act on a file
+// another process has since replaced.
+type Inspection =
+  | { kind: "absent" }
+  | { kind: "current"; state: State }
+  | { kind: "newer"; version: number }
+  | { kind: "corrupt"; issues: string[] }
+  | { kind: "migrated"; state: State };
+
 const STATE_FILE_MODE = 0o600;
 
-// A read outside the lock still persists a migration when it can, but never waits for the lock:
-// whoever holds it is about to write the current shape, so the write-back would be redundant.
+// A read outside the lock never waits for it: whoever holds it is about to read the same file, so
+// the quarantine or the write-back is theirs to do. When the lock is free the file is inspected
+// again under it and only that second reading is acted on.
 export async function readState(
   home: string,
   options: ReadStateOptions = {},
 ): Promise<LoadedState> {
   const paths = statePaths(home);
-  const loaded = await loadStateFile(paths, options);
-  if (loaded.kind === "loaded" && loaded.migrated) {
-    try {
-      await withLock(paths.lock, { waitMs: 0 }, async () => {
-        await writeStateFile(paths, loaded.state);
-      });
-    } catch (error) {
-      if (!isStoreLocked(error)) throw error;
-    }
+  const outside = await inspectStateFile(paths, options);
+  if (outside.kind !== "corrupt" && outside.kind !== "migrated") return settle(paths, outside);
+  try {
+    return await withLock(paths.lock, { waitMs: 0 }, async () =>
+      settle(paths, await inspectStateFile(paths, options)),
+    );
+  } catch (error) {
+    if (!isStoreLocked(error)) throw error;
+    if (outside.kind === "migrated")
+      return { kind: "loaded", state: outside.state, migrated: true };
+    return { kind: "corrupt", path: paths.state, issues: outside.issues, lockedBy: error.message };
   }
-  return loaded;
 }
 
 export async function writeState(
@@ -98,12 +114,7 @@ export async function withStateLock<T>(
     withLock(paths.lock, { waitMs }, (context) =>
       fn({
         stolen: context.stolen,
-        read: async (readOptions = {}) => {
-          const loaded = await loadStateFile(paths, readOptions);
-          if (loaded.kind === "loaded" && loaded.migrated)
-            await writeStateFile(paths, loaded.state);
-          return loaded;
-        },
+        read: async (readOptions = {}) => settle(paths, await inspectStateFile(paths, readOptions)),
         write: (state, writtenBy) => writeStateFile(paths, { ...state, writtenBy }),
       }),
     );
@@ -118,7 +129,7 @@ export async function withStateLock<T>(
 
 // The migration dispatch runs before `parseState`, which reports an older integer version as
 // corrupt rather than due.
-async function loadStateFile(paths: StatePaths, options: ReadStateOptions): Promise<LoadedState> {
+async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): Promise<Inspection> {
   let text: string;
   try {
     text = await readFile(paths.state, "utf8");
@@ -132,39 +143,60 @@ async function loadStateFile(paths: StatePaths, options: ReadStateOptions): Prom
     json = JSON.parse(text);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return quarantine(paths, [`not valid JSON: ${detail}`]);
+    return { kind: "corrupt", issues: [`not valid JSON: ${detail}`] };
   }
   const version = versionOf(json);
   if (version !== null && version < CURRENT_STATE_VERSION) {
-    return migrateFile(paths, json, version, options.migrations);
+    return migrateDocument(json, version, options.migrations);
   }
   const parsed = parseState(json);
-  if (parsed.ok === "parsed") return { kind: "loaded", state: parsed.state, migrated: false };
-  if (parsed.ok === "newer") return { kind: "newer", version: parsed.version, path: paths.state };
-  return quarantine(paths, parsed.issues);
+  if (parsed.ok === "parsed") return { kind: "current", state: parsed.state };
+  if (parsed.ok === "newer") return { kind: "newer", version: parsed.version };
+  return { kind: "corrupt", issues: parsed.issues };
 }
 
 // The migrated document passes the same strict parse a fresh file gets before it is written back,
 // so a step that produces a bad shape quarantines the ORIGINAL bytes rather than persisting its output.
-function migrateFile(
-  paths: StatePaths,
+function migrateDocument(
   json: unknown,
   version: number,
   migrations: readonly MigrationStep[] | undefined,
-): Promise<LoadedState> | LoadedState {
+): Inspection {
   const migration = migrateState(json, version, migrations);
   if (migration.kind === "unreachable") {
-    return quarantine(paths, [
-      `version ${version} is older than any migration this maxims carries (oldest ${migration.oldest}); re-add your sources`,
-    ]);
+    return {
+      kind: "corrupt",
+      issues: [
+        `version ${version} is older than any migration this maxims carries (oldest ${migration.oldest}); re-add your sources`,
+      ],
+    };
   }
   const parsed = parseState(migration.json);
   if (parsed.ok !== "parsed") {
     const issues =
       parsed.ok === "corrupt" ? parsed.issues : [`arrived at version ${parsed.version}`];
-    return quarantine(paths, [`after migrating from version ${version}:`, ...issues]);
+    return { kind: "corrupt", issues: [`after migrating from version ${version}:`, ...issues] };
   }
-  return { kind: "loaded", state: { ...parsed.state, writtenBy: WRITTEN_BY }, migrated: true };
+  return { kind: "migrated", state: { ...parsed.state, writtenBy: WRITTEN_BY } };
+}
+
+// The `corrupt` and `migrated` branches are reached only while the caller holds the lock, so the
+// file they move aside or overwrite is the one `inspectStateFile` just read: every other writer
+// takes the same lock first. The other branches only shape a result.
+async function settle(paths: StatePaths, inspection: Inspection): Promise<LoadedState> {
+  switch (inspection.kind) {
+    case "absent":
+      return { kind: "absent" };
+    case "current":
+      return { kind: "loaded", state: inspection.state, migrated: false };
+    case "newer":
+      return { kind: "newer", version: inspection.version, path: paths.state };
+    case "corrupt":
+      return quarantine(paths, inspection.issues);
+    case "migrated":
+      await writeStateFile(paths, inspection.state);
+      return { kind: "loaded", state: inspection.state, migrated: true };
+  }
 }
 
 async function quarantine(paths: StatePaths, issues: string[]): Promise<LoadedState> {

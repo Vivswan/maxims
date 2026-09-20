@@ -1,6 +1,8 @@
 // Guards the state boundary on disk: a corrupt or hostile file that is half obeyed instead of moved
 // aside, a newer file that gets rewritten, a migration that never persists, a redundant rewrite on
-// every sync, or a second writer that clobbers the first would each surface only on a user's machine.
+// every sync, a second writer that clobbers the first, or a lock-free read that moves aside or
+// overwrites a file another process replaced after it looked would each surface only on a user's
+// machine.
 import { describe, expect, test } from "bun:test";
 import {
   copyFileSync,
@@ -16,7 +18,8 @@ import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { legacyHooksStep } from "./fixtures/migration-step-v0.ts";
-import { emptyState, parseState, type State } from "./schema.ts";
+import type { MigrationStep } from "./migrations/index.ts";
+import { emptyState, parseState, type SourceEntry, type State } from "./schema.ts";
 import { readState, serializeState, WRITTEN_BY, withStateLock, writeState } from "./store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -72,6 +75,45 @@ function seed(home: string, fixture: string): string {
   return path;
 }
 
+const SECOND_KEY = "@example-user/more-rules#main";
+const SECOND_SOURCE: SourceEntry = {
+  intent: {
+    from: { type: "github", repo: "example-user/more-rules", ref: "main" },
+    select: "*",
+    rename: {},
+    rule: false,
+    destination: { scope: "global" },
+    copy: false,
+    auth: false,
+    harnesses: ["codex"],
+    memoryPath: "memories",
+    fullDepth: false,
+  },
+  addedAt: "2026-09-01T10:00:00.000Z",
+};
+
+// A step whose first run doubles as a concurrent writer: it executes after the lock-free read has
+// the bytes and before the lock attempt, the one window in which another process can land a
+// write that the reader must notice before it mutates the file.
+function concurrentWriterStep(
+  path: string,
+  bytes: string,
+  migrate: (json: unknown) => unknown,
+): MigrationStep {
+  let landed = false;
+  return {
+    from: 0,
+    to: 1,
+    migrate(json) {
+      if (!landed) {
+        landed = true;
+        writeFileSync(path, bytes);
+      }
+      return migrate(json);
+    },
+  };
+}
+
 function holdLock(home: string, holder: Record<string, unknown>): string {
   const lockPath = homePaths(home).lock;
   writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
@@ -88,6 +130,29 @@ async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
   if (!(caught instanceof MaximsError)) throw new Error(`expected a MaximsError, got ${caught}`);
   expect(caught.code).toBe(ExitCode.StoreLocked);
   return caught;
+}
+
+// A manual-mode holder that signals when its callback is running, so a contender started after
+// `entered` resolves is known to meet a held lock rather than an empty directory.
+function heldLock(home: string): {
+  entered: Promise<void>;
+  release: () => void;
+  done: Promise<string>;
+} {
+  let enter: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const entered = new Promise<void>((done) => {
+    enter = done;
+  });
+  const held = new Promise<void>((done) => {
+    release = done;
+  });
+  const done = withStateLock(home, "manual", async () => {
+    enter();
+    await held;
+    return "first";
+  });
+  return { entered, release, done };
 }
 
 describe("readState", () => {
@@ -193,6 +258,64 @@ describe("readState", () => {
       });
     });
   });
+
+  test("a file that turns valid between the lock-free read and the lock is kept, not quarantined", async () => {
+    await withTempHome(async (home) => {
+      const path = seed(home, "v0-legacy.json");
+      const landed = readFileSync(join(FIXTURES, "v1-valid.json"), "utf8");
+      const step = concurrentWriterStep(path, landed, () => ({ version: 1 }));
+      expect(await readState(home, { migrations: [step] })).toEqual({
+        kind: "loaded",
+        state: VALID_STATE,
+        migrated: false,
+      });
+      expect(readFileSync(path, "utf8")).toBe(landed);
+      expect(readdirSync(home)).toEqual(["state.json"]);
+    });
+  });
+
+  test("a migration write-back keeps a source another writer landed before the lock was taken", async () => {
+    await withTempHome(async (home) => {
+      const path = seed(home, "v0-legacy.json");
+      const theirs: State = {
+        ...VALID_STATE,
+        writtenBy: WRITTEN_BY,
+        sources: { ...VALID_STATE.sources, [SECOND_KEY]: SECOND_SOURCE },
+      };
+      const step = concurrentWriterStep(path, serializeState(theirs), legacyHooksStep.migrate);
+      expect(await readState(home, { migrations: [step] })).toEqual({
+        kind: "loaded",
+        state: theirs,
+        migrated: false,
+      });
+      expect(readFileSync(path, "utf8")).toBe(serializeState(theirs));
+      expect(readdirSync(home)).toEqual(["state.json"]);
+    });
+  });
+
+  test("a corrupt file under a held lock is reported in place; the holder's read moves it aside", async () => {
+    await withTempHome(async (home) => {
+      const path = seed(home, "v1-corrupt-json.txt");
+      const before = readFileSync(path, "utf8");
+      await withStateLock(home, "manual", async (lock) => {
+        const result = await readState(home);
+        expect(result).toEqual({
+          kind: "corrupt",
+          path,
+          issues: [expect.stringMatching(/^not valid JSON: /)],
+          lockedBy: expect.stringContaining(process.argv.join(" ")),
+        });
+        expect(readFileSync(path, "utf8")).toBe(before);
+        expect(readdirSync(home).sort()).toEqual(["state.json", "state.json.lock"]);
+        const inside = await lock.read();
+        expect(inside.kind).toBe("quarantined");
+        if (inside.kind !== "quarantined") return;
+        expect(readFileSync(inside.movedTo, "utf8")).toBe(before);
+        expect(existsSync(path)).toBe(false);
+      });
+      expect(await readState(home)).toEqual({ kind: "absent" });
+    });
+  });
 });
 
 describe("writeState", () => {
@@ -234,21 +357,27 @@ describe("writeState", () => {
 describe("withStateLock", () => {
   test("manual mode: the second caller waits, then fails with exit 5 naming the holder's argv", async () => {
     await withTempHome(async (home) => {
-      let release: () => void = () => undefined;
-      const held = new Promise<void>((done) => {
-        release = done;
-      });
-      const first = withStateLock(home, "manual", async () => {
-        await held;
-        return "first";
-      });
-      await Bun.sleep(10);
+      const holder = heldLock(home);
+      await holder.entered;
       const error = await expectLocked(
         withStateLock(home, "manual", async () => "second", { waitMs: 60 }),
       );
       expect(error.message).toContain(process.argv.join(" "));
-      release();
-      expect(await first).toBe("first");
+      holder.release();
+      expect(await holder.done).toBe("first");
+      expect(existsSync(homePaths(home).lock)).toBe(false);
+    });
+  });
+
+  test("manual mode: the second caller stays pending while the lock is held and runs once it is released", async () => {
+    await withTempHome(async (home) => {
+      const holder = heldLock(home);
+      await holder.entered;
+      const second = withStateLock(home, "manual", async () => "second", { waitMs: 5000 });
+      const meanwhile = Bun.sleep(60).then(() => "still held");
+      expect(await Promise.race([second, meanwhile])).toBe("still held");
+      holder.release();
+      expect(await Promise.all([holder.done, second])).toEqual(["first", "second"]);
       expect(existsSync(homePaths(home).lock)).toBe(false);
     });
   });
