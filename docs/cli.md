@@ -151,7 +151,7 @@ npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit --json
 | 1 | usage error, or a failed check | unknown flag, `-g` with `-o`, ambiguous bare name, a non-interactive `remove` without `--yes`, a `doctor --expect` that is not met |
 | 2 | source unresolvable | repo not found, no read access, local directory missing, a non-GitHub git URL with no `git` on PATH |
 | 3 | nothing resolved to install | a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](memory-files.md#hidden-characters-are-refused) without `--allow-hidden` |
-| 4 | destination write failed | permissions, read-only filesystem, disk full, an unparseable harness config |
+| 4 | destination write failed | permissions, read-only filesystem, disk full, an unparsable harness config |
 | 5 | store locked | another maxims process held the lock past the wait |
 | 6 | name collision | an incoming memory's name is owned by another source and no rename was chosen |
 | 7 | unmet dependency | a `[[wikilink]]` target does not resolve |
