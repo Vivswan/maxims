@@ -99,27 +99,35 @@ const refusals: [string, (dir: string) => void][] = [
     (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": { "servers": [] } }\n'),
   ],
   ["unparsable JSON", (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": {\n')],
-  [
-    "an existing file that cannot be read",
-    (dir) => {
-      writeFileSync(join(dir, "mcp.json"), "{}\n");
-      chmodSync(join(dir, "mcp.json"), 0o000);
-    },
-  ],
   ["a directory where the file should be", (dir) => mkdirSync(join(dir, "mcp.json"))],
 ];
 
+async function expectRefused(dir: string, arrange: (dir: string) => void): Promise<void> {
+  arrange(dir);
+  const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcp", "servers"] };
+  let caught: unknown;
+  try {
+    await reconcileMcpServer(registry, true);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(MaximsError);
+  expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
+}
+
 test.each(refusals)("%s is refused with exit 4 and no plan", async (_, arrange) => {
-  await withTempDir(async (dir) => {
-    arrange(dir);
-    const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcp", "servers"] };
-    let caught: unknown;
-    try {
-      await reconcileMcpServer(registry, true);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
-  });
+  await withTempDir((dir) => expectRefused(dir, arrange));
 });
+
+// Mode bits do not stop root, so the unreadable file reads fine under a root runner.
+test.skipIf(process.getuid?.() === 0)(
+  "an existing file that cannot be read is refused with exit 4 and no plan",
+  async () => {
+    await withTempDir((dir) =>
+      expectRefused(dir, (root) => {
+        writeFileSync(join(root, "mcp.json"), "{}\n");
+        chmodSync(join(root, "mcp.json"), 0o000);
+      }),
+    );
+  },
+);

@@ -52,7 +52,6 @@ export const cursor: HarnessDefinition = {
   markers: "counted",
   // `@file` attaches a file to the rule's context and its literal-escaping is undocumented.
   expands: ["at-import"],
-  scopeFrontmatter: (globs) => frontmatter(globs),
   detect: (ctx) => configDirExists(join(ctx.home, ".cursor")),
   verifiedAgainst: { url: "https://cursor.com/docs/context/rules", date: "2026-09-20" },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },

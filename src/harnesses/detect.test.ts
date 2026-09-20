@@ -25,15 +25,19 @@ test.each(readings)(
   },
 );
 
-test("a lookup the process may not make surfaces instead of reading as absent", async () => {
-  await withTempDir(async (dir) => {
-    const locked = join(dir, "locked");
-    mkdirSync(join(locked, "harness"), { recursive: true });
-    chmodSync(locked, 0o000);
-    try {
-      expect(() => configDirExists(join(locked, "harness"))).toThrow(/EACCES/);
-    } finally {
-      chmodSync(locked, 0o700);
-    }
-  });
-});
+// Mode bits do not stop root, so the locked directory reads fine under a root runner.
+test.skipIf(process.getuid?.() === 0)(
+  "a lookup the process may not make surfaces instead of reading as absent",
+  async () => {
+    await withTempDir(async (dir) => {
+      const locked = join(dir, "locked");
+      mkdirSync(join(locked, "harness"), { recursive: true });
+      chmodSync(locked, 0o000);
+      try {
+        expect(() => configDirExists(join(locked, "harness"))).toThrow(/EACCES/);
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    });
+  },
+);

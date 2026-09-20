@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { type HarnessDefinition, scopeRoot } from "../contract.ts";
 import { configDirExists } from "../detect.ts";
 import { dshHome, reconcileBridge } from "./bridge.ts";
@@ -13,20 +12,6 @@ import { dshHome, reconcileBridge } from "./bridge.ts";
 export const DSH_INSTRUCTION_BUDGET = 65_536;
 export const DSH_RENDER_ALLOWANCE = 1_024;
 export const DSH_FILE_BUDGET = DSH_INSTRUCTION_BUDGET - DSH_RENDER_ALLOWANCE;
-
-// `surroundingText` is the file with any earlier maxims block already excised; the sum is what
-// dsh would read. Refusing rather than truncating keeps the shape of the rule cap.
-export function checkBudget(surroundingText: string, block: string): number {
-  const total = Buffer.byteLength(surroundingText) + Buffer.byteLength(block);
-  if (total > DSH_FILE_BUDGET) {
-    throw new MaximsError(
-      ExitCode.RuleCapExceeded,
-      `AGENTS.md would be ${total} bytes; dsh renders at most ${DSH_INSTRUCTION_BUDGET} including its own framing`,
-      { hint: "install fewer memories with --memory, or trim the file's own content" },
-    );
-  }
-  return total;
-}
 
 // Tier 1 through the `dsh-hooks-claude-code` bridge, with its caveats in force: the bridge reads
 // its hooks file once at process start (a change needs a dsh restart), dsh has no per-project

@@ -1,8 +1,6 @@
-// Guards the dsh bridge pair and budget: a hand-formatted cordis.patch.yml must come back
-// byte-identical once our row leaves (dsh's own guide warns the file carries unrelated user
-// patches), a row the user merged into a shared insert operation must leave alone, and the
-// budget must count bytes below dsh's 64 KiB with room for its framing, since a multi-byte block
-// that passes a character count would load truncated.
+// Guards the dsh bridge pair: a hand-formatted cordis.patch.yml must come back byte-identical
+// once our row leaves (dsh's own guide warns the file carries unrelated user patches), and a
+// sibling plugin the user merged into our insert operation must survive both mount and unmount.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +10,7 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import { hookSpecFor } from "../contract.ts";
 import { BRIDGE_ROW_ID, reconcileBridge } from "./bridge.ts";
-import { checkBudget, DSH_FILE_BUDGET, dsh } from "./index.ts";
+import { dsh } from "./index.ts";
 
 const fixture = readFileSync(join(import.meta.dir, "fixtures", "config.yml"), "utf8");
 const spec = hookSpecFor(dsh);
@@ -208,30 +206,4 @@ test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
     expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
     expect(readFileSync(join(dshHome, "cordis.patch.yml"), "utf8")).toBe(text);
   });
-});
-
-const budgets: [string, string, string, number | null][] = [
-  ["exactly at the file budget", "a".repeat(DSH_FILE_BUDGET - 10), "b".repeat(10), 64_512],
-  ["one byte over", "a".repeat(DSH_FILE_BUDGET - 10), "b".repeat(11), null],
-  [
-    "multi-byte characters counted as bytes",
-    "a".repeat(DSH_FILE_BUDGET - 10),
-    "\u00e9".repeat(6),
-    null,
-  ],
-];
-
-test.each(budgets)("checkBudget with %s", (_, surrounding, block, total) => {
-  if (total !== null) {
-    expect(checkBudget(surrounding, block)).toBe(total);
-    return;
-  }
-  let caught: unknown;
-  try {
-    checkBudget(surrounding, block);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  expect(caught).toMatchObject({ code: ExitCode.RuleCapExceeded });
 });
