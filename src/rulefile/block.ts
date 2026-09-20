@@ -1,3 +1,4 @@
+import { PACKAGE_COMMAND } from "../util/package.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
 const DESCRIPTION_MAX_CHARS = 300;
@@ -26,7 +27,7 @@ export function renderBlock(input: BlockInput): string {
   if (input.markers === "stripped") {
     lines.push(
       `<!-- managed by maxims: ${source} - edits will be overwritten -->`,
-      `<!-- update: npx maxims add ${source} | remove: npx maxims remove ${source} -->`,
+      `<!-- update: ${PACKAGE_COMMAND} add ${source} | remove: ${PACKAGE_COMMAND} remove ${source} -->`,
     );
   }
   if (input.stale !== undefined) {

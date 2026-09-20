@@ -166,7 +166,7 @@ The block `renderBlock()` produces for two rule lines under stripped markers, as
 ```text
 <!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
-<!-- update: npx maxims add @Vivswan/skills | remove: npx maxims remove @Vivswan/skills -->
+<!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
 - Codex rubber-duck review before EVERY commit, however trivial (detail: /home/user/.agents/maxims/store/Vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
 - Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command (detail: /home/user/.agents/maxims/store/Vivswan/skills/gate-exit-conditions-the-merge.md, 0f0f0f0)
 <!-- maxims:end @Vivswan/skills -->

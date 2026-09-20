@@ -4,6 +4,7 @@ import type { ContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { PACKAGE_ARGV } from "../util/package.ts";
 
 export const HARNESS_IDS = [
   "claude-code",
@@ -168,9 +169,7 @@ export type HookShape =
 // The hook command carries no source string, no filter, and no version pin: intent supplies the
 // first two, and the missing pin is what lets a fix reach hooked sessions without a re-add. Every
 // registry is searched for the PREFIX so a later flag change still finds the entry it replaces.
-// The npm package is scoped (`@vivswan/maxims`, the bare name being blocked as too close to
-// axios); the installed binary is still `maxims`.
-const HOOK_PREFIX_ARGV = ["npx", "-y", "@vivswan/maxims", "sync"] as const;
+const HOOK_PREFIX_ARGV = [...PACKAGE_ARGV, "sync"] as const;
 const HOOK_ARGV = [...HOOK_PREFIX_ARGV, "--quiet"] as const;
 /** @public */
 export const HOOK_COMMAND = HOOK_ARGV.join(" ");

@@ -42,7 +42,7 @@ const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
 const END = "<!-- maxims:end @Vivswan/skills -->";
 const PROVENANCE = [
   "<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->",
-  "<!-- update: npx maxims add @Vivswan/skills | remove: npx maxims remove @Vivswan/skills -->",
+  "<!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->",
 ];
 
 describe("renderBlock", () => {
