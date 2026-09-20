@@ -14,7 +14,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
-import { parseRuleBlocks } from "../../src/commands/shared/blocks.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { withLock } from "../../src/util/lock.ts";
 import {
@@ -36,6 +35,7 @@ import {
   writeMemories,
 } from "./shared/fixture-repo.ts";
 import { type GitDaemon, withGitDaemon } from "./shared/git-daemon.ts";
+import { expectRuleFile, staleLines, withoutStaleLine } from "./shared/rule-file.ts";
 import {
   ageFetch,
   clearDebounce,
@@ -46,7 +46,6 @@ import {
   readStateFile,
   refreshLog,
   ruleFiles,
-  ruleLines,
   setCooldownDays,
 } from "./shared/state.ts";
 
@@ -112,31 +111,14 @@ function storeEntry(home: Home, key: string): string {
   return storePathFor(home.maximsHome, { type: "git", url: key, ref: "HEAD" });
 }
 
-// A rendered rule file holds one line per memory, each carrying the description and a detail
-// path into the store copy; the copy itself holds the file the fixture wrote.
 function expectInstalled(
   home: Home,
   key: string,
   rule: string,
   memories: Record<string, MemorySpec>,
 ): void {
-  const text = readFileSync(rule, "utf8");
-  const names = Object.keys(memories).sort();
-  expect(
-    parseRuleBlocks(text).map((block) => ({ ...block, names: block.names.map(String) })),
-  ).toEqual([{ source: key, names }]);
-  const lines = ruleLines(text);
-  expect(lines).toHaveLength(names.length);
-  for (const [index, name] of names.entries()) {
-    const spec = memories[name];
-    if (spec === undefined) throw new Error(`no fixture for ${name}`);
-    const body = join(storeEntry(home, key), "memories", `${name}.md`);
-    expect(lines[index]).toContain(`- ${spec.description} (detail: ${body}, `);
-    expect(readFileSync(body, "utf8")).toBe(memoryFile(name, spec));
-  }
+  expectRuleFile(rule, key, storeEntry(home, key), memories);
 }
-
-const STALE_LINE = "have not refreshed since";
 
 type NetworkRow = {
   label: string;
@@ -151,13 +133,6 @@ const networkRows: NetworkRow[] = [
   { label: "two days old under a one-day cooldown", ageDays: 2, cooldownDays: 1, staleLine: false },
   { label: "eight days old", ageDays: 8, cooldownDays: 7, staleLine: true },
 ];
-
-function withoutStaleLine(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !line.includes(STALE_LINE))
-    .join("\n");
-}
 
 test.each(networkRows)(
   "network: the remote gone, a fetch $label keeps the block; --quiet exits 0, sync exits 2",
@@ -179,8 +154,7 @@ test.each(networkRows)(
       expect({ code: quiet.code, stderr: quiet.stderr }).toEqual({ code: 0, stderr: "" });
       expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("network");
       const after = readFileSync(rule, "utf8");
-      const staleLines = after.split("\n").filter((line) => line.includes(STALE_LINE));
-      expect(staleLines).toHaveLength(staleLine ? 1 : 0);
+      expect(staleLines(after)).toHaveLength(staleLine ? 1 : 0);
       expect(withoutStaleLine(after)).toBe(before);
       expect(storeSnapshot(world.home)).toEqual(store);
       ageFetch(world.home.maximsHome, key, ageDays, clock);

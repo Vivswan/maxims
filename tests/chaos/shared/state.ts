@@ -69,11 +69,6 @@ export function onlyRuleFile(userHome: string): string {
   return only;
 }
 
-// The rule lines of a rendered file, without the markers and management comments around them.
-export function ruleLines(text: string): string[] {
-  return text.split("\n").filter((line) => line.startsWith("- "));
-}
-
 export function quarantinedStates(maximsHome: string): string[] {
   return readdirSync(maximsHome).filter((name) => name.startsWith("state.json.corrupt-"));
 }
