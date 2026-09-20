@@ -45,6 +45,10 @@ import { classifyInvoker, renderHookStdout } from "./shared/stdin.ts";
 import { runSync } from "./sync.ts";
 import type { SyncOptions } from "./types.ts";
 
+// The self-refresh line as a rule file carries it, spelled through the package command like the
+// renderer does, so a package rename cannot leave these pins matching nothing.
+const SELF_REFRESH = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
+
 const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,
@@ -304,7 +308,7 @@ describe("staleness", () => {
         const report = await runSync({ ...SYNC, noFetch: true }, io);
         const text = readFileSync(rules, "utf8");
         expect(text.includes("have not refreshed since")).toBe(stale);
-        expect(text.includes("run `maxims sync --quiet` before continuing")).toBe(false);
+        expect(text.includes(SELF_REFRESH)).toBe(false);
         const loudLines = report.notices.filter((line) =>
           /offline|has not refreshed since/.test(line),
         );
@@ -346,12 +350,11 @@ describe("staleness", () => {
       const io = fakeIo({ ...w, cwd: w.dir, harnesses: [tierTwo, shared] });
       await runSync({ ...SYNC, noFetch: true }, io);
       const sharedText = readFileSync(join(w.userHome, ".fixture", "FIXTURE.md"), "utf8");
-      const selfRefresh = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
-      expect(sharedText.split(selfRefresh).length - 1).toBe(1);
+      expect(sharedText.split(SELF_REFRESH).length - 1).toBe(1);
       expect(parseBlocks(sharedText).blocks).toHaveLength(3);
       for (const name of ["a", "b", "c"]) {
         const text = readFileSync(globalRulesFile(w.userHome, `acme-${name}`), "utf8");
-        expect(text.split(selfRefresh).length - 1).toBe(1);
+        expect(text.split(SELF_REFRESH).length - 1).toBe(1);
       }
     });
   });
