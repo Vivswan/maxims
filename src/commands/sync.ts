@@ -34,7 +34,13 @@ export async function runSync(options: SyncOptions, io: EngineIo): Promise<SyncR
 }
 
 async function runSyncChecked(options: SyncOptions, io: EngineIo): Promise<SyncReport> {
-  const ctx = await loadContext(io, { readHookStdin: options.quiet });
+  if (options.preview !== undefined && !options.dryRun) {
+    throw new Error("a sync preview is planned only under --dry-run");
+  }
+  const ctx = await loadContext(io, {
+    readHookStdin: options.quiet,
+    ...(options.preview === undefined ? {} : { config: options.preview.config }),
+  });
   // The two quiet no-op paths: nothing is read or written, and `--json` still gets its document.
   const skipped = (line: string): SyncReport => {
     if (options.json) io.stdout(emptyDocument([line]));
@@ -69,12 +75,14 @@ async function syncUnderLock(
 }
 
 // A dry run takes no lock and settles nothing: a corrupt or outdated file is left as it is and
-// named, since the run that would move it aside is the one that writes.
+// named, since the run that would move it aside is the one that writes. A caller that would have
+// written state first hands over that state instead.
 async function syncPreview(
   ctx: EngineContext,
   io: EngineIo,
   options: SyncOptions,
 ): Promise<SyncReport> {
+  if (options.preview !== undefined) return planAndFinish(options.preview.state, ctx, io, options);
   const preview = await previewState(ctx.home);
   if (preview.kind !== "loaded") return reportUnusableState(preview.line, ctx, io, options);
   return planAndFinish(preview.state, ctx, io, options);

@@ -230,6 +230,7 @@ async function listHarnesses(
       ctx,
       harnesses: io.harnesses,
       agents: undefined,
+      explicit: [],
     });
     const [target] = resolved.targets;
     const [skipped] = resolved.skipped;

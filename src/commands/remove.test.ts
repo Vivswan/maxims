@@ -47,8 +47,7 @@ const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,
   json: false,
-  noFetch: false,
-  force: false,
+  fetch: "due",
 };
 const REMOVE: RemoveOptions = {
   quiet: false,
@@ -238,9 +237,9 @@ describe("remove", () => {
   });
 
   test("a project-scope removal unlinks bodies, deletes copies it wrote, and rewrites the lock", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const other = writeSource(join(dir, "other"), { three: { description: "Three." } });
+    await world(async ({ home, userHome, project }) => {
+      const source = writeSource(join(project, "src"), TWO_MEMORIES);
+      const other = writeSource(join(project, "other"), { three: { description: "Three." } });
       const projectEntry = (path: string, copy: boolean) =>
         entryFor(localFrom(path), { destination: { scope: "project" }, copy });
       writeState(
@@ -257,8 +256,8 @@ describe("remove", () => {
       expect(existsSync(join(bodies, "three.md"))).toBe(true);
       expect(readFileSync(join(bodies, "mine.md"), "utf8")).toBe("the user's own note\n");
       const lock = JSON.parse(readFileSync(join(project, ".agents", "maxims.lock"), "utf8"));
-      expect(Object.keys(lock.sources)).toEqual(["../other"]);
-      expect(lock.sources["../other"].from).toEqual({ type: "local", path: "../other" });
+      expect(Object.keys(lock.sources)).toEqual(["./other"]);
+      expect(lock.sources["./other"].from).toEqual({ type: "local", path: "./other" });
       await runRemove({ ...REMOVE, targets: [other] }, io);
       expect(existsSync(join(project, ".agents", "maxims.lock"))).toBe(false);
       expect(existsSync(join(bodies, "three.md"))).toBe(false);
@@ -433,7 +432,7 @@ describe("remove", () => {
         }),
       );
       const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync({ ...SYNC, noFetch: true }, io);
+      await runSync({ ...SYNC, fetch: "none" }, io);
       const shared = join(userHome, ".fixture", "FIXTURE.md");
       expect(readFileSync(shared, "utf8")).toContain("Never merge red.");
       rmSync(storePathFor(home, from), { recursive: true });

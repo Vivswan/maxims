@@ -15,6 +15,7 @@ export const EMPTY_REPORT: SyncReport = {
   rules: 0,
   tokens: 0,
   fetched: [],
+  upstreamChanges: {},
   failed: [],
   changed: [],
   notices: [],
@@ -75,9 +76,10 @@ async function writeLog(
   }
 }
 
-// `--json` is one value; `--dry-run` is the rendered plan; a hook run speaks its harness's
-// protocol and only the lines a session should hear; an interactive run prints the notices and a
-// summary when something changed.
+// `--json` is one value, whose `ok` agrees with the exit a manual run maps from it (a failed
+// refresh is exit 2 or 3, so it is `ok: false`); `--dry-run` is the rendered plan; a hook run
+// speaks its harness's protocol and only the lines a session should hear; an interactive run
+// prints the notices and a summary when something changed.
 function printOutcome(
   outcome: SyncOutcome,
   ctx: EngineContext,
@@ -140,7 +142,8 @@ function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
       2,
     )}\n`;
   }
-  return `${JSON.stringify({ ok: true, report: rest, plan: JSON.parse(planToJson(plan)) }, null, 2)}\n`;
+  const ok = report.failed.length === 0;
+  return `${JSON.stringify({ ok, report: rest, plan: JSON.parse(planToJson(plan)) }, null, 2)}\n`;
 }
 
 // The `--json` document of a run that changed nothing and planned nothing.

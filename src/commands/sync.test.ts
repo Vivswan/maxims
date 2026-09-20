@@ -42,6 +42,8 @@ import {
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
 import { type HarnessDefinition, type HarnessId, HOOK_COMMAND } from "../harnesses/contract.ts";
 import { parseBlocks } from "../rulefile/block.ts";
+import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
+import { readMemoryTree } from "../sources/tree.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
@@ -54,8 +56,7 @@ const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,
   json: false,
-  noFetch: false,
-  force: false,
+  fetch: "due",
 };
 const QUIET: SyncOptions = { ...SYNC, quiet: true };
 const NOW = new Date("2026-09-20T12:00:00.000Z");
@@ -565,14 +566,14 @@ describe("what a refused or departed source leaves behind", () => {
       const body = join(project, ".agents", "memories", "always-review.md");
       expect(lstatSync(body).isSymbolicLink()).toBe(true);
       writeFileSync(homePaths(home).config, JSON.stringify({ ruleCap: 1 }));
-      await expectExit(runSync({ ...SYNC, noFetch: true }, io), ExitCode.RuleCapExceeded);
+      await expectExit(runSync({ ...SYNC, fetch: "none" }, io), ExitCode.RuleCapExceeded);
       expect(lstatSync(body).isSymbolicLink()).toBe(true);
       rmSync(join(project, ".agents"), { recursive: true });
       rmSync(join(project, ".fixture", "rules"), { recursive: true });
       writeFileSync(homePaths(home).config, "{}");
       const tiny: HarnessDefinition = { ...rulesDirHarness, byteBudget: 64 };
       const budgeted = fakeIo({ home, userHome, cwd: project, harnesses: [tiny] });
-      await expectExit(runSync({ ...SYNC, noFetch: true }, budgeted), ExitCode.RuleCapExceeded);
+      await expectExit(runSync({ ...SYNC, fetch: "none" }, budgeted), ExitCode.RuleCapExceeded);
       expect(existsSync(join(project, ".agents", "memories"))).toBe(false);
     });
   });
@@ -1208,7 +1209,7 @@ describe("what a refused or departed source leaves behind", () => {
       const shared = join(userHome, ".fixture", "FIXTURE.md");
       expect(parseBlocks(readFileSync(shared, "utf8")).blocks).toHaveLength(2);
       rmSync(storePathFor(home, from), { recursive: true });
-      await runSync({ ...SYNC, noFetch: true }, io);
+      await runSync({ ...SYNC, fetch: "none" }, io);
       const sources = parseBlocks(readFileSync(shared, "utf8")).blocks.map((block) => block.source);
       expect(sources.sort()).toEqual(["@acme/rules", other].sort());
     });
@@ -1696,6 +1697,212 @@ describe("plan surfaces", () => {
     });
   });
 
+  test("a forced refresh fetches whatever -a limits the run to, a due one does not, and only names who", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const rules = writeSource(join(dir, "rules"), TWO_MEMORIES);
+      const other = writeSource(join(dir, "other"), { solo: { description: "Solo." } });
+      const rulesFrom = githubFrom("acme/rules");
+      const otherFrom = githubFrom("acme/other");
+      seedStore(home, rulesFrom, rules);
+      seedStore(home, otherFrom, other);
+      writeState(
+        home,
+        stateWith({
+          "@acme/rules": fetchedEntry(rulesFrom, await fetchedFacts(rules, daysAgo(NOW, 9))),
+          "@acme/other": fetchedEntry(otherFrom, await fetchedFacts(other, daysAgo(NOW, 9))),
+        }),
+      );
+      const fake = fakeResolvers();
+      fake.set(rulesFrom, { kind: "dir", dir: rules });
+      fake.set(otherFrom, { kind: "dir", dir: other });
+      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
+      await runSync({ ...SYNC, fetch: "due", agents: ["claude-code"] }, io);
+      expect(fake.calls).toEqual([]);
+      await runSync({ ...SYNC, fetch: "force", agents: ["claude-code"] }, io);
+      expect(fake.calls).toEqual(["resolveRef @acme/other", "resolveRef @acme/rules"]);
+      fake.calls.length = 0;
+      writeFileSync(
+        join(rules, "memories", "new-rule.md"),
+        memoryFile("new-rule", { description: "New." }),
+      );
+      const report = await runSync({ ...SYNC, fetch: "force", only: ["@acme/rules"] }, io);
+      expect(fake.calls).toEqual(["resolveRef @acme/rules", "fetch @acme/rules"]);
+      expect(report.fetched).toEqual(["@acme/rules"]);
+      expect(report.upstreamChanges).toEqual({ "@acme/rules": ["+ new-rule"] });
+    });
+  });
+
+  test("a source a filtered forced refresh swapped is rewritten for the harnesses outside the filter", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
+      const from = githubFrom("acme/rules");
+      seedStore(home, from, upstream);
+      const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
+      const entry = fetchedEntry(from, facts, { harnesses: ["claude-code", "codex"] });
+      writeState(home, stateWith({ "@acme/rules": entry }));
+      const fake = fakeResolvers();
+      fake.set(from, { kind: "dir", dir: upstream });
+      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
+      await runSync(SYNC, io);
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      expect(readFileSync(shared, "utf8")).toContain("Never merge red.");
+      rmSync(join(upstream, "memories", "keep-tests-green.md"));
+      await runSync({ ...SYNC, fetch: "force", agents: ["claude-code"] }, io);
+      expect(existsSync(join(storePathFor(home, from), "memories", "keep-tests-green.md"))).toBe(
+        false,
+      );
+      expect(readFileSync(shared, "utf8")).not.toContain("Never merge red.");
+      expect(readFileSync(globalRulesFile(userHome, "acme-rules"), "utf8")).not.toContain(
+        "Never merge red.",
+      );
+    });
+  });
+
+  test("a filtered run keeps the block a source holds in a rendered shared file through a harness outside the filter", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const first = writeSource(join(dir, "first"), { alpha: { description: "Alpha." } });
+      const second = writeSource(join(dir, "second"), { beta: { description: "Beta." } });
+      writeState(
+        home,
+        stateWith({
+          [first]: entryFor(localFrom(first, true), {
+            destination: { scope: "project" },
+            harnesses: ["codex"],
+          }),
+          [second]: entryFor(localFrom(second), {
+            destination: { scope: "project" },
+            harnesses: ["dsh"],
+          }),
+        }),
+      );
+      const io = fakeIo({
+        home,
+        userHome,
+        cwd: project,
+        harnesses: [sharedBlockHarness, budgetedReader(1 << 20)],
+      });
+      await runSync(SYNC, io);
+      const shared = join(project, "FIXTURE.md");
+      const before = readFileSync(shared, "utf8");
+      expect(before).toContain("Beta.");
+      writeFileSync(
+        join(first, "memories", "alpha.md"),
+        memoryFile("alpha", { description: "Alpha, changed." }),
+      );
+      await runSync({ ...SYNC, fetch: "none", agents: ["codex"] }, io);
+      const after = readFileSync(shared, "utf8");
+      expect(after).toContain("Alpha, changed.");
+      expect(after).toContain("Beta.");
+      expect(parseBlocks(after).blocks.map((block) => block.source)).toEqual(
+        parseBlocks(before).blocks.map((block) => block.source),
+      );
+      // The file a filtered run visits only to strip a departed source's block keeps the blocks
+      // of the sources it still holds through harnesses outside the filter.
+      writeState(
+        home,
+        stateWith({
+          [second]: entryFor(localFrom(second), {
+            destination: { scope: "project" },
+            harnesses: ["dsh"],
+          }),
+        }),
+      );
+      await runSync({ ...SYNC, fetch: "none", agents: ["codex"] }, io);
+      const stripped = readFileSync(shared, "utf8");
+      expect(stripped).not.toContain("Alpha");
+      expect(stripped).toContain("Beta.");
+    });
+  });
+
+  test("a widened filter keeps the sibling blocks of a shared file and never fails a harness the user did not name", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const first = writeSource(join(dir, "first"), { alpha: { description: "Alpha." } });
+      const second = writeSource(join(dir, "second"), { beta: { description: "Beta." } });
+      const firstFrom = githubFrom("acme/first");
+      seedStore(home, firstFrom, first);
+      writeState(
+        home,
+        stateWith({
+          "@acme/first": fetchedEntry(firstFrom, await fetchedFacts(first, daysAgo(NOW, 1)), {
+            destination: { scope: "project" },
+            harnesses: ["claude-code", "codex"],
+          }),
+          [second]: entryFor(localFrom(second), {
+            destination: { scope: "project" },
+            harnesses: ["codex"],
+          }),
+        }),
+      );
+      const fake = fakeResolvers();
+      fake.set(firstFrom, { kind: "dir", dir: first });
+      const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
+      await runSync(SYNC, io);
+      const shared = join(project, "FIXTURE.md");
+      expect(readFileSync(shared, "utf8")).toContain("Beta.");
+      writeFileSync(
+        join(first, "memories", "alpha.md"),
+        memoryFile("alpha", { description: "Alpha, changed." }),
+      );
+      const filtered: SyncOptions = { ...SYNC, fetch: "force", agents: ["claude-code"] };
+      await runSync({ ...filtered, only: ["@acme/first"] }, io);
+      const text = readFileSync(shared, "utf8");
+      expect(text).toContain("Alpha, changed.");
+      expect(text).toContain("Beta.");
+      // The harness the widening brought in is skipped when it has no home, where the one the user
+      // named would stop the run.
+      rmSync(join(project, ".fixture"), { recursive: true });
+      writeFileSync(
+        join(first, "memories", "alpha.md"),
+        memoryFile("alpha", { description: "Alpha, changed twice." }),
+      );
+      const widened = await runSync({ ...SYNC, fetch: "force", agents: ["codex"] }, io);
+      expect(widened.notices).toContain(
+        `maxims: @acme/first: skipped claude-code (Fixture Rules: ${join(project, ".fixture")} does not exist)`,
+      );
+      writeFileSync(
+        join(first, "memories", "alpha.md"),
+        memoryFile("alpha", { description: "Alpha, changed thrice." }),
+      );
+      await expectExit(runSync(filtered, io), ExitCode.DestinationWriteFailed);
+    });
+  });
+
+  test("a dry run with a preview plans from the handed state, config and store writes, touching nothing", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const from: LocalSourceFrom = { type: "local", path: source };
+      const scope = { memoryPath: "memories", fullDepth: false };
+      const tree = await readMemoryTree(source, scope, () => undefined);
+      const state = stateWith({ [source]: entryFor(from) });
+      const changes = materializeLocal(from, home, tree.files);
+      const before = treeDigest(dir);
+      const io = fakeIo({ home, userHome, cwd: dir });
+      const report = await runSync(
+        { ...SYNC, dryRun: true, fetch: "none", preview: { state, config: {}, changes } },
+        io,
+      );
+      expect(report.rules).toBe(2);
+      const rulesFile = globalRulesFile(userHome, sourceSlug(from));
+      expect(report.plan.changes.some((change) => change.path === rulesFile)).toBe(true);
+      expect(treeDigest(dir)).toBe(before);
+      expect(existsSync(storePathFor(home, from))).toBe(false);
+      expect(existsSync(homePaths(home).state)).toBe(false);
+      const capped = fakeIo({ home, userHome, cwd: dir });
+      await expectExit(
+        runSync(
+          {
+            ...SYNC,
+            dryRun: true,
+            fetch: "none",
+            preview: { state, config: { ruleCap: 1 }, changes },
+          },
+          capped,
+        ),
+        ExitCode.RuleCapExceeded,
+      );
+    });
+  });
+
   test("a forced refresh that fails keeps last-good and reports the source as failed", async () => {
     await world(async ({ home, dir, userHome }) => {
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
@@ -1706,7 +1913,7 @@ describe("plan surfaces", () => {
       const fake = fakeResolvers();
       fake.set(from, { kind: "fail", failure: "network" });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      const report = await runSync({ ...SYNC, force: true }, io);
+      const report = await runSync({ ...SYNC, fetch: "force" }, io);
       expect(report.failed).toEqual([
         { key: "@acme/rules", message: "scripted network", kind: "network" },
       ]);
@@ -1742,7 +1949,7 @@ describe("shared file byte budget", () => {
       );
       const shared = join(userHome, ".fixture", "FIXTURE.md");
       const unbudgeted = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness] });
-      await runSync({ ...SYNC, noFetch: true }, unbudgeted);
+      await runSync({ ...SYNC, fetch: "none" }, unbudgeted);
       const size = statSync(shared).size;
       // Eight rule lines fit with one line to spare; the first block growing to six before the
       // second shrinks to two would pass through twelve.
@@ -1752,7 +1959,7 @@ describe("shared file byte budget", () => {
       writeSource(first, rule("alpha", 6));
       writeSource(second, rule("bravo", 2));
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [budgeted] });
-      const report = await runSync({ ...SYNC, noFetch: true }, io);
+      const report = await runSync({ ...SYNC, fetch: "none" }, io);
       expect(report.rules).toBe(8);
       expect(statSync(shared).size).toBe(size);
       const text = readFileSync(shared, "utf8");

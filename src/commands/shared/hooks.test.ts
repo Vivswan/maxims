@@ -32,8 +32,7 @@ const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,
   json: false,
-  noFetch: false,
-  force: false,
+  fetch: "due",
 };
 
 // The registry write's content is the hook writer's; this test pins only which changes appear.

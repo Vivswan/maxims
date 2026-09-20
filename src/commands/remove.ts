@@ -71,7 +71,7 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
       removal.nextState,
       ctx,
       io,
-      { ...options, agents: undefined, noFetch: true, force: false },
+      { ...options, agents: undefined, fetch: "none" },
       {
         verb: "remove",
         previousState: state,

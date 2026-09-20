@@ -28,8 +28,11 @@ export type EngineContext = {
   now: Date;
 };
 
+// `config` stands in for the file on disk: a dry run whose caller would have written the config
+// first plans against what it would have held.
 export type LoadContextOptions = {
   readHookStdin: boolean;
+  config?: UserConfig;
 };
 
 // The hook command carries no arguments, so the stdin payload is how a hook run learns who called
@@ -44,7 +47,10 @@ export async function loadContext(
   const invoker = classifyInvoker(options.readHookStdin ? await io.readStdin() : null);
   const startDir =
     invoker.kind === "harness" && invoker.startDir !== null ? invoker.startDir : io.cwd;
-  const loaded = loadUserConfig(paths.config);
+  const loaded =
+    options.config === undefined
+      ? loadUserConfig(paths.config)
+      : { config: options.config, issue: null };
   return {
     home,
     userHome,

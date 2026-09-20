@@ -53,8 +53,7 @@ const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,
   json: false,
-  noFetch: false,
-  force: false,
+  fetch: "due",
 };
 const QUIET: SyncOptions = { ...SYNC, quiet: true };
 const NOW = new Date("2026-09-20T12:00:00.000Z");
@@ -305,7 +304,7 @@ describe("staleness", () => {
     test(`fetched ${ageDays}d ago with ${lastError?.kind ?? "no"} error: stale=${stale}`, async () => {
       await world(async (w) => {
         const { io, rules } = await lastGood(w, ageDays, lastError);
-        const report = await runSync({ ...SYNC, noFetch: true }, io);
+        const report = await runSync({ ...SYNC, fetch: "none" }, io);
         const text = readFileSync(rules, "utf8");
         expect(text.includes("have not refreshed since")).toBe(stale);
         expect(text.includes(SELF_REFRESH)).toBe(false);
@@ -348,7 +347,7 @@ describe("staleness", () => {
       }
       writeState(w.home, stateWith(entries));
       const io = fakeIo({ ...w, cwd: w.dir, harnesses: [tierTwo, shared] });
-      await runSync({ ...SYNC, noFetch: true }, io);
+      await runSync({ ...SYNC, fetch: "none" }, io);
       const sharedText = readFileSync(join(w.userHome, ".fixture", "FIXTURE.md"), "utf8");
       expect(sharedText.split(SELF_REFRESH).length - 1).toBe(1);
       expect(parseBlocks(sharedText).blocks).toHaveLength(3);
@@ -474,7 +473,7 @@ describe("hook runs", () => {
       expect(report.failed).toEqual([
         { key: KEY, message: "scripted ratelimit", kind: "ratelimit" },
       ]);
-      expect(await runSync({ ...SYNC, noFetch: true }, io)).toMatchObject({ failed: [] });
+      expect(await runSync({ ...SYNC, fetch: "none" }, io)).toMatchObject({ failed: [] });
     });
   });
 
@@ -652,11 +651,11 @@ describe("hook stdin contract", () => {
           stateWith({ [KEY]: fetchedEntry(FROM, facts, { harnesses: ["claude-code"] }) }),
         );
         const io = fakeIo({ ...w, cwd: w.dir, harnesses: HARNESSES });
-        await runSync({ ...SYNC, noFetch: true }, io);
+        await runSync({ ...SYNC, fetch: "none" }, io);
         io.out.length = 0;
         io.clock.now = new Date(NOW.getTime() + 120_000);
         io.stdin = text;
-        await runSync({ ...QUIET, noFetch: true }, io);
+        await runSync({ ...QUIET, fetch: "none" }, io);
         const line =
           "maxims: @acme/rules offline, kept last-good from 2026-09-18 (2 rules); source repository gone or unreadable";
         const variant =
@@ -677,15 +676,15 @@ describe("hook stdin contract", () => {
       });
       writeState(w.home, stateWith({ [KEY]: fetchedEntry(FROM, facts) }));
       const io = fakeIo({ ...w, cwd: w.dir });
-      await runSync({ ...SYNC, noFetch: true }, io);
+      await runSync({ ...SYNC, fetch: "none" }, io);
       io.out.length = 0;
       io.clock.now = new Date(NOW.getTime() + 120_000);
       io.stdin = JSON.stringify({ someHarness: true });
-      await runSync({ ...QUIET, noFetch: true }, io);
+      await runSync({ ...QUIET, fetch: "none" }, io);
       expect(io.out.join("")).toBe("");
       expect(logText(w.home)).toContain("offline, kept last-good");
       const tty = fakeIo({ ...w, cwd: w.dir, now: new Date(NOW.getTime() + 240_000) });
-      await runSync({ ...QUIET, noFetch: true }, tty);
+      await runSync({ ...QUIET, fetch: "none" }, tty);
       expect(tty.out.join("")).toMatch(/^maxims: @acme\/rules offline, kept last-good/);
     });
   });

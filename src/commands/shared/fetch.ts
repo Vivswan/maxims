@@ -17,7 +17,7 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { EngineIo } from "../types.ts";
+import type { EngineIo, FetchIntent } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 import type { SourceTree } from "./memories.ts";
 import { validateMemoryFiles } from "./memories.ts";
@@ -54,8 +54,7 @@ export type RefreshResult =
   | { outcome: "failed" | "no-valid"; entry: FetchedEntry; error: LastError };
 
 export type RefreshOptions = {
-  force: boolean;
-  noFetch: boolean;
+  fetch: FetchIntent;
 };
 
 export function storeEntryPath(home: string, entry: SourceEntry): RootedPath {
@@ -101,10 +100,10 @@ export async function refreshSource(
   notices: Notices,
   options: RefreshOptions,
 ): Promise<RefreshResult> {
-  if (options.noFetch) return { outcome: "skipped", entry };
+  if (options.fetch === "none") return { outcome: "skipped", entry };
   const entryPath = storeEntryPath(ctx.home, entry);
   const storePresent = await storeEntryPresent(entryPath);
-  if (!isDue(entry.fetched, ctx.now, ctx.cooldownDays, storePresent, options.force)) {
+  if (!isDue(entry.fetched, ctx.now, ctx.cooldownDays, storePresent, options.fetch === "force")) {
     return { outcome: "not-due", entry };
   }
   const { from } = entry.intent;

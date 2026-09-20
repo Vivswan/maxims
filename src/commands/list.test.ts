@@ -29,7 +29,7 @@ import { runList } from "./list.ts";
 import { runSync } from "./sync.ts";
 import type { ListReport, SyncOptions } from "./types.ts";
 
-const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, noFetch: true, force: false };
+const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "none" };
 const NOW = new Date("2026-09-20T12:00:00.000Z");
 
 describe("list", () => {
@@ -72,7 +72,7 @@ describe("list", () => {
         achievedTier: async () => 2,
       };
       const io = fakeIo({ ...w, cwd: w.project, harnesses: [rulesDirHarness, demoted] });
-      await runSync({ ...SYNC, noFetch: false }, io);
+      await runSync({ ...SYNC, fetch: "due" }, io);
       mkdirSync(join(w.project, ".agents"), { recursive: true });
       writeFileSync(
         join(w.project, ".agents", "maxims.lock"),
@@ -179,7 +179,7 @@ describe("list", () => {
         }),
       );
       const io = fakeIo({ ...w, cwd: w.dir });
-      await runSync({ ...SYNC, noFetch: false }, io);
+      await runSync({ ...SYNC, fetch: "due" }, io);
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
       expect(report.sources.find((source) => source.key === renamer)?.renames).toEqual([
         { upstreamName: "secret", localName: "secret-b", verdict: "unneeded", against: null },
@@ -234,7 +234,7 @@ describe("list", () => {
         }),
       );
       const io = fakeIo({ ...w, cwd: w.dir });
-      await runSync({ ...SYNC, noFetch: false }, io);
+      await runSync({ ...SYNC, fetch: "due" }, io);
       const { rmSync } = await import("node:fs");
       rmSync(older, { recursive: true });
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
@@ -336,7 +336,7 @@ describe("list", () => {
   });
 
   // `--json` is one document or nothing to a caller parsing stdout, a lock path that cannot be
-  // read included.
+  // read included; the read that could not look is exit 4, never a usage error.
   test("--json prints one ok:false document when the lock path is a directory", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
@@ -352,7 +352,7 @@ describe("list", () => {
       const document = JSON.parse(io.out[0] ?? "");
       expect(document).toEqual({
         ok: false,
-        code: ExitCode.Usage,
+        code: ExitCode.DestinationWriteFailed,
         message: expect.stringContaining("EISDIR"),
         hint: null,
       });

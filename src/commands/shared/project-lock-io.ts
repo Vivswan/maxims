@@ -43,7 +43,10 @@ export async function readProjectLock(projectRoot: string): Promise<LoadedProjec
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
       return { kind: "absent" };
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}`, { cause: error });
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
+      cause: error,
+    });
   }
   const parsed = parseProjectLock(text);
   if (parsed.ok === "corrupt") return { kind: "corrupt", path, issues: parsed.issues };
@@ -93,10 +96,12 @@ function realRelative(projectRoot: string, path: string): string {
 
 // The path the manifest records: relative to the REAL project root from the REAL source path (an
 // alias symlink outside the checkout that points inside it names the inside directory), with
-// `/` as the separator on every platform so a lock written on Windows replays elsewhere.
+// `/` as the separator on every platform so a lock written on Windows replays elsewhere, and
+// always starting with `./` so its key cannot read like a GitHub key (`@owner/repo`) or a URL
+// whatever the directory is called.
 function projectRelative(projectRoot: string, path: string): string {
   const rel = realRelative(projectRoot, path);
-  return rel === "" ? "." : rel.split(sep).join("/");
+  return rel === "" ? "." : `./${rel.split(sep).join("/")}`;
 }
 
 // The projection of this project's intent: every project-scope source in state whose path, for a

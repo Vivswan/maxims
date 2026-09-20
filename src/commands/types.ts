@@ -21,8 +21,8 @@ export type CommonOptions = {
 };
 
 // What a verb would have written had this not been a dry run: the state and config to plan
-// against instead of the files, and the writes (store entries, manifest, config) whose content
-// the engine reads as if they had landed.
+// against instead of the files, and the writes whose content the engine reads as if they had
+// landed (a store entry's files stand in for the copy on disk).
 export type SyncPreview = {
   state: State;
   config: UserConfig;
@@ -33,22 +33,35 @@ export type SyncPreview = {
 // "restrict to nothing" has no spelling and a verb whose chosen list came out empty syncs all.
 export type HarnessFilter = readonly [HarnessId, ...HarnessId[]];
 
+// Whether this run may ask a source's remote: `due` refreshes what the cooldown says is due,
+// `force` refreshes every fetched source (`update`), `none` never opens a socket. A `due` run
+// limited to some harnesses fetches nothing, since a refresh reaches every harness's rule file;
+// a forced run fetches whatever the filter, and a source it refreshed is then written for every
+// harness, so no rule file outside the filter points at a body the store swap removed.
+export type FetchIntent = "due" | "force" | "none";
+
+// `only` limits the refresh to the named source keys; every other source is left as it is.
+// `preview` is set only under `dryRun`, by a verb that would have written something first.
 export type SyncOptions = CommonOptions & {
-  noFetch: boolean;
+  fetch: FetchIntent;
   agents?: HarnessFilter;
-  force: boolean;
+  only?: string[];
+  preview?: SyncPreview;
 };
 
 // `failed` lists the sources this run could not bring current, in key order: a refresh that
 // failed, or a live source whose directory could not be read (its read is its refresh). Each
 // carries the failure's class so a caller tells an unreachable source from one with nothing valid
 // to install, from the report rather than from state, which a dry run leaves unchanged.
+// `upstreamChanges` holds, per refreshed key, the memories a refresh added (`+ name`), removed
+// (`- name`) or changed (`~ name (old -> new)`).
 export type SyncReport = {
   sources: number;
   memories: number;
   rules: number;
   tokens: number;
   fetched: string[];
+  upstreamChanges: Record<string, string[]>;
   failed: { key: string; message: string; kind: LastError["kind"] }[];
   changed: string[];
   notices: string[];

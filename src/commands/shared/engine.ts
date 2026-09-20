@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HarnessId, Scope } from "../../harnesses/contract.ts";
 import {
   type ContentHash,
@@ -17,19 +17,32 @@ import {
 } from "../../rulefile/dedupe.ts";
 import type { RuleLine, Staleness } from "../../rulefile/types.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
+import { hashFiles, type TreeFile } from "../../sources/tree.ts";
 import type { Fetched, LastError, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
 import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { EngineIo, HarnessFilter, SyncOptions, SyncReport } from "../types.ts";
+import type {
+  EngineIo,
+  FetchIntent,
+  HarnessFilter,
+  SyncOptions,
+  SyncPreview,
+  SyncReport,
+} from "../types.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
 import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { planHooks } from "./hooks.ts";
-import { readSourceMemories, type SourceMemory, type SourceTree } from "./memories.ts";
+import {
+  readSourceMemories,
+  type SourceMemory,
+  type SourceTree,
+  validateMemoryFiles,
+} from "./memories.ts";
 import { Notices } from "./notices.ts";
 import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
@@ -123,13 +136,14 @@ export async function planSync(
   if (ctx.configIssue !== null) base.notice(`maxims: ${ctx.configIssue}`);
   await noticeLockOnlySources(state, ctx, base);
   const refreshed = await refreshAll(state, ctx, io, options, base);
+  const overlay = previewStoreTrees(options.preview, ctx);
   const carried = new Notices();
   const carriedFailures: SyncFailure[] = [];
   // A readable source refused by admission is planned again as if unreadable: its block stays
   // and the names that block points at stay reserved, so no newer source takes its bodies over.
   const held = new Set<string>();
   for (;;) {
-    const attempt = await planInstall(state, ctx, io, options, extras, refreshed, held);
+    const attempt = await planInstall(state, ctx, io, options, extras, refreshed, held, overlay);
     const retry = [...attempt.refusedFresh, ...attempt.refusedKept];
     if (retry.length === 0) {
       const notices = new Notices();
@@ -165,6 +179,9 @@ export async function planSync(
           rules: attempt.rules,
           tokens: attempt.tokens,
           fetched: refreshed.fetchedKeys,
+          upstreamChanges: Object.fromEntries(
+            refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
+          ),
           failed,
           changed: [...new Set(built.plan.changes.map((change) => change.path))],
           notices: notices.user,
@@ -217,6 +234,7 @@ async function planInstall(
   extras: SyncExtras,
   refreshed: Refreshed,
   held: ReadonlySet<string>,
+  overlay: StoreOverlay,
 ): Promise<Attempt> {
   const notices = new Notices();
   const builder = new PlanBuilder();
@@ -231,7 +249,7 @@ async function planInstall(
     if (refreshed.freshTrees.has(key)) refusedFresh.push(key);
     else refusedKept.push(key);
   };
-  const read = await readTrees(refreshed, held, ctx, notices);
+  const read = await readTrees(refreshed, held, overlay, ctx, notices);
   const { works } = read;
   // Blocks that must survive in a file even though this run renders none for their source: an
   // unreadable or refused source keeps its last-good block, but only where its intent still puts
@@ -304,6 +322,13 @@ async function planInstall(
   const symlink = await io.symlinkSupport();
   const installInternal = ctx.env.MAXIMS_INSTALL_INTERNAL === "1";
   const hookRun = extras.verb === "sync" && options.quiet;
+  const agents = widenedAgents(options.agents, refreshed);
+  const explicit = options.agents ?? [];
+  // Targets this run renders no block for although their source is still installed: a readable
+  // source's harness outside the filter, or an unreadable source's. Wherever the file is visited
+  // this run, the block is kept and the harness counted among the readers, since a file is
+  // written whole and judged against every reader's budget.
+  const retained: { key: string; target: HarnessTarget }[] = [];
   let rules = 0;
   let memories = 0;
 
@@ -324,7 +349,7 @@ async function planInstall(
     for (const memory of work.tree.memories) knownCopies.add(memory.memory.contentHash);
     staleNotices(work, selection.selected.length, notices);
     const slug = sourceSlug(intent.from);
-    const targets =
+    const resolved =
       work.scopeKind === "out"
         ? { targets: [], skipped: [] }
         : resolveTargets({
@@ -333,10 +358,22 @@ async function planInstall(
             sourceSlug: slug,
             ctx,
             harnesses: io.harnesses,
-            agents: options.agents,
+            agents: undefined,
+            explicit,
           });
+    const targets = {
+      targets: resolved.targets.filter((target) => agentsAllowed(agents, target.def.id)),
+      skipped: resolved.skipped.filter((skipped) => agentsAllowed(agents, skipped.id)),
+    };
+    if (intent.rule) {
+      for (const target of resolved.targets) {
+        if (!agentsAllowed(agents, target.def.id)) retained.push({ key, target });
+      }
+    }
     for (const skipped of targets.skipped) {
       notices.notice(`maxims: ${key}: skipped ${skipped.id} (${skipped.reason})`);
+    }
+    for (const skipped of resolved.skipped) {
       if (skipped.kind === "unreachable") unreachable.add(`${skipped.id}@${work.scopeKind}`);
     }
     const allDirs = bodiesDirsFor(work, ctx, io, undefined);
@@ -374,7 +411,7 @@ async function planInstall(
       for (const selected of selection.selected) wanted.wanted.add(selected.localName);
     }
     builder.add("store", work.storeChanges, key);
-    for (const dir of bodiesDirsFor(work, ctx, io, options.agents)) {
+    for (const dir of bodiesDirsFor(work, ctx, io, agents)) {
       const bodies = planBodies({
         dir: dir.dir,
         root: dir.root,
@@ -449,9 +486,6 @@ async function planInstall(
   // An unreadable source keeps its files: its rule files stay off the sweep's list and the
   // bodies directories it writes to are left alone. Its harnesses are resolved like a readable
   // source's, so one whose config folder is absent stays unreachable for the hook planner too.
-  // Its harnesses also join the readers of a file another source renders this run, because one
-  // that loads the file only through this source still loads it and the finished file must fit
-  // its budget. A file no source renders is not visited for it.
   for (const source of read.unreadable) {
     const scope = source.entry.intent.destination.scope;
     for (const dir of bodiesDirsFor(source.entry, ctx, io, undefined)) unsweepable.add(dir.id);
@@ -463,23 +497,29 @@ async function planInstall(
       sourceSlug: slug,
       ctx,
       harnesses: io.harnesses,
-      agents: options.agents,
+      agents: undefined,
+      explicit,
     });
     for (const skipped of resolved.skipped) {
       if (skipped.kind === "unreachable") unreachable.add(`${skipped.id}@${scope}`);
     }
     if (!source.entry.intent.rule) continue;
-    for (const group of groupTargets(resolved.targets)) {
-      const [first] = group;
-      if (first === undefined) continue;
-      planned.add(first.realKey);
-      keepBlock(source.key, first.realKey);
-      const rendered = files.get(first.realKey);
-      if (rendered?.kind === "harness") addReaders(rendered, group);
+    for (const target of resolved.targets) {
+      planned.add(target.realKey);
+      keepBlock(source.key, target.realKey);
+      retained.push({ key: source.key, target });
     }
   }
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
-  addSharedFilesWithOrphans(files, scopes, ctx, io, options.agents);
+  addSharedFilesWithOrphans(files, scopes, ctx, io, agents);
+  // Every file this run visits is registered by now, the orphan visit included; a file no source
+  // renders and no orphan strip reaches is not visited, and its blocks stay as they are.
+  for (const { key, target } of retained) {
+    const rendered = files.get(target.realKey);
+    if (rendered?.kind !== "harness") continue;
+    keepBlock(key, target.realKey);
+    addReaders(rendered, [target]);
+  }
   // A harness's byte budget is only known once a file is rendered. Over it, every source in that
   // file is refused whole (bodies, store swap and its blocks in every other file), the same shape
   // as the rule cap, and the remaining files are rendered again without it.
@@ -529,7 +569,7 @@ async function planInstall(
     planRulesDirSweep({
       ctx,
       harnesses: io.harnesses,
-      agents: options.agents,
+      agents,
       scopes,
       planned,
       warn: (line) => notices.notice(`maxims: ${line}`),
@@ -556,7 +596,7 @@ async function planInstall(
   const hooks = await planHooks({
     ctx,
     harnesses: io.harnesses,
-    agents: options.agents,
+    agents,
     wants: (id, scope) => ({
       hook: state.hooks.includes(id) && at(scope, id).length > 0,
       rules: at(scope, id).some((entry) => entry.intent.rule),
@@ -719,12 +759,8 @@ async function refreshAll(
       sources[key] = entry;
       continue;
     }
-    // A run limited to some harnesses leaves the store alone: a refresh reaches every harness's
-    // rule file, and the ones outside the filter would be left pointing at bodies the swap
-    // removed.
     const result = await refreshSource(key, entry, ctx, io, notices, {
-      force: options.force,
-      noFetch: options.noFetch || options.agents !== undefined,
+      fetch: fetchIntentFor(key, options),
     });
     sources[key] = result.entry;
     switch (result.outcome) {
@@ -775,6 +811,30 @@ async function refreshAll(
   };
 }
 
+// A store swap removes the bodies every rule file of the source points at, so a run limited by
+// `-a` that refreshed a source writes every harness that source lists.
+function widenedAgents(
+  agents: HarnessFilter | undefined,
+  refreshed: Refreshed,
+): HarnessFilter | undefined {
+  if (agents === undefined) return undefined;
+  const widened = new Set<HarnessId>(agents);
+  for (const key of refreshed.freshTrees.keys()) {
+    for (const id of refreshed.sources[key]?.intent.harnesses ?? []) widened.add(id);
+  }
+  const [first, ...rest] = widened;
+  return first === undefined ? agents : [first, ...rest];
+}
+
+// A source outside `only` is left alone; a `due` run limited to some harnesses fetches nothing,
+// since a refresh reaches every harness's rule file. A forced one fetches, and the planner then
+// widens the filter to the refreshed sources' harnesses.
+function fetchIntentFor(key: string, options: SyncOptions): FetchIntent {
+  if (options.only !== undefined && !options.only.includes(key)) return "none";
+  if (options.fetch === "due" && options.agents !== undefined) return "none";
+  return options.fetch;
+}
+
 function diffLines(before: Fetched["memories"], after: Fetched["memories"]): string[] {
   const old = new Map(Object.entries(before));
   const next = new Map(Object.entries(after));
@@ -803,6 +863,7 @@ type ReadTrees = {
 async function readTrees(
   refreshed: Refreshed,
   held: ReadonlySet<string>,
+  overlay: StoreOverlay,
   ctx: EngineContext,
   notices: Notices,
 ): Promise<ReadTrees> {
@@ -826,7 +887,7 @@ async function readTrees(
     }
     const storeEntry = storePathFor(ctx.home, from);
     const live = from.type === "local" && from.live === true;
-    const read = await treeFor(key, entry, storeEntry, refreshed.freshTrees, notices);
+    const read = await treeFor(key, entry, storeEntry, refreshed.freshTrees, overlay, notices);
     if (read.kind === "unreadable") {
       notices.notice(`maxims: ${key}: ${read.reason}; kept whatever is installed`);
       if (live) failed.push({ key, message: read.reason, kind: read.cause });
@@ -875,9 +936,10 @@ async function treeFor(
   entry: SourceEntry,
   storeEntry: RootedPath,
   freshTrees: Map<string, SourceTree>,
+  overlay: StoreOverlay,
   notices: Notices,
 ): Promise<TreeRead> {
-  const fresh = freshTrees.get(key);
+  const fresh = freshTrees.get(key) ?? overlay.get(storeEntry);
   if (fresh !== undefined) return { kind: "tree", tree: fresh };
   const warn = (line: string): void => notices.notice(`maxims: ${key}: ${line}`);
   return readInstalledTree(entry, storeEntry, warn);
@@ -918,6 +980,30 @@ export async function readInstalledTree(
       cause: "missing",
     };
   }
+}
+
+// A store entry as a dry run's caller would have written it, keyed by the entry path: the files
+// its planned writes carry are read in place of the copy that is not on disk. Only writes under
+// the store count; a state, config or manifest write in the same preview says nothing about
+// memories.
+type StoreOverlay = ReadonlyMap<string, SourceTree>;
+
+function previewStoreTrees(preview: SyncPreview | undefined, ctx: EngineContext): StoreOverlay {
+  const overlay = new Map<string, SourceTree>();
+  if (preview === undefined) return overlay;
+  for (const entry of Object.values(preview.state.sources)) {
+    const path = storePathFor(ctx.home, entry.intent.from);
+    const files: TreeFile[] = [];
+    for (const change of preview.changes) {
+      if (change.kind !== "write") continue;
+      const rel = relative(path, change.path);
+      if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+      files.push({ relPath: rel.split(sep).join("/"), text: change.content });
+    }
+    if (files.length > 0)
+      overlay.set(path, { sha: hashFiles(files), ...validateMemoryFiles(files) });
+  }
+  return overlay;
 }
 
 function currentLinkTarget(path: string): string | null {
@@ -1170,6 +1256,7 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
     ctx,
     harnesses: io.harnesses,
     agents: undefined,
+    explicit: [],
   }).targets.map((target) => target.path);
 }
 
@@ -1271,6 +1358,7 @@ function addSharedFilesWithOrphans(
         ctx,
         harnesses: io.harnesses,
         agents: undefined,
+        explicit: [],
       }).targets;
       if (only === undefined || files.has(only.realKey)) continue;
       if (readIfPresent(only.path) === null) continue;

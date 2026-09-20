@@ -55,7 +55,7 @@ describe("project lock projection", () => {
   test("round-trips project-scope intent with a relative local path and stable bytes", async () => {
     await withTempDir(async (dir) => {
       const project = join(dir, "project");
-      const local = join(dir, "memories");
+      const local = join(project, "memories");
       const state = stateWith(
         {
           "@acme/rules#v2": entryFor(
@@ -84,8 +84,8 @@ describe("project lock projection", () => {
           {
             version: 1,
             sources: {
-              "../memories": {
-                from: { type: "local", path: "../memories", live: true },
+              "./memories": {
+                from: { type: "local", path: "./memories", live: true },
                 select: "*",
                 rename: { a: "a2", b: "b2" },
                 rule: true,

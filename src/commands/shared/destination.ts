@@ -40,6 +40,8 @@ export type TargetResolution = {
   skipped: SkippedHarness[];
 };
 
+// `agents` are the harnesses this run writes; `explicit` the ones the user named with `-a`, which
+// a run may widen `agents` beyond (a refreshed source is written for every harness that reads it).
 export type TargetRequest = {
   intent: Pick<SourceIntent, "harnesses">;
   scope: Scope;
@@ -47,6 +49,7 @@ export type TargetRequest = {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
+  explicit: readonly HarnessId[];
 };
 
 // Where one source's rule lines go at one scope: one target per harness the intent names, minus
@@ -60,7 +63,7 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
   const skipped: SkippedHarness[] = [];
   for (const id of request.intent.harnesses) {
     if (!agentsAllowed(request.agents, id)) continue;
-    const explicit = request.agents !== undefined;
+    const explicit = request.explicit.includes(id);
     const def = request.harnesses.find((candidate) => candidate.id === id);
     if (def === undefined) {
       skipped.push({ id, reason: noDefinitionReason(id), kind: "no-definition" });
