@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -11,6 +10,7 @@ import {
   scopeRoot,
   type Target,
 } from "./contract.ts";
+import { configDirExists } from "./detect.ts";
 import {
   type FrontmatterSpec,
   type GlobalRootSpec,
@@ -65,7 +65,7 @@ export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): Har
       const root = globalRoot?.(ctx) ?? ctx.home;
       return (
         (spec.detect.env ?? []).some((name) => ctx.env[name] !== undefined) ||
-        spec.detect.dirs.some((dir) => isDirectory(join(root, dir)))
+        spec.detect.dirs.some((dir) => configDirExists(join(root, dir)))
       );
     },
     ...(quirks.achievedTier === undefined ? {} : { achievedTier: quirks.achievedTier }),
@@ -88,12 +88,6 @@ export function toDefinition(spec: HarnessSpec, quirks: HarnessQuirks = {}): Har
         }),
     ...(quirks.configEdit === undefined ? {} : { configEdit: quirks.configEdit }),
   };
-}
-
-// A regular file at the path is no config directory, and a lookup that fails for any reason other
-// than absence surfaces rather than reading as "not installed".
-function isDirectory(path: string): boolean {
-  return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
