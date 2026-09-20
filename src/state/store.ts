@@ -45,32 +45,31 @@ export type StateLockOptions = {
 
 type StatePaths = { home: string; state: RootedPath; lock: string };
 
-// What the bytes on disk call for. Only `corrupt` and `migrated` mutate the file, and only under
-// the lock: a quarantine or a write-back decided from bytes read outside it may act on a file
-// another process has since replaced.
-type Inspection =
+// What the bytes on disk call for. Only a `Mutation` touches the file (moved aside or overwritten),
+// and `settle` is called from one place, `readUnderLock`, so the bytes it acts on were read while
+// this process held the lock.
+type Report =
   | { kind: "absent" }
   | { kind: "current"; state: State }
-  | { kind: "newer"; version: number }
-  | { kind: "corrupt"; issues: string[] }
-  | { kind: "migrated"; state: State };
+  | { kind: "newer"; version: number };
+type Mutation = { kind: "corrupt"; issues: string[] } | { kind: "migrated"; state: State };
+type Inspection = Report | Mutation;
 
 const STATE_FILE_MODE = 0o600;
 
-// A read outside the lock never waits for it: whoever holds it is about to read the same file, so
-// the quarantine or the write-back is theirs to do. When the lock is free the file is inspected
-// again under it and only that second reading is acted on.
+// A read outside the lock never waits for it: the holder is writing the file (a writer takes the
+// lock for its single write and reads nothing), so the bytes read here may already be replaced
+// and the quarantine or the write-back is left for a later read. When the lock is free the file
+// is inspected again under it and only that second reading is acted on.
 export async function readState(
   home: string,
   options: ReadStateOptions = {},
 ): Promise<LoadedState> {
   const paths = statePaths(home);
   const outside = await inspectStateFile(paths, options);
-  if (outside.kind !== "corrupt" && outside.kind !== "migrated") return settle(paths, outside);
+  if (!isMutation(outside)) return report(paths, outside);
   try {
-    return await withLock(paths.lock, { waitMs: 0 }, async () =>
-      settle(paths, await inspectStateFile(paths, options)),
-    );
+    return await withLock(paths.lock, { waitMs: 0 }, () => readUnderLock(paths, options));
   } catch (error) {
     if (!isStoreLocked(error)) throw error;
     if (outside.kind === "migrated")
@@ -114,7 +113,7 @@ export async function withStateLock<T>(
     withLock(paths.lock, { waitMs }, (context) =>
       fn({
         stolen: context.stolen,
-        read: async (readOptions = {}) => settle(paths, await inspectStateFile(paths, readOptions)),
+        read: (readOptions = {}) => readUnderLock(paths, readOptions),
         write: (state, writtenBy) => writeStateFile(paths, { ...state, writtenBy }),
       }),
     );
@@ -180,10 +179,19 @@ function migrateDocument(
   return { kind: "migrated", state: { ...parsed.state, writtenBy: WRITTEN_BY } };
 }
 
-// The `corrupt` and `migrated` branches are reached only while the caller holds the lock, so the
-// file they move aside or overwrite is the one `inspectStateFile` just read: every other writer
-// takes the same lock first. The other branches only shape a result.
-async function settle(paths: StatePaths, inspection: Inspection): Promise<LoadedState> {
+// The one caller of `settle`: it runs while the caller holds the lock, so the file a mutation moves
+// aside or overwrites is the one `inspectStateFile` just read, since every writer takes the same
+// lock first.
+async function readUnderLock(paths: StatePaths, options: ReadStateOptions): Promise<LoadedState> {
+  const inspection = await inspectStateFile(paths, options);
+  return isMutation(inspection) ? settle(paths, inspection) : report(paths, inspection);
+}
+
+function isMutation(inspection: Inspection): inspection is Mutation {
+  return inspection.kind === "corrupt" || inspection.kind === "migrated";
+}
+
+function report(paths: StatePaths, inspection: Report): LoadedState {
   switch (inspection.kind) {
     case "absent":
       return { kind: "absent" };
@@ -191,11 +199,16 @@ async function settle(paths: StatePaths, inspection: Inspection): Promise<Loaded
       return { kind: "loaded", state: inspection.state, migrated: false };
     case "newer":
       return { kind: "newer", version: inspection.version, path: paths.state };
+  }
+}
+
+async function settle(paths: StatePaths, mutation: Mutation): Promise<LoadedState> {
+  switch (mutation.kind) {
     case "corrupt":
-      return quarantine(paths, inspection.issues);
+      return quarantine(paths, mutation.issues);
     case "migrated":
-      await writeStateFile(paths, inspection.state);
-      return { kind: "loaded", state: inspection.state, migrated: true };
+      await writeStateFile(paths, mutation.state);
+      return { kind: "loaded", state: mutation.state, migrated: true };
   }
 }
 
