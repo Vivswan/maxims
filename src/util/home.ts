@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { DEFAULT_GIT_REF, parseRemote, type SourceFrom, stripGitSuffix } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { assertInsideRoot, sha256 } from "./fs.ts";
+import { assertInsideRoot, type RootedPath, sha256 } from "./fs.ts";
 
 /** @public */
 export function maximsHome(env: Record<string, string | undefined>): string {
@@ -52,7 +52,9 @@ function pinned(name: string, ref: string): string {
   return `${name}@${readable}-${digest}`;
 }
 
-export function storePathFor(home: string, from: SourceFrom): string {
+// The one derivation of a source's store entry, proven inside the store root here so every store
+// write takes the result as is.
+export function storePathFor(home: string, from: SourceFrom): RootedPath {
   const store = homePaths(home).store;
   if (from.type === "github") {
     const [owner = "", repo = ""] = from.repo.toLowerCase().split("/", 2);
