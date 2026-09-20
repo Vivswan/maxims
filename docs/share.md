@@ -31,14 +31,13 @@ The lock is a projection of state, written for a reader on another machine.
 
 Strategy B rule files also land in the repo, but as the harness's target, never as a record maxims reads.
 
-| property | reason |
-| --- | --- |
-| keys sorted, no timestamps, no fetch facts | two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else |
-| holds a projection of intent only: every `intent` field `add` recorded for each shared source, so `from` with its ref, selection, renames, rule flag, harnesses, memory folder, full depth, copy, and paths, plus the project's disabled names that belong to a shared source; the memory folder, full depth, and copy appear only when they differ from what `add` records without a flag | a sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder |
-| written whole, temp plus rename, like state | a half-written lock has no representation |
-| absent means no shared sources | `install` with no lock exits 0 and prints "no manifest" |
+- **Keys sorted, no timestamps, no fetch facts.** Two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else.
+- **A projection of intent only.** Every `intent` field `add` recorded for each shared source, plus the project's disabled names that belong to a shared source. A sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder.
+- **The fields:** `from` with its ref, the selection, renames, the rule flag, harnesses, the memory folder, full depth, copy, and paths. The memory folder, full depth, and copy appear only when they differ from what `add` records without a flag.
+- **Written whole, temp plus rename, like state.** A half-written lock has no representation.
+- **Absent means no shared sources.** `install` with no lock exits 0 and prints "no manifest".
 
-The lock never replaces state on the machine that wrote it, and a machine edits only the entries it owns: a teammate's entries, and the disabled names of their sources, stay through everything a clone does before it runs `install`.
+The lock never replaces state on the machine that wrote it. A machine edits only the entries it owns. A teammate's entries, and the disabled names of their sources, stay through everything a clone does before it runs `install`.
 
 ## Replaying it on a fresh clone: install
 

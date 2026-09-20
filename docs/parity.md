@@ -12,7 +12,7 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | npx skills | maxims | parity | why |
 | --- | --- | --- | --- |
 | `-g, --global` | `-g, --global` | same | |
-| `-p, --project` | `-p, --project` | same | `skills` carries it on `update` only; maxims offers it on `add` and `remove` so `-g` has a visible opposite |
+| `-p, --project` | `-p, --project` | same | `skills` carries it on `update` only; maxims offers it on `add` and `remove` too |
 | `-s, --skill <skills>` | `-m, --memory <memories>` | analog | only the noun differs; the value shape is copied exactly |
 | `-a, --agent <agents>` | `-a, --agent <agents>` | same | |
 | `-l, --list` | `-l, --list` | same | |
@@ -25,10 +25,12 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | `--owner <owner>` | none | diverge | belongs to `find`, which maxims lacks |
 | none | `-o, --out <dir>` | maxims-only | a team's rule file lives in a repo path, not a scope |
 | none | `--rule`, `--add-hook`, `--quiet` | maxims-only | skills have no always-loaded layer and no hook that runs unattended |
-| none | `--link` | maxims-only | a symlinked store entry for a local source is an open request on skills (vercel-labs/skills#748) that maxims ships |
+| none | `--link` | maxims-only | a symlinked store entry for a local source; an open skills request (vercel-labs/skills#748) |
 | none | `--cooldown`, `--cap` | maxims-only | the refresh window and the rule budget have no skills concept |
 | none | `--auth`, `--rename`, `--allow-hidden` | maxims-only | anonymous fetch, scripted collision resolution, and the hidden-character gate have no skills concept |
 | none | `--share` | maxims-only | which sources a project commits is a choice per source; skills have no analog |
+
+`-p` on `add` and `remove` exists so `-g` has a visible opposite.
 
 ## Verbs
 
@@ -43,4 +45,7 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | `list`, `ls` | `list`, `ls` | same | the read command for state |
 | `experimental_install`, `i` | `install`, `i` | analog | both replay a committed record into a fresh checkout; maxims reads its own project lock |
 | `experimental_sync` | `sync` | same name | same verb, same instinct |
-| none | `doctor`, `lint`, `link`, `unlink`, `disable`, `enable`, `config`, `share`, `unshare` | maxims-only | checking what a harness loads, linting a source folder, editing one intent field, user defaults, and the project lock have no skills concept |
+| none | `doctor`, `lint` | maxims-only | checking what a harness loads and linting a source folder have no skills concept |
+| none | `link`, `unlink`, `disable`, `enable` | maxims-only | editing one intent field has no skills concept |
+| none | `config` | maxims-only | user defaults have no skills concept |
+| none | `share`, `unshare` | maxims-only | the project lock has no skills concept |

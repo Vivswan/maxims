@@ -91,7 +91,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 | after a quiet run | on stdout |
 | --- | --- |
-| a source has failed to refresh for seven days, its repository is gone, or its content is invalid | one `maxims: <key> ...` line per such source, the last good copy kept |
+| a source that has failed to refresh for seven days, is gone, or is invalid | one `maxims: <key> ...` line per such source, the last good copy kept |
 | a write failed | one `maxims: <message>` line per failure |
 | a file a harness reads changed | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)` |
 | none of those | nothing |

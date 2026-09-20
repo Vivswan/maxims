@@ -32,16 +32,14 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 
 <!-- END GENERATED: harness-matrix -->
 
-| column | how to read it |
-| --- | --- |
-| `tier` | the declared tier; the config key that demotes it to 2 follows when the definition names one |
-| `project target`, `global target` | the file written for a project install and for `-g`; `none` means that scope is skipped. A block cell that lists files is written into the first of them that already exists, and the named file is created only when none does |
-| `strategy` | A writes one whole file per source into a rules directory, so removal is a file delete; B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest |
-| `hook` | the registry entry, hook file, or custom reconcile that runs the sync command, with its path for each scope the harness installs into; a maxims-owned file is written whole and deleted on removal, so nothing else belongs in it; `custom` means the definition writes its own files, named in the catches below |
-| `stdout` | how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, `-` means no declared stdout variant, a custom hook or no hook |
-| `mcp stub` | the MCP servers file, per scope, where the definition registers the bundled stub server whose start runs one sync; `-` when the definition names none |
-| `markers` | `stripped` when the harness drops HTML comments before injection, so the marker pair is free; `counted` when they ride into context |
-| `byte budget` | the largest rule file the writer will produce for the harness, refusing past it; `-` when the definition declares no budget, so the writer enforces none |
+- **`tier`** is the declared tier; the config key that demotes it to 2 follows when the definition names one.
+- **`project target` and `global target`** are the file written for a project install and for `-g`; `none` means that scope is skipped. A block cell that lists files is written into the first of them that already exists, and the named file is created only when none does.
+- **`strategy`** A writes one whole file per source into a rules directory, so removal is a file delete. B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest.
+- **`hook`** is the registry entry, hook file, or custom reconcile that runs the sync command, with its path for each scope the harness installs into. A maxims-owned file is written whole and deleted on removal, so nothing else belongs in it; `custom` means the definition writes its own files, named in the catches below.
+- **`stdout`** is how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, and `-` means no declared stdout variant, a custom hook or no hook.
+- **`mcp stub`** is the MCP servers file, per scope, where the definition registers the bundled stub server whose start runs one sync; `-` when the definition names none.
+- **`markers`** is `stripped` when the harness drops HTML comments before injection, so the marker pair is free, and `counted` when they ride into context.
+- **`byte budget`** is the largest rule file the writer will produce for the harness, refusing past it; `-` when the definition declares no budget, so the writer enforces none.
 
 Memory bodies do not vary by harness. They live in the maxims store and rule lines point at them; a project install links them into `.agents/memories/` for every harness, the convention `npx skills` set with `.agents/skills/`.
 
@@ -52,8 +50,10 @@ A harness you declare in `harnesses.json` has no row here, because it exists onl
 | tier | meaning | freshness |
 | --- | --- | --- |
 | 1 | a rule file plus a hook that runs the sync | loads every session and refreshes itself |
-| 2 | a rule file, no hook | kept fresh by [any hooked harness on the same machine](keep-fresh.md#one-hook-refreshes-every-harness), or by the MCP stub where the `mcp stub` column names a file; manual otherwise |
-| 3 | unsupported | no file-based always-loaded layer exists, so there is nowhere to put a guarantee; web-only agents with UI-stored rules |
+| 2 | a rule file, no hook | fresh via [any hooked harness](keep-fresh.md#one-hook-refreshes-every-harness) on the machine or the MCP stub; manual otherwise |
+| 3 | unsupported | no file-based always-loaded layer, so nowhere to put a guarantee |
+
+The MCP stub keeps a tier 2 harness fresh where the `mcp stub` column names a file. Tier 3 is web-only agents with UI-stored rules.
 
 The tier a harness achieves is a sync-time result that `list` reports. It is not stored, so a config edit that demotes a harness is visible the next time you look.
 
@@ -67,33 +67,30 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 <!-- maxims:end @Vivswan/skills -->
 ```
 
-| rule | reason |
-| --- | --- |
-| the rule file is a real file on every harness, never a symlink | a rule file that silently never loads is the failure maxims exists to prevent; the [design decision](design-decisions.md#harnesses) records the reported Claude Code behavior behind it |
-| strategy A writes one file per source, `maxims-<source>` plus the harness's suffix; strategy B writes one block per source | removal is a file delete or a block cut, provenance is visible, and two sources never fight over one file |
-| markers are HTML comments matched at line start only | every target is markdown; a marker quoted inside someone's fenced code block is not a marker |
-| everything outside the marker pair is preserved byte for byte | a user may keep hand-written rules in the same file |
-| rule lines are sorted by memory name | two machines with the same source produce the same file, and "nothing changed" is detectable |
-| `-->` in a description is escaped, and a token a harness would expand (Claude Code's and Gemini's `@path` imports) is wrapped in backticks | an unescaped one would end the comment early or read a file into context; an undocumented syntax is escaped conservatively |
-| on Claude Code the marker pair may be verbose; elsewhere it shrinks to one line | stripping of block-level HTML comments before injection is verified only for Claude Code, so provenance is free there; on every other harness it is not known to be stripped, so the markers are assumed to cost tokens |
-| a description longer than 300 characters is cut with an ellipsis | a rule file is a budget, not a document |
-| where the format requires frontmatter, maxims owns it and regenerates it with the block | the frontmatter is what keeps the file always-loaded on Cursor and Copilot; the catches below name the keys |
+- **The rule file is a real file on every harness, never a symlink.** A rule file that silently never loads is the failure maxims exists to prevent; the [design decision](design-decisions.md#harnesses) records the reported Claude Code behavior behind it.
+- **Strategy A writes one file per source, `maxims-<source>` plus the harness's suffix; strategy B writes one block per source.** Removal is a file delete or a block cut, provenance is visible, and two sources never fight over one file.
+- **Markers are HTML comments matched at line start only.** Every target is markdown; a marker quoted inside someone's fenced code block is not a marker.
+- **Everything outside the marker pair is preserved byte for byte.** A user may keep hand-written rules in the same file.
+- **Rule lines are sorted by memory name.** Two machines with the same source produce the same file, and "nothing changed" is detectable.
+- **`-->` in a description is escaped, and a token a harness would expand (Claude Code's and Gemini's `@path` imports) is wrapped in backticks.** An unescaped one would end the comment early or read a file into context; an undocumented syntax is escaped conservatively.
+- **On Claude Code the marker pair may be verbose; elsewhere it shrinks to one line.** Stripping of block-level HTML comments before injection is verified only for Claude Code, so provenance is free there; on every other harness it is not known to be stripped, so the markers are assumed to cost tokens.
+- **A description longer than 300 characters is cut with an ellipsis.** A rule file is a budget, not a document.
+- **Where the format requires frontmatter, maxims owns it and regenerates it with the block.** The frontmatter is what keeps the file always-loaded on Cursor and Copilot; the catches below name the keys.
 
 ## Per-harness catches
 
-| harness | the catch |
-| --- | --- |
-| Codex | hooks are on by default; `[features] hooks = false` in `config.toml` makes the hook inert. A project-local hook runs only once the project's `.codex` layer is trusted, and a non-managed hook must be reviewed and trusted through Codex's `/hooks` before it runs. maxims only reads that flag, never writes it, and `list` reports the tier achieved: 2 when it is false. Codex reads `AGENTS.override.md` instead of `AGENTS.md` when one exists, so a block beside an override file never loads, and it stops reading instruction files past 32 KiB combined by default. |
-| Cursor | a plain `.md` in `.cursor/rules` is ignored, so the file is `.mdc` with `alwaysApply: true` frontmatter; without it the rule is silently conditional. Its `sessionStart` hook is fire-and-forget. |
-| Copilot | `applyTo: "**"` is what keeps the instructions file always-loaded instead of path-scoped; a missing `applyTo` silently narrows the rule. The hook belongs to the CLI, so the IDE half stays tier 2. |
-| Gemini CLI | a project hook is fingerprinted and must be trusted again whenever it changes. The hook must print nothing to stdout except one JSON object, so the staleness notice goes out as `hookSpecificOutput.additionalContext`, never as plain text. Its hook timeout is in milliseconds where the others use seconds. |
-| Cline | hooks run only after "Enable Hooks" is switched on in Cline's feature settings, and the hook is an executable file named exactly `TaskStart` with a shebang. Windows is not supported by Cline's hooks. |
-| OpenCode | `AGENTS.md` does not expand file references, so the per-source project file must be listed in the `instructions` array of `opencode.json`; maxims edits that array surgically. Freshness comes from a plugin file maxims writes whole and deletes on removal. |
-| DeepSeek Harness | dsh renders every instruction file it finds into one 65,536-byte block and truncates the most specific file past it, so the writer refuses a rule file over 64,512 bytes (the rest is dsh's own framing) rather than truncating. |
-| DeepSeek Harness hook | dsh has no per-project config discovery, so the hook is one `@deepseek-ai/dsh-hooks-claude-code` bridge row in `$DSH_HOME/cordis.patch.yml` whatever the install scope, pointing by absolute path at a maxims-owned `$DSH_HOME/maxims-hooks.json`. The bridge reads that file once at process start, so a new or changed row needs a dsh restart. |
-| Codex, Gemini CLI, DeepSeek Harness | the block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses |
-| every hook | a repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once |
-| MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It is registered in the file the `mcp stub` column names, so a harness that starts its MCP servers eagerly syncs at launch even with no hook. |
+- **Codex.** Hooks are on by default; `[features] hooks = false` in `config.toml` makes the hook inert. A project-local hook runs only once the project's `.codex` layer is trusted, and a non-managed hook must be reviewed and trusted through Codex's `/hooks` before it runs. maxims only reads that flag, never writes it, and `list` reports the tier achieved: 2 when it is false.
+- **Codex instruction files.** Codex reads `AGENTS.override.md` instead of `AGENTS.md` when one exists, so a block beside an override file never loads, and it stops reading instruction files past 32 KiB combined by default.
+- **Cursor.** A plain `.md` in `.cursor/rules` is ignored, so the file is `.mdc` with `alwaysApply: true` frontmatter; without it the rule is silently conditional. Its `sessionStart` hook is fire-and-forget.
+- **Copilot.** `applyTo: "**"` is what keeps the instructions file always-loaded instead of path-scoped; a missing `applyTo` silently narrows the rule. The hook belongs to the CLI, so the IDE half stays tier 2.
+- **Gemini CLI.** A project hook is fingerprinted and must be trusted again whenever it changes. The hook must print nothing to stdout except one JSON object, so the staleness notice goes out as `hookSpecificOutput.additionalContext`, never as plain text. Its hook timeout is in milliseconds where the others use seconds.
+- **Cline.** Hooks run only after "Enable Hooks" is switched on in Cline's feature settings, and the hook is an executable file named exactly `TaskStart` with a shebang. Windows is not supported by Cline's hooks.
+- **OpenCode.** `AGENTS.md` does not expand file references, so the per-source project file must be listed in the `instructions` array of `opencode.json`; maxims edits that array surgically. Freshness comes from a plugin file maxims writes whole and deletes on removal.
+- **DeepSeek Harness.** dsh renders every instruction file it finds into one 65,536-byte block and truncates the most specific file past it, so the writer refuses a rule file over 64,512 bytes (the rest is dsh's own framing) rather than truncating.
+- **DeepSeek Harness hook.** dsh has no per-project config discovery, so the hook is one `@deepseek-ai/dsh-hooks-claude-code` bridge row in `$DSH_HOME/cordis.patch.yml` whatever the install scope, pointing by absolute path at a maxims-owned `$DSH_HOME/maxims-hooks.json`. The bridge reads that file once at process start, so a new or changed row needs a dsh restart.
+- **Codex, Gemini CLI, DeepSeek Harness.** The block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses.
+- **Every hook.** A repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once.
+- **MCP-eager harnesses.** maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It is registered in the file the `mcp stub` column names, so a harness that starts its MCP servers eagerly syncs at launch even with no hook.
 
 Editing a hook registry is surgical everywhere: the writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, and updates it in place or appends it.
 

@@ -60,20 +60,22 @@ Fetching is anonymous by default. No `gh` login and no token is read unless you 
 
 | situation | what runs |
 | --- | --- |
-| `git` on PATH | a sparse, shallow clone of the memories folder named by `--from`, or of the whole tree under `--full-depth`; never the repository's history |
+| `git` on PATH | a sparse, shallow clone of the memories folder, never the repository's history |
 | `git` missing, GitHub source | one whole-repository tarball download over HTTPS |
 | `git` missing, any other git URL | the source is unresolvable, exit 2; a git URL has no tarball fallback |
 | the fetch exceeds `MAXIMS_FETCH_TIMEOUT` | treated as a network failure; the [failure paths](guarantees.md#failure-paths) own what that keeps |
 | `sync --no-fetch` | no network at all, whatever the cooldown says, for a guaranteed-offline run |
 
-A non-GitHub git URL is stored as you typed it and cloned as you typed it, with no host-specific resolution. The [canonical home](files.md#the-canonical-home) owns where its store entry lands.
+The clone covers the folder `--from` names, or the whole tree under `--full-depth`. A non-GitHub git URL is stored as you typed it and cloned as you typed it, with no host-specific resolution. The [canonical home](files.md#the-canonical-home) owns where its store entry lands.
 
 | variable | effect |
 | --- | --- |
 | `MAXIMS_HOME` | moves the [canonical home](files.md#the-canonical-home), state, store, and `config.json` with it |
-| `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and the host whose URLs count as GitHub sources. A `github.com` URL stays `github.com` whatever the shell exports, so one pasted command installs the same source on every machine. Unset, or set to `github.com`, means `github.com` and records no host |
+| `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and whose URLs count as GitHub sources |
 | `MAXIMS_FETCH_TIMEOUT` | seconds one fetch may take before it counts as failed |
 | `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](write-memories.md#the-contract) |
+
+A `github.com` URL stays `github.com` whatever `GH_HOST` says, so one pasted command installs the same source on every machine. Unset, or set to `github.com`, the variable means `github.com` and records no host.
 
 ## The cap and the cooldown
 
@@ -82,9 +84,9 @@ Two numbers apply to every source and live in `config.json`, not on a hook comma
 | flag | writes | default | what it governs |
 | --- | --- | --- | --- |
 | `--cooldown <days>` | `cooldownDays` in `config.json` | 7 | how long `sync` goes without refetching a source; `update` ignores it |
-| `--cap <n>` | `ruleCap` in `config.json` | 25 | the most rule lines one source may publish; over it, the whole source is refused with exit 8, never truncated |
+| `--cap <n>` | `ruleCap` in `config.json` | 25 | the most rule lines one source may publish |
 
-The cap is a count, and it is a hard gate. The token estimate printed beside every rule file write is a report and never blocks. The two ways out of a cap refusal are named in its hint: narrow with `--memory` or raise `--cap`.
+The cap is a count, and it is a hard gate: over it, the whole source is refused with exit 8, never truncated. The token estimate printed beside every rule file write is a report and never blocks. The two ways out of a cap refusal are named in its hint: narrow with `--memory` or raise `--cap`.
 
 A flag on the command line wins over `config.json` for that invocation and leaves the file alone. The two exceptions are `--cooldown` and `--cap` on `add`, `sync`, and `update`, which persist as well as apply, because a cap or cooldown typed once is meant for every later sync. On `lint`, `--cap` is a threshold for that run and persists nothing.
 
@@ -96,9 +98,11 @@ A source is stale once its last successful fetch is more than 7 days old, or imm
 
 | where the harness has | the notice goes to |
 | --- | --- |
-| a hook with a stdout channel, anything but `none` or `-` in the [matrix](harnesses.md#the-matrix) | the hook's stdout, which the harness adds to the agent's context on exit 0, so no non-zero exit and no hook error banner |
+| a hook with a stdout channel, anything but `none` or `-` in the [matrix](harnesses.md#the-matrix) | the hook's stdout, which the harness adds to the agent's context on exit 0 |
 | a hook without one, `none` or `-` in the matrix | nowhere through the hook: the definition declares no channel the harness reads sync's output from |
-| no hook (tier 2) | one managed line at the top of the maxims block in the rule file, removed on the next successful refresh |
+| no hook (tier 2) | one managed line at the top of the maxims block in the rule file |
+
+The stdout notice rides on exit 0, so there is no non-zero exit and no hook error banner. The rule-file line is removed on the next successful refresh.
 
 Beneath that line, and only there, maxims writes the self-refresh line: if the staleness notice is present, run `npx -y @vivswan/maxims sync --quiet` before continuing. It is a rule asking an agent to act, so it is best-effort even from the always-loaded layer, and some harnesses gate shell commands behind approval.
 

@@ -54,7 +54,9 @@ npx -y @vivswan/maxims config unset rule
 | `rule` | `--rule` | off |
 | `cooldownDays` | `--cooldown <days>` | 7 |
 | `ruleCap` | `--cap <n>` | 25 |
-| `lastAgents` | nothing you type: the harnesses the last interactive `add` selected, preselected by the next prompt; `add` writes it | the detected harnesses |
+| `lastAgents` | no flag; the harnesses the last interactive `add` selected | the detected harnesses |
+
+`add` writes `lastAgents`, and the next interactive prompt preselects it.
 
 `cooldownDays` and `ruleCap` are the two keys `sync` reads, since they govern every run; the [cap and cooldown section](keep-fresh.md#the-cap-and-the-cooldown) owns the flags that write them and when a typed flag persists. `agents`, `yes`, `addHook`, and `rule` each fill in a flag you did not type on `add`, and what `add` records is ordinary intent.
 

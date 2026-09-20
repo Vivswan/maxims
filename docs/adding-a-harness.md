@@ -17,17 +17,19 @@ Every path is relative to its scope root: the project root for a project install
 | `displayName` | the name shown in output |
 | `tier` | `1` when a hook refreshes the rules by itself, `2` when nothing does |
 | `verifiedAgainst` | `{ url, date, contentHash? }`: the vendor page every fact was checked against |
-| `globalRoot` | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and the variable that relocates it, with an optional `subdir` appended to the variable's value |
+| `globalRoot` | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and its relocating variable |
 | `targets` | per scope, a `rules-dir`, a `shared-block`, or `null` when that scope has no always-loaded file |
 | `bodiesDir` | per scope, where memory bodies land, or `null` to leave them in the store |
 | `markers` | `stripped` when the harness drops HTML comments before injection, `counted` otherwise |
 | `expands` | the reference syntaxes the harness expands inside its files: `at-import`, `none`, or empty when undocumented |
-| `byteBudget` | the largest file the harness loads, in bytes: one number for both scopes, or `{ project?, global? }` when the two files are capped differently |
-| `detect` | `{ dirs, env? }`: directories under the global root (`.` is the root itself) or variables that mean installed |
+| `byteBudget` | the largest file the harness loads, in bytes |
+| `detect` | `{ dirs, env? }`: directories under the global root, or variables, that mean installed |
 | `hook` | `{ kind: "none" }`, a `registry` entry, or a whole `file`; see below |
 | `scopeFrontmatter` | for a rules directory whose always-on form needs no preamble but a `--paths` install does |
-| `mcp` | `{ path, serversPath }`: the MCP config per scope and the key path of its servers map |
+| `mcp` | `{ path, serversPath }`: the MCP config per scope and its servers map's key path |
 | `fixtures` | built-in folders only: `config` and `hookStdin` file names under `fixtures/` |
+
+`globalRoot.env` takes an optional `subdir` appended to the variable's value. `byteBudget` is one number for both scopes, or `{ project?, global? }` when the two files are capped differently. In `detect.dirs`, `.` is the global root itself.
 
 A `rules-dir` target is `{ kind: "rules-dir", dir, fileName, frontmatter? }`. The file name must contain `{{slug}}`, which becomes the source slug.
 
@@ -49,11 +51,13 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `grouped` | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups |
 | `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
 | `handlerTemplate` | the handler object, with placeholders; the value under `commandKey` starts with `{{command}}` |
-| `commandKey` | the handler key whose value starts with the maxims command; the writer finds and prunes its own entries by that prefix |
+| `commandKey` | the handler key whose value starts with the maxims command |
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
-| `tierCheck` | `{ path, format, key, demotesWhen }`: a config value whose presence demotes the harness to tier 2 |
+| `tierCheck` | `{ path, format, key, demotesWhen }`: a config value that demotes to tier 2 |
+
+The writer finds and prunes its own entries by the `commandKey` prefix.
 
 A `file` hook is `{ kind: "file", path, contentTemplate, executable, stdout }`: a whole file maxims owns, such as a plugin or an executable script.
 

@@ -47,14 +47,19 @@ Rules also come from reviewable repos instead of hand-copied files, so one machi
 
 ## Prior art
 
-Each tool below already solved part of the problem. The table says what maxims copied from it and what it left behind.
+Each tool below already solved part of the problem. The table says what maxims copied from it and what it left behind; the notes under it say what each tool does and where the line falls.
 
-| tool or practice | what it does | what maxims took | what maxims left |
-| --- | --- | --- | --- |
-| `npx skills` (vercel-labs/skills) | installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays | the verbs, the flag names and short forms, which the [parity page](parity.md) pins against a captured `skills --help`; the `@owner/repo` shorthand; [`~/.agents/`](files.md#the-canonical-home) as the home; and the committed project lock, which the [project lock](share.md) mirrors | the skills layer itself; maxims adds the rule line in the always-loaded layer and the session-start hook that re-syncs it, which skills do not have |
-| Claude Code's `MEMORY.md` index | one index file, loaded every session, with one line per memory that points at the body file beside it | the shape of the [two layers](how-it-works.md#two-layers-one-source), and the [memory file format](write-memories.md) itself, so a source repo needs no new format | the single harness and the single folder; maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code |
-| rulesync (dyoshikawa/rulesync) | compiles rule files under `.rulesync/` into the native rule format of each supported agent when you run `rulesync generate` | the fan-out, one source written in each harness's own format | the unit and the trigger; maxims installs published memories from a repo rather than compiling your own local files, and a hook re-syncs at session start rather than a generate step you run by hand |
-| a shell rc line, an OS scheduler, an editor folder-open task, or a git hook | refreshes a file from outside the agent, on a shell start, a clock, an editor open, or a commit | nothing | all four; none fires on the agent's session start, so a session can still open on a stale file, and the [freshness fallbacks decision](design-decisions.md#harnesses) records the rest of the reasons |
+| tool or practice | what maxims took | what maxims left |
+| --- | --- | --- |
+| `npx skills` (vercel-labs/skills) | the verbs, the flags, `@owner/repo`, [`~/.agents/`](files.md#the-canonical-home), the committed lock | the skills layer itself |
+| Claude Code's `MEMORY.md` index | the [two layers](how-it-works.md#two-layers-one-source), the [memory file format](write-memories.md) | the single harness and the single folder |
+| rulesync (dyoshikawa/rulesync) | the fan-out, one source in each harness's own format | the unit and the trigger |
+| a shell rc line, an OS scheduler, an editor folder-open task, a git hook | nothing | all four |
+
+- **`npx skills`** installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays. The [parity page](parity.md) pins the flag names and short forms against a captured `skills --help`, and the [project lock](share.md) mirrors its lock. What skills do not have is the rule line in the always-loaded layer and the session-start hook that re-syncs it.
+- **Claude Code's `MEMORY.md` index** is one index file, loaded every session, with one line per memory that points at the body file beside it. Taking its format means a source repo needs no new one. maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code.
+- **rulesync** compiles rule files under `.rulesync/` into the native rule format of each supported agent when you run `rulesync generate`. maxims installs published memories from a repo rather than compiling your own local files, and a hook re-syncs at session start rather than a generate step you run by hand.
+- **A shell rc line, an OS scheduler, an editor folder-open task, or a git hook** refreshes a file from outside the agent, on a shell start, a clock, an editor open, or a commit. None fires on the agent's session start, so a session can still open on a stale file; the [freshness fallbacks decision](design-decisions.md#harnesses) records the rest of the reasons.
 
 ## What a rule costs
 
