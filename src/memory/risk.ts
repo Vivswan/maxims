@@ -21,8 +21,12 @@ type Hit = { column: number; detail: string };
 type Detector = (line: string) => Hit | null;
 
 const FETCH = /\b(?:curl|wget|iwr|invoke-webrequest)\b/i;
+// The interpreter may sit behind "sudo" and "/usr/bin/env"; "iex" is PowerShell's alias for
+// Invoke-Expression, the canonical Windows one-liner. The sudo flags and the python version are
+// bounded because every backtrack into them re-runs the trailing lookahead over the rest of the
+// line: "python1.1.1...", unbounded, went quadratic.
 const PIPE_INTO =
-  /(?<!\|)\|(?!\|)\s*["']?(?:[\w./-]*\/)?(sh|bash|zsh|powershell|pwsh|python|node)\b(?![\w.-]*\/)/i;
+  /(?<!\|)\|(?!\|)\s*["']?(?:sudo(?:\s+-\S+){0,3}\s+)?(?:(?:[\w./-]*\/)?env\s+)?(?:[\w./-]*\/)?(sh|bash|zsh|powershell|pwsh|python\d?(?:\.\d+)?|node|iex|invoke-expression)\b(?![\w.-]*\/)/i;
 const PWSH = /\b(?:powershell|pwsh)\b/i;
 const ENC_FLAG = /-(?:enc|encodedcommand)\b/i;
 const SHELL_DASH_C = /\b(?:sh|bash|zsh|pwsh|powershell)\b\s+-c\b/i;
@@ -35,8 +39,12 @@ function shellPipe(line: string): Hit | null {
   const fetch = FETCH.exec(line);
   if (fetch) {
     const pipe = PIPE_INTO.exec(line.slice(fetch.index));
-    if (pipe)
-      hits.push({ column: fetch.index, detail: `${fetch[0].toLowerCase()} piped into ${pipe[1]}` });
+    if (pipe) {
+      hits.push({
+        column: fetch.index,
+        detail: `${fetch[0].toLowerCase()} piped into ${pipe[1].toLowerCase()}`,
+      });
+    }
   }
   const pwsh = PWSH.exec(line);
   if (pwsh && ENC_FLAG.exec(line.slice(pwsh.index))) {
@@ -52,41 +60,52 @@ function shellPipe(line: string): Hit | null {
 // Finding a URL is a regex job, but naming its host is not: any hand-rolled authority parsing
 // disagrees with the real parser somewhere, and a "trusted@evil.example" a browser resolves to
 // evil.example must never read as trusted. So each "://" candidate hands its authority to the WHATWG
-// URL parser rather than a regex; a bare "https://" names no host.
+// URL parser rather than a regex; a bare "https://" names no host. The character that opens a URL
+// says where markup closes it: a quoted href ends at the same quote, an unquoted one at ">", an
+// autolink at ">". Nothing else closes it early, so a quote or bracket glued inside an unopened
+// authority ('trusted.example"@evil.example') stays the userinfo the parser resolves past.
 const SCHEME = /https?:\/\//gi;
 const AUTHORITY_END = /[\s\\/?#]/;
+const CLOSERS: Readonly<Record<string, string>> = { '"': '"', "'": "'", "=": ">", "<": ">" };
 
 function url(line: string): Hit | null {
   for (const match of line.matchAll(SCHEME)) {
+    const closer = CLOSERS[line[match.index - 1] ?? ""] ?? null;
     let start = match.index + match[0].length;
     while (line[start] === "/" || line[start] === "\\") start++;
     let end = start;
-    while (end < line.length && !AUTHORITY_END.test(line[end] ?? "")) end++;
+    while (end < line.length && !endsAuthority(line[end] ?? "", closer)) end++;
     const host = hostOf(`${match[0]}${line.slice(start, end)}`);
     if (host !== null) return { column: match.index, detail: host };
   }
   return null;
 }
 
-// Prose wraps a URL in punctuation, markdown emphasis included; these characters trail it and are
-// stripped. ":" is not among them, so an IPv6 literal ending in "::" survives; the parser tolerates
-// a dangling port colon anyway. Stripping removes an IPv6 literal's closing "]", so one is restored,
-// but only after the stripped form fails to parse, leaving a "[" inside userinfo for the parser.
+function endsAuthority(char: string, closer: string | null): boolean {
+  return AUTHORITY_END.test(char) || char === closer;
+}
+
+// Prose wraps a URL in punctuation, markdown emphasis included, and may follow the wrapper with a
+// colon ("[guide](https://example.com:443): more"); all of it trails and is stripped. A colon is
+// stripped only after a wrapper: a bare trailing colon is a dangling port the parser tolerates, and
+// inside an IPv6 literal whose "]" was just stripped, "::" is address syntax. Stripping removes
+// that "]", so one is restored, but only after the stripped form fails to parse, leaving a "["
+// inside userinfo for the parser.
 const TRAILING_WRAPPERS = ").,;!?}]'\"`>*_";
 const WRAPPER_CHAR = /["'<>`|]/;
 
 function hostOf(token: string): string | null {
   const direct = parseAuthority(token);
   if (direct !== null) return direct;
-  // A URL glued to markup ("...com">@guide") or a shell pipe ("get.docker.com|sh") parses only once
-  // cut at the first character no URL can carry unencoded in a host. The whole authority is tried
-  // first, so a "|" that is valid userinfo has already resolved before the cut runs.
+  // A URL glued to a shell pipe ("get.x.example|sh") or to stray markup parses only once cut at
+  // the first character no URL can carry unencoded in a host. The whole authority is tried first,
+  // so a "|" that is valid userinfo has already resolved before the cut runs.
   const cut = token.search(WRAPPER_CHAR);
   return cut > 0 ? parseAuthority(token.slice(0, cut)) : null;
 }
 
 function parseAuthority(candidate: string): string | null {
-  const trimmed = trimTrailing(candidate, TRAILING_WRAPPERS);
+  const trimmed = trimTrailing(candidate);
   const host = tryHost(trimmed);
   if (host !== null) return host;
   return hasOpenBracket(trimmed) ? tryHost(`${trimmed}]`) : null;
@@ -104,10 +123,18 @@ function tryHost(candidate: string): string | null {
   return host === "" ? null : host;
 }
 
-function trimTrailing(text: string, chars: string): string {
+function trimTrailing(text: string): string {
   let end = text.length;
-  while (end > 0 && chars.includes(text[end - 1] ?? "")) end--;
+  while (end > 0) {
+    const last = text[end - 1] ?? "";
+    if (isWrapper(last) || (last === ":" && isWrapper(text[end - 2] ?? ""))) end--;
+    else break;
+  }
   return text.slice(0, end);
+}
+
+function isWrapper(char: string): boolean {
+  return char !== "" && TRAILING_WRAPPERS.includes(char);
 }
 
 const HAS_LATIN = /\p{Script=Latin}/u;
