@@ -5,7 +5,7 @@ group: Reference
 
 # Harnesses
 
-Every registered harness gets a rule file in its always-loaded layer plus one session-start hook that runs `npx -y @vivswan/maxims sync --quiet`. The matrix below is rendered from the harness definitions by `scripts/render_harness_matrix.ts`: `bun run docs:matrix` regenerates it, and `bun run check` fails while the page is behind the registry.
+Every registered harness gets a rule file in its always-loaded layer, and every harness with a hook system gets one hook that runs `npx -y @vivswan/maxims sync --quiet` on the event the hook column names. The matrix below is rendered from the harness definitions by `scripts/render_harness_matrix.ts`: `bun run docs:matrix` regenerates it, and `bun run check` fails while the page is behind the registry.
 
 ## The matrix
 
@@ -13,36 +13,46 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 
 <!-- BEGIN GENERATED: harness-matrix -->
 
-| id | harness | tier | project target | global target | strategy | hook | stdout | markers | byte budget |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | stripped | 4,194,304 bytes |
-| `codex` | Codex | 1, or 2 when `features.hooks` is `false` | `AGENTS.md` block | `~/.codex/AGENTS.md` block | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | `plain` | counted | - |
-| `gemini-cli` | Gemini CLI | 1 | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | `json:hookSpecificOutput.additionalContext` | counted | - |
-| `copilot` | GitHub Copilot | 1 | `.github/instructions/maxims-<source>.instructions.md` | `~/.copilot/instructions/maxims-<source>.instructions.md` | A | maxims-owned file `.github/hooks/maxims.json` or `~/.copilot/hooks/maxims.json` | `json:additionalContext` | counted | - |
-| `cursor` | Cursor | 1 | `.cursor/rules/maxims-<source>.mdc` | none | A | `sessionStart` entry in `.cursor/hooks.json` | `json:additional_context` | counted | - |
-| `cline` | Cline | 1 | `.clinerules/maxims-<source>.md` | `~/Documents/Cline/Rules/maxims-<source>.md` | A | maxims-owned executable `.clinerules/hooks/TaskStart` or `~/Documents/Cline/Hooks/TaskStart` | `none` | counted | - |
-| `opencode` | OpenCode | 1 | `.opencode/memories/maxims-<source>.md` | `~/.config/opencode/AGENTS.md` block | A project, B global | maxims-owned file `.opencode/plugins/maxims.ts` or `~/.config/opencode/plugins/maxims.ts` | `none` | counted | - |
-| `dsh` | DeepSeek Harness | 1 | `AGENTS.md` block | `~/.dsh/AGENTS.md` block | B | custom | - | counted | 64,512 bytes |
+| id | harness | tier | project target | global target | strategy | hook | stdout | mcp stub | markers | byte budget |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | - | stripped | 4,194,304 bytes |
+| `codex` | Codex | 1, or 2 when `features.hooks` is `false` | `AGENTS.md` block | `~/.codex/AGENTS.md` block | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | `plain` | - | counted | - |
+| `gemini-cli` | Gemini CLI | 1 | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | `json:hookSpecificOutput.additionalContext` | - | counted | - |
+| `copilot` | GitHub Copilot | 1 | `.github/instructions/maxims-<source>.instructions.md` | `~/.copilot/instructions/maxims-<source>.instructions.md` | A | maxims-owned file `.github/hooks/maxims.json` or `~/.copilot/hooks/maxims.json` | `json:additionalContext` | - | counted | - |
+| `cursor` | Cursor | 1 | `.cursor/rules/maxims-<source>.mdc` | none | A | `sessionStart` entry in `.cursor/hooks.json` | `json:additional_context` | - | counted | - |
+| `cline` | Cline | 1 | `.clinerules/maxims-<source>.md` | `~/Documents/Cline/Rules/maxims-<source>.md` | A | maxims-owned executable `.clinerules/hooks/TaskStart` or `~/Documents/Cline/Hooks/TaskStart` | `none` | - | counted | - |
+| `opencode` | OpenCode | 1 | `.opencode/memories/maxims-<source>.md` | `~/.config/opencode/AGENTS.md` block | A project, B global | maxims-owned file `.opencode/plugins/maxims.ts` or `~/.config/opencode/plugins/maxims.ts` | `none` | - | counted | - |
+| `dsh` | DeepSeek Harness | 1 | `AGENTS.md` block | `~/.dsh/AGENTS.md` block | B | custom | - | - | counted | 64,512 bytes |
+| `devin` | Devin Local | 1 | `AGENTS.md` block | `~/.config/devin/AGENTS.md` block | B | `SessionStart` entry in `.devin/config.json` or `~/.config/devin/config.json` | `json:hookSpecificOutput.additionalContext` | `.devin/mcp_config.json` or `~/.config/devin/mcp_config.json` | counted | - |
+| `windsurf` | Windsurf Cascade | 1 | `.devin/rules/maxims-<source>.md` | `~/.codeium/windsurf/memories/global_rules.md` block | A project, B global | `pre_user_prompt` entry in `.windsurf/hooks.json` or `~/.codeium/windsurf/hooks.json` | `none` | `~/.codeium/windsurf/mcp_config.json` | counted | project 12,000 bytes, global 6,000 bytes |
+| `zed` | Zed | 2 | `AGENTS.md` block, written into the first existing of `.rules`, `.cursorrules`, `.windsurfrules`, `.clinerules`, `.github/copilot-instructions.md`, `AGENT.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | `~/.config/zed/AGENTS.md` block | B | none | - | `.zed/settings.json` or `~/.config/zed/settings.json` | counted | - |
+| `amp` | Amp | 1 | `AGENTS.md` block, written into the first existing of `AGENTS.md`, `AGENT.md`, `CLAUDE.md` | `~/.config/amp/AGENTS.md` block | B | maxims-owned file `.amp/plugins/maxims.ts` or `~/.config/amp/plugins/maxims.ts` | `none` | `.amp/settings.json` or `~/.config/amp/settings.json` | counted | - |
+| `warp` | Warp | 2 | `AGENTS.md` block, written into the first existing of `WARP.md`, `AGENTS.md` | none | B | none | - | `~/.warp/.mcp.json` | counted | - |
+| `pi` | Pi | 1 | `AGENTS.md` block, written into the first existing of `AGENTS.override.md`, `AGENTS.md` | `~/.pi/agent/AGENTS.md` block, written into the first existing of `~/.pi/agent/AGENTS.override.md`, `~/.pi/agent/AGENTS.md` | B | maxims-owned file `.pi/extensions/maxims.ts` or `~/.pi/agent/extensions/maxims.ts` | `none` | - | counted | - |
 
 <!-- END GENERATED: harness-matrix -->
 
 | column | how to read it |
 | --- | --- |
 | `tier` | the declared tier; the config key that demotes it to 2 follows when the definition names one |
+| `project target`, `global target` | the file written for a project install and for `-g`; `none` means that scope is skipped. A block cell that lists files is written into the first of them that already exists, and the named file is created only when none does |
 | `strategy` | A writes one whole file per source into a rules directory, so removal is a file delete; B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest |
 | `hook` | the registry entry, hook file, or custom reconcile that runs the sync command, with its path for each scope the harness installs into; a maxims-owned file is written whole and deleted on removal, so nothing else belongs in it; `custom` means the definition writes its own files, named in the catches below |
-| `stdout` | how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, `-` means a custom hook whose definition declares no stdout variant |
+| `mcp stub` | the MCP servers file, per scope, where the definition registers the bundled stub server whose start runs one sync; `-` when the definition names none |
+| `stdout` | how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, `-` means no declared stdout variant, a custom hook or no hook |
 | `markers` | `stripped` when the harness drops HTML comments before injection, so the marker pair is free; `counted` when they ride into context |
 | `byte budget` | the largest rule file the writer will produce for the harness, refusing past it; `-` when the definition declares no budget, so the writer enforces none |
 
 Memory bodies do not vary by harness. They live in the maxims store and rule lines point at them; a project install links them into `.agents/memories/` for every harness, the convention `npx skills` set with `.agents/skills/`.
 
+A harness you declare in `harnesses.json` has no row here, because it exists only on the machine that declares it; the [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
+
 ## Tiers
 
 | tier | meaning | freshness |
 | --- | --- | --- |
-| 1 | a rule file plus a session-start hook | loads every session and refreshes itself |
-| 2 | a rule file, no hook | kept fresh by any hooked harness on the same machine (below), manual otherwise |
+| 1 | a rule file plus a hook that runs the sync | loads every session and refreshes itself |
+| 2 | a rule file, no hook | kept fresh by any hooked harness on the same machine (below), or by the MCP stub where the `mcp stub` column names a file; manual otherwise |
 | 3 | unsupported | no file-based always-loaded layer exists, so there is nowhere to put a guarantee; web-only agents with UI-stored rules |
 
 The tier a harness achieves is a sync-time result that `list` reports. It is not stored, so a config edit that demotes a harness is visible the next time you look.
@@ -51,7 +61,9 @@ The tier a harness achieves is a sync-time result that `list` reports. It is not
 
 `maxims sync` applies state for every harness on the machine, not only the one whose hook invoked it. Any one tier 1 hook therefore refreshes every tier 2 target as a side effect, and the tenth source costs no tenth hook.
 
-Tier 2 therefore means fresh as long as some hooked harness gets used on this machine. A tier 2 harness is stale only on a machine with zero tier 1 harnesses, and every shipped harness has a tier 1 mechanism. Copilot's IDE half has no hook at all, and Codex with hooks switched off or Cline without hooks enabled also land at tier 2; the catches below name each prerequisite.
+Tier 2 therefore means fresh as long as some hooked harness gets used on this machine, so a tier 2 harness is stale only on a machine with zero tier 1 harnesses. The matrix's tier column shows which registered harnesses have no hook system and start at tier 2.
+
+Copilot's IDE half has no hook at all, and Codex with hooks switched off or Cline without hooks enabled also land at tier 2; the catches below name each prerequisite.
 
 A shell-rc line, an OS scheduler, an editor folder-open task, and a git hook were each considered as a fallback for that machine and rejected. Each forks per platform or writes into shared territory for a benefit the property above already delivers. The [design decisions](design-decisions.md) page records them.
 
@@ -106,7 +118,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 | DeepSeek Harness | dsh renders every instruction file it finds into one 65,536-byte block and truncates the most specific file past it, so the writer refuses a rule file over 64,512 bytes (the rest is dsh's own framing) rather than truncating. dsh has no per-project config discovery, so the hook is one `@deepseek-ai/dsh-hooks-claude-code` bridge row in `$DSH_HOME/cordis.patch.yml` whatever the install scope, pointing by absolute path at a maxims-owned `$DSH_HOME/maxims-hooks.json`. The bridge reads that file once at process start, so a new or changed row needs a dsh restart. |
 | Codex, Gemini CLI, DeepSeek Harness | the block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses |
 | every hook | a repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once |
-| MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It ships dormant: no registered harness needs it while every one of them reaches tier 1. |
+| MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It is registered in the file the `mcp stub` column names, so a harness that starts its MCP servers eagerly syncs at launch even with no hook. |
 
 Editing a hook registry is surgical everywhere: the writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, and updates it in place or appends it.
 

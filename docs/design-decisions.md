@@ -48,20 +48,20 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 - **Fetching is anonymous by default; `--auth` opts a source in and is recorded as `intent.auth`.** Reading a `gh` token nobody asked to use turns a public-repo install into an authenticated request, and a token read is a side effect the plan never showed. The [fetch section](cli.md#how-a-source-is-fetched) owns the order of attempts and the environment variables.
 - **Any git URL is a source, stored verbatim, cloned as typed, with no tarball fallback.** Host-specific resolution would need a resolver per forge; a clone works on all of them. The [canonical home](state-and-store.md#the-canonical-home) owns its store path.
 - **The default fetch is a sparse, shallow clone of the memories folder; a whole-repo tarball only when `git` is missing.** The memories folder is a fraction of most repos, and a clone needs no per-host API. `MAXIMS_FETCH_TIMEOUT` bounds a fetch so a hung remote cannot block a session start.
-- **`.agents/memories/` holds project bodies on every harness.** One convention for eight harnesses, mirroring where `npx skills` puts project skills.
+- **`.agents/memories/` holds project bodies on every harness.** One convention for every harness, mirroring where `npx skills` puts project skills.
 
 ## Harnesses
 
-- **Eight harnesses ship: Claude Code, Codex, Gemini CLI, Copilot, Cursor, Cline, OpenCode, DeepSeek Harness.** All eight ship together in the first release.
-- **Pi is deferred.** Its freshness needs a shipped extension package; the plugin-file pattern OpenCode uses would make it a definition plus one file.
+- **Every harness in the [matrix](harnesses.md#the-matrix) ships in the first release.** Eight are hand-written definitions; the rest are declared from data, the shape [adding a harness](adding-a-harness.md) owns, and a user's own `harnesses.json` entries take the same shape.
+- **Pi ships with a file hook, not a deferred extension package.** An extension file in Pi's extensions directory receives `session_start` and runs the sync, the plugin-file pattern OpenCode uses.
 - **Codex's hooks flag is read-only detection.** Hooks are on by default there; maxims reads `hooks = false` to report tier 2 achieved and never writes the flag.
 - **Cursor gets a session-start hook, not a per-prompt one.** Current Cursor exposes `sessionStart`, so the earlier per-prompt shape is gone.
 - **Every quiet-mode sync is debounced by 60 seconds, on every harness.** A harness that fires more than once per session does the sync work once, and the rule needs no per-harness exception.
 - **`-g` on a harness with no global target warns and skips.** Cursor's user rules are UI-stored; refusing the whole command for one harness would block the other harnesses.
 - **Copilot CLI is tier 1; the IDE half is tier 2.** The CLI ships a `sessionStart` hook; the IDE has none, and an editor folder-open task to promote it was rejected as too invasive.
 - **OpenCode is tier 1 through a maxims-written plugin file.** Whole-file write and whole-file delete are simpler than a registry edit because nothing else lives in the file.
-- **DeepSeek Harness is tier 1 through its Claude Code hook bridge, caveats recorded.** The spec reports, unverified here, that the bridge reads its path once at start and has no per-project discovery; its config points at a maxims-owned file, never into `.claude`.
-- **The MCP stub ships, dormant, behind the hidden `maxims mcp-serve` command.** It is the only mechanical tier 2 answer, for harnesses that start MCP servers eagerly and have no hook; it exposes zero tools.
+- **DeepSeek Harness is tier 1 through its Claude Code hook bridge, caveats recorded.** The bridge row is mounted machine-wide and its config points at a maxims-owned file, never into `.claude`; the [dsh catch](harnesses.md#per-harness-catches) owns the caveats.
+- **The MCP stub ships behind the hidden `maxims mcp-serve` command.** It is the only mechanical tier 2 answer, for harnesses that start MCP servers eagerly and have no hook; the [matrix](harnesses.md#the-matrix) shows where it is registered.
 - **The self-refresh line ships beside the stub.** Zero artifact and universal by construction, since every tier 2 harness has an always-loaded layer by definition; not written where a hook exists.
 - **Shell-rc lines, OS schedulers, editor tasks, and git hooks are rejected as freshness fallbacks.** Each forks per platform or writes into shared territory for a benefit the one-hook-refreshes-everything property already delivers.
 - **The rule file is a real file, never a symlink, on every harness.** A rule that silently never loads is the failure the tool exists to prevent. The spec reports, unverified here, that Claude Code skips a symlinked rule file pointing outside the working directory.

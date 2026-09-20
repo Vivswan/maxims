@@ -5,9 +5,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import {
+  byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
-  type HookShape,
   type Scope,
   scopeRoot,
 } from "../src/harnesses/contract.ts";
@@ -32,6 +32,7 @@ const COLUMNS = [
   "strategy",
   "hook",
   "stdout",
+  "mcp stub",
   "markers",
   "byte budget",
 ] as const;
@@ -46,7 +47,10 @@ function renderTarget(def: HarnessDefinition, scope: Scope): string {
   if (target.kind === "rules-dir") {
     return code(display(join(root, target.dir, target.fileName(SOURCE_PLACEHOLDER))));
   }
-  return `${code(display(join(root, target.file)))} block`;
+  const fallbacks = target.precedence?.map((name) => code(display(join(root, name)))) ?? [];
+  const written =
+    fallbacks.length === 0 ? "" : `, written into the first existing of ${fallbacks.join(", ")}`;
+  return `${code(display(join(root, target.file)))} block${written}`;
 }
 
 // Strategy A is a rules directory, B a shared block; a harness may choose one per scope.
@@ -88,8 +92,18 @@ function renderHook(def: HarnessDefinition): string {
   }
 }
 
-function renderStdout(hook: HookShape): string {
+function renderStdout(def: HarnessDefinition): string {
+  const hook = def.hook;
   return hook.kind === "registry" || hook.kind === "file" ? code(hook.stdout) : "-";
+}
+
+function renderMcp(def: HarnessDefinition): string {
+  const mcp = def.mcp;
+  if (mcp === undefined) return "-";
+  const paths = SCOPES.map((scope) => mcp.path(scope, DISPLAY_CONTEXT)).filter(
+    (path): path is string => path !== null,
+  );
+  return paths.map((path) => code(display(path))).join(" or ");
 }
 
 // The declared tier, plus the config value that demotes it when the definition names one.
@@ -103,7 +117,17 @@ function renderTier(def: HarnessDefinition): string {
 }
 
 function renderBudget(def: HarnessDefinition): string {
-  return def.byteBudget === undefined ? "-" : `${def.byteBudget.toLocaleString("en-US")} bytes`;
+  const budgets = SCOPES.map((scope) => ({ scope, bytes: byteBudgetFor(def.byteBudget, scope) }));
+  const declared = budgets.filter(
+    (entry): entry is { scope: Scope; bytes: number } => entry.bytes !== undefined,
+  );
+  if (declared.length === 0) return "-";
+  const format = (bytes: number) => `${bytes.toLocaleString("en-US")} bytes`;
+  const distinct = new Set(declared.map(({ bytes }) => bytes));
+  if (distinct.size === 1 && declared.length === SCOPES.length) {
+    return format(declared[0]?.bytes ?? 0);
+  }
+  return declared.map(({ scope, bytes }) => `${scope} ${format(bytes)}`).join(", ");
 }
 
 export function renderRow(def: HarnessDefinition): string {
@@ -115,7 +139,8 @@ export function renderRow(def: HarnessDefinition): string {
     renderTarget(def, "global"),
     renderStrategy(def),
     renderHook(def),
-    renderStdout(def.hook),
+    renderStdout(def),
+    renderMcp(def),
     def.markers,
     renderBudget(def),
   ];
