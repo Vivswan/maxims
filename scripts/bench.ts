@@ -68,7 +68,7 @@ function timeOneRun(command: string[]): number {
     const elapsed = performance.now() - started;
     if (proc.exitCode !== 0) {
       process.stderr.write(proc.stderr.toString());
-      process.stderr.write(`bench: ${command.join(" ")} exited with exit ${proc.exitCode}\n`);
+      process.stderr.write(`bench: ${command.join(" ")} exited with code ${proc.exitCode}\n`);
       process.exit(1);
     }
     return elapsed;
