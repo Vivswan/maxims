@@ -1,11 +1,12 @@
 // Guards the concurrency table: a second writer that waits forever, a hook that blocks a session
-// start, or a crashed holder's lock that is never stolen would each show up only under load.
+// start, a crashed holder's lock that is never stolen, or a live holder whose long sync is stolen
+// from under it would each show up only under load.
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { withLock } from "./lock.ts";
+import { type LockOptions, withLock } from "./lock.ts";
 
 async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
   let caught: unknown;
@@ -17,6 +18,55 @@ async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
   expect(caught).toBeInstanceOf(MaximsError);
   expect((caught as MaximsError).code).toBe(ExitCode.StoreLocked);
   return caught as MaximsError;
+}
+
+function writeStaleLock(lockPath: string, holder: Record<string, unknown>, ageMs: number): void {
+  writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
+  const then = new Date(Date.now() - ageMs);
+  utimesSync(lockPath, then, then);
+}
+
+type ChildHolder = {
+  pid: number;
+  kill: (signal: "SIGTERM") => Promise<{ exitCode: number | null; signalCode: string | null }>;
+};
+
+const HOLDER_SCRIPT = `
+const { withLock } = await import(process.argv[1]);
+await withLock(process.argv[2], JSON.parse(process.argv[3]), async () => {
+  console.log(String(process.pid));
+  await Bun.stdin.text();
+});
+`;
+
+// A holder in another process, so a signal aimed at it leaves exactly what a real interrupt leaves.
+async function holdInChild(lockPath: string, options: LockOptions): Promise<ChildHolder> {
+  const proc = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      HOLDER_SCRIPT,
+      join(import.meta.dir, "lock.ts"),
+      lockPath,
+      JSON.stringify(options),
+    ],
+    { stdin: "pipe", stdout: "pipe", stderr: "inherit" },
+  );
+  const reader = proc.stdout.getReader();
+  let text = "";
+  while (!text.includes("\n")) {
+    const chunk = await reader.read();
+    if (chunk.done) throw new Error(`child holder exited with ${await proc.exited}`);
+    text += new TextDecoder().decode(chunk.value);
+  }
+  return {
+    pid: Number(text.slice(0, text.indexOf("\n"))),
+    kill: async (signal) => {
+      proc.kill(signal);
+      await proc.exited;
+      return { exitCode: proc.exitCode, signalCode: proc.signalCode };
+    },
+  };
 }
 
 describe("withLock", () => {
@@ -78,13 +128,30 @@ describe("withLock", () => {
     });
   });
 
+  test("a live holder past staleMs keeps its lock: the heartbeat refreshes it, so a hook is refused", async () => {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "state.json.lock");
+      const record = await withLock(lockPath, { staleMs: 2000 }, async () => {
+        await Bun.sleep(3200);
+        const error = await expectLocked(
+          withLock(lockPath, { waitMs: 0, staleMs: 2000 }, async () => "stolen"),
+        );
+        expect(error.message).toContain(`pid ${process.pid}`);
+        return readFileSync(lockPath, "utf8");
+      });
+      expect(JSON.parse(record).pid).toBe(process.pid);
+      expect(existsSync(lockPath)).toBe(false);
+    });
+  }, 10_000);
+
   test("a lock older than staleMs is stolen and the theft reported to the callback", async () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
       const startedAt = new Date(Date.now() - 120_000).toISOString();
-      writeFileSync(
+      writeStaleLock(
         lockPath,
-        `${JSON.stringify({ pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: ["maxims", "sync"] })}\n`,
+        { pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: ["maxims", "sync"] },
+        120_000,
       );
       const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => lock);
       expect(seen.stolen?.holder).toEqual({
@@ -103,9 +170,10 @@ describe("withLock", () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
       const startedAt = new Date(Date.now() - 120_000).toISOString();
-      writeFileSync(
+      writeStaleLock(
         lockPath,
-        `${JSON.stringify({ pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: [] })}\n`,
+        { pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: [] },
+        120_000,
       );
       let inside = 0;
       let overlap = 0;
@@ -148,6 +216,39 @@ describe("withLock", () => {
         writeFileSync(lockPath, "");
       });
       expect(readFileSync(lockPath, "utf8")).toBe("");
+    });
+  });
+
+  // On Windows a kill is TerminateProcess, with no signal for the exit hook to see; the analogue is
+  // a console Ctrl-C event, which a test cannot aim at one child.
+  const signalTest = test.skipIf(process.platform === "win32");
+
+  signalTest(
+    "a holder killed by SIGTERM removes its own lock before dying of the signal",
+    async () => {
+      await withTempDir(async (dir) => {
+        const lockPath = join(dir, "state.json.lock");
+        const child = await holdInChild(lockPath, {});
+        expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(child.pid);
+        expect(await child.kill("SIGTERM")).toEqual({ exitCode: null, signalCode: "SIGTERM" });
+        expect(readdirSync(dir)).toEqual([]);
+      });
+    },
+  );
+
+  signalTest("a displaced holder's exit on a signal leaves the newer lock in place", async () => {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "state.json.lock");
+      const displaced = await holdInChild(lockPath, { staleMs: 60_000 });
+      const then = new Date(Date.now() - 120_000);
+      utimesSync(lockPath, then, then);
+      const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => {
+        await displaced.kill("SIGTERM");
+        expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+        return lock;
+      });
+      expect(seen.stolen?.holder?.pid).toBe(displaced.pid);
+      expect(readdirSync(dir)).toEqual([]);
     });
   });
 

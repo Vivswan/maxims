@@ -2,6 +2,7 @@
 // escapes its root, or a directory hash that follows symlinks would each fail silently in sync.
 import { describe, expect, test } from "bun:test";
 import {
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -31,6 +32,20 @@ describe("writeFileAtomic", () => {
       expect(readFileSync(target, "utf8")).toBe("two\n");
       expect(statSync(target).mode & 0o777).toBe(0o600);
       expect(readdirSync(join(dir, "nested"))).toEqual(["rules.md"]);
+    });
+  });
+
+  test("a link at the destination becomes a real file and the link's target keeps its content", async () => {
+    await withTempDir((dir) => {
+      const target = join(dir, "store.md");
+      const destination = join(dir, "dest.md");
+      writeFileSync(target, "canonical\n");
+      symlinkSync(target, destination);
+      writeFileAtomic(assertInsideRoot(dir, destination), "rendered\n");
+      expect(lstatSync(destination).isSymbolicLink()).toBe(false);
+      expect(readFileSync(destination, "utf8")).toBe("rendered\n");
+      expect(readFileSync(target, "utf8")).toBe("canonical\n");
+      expect(readdirSync(dir).sort()).toEqual(["dest.md", "store.md"]);
     });
   });
 

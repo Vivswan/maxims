@@ -1,6 +1,7 @@
-import { closeSync, openSync, unlinkSync, writeSync } from "node:fs";
-import { link, readFile, rename, stat, unlink } from "node:fs/promises";
+import { closeSync, futimesSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { link, rename, stat, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
+import { onExit } from "signal-exit";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
 export type LockHolder = {
@@ -28,6 +29,20 @@ export type LockContext = {
 export const DEFAULT_LOCK_WAIT_MS = 5000;
 export const DEFAULT_LOCK_STALE_MS = 60_000;
 
+type HeldLock = {
+  lockPath: string;
+  holder: LockHolder;
+  fd: number;
+  heartbeat: ReturnType<typeof setInterval>;
+};
+
+// Every lock this process holds, so one exit hook can release them all when a signal ends the
+// process mid-callback; without it an interrupted sync blocks every hook until staleMs passes.
+const heldLocks = new Set<HeldLock>();
+onExit(() => {
+  for (const held of heldLocks) release(held);
+});
+
 // Age alone breaks a lock, without consulting the pid: on NFS or inside a container the pid check
 // lies, and every write behind the lock is temp + rename, so a wrongly stolen lock costs at worst a
 // redundant rewrite. The pid's liveness is still reported so the theft log can say which case it was.
@@ -41,11 +56,11 @@ export async function withLock<T>(
   const deadline = Date.now() + waitMs;
   let stolen: StolenLock | null = null;
   let delayMs = 25;
-  let ours: LockHolder | null = null;
+  let held: HeldLock | null = null;
   for (;;) {
-    ours = tryCreate(lockPath);
-    if (ours !== null) break;
-    const holder = await readHolder(lockPath);
+    held = tryCreate(lockPath, staleMs);
+    if (held !== null) break;
+    const holder = readHolder(lockPath);
     const theft = await stealIfStale(lockPath, holder, staleMs);
     if (theft !== null) {
       stolen = theft;
@@ -55,26 +70,38 @@ export async function withLock<T>(
     await new Promise((done) => setTimeout(done, Math.min(delayMs, deadline - Date.now())));
     delayMs = Math.min(delayMs * 2, 250);
   }
+  heldLocks.add(held);
   try {
     return await fn({ stolen });
   } finally {
-    await releaseOwn(lockPath, ours);
+    release(held);
   }
 }
 
 // A holder that outlived staleMs may have been displaced by a stealer; releasing then must not
 // remove the stealer's lock, so the file is unlinked only while it provably records this holder.
 // An unreadable file is a replacement whose record is not written yet, and is left alone.
-async function releaseOwn(lockPath: string, ours: LockHolder): Promise<void> {
-  if (!sameHolder(await readHolder(lockPath), ours)) return;
-  await unlink(lockPath).catch(() => undefined);
+// Synchronous throughout because the exit hook runs it with no event loop left.
+function release(held: HeldLock): void {
+  heldLocks.delete(held);
+  clearInterval(held.heartbeat);
+  closeSync(held.fd);
+  if (!sameHolder(readHolder(held.lockPath), held.holder)) return;
+  try {
+    unlinkSync(held.lockPath);
+  } catch {
+    // Already gone: a stealer removed it between the identity check and the unlink.
+  }
 }
 
 function sameHolder(a: LockHolder | null, b: LockHolder | null): boolean {
   return a !== null && b !== null && a.pid === b.pid && a.startedAt === b.startedAt;
 }
 
-function tryCreate(lockPath: string): LockHolder | null {
+// The descriptor stays open for the whole hold and the heartbeat touches it, not the path: the
+// inode it names is the one this process created, so a lock that a stealer has since put in its
+// place is never refreshed by the displaced holder. A refresh that fails only lets the lock age.
+function tryCreate(lockPath: string, staleMs: number): HeldLock | null {
   let fd: number;
   try {
     fd = openSync(lockPath, "wx", 0o600);
@@ -99,13 +126,21 @@ function tryCreate(lockPath: string): LockHolder | null {
       cause: error,
     });
   }
-  closeSync(fd);
-  return holder;
+  const heartbeat = setInterval(() => {
+    const now = new Date();
+    try {
+      futimesSync(fd, now, now);
+    } catch {
+      // The lock ages toward staleMs from here; a stealer's redundant rewrite is the worst case.
+    }
+  }, staleMs / 2);
+  heartbeat.unref();
+  return { lockPath, holder, fd, heartbeat };
 }
 
-async function readHolder(lockPath: string): Promise<LockHolder | null> {
+function readHolder(lockPath: string): LockHolder | null {
   try {
-    const parsed: unknown = JSON.parse(await readFile(lockPath, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(lockPath, "utf8"));
     if (typeof parsed !== "object" || parsed === null) return null;
     const record = parsed as Record<string, unknown>;
     if (typeof record.pid !== "number" || typeof record.startedAt !== "string") return null;
@@ -120,9 +155,9 @@ async function readHolder(lockPath: string): Promise<LockHolder | null> {
   }
 }
 
-async function lockAgeMs(lockPath: string, holder: LockHolder | null): Promise<number | null> {
-  const started = holder === null ? Number.NaN : Date.parse(holder.startedAt);
-  if (!Number.isNaN(started)) return Date.now() - started;
+// Age is the file's mtime, which a live holder's heartbeat keeps refreshing; the record's
+// startedAt would age a holder that is still busy past staleMs and let a hook steal from it.
+async function lockAgeMs(lockPath: string): Promise<number | null> {
   try {
     return Date.now() - (await stat(lockPath)).mtimeMs;
   } catch {
@@ -140,7 +175,7 @@ async function stealIfStale(
   holder: LockHolder | null,
   staleMs: number,
 ): Promise<StolenLock | null> {
-  const ageMs = await lockAgeMs(lockPath, holder);
+  const ageMs = await lockAgeMs(lockPath);
   if (ageMs === null || ageMs <= staleMs) return null;
   const aside = `${lockPath}.stale-${process.pid}-${Date.now()}`;
   try {
@@ -148,7 +183,7 @@ async function stealIfStale(
   } catch {
     return null;
   }
-  const movedAgeMs = await lockAgeMs(aside, await readHolder(aside));
+  const movedAgeMs = await lockAgeMs(aside);
   const grabbedFreshLock = movedAgeMs === null || movedAgeMs <= staleMs;
   if (grabbedFreshLock) await link(aside, lockPath).catch(() => undefined);
   await unlink(aside).catch(() => undefined);
