@@ -722,6 +722,9 @@ describe("orphan store entries", () => {
       const report = await runSync(SYNC, io);
       expect(readFileSync(readdirRules(w.userHome), "utf8")).toBe(rules);
       expect(report.notices.some((line) => line.includes("kept whatever is installed"))).toBe(true);
+      expect(report.failed).toEqual([
+        { key: live, message: `${live} has no memories directory`, kind: "missing" },
+      ]);
       expect(existsSync(storePathFor(w.home, localFrom(live, true)))).toBe(false);
     });
   });

@@ -335,8 +335,8 @@ describe("list", () => {
     });
   });
 
-  // `--json` is one document or nothing to a caller parsing stdout; a lock path that cannot be
-  // read used to throw past the printer.
+  // `--json` is one document or nothing to a caller parsing stdout, a lock path that cannot be
+  // read included.
   test("--json prints one ok:false document when the lock path is a directory", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
