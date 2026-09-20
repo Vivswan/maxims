@@ -12,11 +12,9 @@
     "jsonc-parser",
     "picocolors",
     "picomatch",
-    "semver",
     "simple-git",
     "smol-toml",
     "tar",
-    "@types/picomatch",
-    "@types/semver"
+    "@types/picomatch"
   ]
 }
