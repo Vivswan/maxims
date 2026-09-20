@@ -1,3 +1,5 @@
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { ContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
@@ -12,9 +14,23 @@ export const HARNESS_IDS = [
   "cline",
   "opencode",
   "dsh",
+  "devin",
+  "windsurf",
+  "zed",
+  "amp",
+  "warp",
+  "pi",
 ] as const;
 
-export type HarnessId = (typeof HARNESS_IDS)[number];
+export type BuiltInHarnessId = (typeof HARNESS_IDS)[number];
+
+declare const userHarnessIdBrand: unique symbol;
+
+// An id outside the built-in list: one declared in `$MAXIMS_HOME/harnesses.json`. A parsed spec's
+// id is typed as the union below; user-defined.ts refuses a built-in id before compiling one.
+export type UserHarnessId = string & { readonly [userHarnessIdBrand]: true };
+
+export type HarnessId = BuiltInHarnessId | UserHarnessId;
 
 export type Scope = "project" | "global";
 
@@ -28,6 +44,9 @@ export type HarnessContext = {
 // block into a file the user also owns. A harness only chooses; the two writers exist once.
 // `dir` and `file` are RELATIVE to the scope root from `scopeRoot`; `HookShape.path`,
 // `bodiesDir` and `tierCheck.path` return ABSOLUTE paths.
+// `precedence` lists, in the harness's own order, the files of which it reads only the first
+// that exists (Zed reads `.rules` and ignores `AGENTS.md` beside it); `file` is the one created
+// when none exists and must appear in the list. `sharedBlockFile` is the one resolver.
 export type Target =
   | {
       kind: "rules-dir";
@@ -35,7 +54,17 @@ export type Target =
       fileName: (sourceSlug: string) => string;
       frontmatter?: (opts: { paths?: string[] }) => string;
     }
-  | { kind: "shared-block"; file: string };
+  | { kind: "shared-block"; file: string; precedence?: string[] };
+
+export type SharedBlockTarget = Extract<Target, { kind: "shared-block" }>;
+
+// A directory named in the list (Cline's `.clinerules/`) holds no block and is skipped.
+export function sharedBlockFile(target: SharedBlockTarget, root: string): string {
+  for (const name of target.precedence ?? []) {
+    if (statSync(join(root, name), { throwIfNoEntry: false })?.isFile()) return name;
+  }
+  return target.file;
+}
 
 export type HookSpec = {
   command: string;
@@ -59,6 +88,14 @@ export type HookStdout =
   | "none";
 
 export type ConfigFormat = "json" | "toml";
+
+// Where a harness keeps its MCP servers, for the bundled stub whose start runs sync: the config
+// file per scope and the key path of the servers map inside it. `null` means that scope has no
+// file the harness starts servers from.
+export type McpRegistry = {
+  path: (scope: Scope, ctx: HarnessContext) => string | null;
+  serversPath: string[];
+};
 
 // A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
 // and `commandKey` carry every difference between the harnesses' registry files, so the one hook
@@ -140,6 +177,7 @@ export interface HarnessDefinition {
   verifiedAgainst: { url: string; date: string; contentHash?: ContentHash };
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
+  mcp?: McpRegistry;
   // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`
   // array entry), reconciled by sync like a hook: constructed from the spec, compared, written on a
   // difference, removed when `wanted` is false.

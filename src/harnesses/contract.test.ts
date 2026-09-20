@@ -1,10 +1,14 @@
-// Guards the one scope-to-directory resolution every strategy and hook path shares: a project
-// target with no project root must be a usage error, and a harness's global root override must win
-// over the maxims home, or a Codex or Copilot user with a relocated config dir gets files in the
-// wrong place.
+// Guards the two resolutions every strategy and hook path shares: a project target with no project
+// root must be a usage error, a harness's global root override must win over the maxims home, or
+// a Codex or Copilot user with a relocated config dir gets files in the wrong place; and a
+// shared-block target with a precedence list must land in the file the harness reads first, or
+// the block goes into a file it never opens.
 import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, type MaximsError } from "../util/exit-codes.ts";
-import { type HarnessContext, scopeRoot } from "./contract.ts";
+import { type HarnessContext, scopeRoot, sharedBlockFile } from "./contract.ts";
 
 const ctx: HarnessContext = {
   home: "/home/user/.agents/maxims",
@@ -27,4 +31,26 @@ test("scopeRoot: a project target outside any project is a usage error", () => {
     caught = error;
   }
   expect((caught as MaximsError).code).toBe(ExitCode.Usage);
+});
+
+// A directory bearing a listed name is skipped: Cline's `.clinerules/` is a folder in current
+// projects, and a folder holds no block.
+test("sharedBlockFile: the first listed regular file wins, else the declared default", async () => {
+  const target = {
+    kind: "shared-block" as const,
+    file: "AGENTS.md",
+    precedence: [".rules", ".clinerules", "AGENTS.md", "CLAUDE.md"],
+  };
+  await withTempDir((root) => {
+    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
+    writeFileSync(join(root, "CLAUDE.md"), "");
+    expect(sharedBlockFile(target, root)).toBe("CLAUDE.md");
+    mkdirSync(join(root, ".clinerules"));
+    expect(sharedBlockFile(target, root)).toBe("CLAUDE.md");
+    writeFileSync(join(root, "AGENTS.md"), "");
+    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
+    writeFileSync(join(root, ".rules"), "");
+    expect(sharedBlockFile(target, root)).toBe(".rules");
+    expect(sharedBlockFile({ kind: "shared-block", file: "GEMINI.md" }, root)).toBe("GEMINI.md");
+  });
 });
