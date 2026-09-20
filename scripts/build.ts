@@ -1,12 +1,13 @@
 // The one build entry: `bun scripts/build.ts [--outfile path] [--size-json path]`.
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const SHEBANG = "#!/usr/bin/env node\n";
+const DEFAULT_OUTFILE = "dist/cli.js";
 const repoRoot = resolve(import.meta.dir, "..");
 
 interface Options {
-  outfile: string;
+  outfile: string | undefined;
   sizeJson: string | undefined;
 }
 
@@ -17,7 +18,7 @@ function fail(message: string): never {
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { outfile: "dist/cli.js", sizeJson: undefined };
+  const options: Options = { outfile: undefined, sizeJson: undefined };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag !== "--outfile" && flag !== "--size-json") fail(`unknown argument ${flag}`);
@@ -31,6 +32,10 @@ function parseArgs(argv: string[]): Options {
 }
 
 const options = parseArgs(process.argv.slice(2));
+// Caller-supplied paths are relative to the caller's cwd; resolve them before the chdir below.
+const outfile =
+  options.outfile === undefined ? join(repoRoot, DEFAULT_OUTFILE) : resolve(options.outfile);
+const sizeJson = options.sizeJson === undefined ? undefined : resolve(options.sizeJson);
 
 // Bun writes module-boundary comments relative to the cwd; anchoring at the repo root keeps the
 // artifact byte-identical no matter where the build is invoked from.
@@ -60,14 +65,12 @@ const bundled = await artifact.text();
 const body = bundled.startsWith("#!") ? bundled.slice(bundled.indexOf("\n") + 1) : bundled;
 const output = Buffer.from(SHEBANG + body);
 
-const outfile = resolve(options.outfile);
 mkdirSync(dirname(outfile), { recursive: true });
 writeFileSync(outfile, output);
 chmodSync(outfile, 0o755);
 
-if (options.sizeJson !== undefined) {
-  const sizeJson = resolve(options.sizeJson);
+if (sizeJson !== undefined) {
   mkdirSync(dirname(sizeJson), { recursive: true });
   writeFileSync(sizeJson, `${JSON.stringify({ bytes: output.byteLength })}\n`);
 }
-process.stdout.write(`bundle: ${options.outfile} ${output.byteLength} bytes\n`);
+process.stdout.write(`bundle: ${options.outfile ?? DEFAULT_OUTFILE} ${output.byteLength} bytes\n`);
