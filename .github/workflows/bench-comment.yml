@@ -1,8 +1,7 @@
 # Repo-owned. Posts the bench job's report as one sticky PR comment, updated in place on every push.
 # It runs here rather than in checks.yml because the CI caller caps checks.yml at contents: read
 # and a comment needs pull-requests: write. A workflow_run job runs the default branch's copy of
-# this file with a read-write token and never runs the pull request's code: it downloads the
-# report the CI run uploaded and posts it as text.
+# this file with a read-write token; the zizmor ignore on the trigger states why that is safe here.
 #   which pull request  -> the one the event payload associates with the run; the artifact is the
 #                          pull request's own output and names nothing
 #   two or none         -> the same head serves two pull requests, or the head came from a fork,
@@ -13,7 +12,7 @@
 
 name: Bench comment
 
-on:
+on: # zizmor: ignore[dangerous-triggers] no checkout and nothing from the triggering run is executed; the token only reads the report artifact and posts it as text
   workflow_run:
     workflows: [CI]
     types: [completed]
