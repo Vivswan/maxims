@@ -191,9 +191,14 @@ const clineSpec: HarnessSpec = {
   fixtures: { hookStdin: "hook-stdin.json" },
 };
 
-// The install directories every landed harness detects, created together in one home so a
-// context with them all present reads as installed for each.
-const INSTALL_DIRS = [".codex", ".copilot", ".gemini", "Documents/Cline", ".cline"];
+// One home per install footprint: a compiled detector that reads another harness's directory
+// disagrees with its hand-written twin on the home where only that directory exists, which one
+// home holding every footprint could never show. `Documents` alone is a footprint so a detector
+// that stops one level short of `Documents/Cline` is seen too.
+const FOOTPRINTS = [".codex", ".copilot", ".gemini", "Documents", "Documents/Cline", ".cline"];
+// Each global-root variable is set on its own, so a detector reading the other harness's
+// variable disagrees on the context where only its own is set.
+const ROOT_VARIABLES = ["CODEX_HOME", "COPILOT_HOME"];
 
 type Fixture = {
   ctxs: HarnessContext[];
@@ -202,23 +207,29 @@ type Fixture = {
 async function withFixture<T>(fn: (fixture: Fixture) => Promise<T> | T): Promise<T> {
   return withTempDir((dir) => {
     const empty = join(dir, "empty-home");
-    const installed = join(dir, "installed-home");
     const present = join(dir, "present");
     const project = join(dir, "project");
     mkdirSync(empty);
     mkdirSync(present);
     mkdirSync(project);
-    for (const sub of INSTALL_DIRS) mkdirSync(join(installed, sub), { recursive: true });
+    const footprintHomes = FOOTPRINTS.map((sub, index) => {
+      const home = join(dir, `home-${index}`);
+      mkdirSync(join(home, sub), { recursive: true });
+      return home;
+    });
     writeFileSync(join(dir, "a-file"), "");
-    const override = (value: string) => ({ CODEX_HOME: value, COPILOT_HOME: value });
+    const overrideValues = [present, join(dir, "missing"), join(dir, "a-file"), "relative-home"];
     return fn({
       ctxs: [
         { home: empty, projectRoot: project, env: {} },
-        { home: installed, projectRoot: project, env: {} },
-        { home: empty, projectRoot: project, env: override(present) },
-        { home: empty, projectRoot: project, env: override(join(dir, "missing")) },
-        { home: empty, projectRoot: project, env: override(join(dir, "a-file")) },
-        { home: empty, projectRoot: project, env: override("relative-home") },
+        ...footprintHomes.map((home) => ({ home, projectRoot: project, env: {} })),
+        ...ROOT_VARIABLES.flatMap((name) =>
+          overrideValues.map((value) => ({
+            home: empty,
+            projectRoot: project,
+            env: { [name]: value },
+          })),
+        ),
         { home: empty, projectRoot: null, env: {} },
       ],
     });
