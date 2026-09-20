@@ -1,4 +1,4 @@
-import { parseContentHash } from "../../memory/contract.ts";
+import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Gemini reads `timeout` in milliseconds and runs every hook synchronously; there is no async
@@ -12,9 +12,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
     date: "2026-09-20",
-    contentHash:
-      parseContentHash("sha256:9ca6653bf30f06e590aebf445ab50381367ec89254776b3ffbc5525a734ab936") ??
-      undefined,
+    contentHash: contentHashLiteral(
+      "sha256:9ca6653bf30f06e590aebf445ab50381367ec89254776b3ffbc5525a734ab936",
+    ),
   },
   targets: {
     project: { kind: "shared-block", file: "GEMINI.md" },

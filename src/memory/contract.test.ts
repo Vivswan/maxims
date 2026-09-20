@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ContentHash,
+  contentHashLiteral,
   type HiddenCharacter,
   hiddenCharacters,
   type Memory,
@@ -65,6 +66,15 @@ describe("parseContentHash", () => {
   ];
   test.each(cases)("%j is a content hash: %p", (candidate, ok) => {
     expect(parseContentHash(candidate)).toBe(ok ? (candidate as ContentHash) : null);
+  });
+
+  // A definition's hash is a literal in source, so a typo must fail at load, naming itself.
+  test.each(cases)("contentHashLiteral(%j) round-trips or throws: %p", (candidate, ok) => {
+    if (ok) expect(contentHashLiteral(candidate)).toBe(candidate as ContentHash);
+    else
+      expect(() => contentHashLiteral(candidate)).toThrow(
+        `not a sha256:<64 hex digits> digest: ${candidate}`,
+      );
   });
 });
 

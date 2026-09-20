@@ -22,6 +22,14 @@ export function contentHashOf(text: string | Uint8Array): ContentHash {
   return sha256(text) as ContentHash;
 }
 
+// A digest written in source (a harness definition's verified page) is minted here; a malformed
+// literal throws at module load, naming itself, before any definition registers.
+export function contentHashLiteral(literal: string): ContentHash {
+  const parsed = parseContentHash(literal);
+  if (parsed === null) throw new Error(`not a sha256:<64 hex digits> digest: ${literal}`);
+  return parsed;
+}
+
 // A name reaches disk as `<name>.md` inside a directory, so the grammar admits nothing a path
 // builder could misread: no separators, no dots, no case to fold. The length cap keeps the
 // filename under every common filesystem's 255-byte limit with room for the extension.

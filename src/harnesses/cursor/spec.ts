@@ -1,4 +1,4 @@
-import { parseContentHash } from "../../memory/contract.ts";
+import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cursor ignores a plain `.md` in `.cursor/rules` and loads an `.mdc` only when its frontmatter
@@ -15,9 +15,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://cursor.com/docs/context/rules",
     date: "2026-09-20",
-    contentHash:
-      parseContentHash("sha256:2c400ceca96de581fc42d269a8f3fd3b145ca949a31e2550a510f04d19adf486") ??
-      undefined,
+    contentHash: contentHashLiteral(
+      "sha256:2c400ceca96de581fc42d269a8f3fd3b145ca949a31e2550a510f04d19adf486",
+    ),
   },
   targets: {
     project: {

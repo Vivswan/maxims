@@ -1,4 +1,4 @@
-import { parseContentHash } from "../../memory/contract.ts";
+import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Devin Local is the agent new Devin Desktop (formerly Windsurf) tabs start with, and it shares
@@ -13,9 +13,9 @@ export const spec = {
   verifiedAgainst: {
     url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
     date: "2026-09-20",
-    contentHash:
-      parseContentHash("sha256:5f7c187da8dfcfa870f7309a9ab7585356a972dcc890d6e9f2aadecf390f6d1f") ??
-      undefined,
+    contentHash: contentHashLiteral(
+      "sha256:5f7c187da8dfcfa870f7309a9ab7585356a972dcc890d6e9f2aadecf390f6d1f",
+    ),
   },
   globalRoot: { default: ".config/devin" },
   targets: {
