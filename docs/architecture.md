@@ -54,7 +54,7 @@ flowchart LR
 ```
 
 - **Every destination has one writer.** `add`, `update` and `remove` change `state.json` and then run `sync`; no verb has a private path to a rules directory, an instruction file or a registry.
-- The [canonical home](state-and-store.md#the-canonical-home) owns the tree, why it sits inside the agents folder, every naming rule of the store, and which two files are not state.
+- The [canonical home](state.md#the-canonical-home) owns the tree, why it sits inside the agents folder, every naming rule of the store, and which two files are not state.
 
 Demonstrated by: [src/util/home.test.ts](../src/util/home.test.ts), [src/state/store.test.ts](../src/state/store.test.ts), [src/util/log.test.ts](../src/util/log.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
 
@@ -88,7 +88,7 @@ flowchart LR
 
 - **A quarantine or a write-back acts only on bytes read under the lock.** A lock-free read that finds a corrupt or migratable file inspects it again under the lock, or reports what it saw when another process holds it.
 - **A live local source has no `fetched` member at all,** so nothing downstream checks for one; the remote and copied-local variants differ only in what their sha is, a git commit or a content hash.
-- The [state page](state-and-store.md#state-holds-intent-never-actuality) owns the table of what belongs in the file and what its real owner is.
+- The [state page](state.md#state-holds-intent-never-actuality) owns the table of what belongs in the file and what its real owner is.
 
 Demonstrated by: [src/state/store.test.ts](../src/state/store.test.ts), [src/state/schema.test.ts](../src/state/schema.test.ts), [src/state/migrations/index.test.ts](../src/state/migrations/index.test.ts), [src/state/config.test.ts](../src/state/config.test.ts).
 
@@ -128,8 +128,8 @@ flowchart LR
   local -->|"copied: one write per file, live: one symlink"| storedir
 ```
 
-- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way; [How a source is fetched](cli.md#how-a-source-is-fetched) owns the user-facing table.
-- **Nothing under `src/sources/` writes a remote source into the store.** A remote fetch lands in the temporary directory and returns its files in memory, so a fetch that fails on every rung leaves the previous store entry untouched: the last good copy the [failure paths](state-and-store.md#failure-paths) promise.
+- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way; [How a source is fetched](fetching.md#how-a-source-is-fetched) owns the user-facing table.
+- **Nothing under `src/sources/` writes a remote source into the store.** A remote fetch lands in the temporary directory and returns its files in memory, so a fetch that fails on every rung leaves the previous store entry untouched: the last good copy the [failure paths](recovery.md#failure-paths) promise.
 - **A rung may only end in an outcome.** Whatever a rung throws becomes that rung's failure, and when every rung fails the most actionable failure wins: rate limit, then auth, missing, invalid, network.
 - **The memory contract reports, the caller refuses.** `parseMemory()` returns a reason instead of throwing, and `hiddenCharacters()` lists what renders as nothing; [memory files](memory-files.md#the-contract) owns what is refused and why.
 
