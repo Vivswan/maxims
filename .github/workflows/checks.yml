@@ -56,7 +56,11 @@ jobs:
           # commit main was at before it, so every merge gets a real delta rather than a self-compare.
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
           OUT: ${{ runner.temp }}/bench
-        run: bun scripts/bench_ci.ts --base "$BASE" --out "$OUT"
+        # A push that creates the branch reports a before of forty zeroes, and a force-push can
+        # report a commit the clone no longer holds; neither is a commit to build, so main stands in.
+        run: |
+          git rev-parse --verify -q "$BASE^{commit}" >/dev/null || BASE=origin/main
+          bun scripts/bench_ci.ts --base "$BASE" --out "$OUT"
       - name: Publish the report to the step summary
         if: ${{ !cancelled() }}
         env:

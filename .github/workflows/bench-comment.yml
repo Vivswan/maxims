@@ -8,6 +8,8 @@
 #   two or none         -> the same head serves two pull requests, or the head came from a fork,
 #                          which GitHub associates with no pull request; the job skips with a notice
 #                          and the report stays in the CI run's step summary
+#   no report artifact  -> the bench job failed before writing one; the comment is skipped and the
+#                          red check stays on the CI run, where the cause is
 
 name: Bench comment
 
@@ -41,13 +43,17 @@ jobs:
           fi
           echo "number=$(jq 'first' <<< "$NUMBERS")" >> "$GITHUB_OUTPUT"
       - if: steps.pr.outputs.number != ''
+        id: report
+        # The CI run uploads nothing when the bench job died before writing a report, and the
+        # download then fails; the failure belongs to that run, not to this comment.
+        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bench-report
           path: ${{ runner.temp }}/bench
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-      - if: steps.pr.outputs.number != ''
+      - if: steps.report.outcome == 'success'
         uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: maxims/bench-comment
