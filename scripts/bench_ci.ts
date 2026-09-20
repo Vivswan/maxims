@@ -1,9 +1,18 @@
 // Builds and times HEAD and the base ref on the same machine in one run, so the figures compare
 // two bundles under the same noise instead of one bundle against a budget written for other
 // hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const USAGE = "usage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n";
 const repoRoot = resolve(import.meta.dir, "..");
@@ -62,13 +71,32 @@ function fail(message: string): never {
   process.exit(2);
 }
 
+// The path's longest existing prefix goes through realpath, so a symlink or a /proc alias whose
+// lexical form lies outside the repository still compares against where the bytes would land.
+// A dangling link is refused outright: realpath cannot follow it, yet a write would.
+function whereBytesLand(path: string): string {
+  let existing = resolve(path);
+  const missing: string[] = [];
+  let entry = lstatSync(existing, { throwIfNoEntry: false });
+  while (entry === undefined) {
+    missing.unshift(basename(existing));
+    existing = dirname(existing);
+    entry = lstatSync(existing, { throwIfNoEntry: false });
+  }
+  if (entry.isSymbolicLink() && !existsSync(existing)) {
+    fail(`refusing to write through the dangling symlink ${existing}`);
+  }
+  return join(realpathSync(existing), ...missing);
+}
+
 // The report carries this machine's timings; refusing to write it inside the repository keeps
 // it out of a commit, since .gitignore is not consulted by `git add -f`. A linked worktree's
 // primary checkout is the same repository, so it is refused too.
 function measuredDataDir(value: string): string {
-  const out = resolve(value);
+  const out = whereBytesLand(value);
   const common = resolve(repoRoot, git(["rev-parse", "--git-common-dir"]));
-  for (const root of new Set([repoRoot, resolve(common, "..")])) {
+  const roots = [repoRoot, resolve(common, "..")].map((root) => realpathSync(root));
+  for (const root of new Set(roots)) {
     const rel = relative(root, out);
     const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
     if (!outside) fail(`refusing to write measured data inside the repository: ${out}`);

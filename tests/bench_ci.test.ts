@@ -2,9 +2,12 @@
 // 25% on the hook path or the bundle must fail the job, the same regression on the interactive
 // path must only warn, and exactly the threshold is not past it. Also fails if the report that
 // becomes the PR comment changes shape or figures silently, or if measured data can be written
-// inside the repository, where a commit would publish one machine's timings.
+// inside the repository, where a commit would publish one machine's timings, including through a
+// symlink or a /proc alias whose lexical path lies outside the checkout.
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import {
   failed,
   type Judged,
@@ -16,6 +19,7 @@ import {
 } from "../scripts/bench_ci.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
+const realRepoRoot = realpathSync(repoRoot);
 
 const shape = (gate: Signal["gate"], base: number, head: number): Signal => ({
   name: "signal",
@@ -177,27 +181,92 @@ test.each(reports)(
   },
 );
 
+// A ref no repository holds. Argument checks run before the ref lookup, so a refusal that has
+// regressed stops at the lookup with status 1 and a git error instead of building and timing
+// both bundles and writing a report into the checkout.
+const UNRESOLVED_BASE = "refs/heads/bench-ci-test-unresolved";
+
+function runBenchCi(args: string[]) {
+  return Bun.spawnSync(["bun", "scripts/bench_ci.ts", ...args], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+}
+
+function expectRefused(proc: ReturnType<typeof runBenchCi>, message: string): void {
+  expect(proc.exitCode).toBe(2);
+  expect(proc.stdout.toString()).toBe("");
+  expect(proc.stderr.toString()).toBe(
+    `bench_ci: ${message}\nusage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n`,
+  );
+}
+
 const usageErrors: [string[], string][] = [
   [[], "--base <ref> is required"],
-  [["--base", "HEAD", "--runs", "0"], "--runs must be a positive integer, got 0"],
-  [
-    ["--base", "HEAD", "--out", "dist/bench"],
-    `refusing to write measured data inside the repository: ${resolve(repoRoot, "dist/bench")}`,
-  ],
+  [["--base", UNRESOLVED_BASE, "--runs", "0"], "--runs must be a positive integer, got 0"],
 ];
 
 test.each(usageErrors)(
   "bun scripts/bench_ci.ts %p is refused before anything is built",
   (args, message) => {
-    const proc = Bun.spawnSync(["bun", "scripts/bench_ci.ts", ...args], {
-      cwd: repoRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(proc.exitCode).toBe(2);
-    expect(proc.stdout.toString()).toBe("");
-    expect(proc.stderr.toString()).toBe(
-      `bench_ci: ${message}\nusage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n`,
-    );
+    expectRefused(runBenchCi(args), message);
   },
 );
+
+interface OutTarget {
+  outArg: string;
+  refusal: string;
+}
+
+const insideRepo = (dir: string): string =>
+  `refusing to write measured data inside the repository: ${dir}`;
+
+// Names carry the test's own temp-dir token so a directory another run left behind cannot
+// collide. The harness runs with the repository as cwd, which is what makes the /proc alias
+// point at it.
+const outTargets: [string, (dir: string, token: string) => OutTarget][] = [
+  [
+    "a relative path inside the repository",
+    (_dir, token) => ({
+      outArg: join("dist", token),
+      refusal: insideRepo(join(realRepoRoot, "dist", token)),
+    }),
+  ],
+  [
+    "a symlink in the temp dir pointing at the repository",
+    (dir, token) => {
+      symlinkSync(repoRoot, join(dir, "repo"));
+      return { outArg: join(dir, "repo", token), refusal: insideRepo(join(realRepoRoot, token)) };
+    },
+  ],
+  [
+    "a dangling symlink in the temp dir pointing into the repository",
+    (dir, token) => {
+      const link = join(dir, "dangling");
+      symlinkSync(join(realRepoRoot, token), link);
+      return { outArg: link, refusal: `refusing to write through the dangling symlink ${link}` };
+    },
+  ],
+  ...(process.platform === "linux"
+    ? ([
+        [
+          "a /proc/self/cwd alias of the repository",
+          (_dir, token) => ({
+            outArg: join("/proc/self/cwd", token),
+            refusal: insideRepo(join(realRepoRoot, token)),
+          }),
+        ],
+      ] satisfies [string, (dir: string, token: string) => OutTarget][])
+    : []),
+];
+
+test.each(outTargets)("--out with %s is refused by where the bytes would land", (_name, plan) => {
+  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-ci-"));
+  try {
+    const { outArg, refusal } = plan(dir, basename(dir));
+    expectRefused(runBenchCi(["--base", UNRESOLVED_BASE, "--out", outArg]), refusal);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
