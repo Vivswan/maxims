@@ -15,6 +15,7 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 | --- | --- |
 | understand the problem and the two-layer answer | [Why maxims](why.md) |
 | install a source and see what lands where | [Quickstart](quickstart.md) |
+| see how the code is arranged, file by file, and who writes what | [Architecture](architecture.md) |
 | write a memory file maxims accepts | [Memory files](memory-files.md) |
 | look up a verb, a flag, or an exit code | [CLI reference](cli.md) |
 | know which agents are supported and what each one gets | [Harnesses](harnesses.md) |
