@@ -33,6 +33,8 @@ A `rules-dir` target is `{ kind: "rules-dir", dir, fileName, frontmatter? }`. Th
 
 `frontmatter.always` holds the always-on fields and `frontmatter.scoped` adds `{ fields, pathsKey, pathsAs }` for a `--paths` install; a target with `always` but no `scoped` refuses `--paths`. A target with no `frontmatter` takes its `--paths` preamble from the spec's `scopeFrontmatter`.
 
+The paths land after the scoped `fields` unless `fields` names `pathsKey` with the value `null`, which fixes their place among the other keys. Cursor lists `globs` between `description` and `alwaysApply`, so its scoped fields are `{ "description": "...", "globs": null, "alwaysApply": false }`. Any other value under that key is refused, because the paths would overwrite it.
+
 A `shared-block` target is `{ kind: "shared-block", file, precedence? }`. `precedence` lists, in the harness's order, the files of which it reads only the first that exists; the block goes into that one, and `file` is created when none exists.
 
 ## Hooks as data
@@ -67,15 +69,15 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 ## A full example
 
-The built-in Devin Local spec from `src/harnesses/devin/spec.ts`, serialised as JSON without its `fixtures`. A `harnesses.json` entry has the same shape under an id that is not a built-in.
+The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; Codex adds one quirk in code beside it, the tier probe that reads the project `config.toml` over the user one, because a `tierCheck` reads one file per scope.
 
 ```json
 {
-  "id": "devin",
-  "displayName": "Devin Local",
+  "id": "codex",
+  "displayName": "Codex",
   "tier": 1,
-  "verifiedAgainst": { "url": "https://docs.devin.ai/cli/extensibility/hooks/overview", "date": "2026-09-20" },
-  "globalRoot": { "default": ".config/devin" },
+  "verifiedAgainst": { "url": "https://learn.chatgpt.com/docs/hooks", "date": "2026-09-20" },
+  "globalRoot": { "default": ".codex", "env": { "name": "CODEX_HOME" } },
   "targets": {
     "project": { "kind": "shared-block", "file": "AGENTS.md" },
     "global": { "kind": "shared-block", "file": "AGENTS.md" }
@@ -86,16 +88,27 @@ The built-in Devin Local spec from `src/harnesses/devin/spec.ts`, serialised as 
   "detect": { "dirs": ["."] },
   "hook": {
     "kind": "registry",
-    "path": { "project": ".devin/config.json", "global": "config.json" },
+    "path": { "project": ".codex/hooks.json", "global": "hooks.json" },
     "format": "json",
     "eventPath": ["hooks", "SessionStart"],
     "grouped": true,
-    "handlerTemplate": { "type": "command", "command": "{{command}}", "timeout": "{{timeoutSeconds}}" },
+    "handlerTemplate": {
+      "type": "command",
+      "command": "{{command}}",
+      "timeout": "{{timeoutSeconds}}",
+      "async": "{{async}}",
+      "statusMessage": "Syncing maxims"
+    },
     "commandKey": "command",
-    "stdout": "json:hookSpecificOutput.additionalContext",
-    "async": false
-  },
-  "mcp": { "path": { "project": ".devin/mcp_config.json", "global": "mcp_config.json" }, "serversPath": ["mcpServers"] }
+    "stdout": "plain",
+    "async": true,
+    "tierCheck": {
+      "path": { "project": ".codex/config.toml", "global": "config.toml" },
+      "format": "toml",
+      "key": "features.hooks",
+      "demotesWhen": false
+    }
+  }
 }
 ```
 
@@ -118,7 +131,7 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 ## Adding a built-in folder
 
 1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/harnesses/contract.ts`.
-2. Add `index.ts` exporting the compiled definition as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`, passing quirks only for what data cannot say: a tier probe, a config edit, a custom hook.
+2. Add `index.ts` exporting the compiled definition as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a tier probe (Codex), a config edit (OpenCode), or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`.
 3. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
 4. Write `index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 
