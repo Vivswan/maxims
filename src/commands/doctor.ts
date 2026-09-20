@@ -8,7 +8,8 @@ import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
-import { readTextIfPresent } from "./shared/fs-probe.ts";
+import { actsHere } from "./shared/context.ts";
+import { pathAbsent, readTextIfPresent } from "./shared/fs-probe.ts";
 import {
   type Command,
   type CommandContext,
@@ -67,17 +68,27 @@ export const doctor: Command = {
     const findings: Finding[] = notices.map((text) => ({ level: "warn", text }));
     const unresolved = unresolvedHarnessIds(state, io.harnesses);
     for (const id of unresolved) findings.push({ level: "warn", text: notDefinedHere(id) });
+    for (const [key, entry] of Object.entries(state.sources)) {
+      const { destination } = entry.intent;
+      if (destination.scope === "project" && pathAbsent(destination.root)) {
+        findings.push({
+          level: "warn",
+          text: `${key}: project folder ${destination.root} is missing`,
+        });
+      }
+    }
+    const here = (entry: SourceEntry): boolean => actsHere(entry, io);
     const reports: HarnessReport[] = [];
     for (const def of io.harnesses) {
-      for (const scope of scopesFor(def.id, state, io.projectRoot)) {
-        const report = await checkHarness(def, scope, state, ctx);
+      for (const scope of scopesFor(def.id, state, here)) {
+        const report = await checkHarness(def, scope, state, ctx, here);
         reports.push(report);
         findings.push(...findingsOf(report, def, io.userHome));
       }
     }
     const expects: ExpectReport[] = [];
     for (const raw of args.list(FLAGS.expect)) {
-      const report = await checkExpect(raw, state, ctx);
+      const report = await checkExpect(raw, state, ctx, here);
       expects.push(report);
       findings.push(expectFinding(report));
     }
@@ -123,17 +134,20 @@ function symbol(level: Finding["level"]): string {
   return level === "ok" ? "ok" : level === "warn" ? "! " : "x ";
 }
 
-// A harness is checked at every scope some intent names it for, and at the user scope when only
-// a hook names it; a harness nothing names is not reported, since it should be loading nothing.
-function scopesFor(id: HarnessId, state: State, projectRoot: string | null): Scope[] {
+// A harness is checked at every scope some intent names it for; a harness nothing names here is
+// not reported, since sync wants no hook and no file for it here. `here` says whether an entry
+// is this project's or the user's; another project's is not checked from here, since its files
+// live under a root this run does not read.
+type Here = (entry: SourceEntry) => boolean;
+
+function scopesFor(id: HarnessId, state: State, here: Here): Scope[] {
   const scopes = new Set<Scope>();
   for (const entry of Object.values(state.sources)) {
-    if (!entry.intent.harnesses.includes(id)) continue;
-    const scope = scopeOf(entry.intent.destination);
-    if (scope === "project" && projectRoot === null) continue;
-    scopes.add(scope);
+    if (!entry.intent.harnesses.includes(id) || !here(entry)) continue;
+    // An `-o` folder is written under its own naming and registers no hook, as the planner sees it.
+    if (entry.intent.destination.scope === "out") continue;
+    scopes.add(entry.intent.destination.scope);
   }
-  if (scopes.size === 0 && state.hooks.includes(id)) scopes.add("global");
   return [...scopes];
 }
 
@@ -145,11 +159,12 @@ async function checkHarness(
   scope: Scope,
   state: State,
   ctx: CommandContext,
+  here: Here,
 ): Promise<HarnessReport> {
   const harnessCtx = harnessContext(ctx.io);
   const ruleFiles: RuleFileReport[] = [];
   for (const [key, entry] of Object.entries(state.sources)) {
-    if (!entry.intent.harnesses.includes(def.id) || !entry.intent.rule) continue;
+    if (!entry.intent.harnesses.includes(def.id) || !entry.intent.rule || !here(entry)) continue;
     if (scopeOf(entry.intent.destination) !== scope) continue;
     if (entry.intent.destination.scope === "out") continue;
     const path = targetPath(
@@ -203,7 +218,7 @@ function preambleCheck(
     ...(entry.intent.paths === undefined ? {} : { paths: entry.intent.paths }),
   });
   if (declared === "") return null;
-  if (text !== null && text.startsWith(declared)) return { ok: true };
+  if (text?.startsWith(declared)) return { ok: true };
   return { ok: false, lost: target.frontmatter === undefined ? "path-scope" : "always-on" };
 }
 
@@ -245,7 +260,12 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
 // file its source targets; a name two sources provide is checked for each. Met means every
 // inspected file carries it AND at least one file was inspected: a source with no rule flag or no
 // target is not a passing check.
-async function checkExpect(raw: string, state: State, ctx: CommandContext): Promise<ExpectReport> {
+async function checkExpect(
+  raw: string,
+  state: State,
+  ctx: CommandContext,
+  here: Here,
+): Promise<ExpectReport> {
   const io = ctx.io;
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
   const nameRaw = qualified?.[2] ?? raw;
@@ -259,8 +279,8 @@ async function checkExpect(raw: string, state: State, ctx: CommandContext): Prom
   const owners: typeof entries = [];
   for (const candidate of entries) {
     const [, entry] = candidate;
-    if (entry.intent.rule && (await effectiveNames(entry, io)).includes(name))
-      owners.push(candidate);
+    if (!entry.intent.rule || !here(entry)) continue;
+    if ((await effectiveNames(entry, io)).includes(name)) owners.push(candidate);
   }
   const harnessCtx = harnessContext(io);
   const missing: string[] = [];

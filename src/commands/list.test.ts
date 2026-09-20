@@ -58,7 +58,10 @@ describe("list", () => {
           {
             [first]: entryFor(localFrom(first), { harnesses: ["claude-code", "codex"] }),
             [second]: {
-              ...entryFor(localFrom(second), { rename, destination: { scope: "project" } }),
+              ...entryFor(localFrom(second), {
+                rename,
+                destination: { scope: "project", root: w.project },
+              }),
               addedAt: "2026-08-02T00:00:00.000Z",
             },
             "@acme/rules": fetchedEntry(remote, stale),
@@ -305,6 +308,112 @@ describe("list", () => {
       expect(io.out.join("")).toContain(
         "  @acme/team: in .agents/maxims.lock, not installed here (run maxims install)\n",
       );
+      // A shared entry of this project carries its marker; one recorded for a project whose
+      // folder is gone is listed with that root and never resolved against this one.
+      const shared = writeSource(join(w.dir, "shared"), TWO_MEMORIES);
+      const gone = join(w.dir, "gone-project");
+      writeState(
+        w.home,
+        stateWith({
+          [shared]: entryFor(localFrom(shared), {
+            destination: { scope: "project", root: w.project },
+            shared: true,
+          }),
+          "@acme/lost": entryFor(githubFrom("acme/lost"), {
+            destination: { scope: "project", root: gone },
+          }),
+        }),
+      );
+      io.out.length = 0;
+      const listed = await runList({ quiet: false, dryRun: false, json: false }, io);
+      const byKey = Object.fromEntries(listed.sources.map((source) => [source.key, source]));
+      expect(byKey[shared]?.shared).toBe(true);
+      expect(byKey[shared]?.project).toEqual({ root: w.project, here: true, rootMissing: false });
+      expect(byKey["@acme/lost"]?.project).toEqual({ root: gone, here: false, rootMissing: true });
+      expect(byKey["@acme/lost"]?.harnesses.map((harness) => harness.skipped)).toEqual([
+        "another project",
+      ]);
+      const text = io.out.join("");
+      expect(text).toContain(`${shared}  -  not fetched yet  shared\n`);
+      expect(text).toContain(`  installed for ${gone} (project folder missing)\n`);
+      // A project entry's switched-off names are its own project's, and a lock entry state holds
+      // only for another project is still not installed here.
+      const otherProject = join(w.dir, "other-project");
+      const theirs = writeSource(join(w.dir, "theirs"), TWO_MEMORIES);
+      mkdirSync(join(otherProject, ".git"), { recursive: true });
+      writeState(
+        w.home,
+        stateWith(
+          {
+            [theirs]: entryFor(localFrom(theirs, true), {
+              destination: { scope: "project", root: otherProject },
+            }),
+            "@acme/team": entryFor(githubFrom("acme/team"), {
+              destination: { scope: "project", root: otherProject },
+            }),
+          },
+          [],
+          { project: { [otherProject]: [memoryName("always-review")] } },
+        ),
+      );
+      const away = await runList({ quiet: false, dryRun: false, json: false }, io);
+      const theirsListed = away.sources.find((source) => source.key === theirs);
+      expect(theirsListed?.memories.map((memory) => [memory.localName, memory.disabled])).toEqual([
+        ["keep-tests-green", false],
+        ["always-review", true],
+      ]);
+      expect(away.lockOnly).toEqual(["@acme/team"]);
+      // A rename resolves a collision only against entries that apply together with the source.
+      const mine = writeSource(join(w.dir, "mine"), { alpha: { description: "Mine." } });
+      const rival = writeSource(join(w.dir, "rival"), { alpha: { description: "Rival." } });
+      writeState(
+        w.home,
+        stateWith({
+          [mine]: entryFor(localFrom(mine, true), {
+            destination: { scope: "project", root: w.project },
+            rename: { [memoryName("alpha")]: memoryName("alpha-mine") },
+          }),
+          [rival]: entryFor(localFrom(rival, true), {
+            destination: { scope: "project", root: otherProject },
+          }),
+        }),
+      );
+      const renamed = await runList({ quiet: false, dryRun: false, json: false }, io);
+      expect(renamed.sources.find((source) => source.key === mine)?.renames).toEqual([
+        { upstreamName: "alpha", localName: "alpha-mine", verdict: "unneeded", against: null },
+      ]);
+      // Another project's rename is judged against that project's own entries, wherever the
+      // listing runs.
+      const theirFirst = writeSource(join(w.dir, "their-first"), {
+        alpha: { description: "First." },
+      });
+      const theirSecond = writeSource(join(w.dir, "their-second"), {
+        alpha: { description: "Second." },
+      });
+      writeState(
+        w.home,
+        stateWith({
+          [theirFirst]: entryFor(localFrom(theirFirst, true), {
+            destination: { scope: "project", root: otherProject },
+          }),
+          [theirSecond]: {
+            ...entryFor(localFrom(theirSecond, true), {
+              destination: { scope: "project", root: otherProject },
+              rename: { [memoryName("alpha")]: memoryName("alpha-second") },
+            }),
+            addedAt: "2026-08-02T00:00:00.000Z",
+          },
+        }),
+      );
+      const elsewhere = await runList({ quiet: false, dryRun: false, json: false }, io);
+      expect(elsewhere.sources.find((source) => source.key === theirSecond)?.renames).toEqual([
+        {
+          upstreamName: "alpha",
+          localName: "alpha-second",
+          verdict: "resolves",
+          against: theirFirst,
+        },
+      ]);
     });
   });
 
@@ -325,7 +434,9 @@ describe("list", () => {
       rmSync(join(w.project, ".fixture"), { recursive: true });
       writeFileSync(join(w.project, ".fixture"), "legacy single file");
       const source = writeSource(join(w.dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: w.project },
+      });
       writeState(w.home, stateWith({ [source]: entry }, ["claude-code"]));
       const io = fakeIo({ ...w, cwd: w.project });
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);

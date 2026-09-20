@@ -12,6 +12,7 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import { destinationUnresolvable, realpathOfExistingPrefix } from "./fs-probe.ts";
 
 // `unreachable` says the harness has no home at this scope; nothing there is read or written.
 export type HarnessWants = {
@@ -60,6 +61,8 @@ export async function planHooks(input: {
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
   wants: (id: HarnessId, scope: Scope) => HarnessWants;
+  // The roots of the other projects whose entries want the harness's hook.
+  elsewhere: (id: HarnessId) => string[];
 }): Promise<HooksPlan> {
   const { ctx } = input;
   const harnessCtx = harnessContext(ctx);
@@ -71,12 +74,17 @@ export async function planHooks(input: {
   for (const def of input.harnesses) {
     if (!agentsAllowed(input.agents, def.id)) continue;
     const answers: ScopeAnswer[] = [];
+    // Every file this run's own scopes resolve to, a registry whose plan failed included: another
+    // project's hook in such a file is this run's to plan, and the failure this run's to report.
+    const reach = new Set<string>();
     for (const scope of scopes) {
       const wants = input.wants(def.id, scope);
       if (wants.unreachable) continue;
       let hook: HookPlan;
       let config: Change[];
       try {
+        const declared = declaredHookFile(def, scope, harnessCtx);
+        if (declared !== null) reach.add(fileId(declared));
         hook = await planHookAlone(def, scope, harnessCtx, wants.hook);
         config = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
       } catch (error) {
@@ -88,13 +96,24 @@ export async function planHooks(input: {
         if (wants.hook || wants.rules) failures.push({ message: error.message, hint: error.hint });
         continue;
       }
-      answers.push({
-        artifact: hook.changes,
-        claims: hookFiles(def, scope, harnessCtx, hook.changes),
-        wanted: wants.hook,
-        notice: hook.notice,
-      });
+      const claims = hookFiles(def, scope, harnessCtx, hook.changes);
+      for (const claim of claims) reach.add(fileId(claim));
+      answers.push({ artifact: hook.changes, claims, wanted: wants.hook, notice: hook.notice });
       answers.push({ artifact: config, claims: config.map((c) => c.path), wanted: wants.rules });
+    }
+    for (const root of input.elsewhere(def.id)) {
+      try {
+        const shared = await sharedHookOf(def, { ...harnessCtx, projectRoot: root }, reach);
+        if (shared !== null) answers.push(shared);
+      } catch (error) {
+        if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
+          throw error;
+        }
+        // A file this run reaches and cannot edit is this run's failure, whoever wants it.
+        if (!failures.some((failure) => failure.message === error.message)) {
+          failures.push({ message: error.message, hint: error.hint });
+        }
+      }
     }
     const reconciled = reconcileScopes(answers);
     changes.push(...reconciled.changes);
@@ -117,10 +136,55 @@ function hookFiles(
   planned: Change[],
 ): string[] {
   const files: string[] = planned.map((change) => change.path);
-  if (def.hook.kind === "registry" || def.hook.kind === "file") {
-    files.push(assertInsideRoot(scopeRoot(def, scope, ctx), def.hook.path(scope, ctx)));
-  }
+  const declared = declaredHookFile(def, scope, ctx);
+  if (declared !== null) files.push(declared);
   return files;
+}
+
+function declaredHookFile(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+): string | null {
+  if (def.hook.kind !== "registry" && def.hook.kind !== "file") return null;
+  return assertInsideRoot(scopeRoot(def, scope, ctx), def.hook.path(scope, ctx));
+}
+
+// One file under two spellings (a home reached through a symlink, a project root recorded by its
+// real path) is one file to reconcile.
+function fileId(path: string): string {
+  return realpathOfExistingPrefix(path);
+}
+
+// Another project's entries want their hook at their own root. A plan of theirs that touches a
+// file this run reaches too (dsh mounts one bridge under the global root whatever the scope; a
+// project rooted at the home directory shares the global registry) is planned here as wanted, so a
+// run with nothing of its own does not take another project's hook down. It is taken whole: dsh's
+// hooks file loads only through its patch row. A plan touching nothing this run reaches is that
+// project's, written by a sync run there; a registry known to lie there is not read, and one that
+// project cannot resolve (its config folder a symlink out of the checkout, its root without search
+// permission) is that project's failure.
+async function sharedHookOf(
+  def: HarnessDefinition,
+  there: HarnessContext,
+  reach: ReadonlySet<string>,
+): Promise<ScopeAnswer | null> {
+  try {
+    const declared = declaredHookFile(def, "project", there);
+    if (declared !== null && !reach.has(fileId(declared))) return null;
+  } catch (error) {
+    if (!destinationUnresolvable(error)) throw error;
+    return null;
+  }
+  const hook = await planHookAlone(def, "project", there, true);
+  const claims = hookFiles(def, "project", there, hook.changes);
+  if (!claims.some((file) => reach.has(fileId(file)))) return null;
+  return {
+    artifact: hook.changes,
+    claims,
+    wanted: true,
+    ...(hook.notice === undefined ? {} : { notice: hook.notice }),
+  };
 }
 
 // One file can be reached from both scopes: dsh mounts its bridge under the global root whatever
@@ -137,11 +201,11 @@ function reconcileScopes(
   const removals: Change[] = [];
   const notices: string[] = [];
   const kept = new Set(
-    answers.filter((answer) => answer.wanted).flatMap((answer) => answer.claims),
+    answers.filter((answer) => answer.wanted).flatMap((answer) => answer.claims.map(fileId)),
   );
   for (const answer of answers) {
     if (answer.wanted) changes.push(...answer.artifact);
-    else if (answer.artifact.some((change) => kept.has(change.path))) continue;
+    else if (answer.artifact.some((change) => kept.has(fileId(change.path)))) continue;
     else removals.push(...answer.artifact);
     if (answer.notice !== undefined) notices.push(answer.notice);
   }

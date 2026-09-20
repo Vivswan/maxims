@@ -32,7 +32,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
-import { projectLockChange } from "./shared/project-lock-io.ts";
+import { lockChanges } from "./shared/project-lock-io.ts";
 import {
   findInstalledSource,
   installedSources,
@@ -178,12 +178,12 @@ async function recordRenames(
       }
       const next: State = {
         ...current.state,
-        sources: { ...current.state.sources, [key]: withIntent(existing, { rename }) },
+        sources: {
+          ...current.state.sources,
+          [key]: withIntent(existing, (fields) => ({ ...fields, rename })),
+        },
       };
-      const changes =
-        existing.intent.destination.scope === "project" && ctx.io.projectRoot !== null
-          ? [projectLockChange(ctx.io.projectRoot, next)]
-          : [];
+      const changes = await lockChanges(existing, current.state, next, ctx.io);
       return { state: next, changes, notices: current.notices };
     },
     (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),

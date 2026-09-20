@@ -119,9 +119,13 @@ const RemoteFrom = z.union([GithubFrom, GitFrom]);
 export const SourceFromSchema = z.union([GithubFrom, GitFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
 
+// A project destination carries the real path of the project root the source was added in, so an
+// entry says which project it belongs to and a run acts only on the entries of the project it runs
+// in. State holds one entry per source, so a source recorded for one project is refused elsewhere
+// until it is removed there.
 export const DestinationSchema = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("global") }),
-  z.strictObject({ scope: z.literal("project") }),
+  z.strictObject({ scope: z.literal("project"), root: AbsolutePath }),
   z.strictObject({ scope: z.literal("out"), path: AbsolutePath }),
 ]);
 /** @public */
@@ -174,10 +178,35 @@ const IntentFields = {
   paths: z.array(z.string().min(1)).optional(),
   // Set by `add --allow-hidden`; absent means the hidden-character check applies on every refresh.
   allowHidden: z.boolean().optional(),
+  // Set by `add --share`, `share` and `install` on a project-scope entry: the project lock carries
+  // the entry for teammates. Absent means private to this machine.
+  shared: z.literal(true).optional(),
 };
-const RemoteIntent = z.strictObject({ from: RemoteFrom, ...IntentFields });
-const CopiedLocalIntent = z.strictObject({ from: CopiedLocalFrom, ...IntentFields });
-const LiveIntent = z.strictObject({ from: LiveLocalFrom, ...IntentFields });
+
+// Sharing is a project-scope notion: a user-scope or `-o` entry has no lock to appear in, so the
+// field is refused there rather than carried as dead weight.
+function sharedOnlyAtProject(ctx: {
+  value: { shared?: true; destination: { scope: string } };
+  issues: z.core.$ZodRawIssue[];
+}): void {
+  if (ctx.value.shared === true && ctx.value.destination.scope !== "project") {
+    ctx.issues.push({
+      code: "custom",
+      input: ctx.value.shared,
+      path: ["shared"],
+      message: "shared applies to a project destination",
+    });
+  }
+}
+const RemoteIntent = z
+  .strictObject({ from: RemoteFrom, ...IntentFields })
+  .check(sharedOnlyAtProject);
+const CopiedLocalIntent = z
+  .strictObject({ from: CopiedLocalFrom, ...IntentFields })
+  .check(sharedOnlyAtProject);
+const LiveIntent = z
+  .strictObject({ from: LiveLocalFrom, ...IntentFields })
+  .check(sharedOnlyAtProject);
 export const SourceIntentSchema = z.union([RemoteIntent, CopiedLocalIntent, LiveIntent]);
 /** @public */
 export type SourceIntent = z.infer<typeof SourceIntentSchema>;

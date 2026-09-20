@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { HarnessContext, HarnessId } from "../../harnesses/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
 import { parseUserConfig, type UserConfig } from "../../state/config.ts";
+import type { SourceEntry } from "../../state/schema.ts";
 import { type HomePaths, homePaths, maximsHome } from "../../util/home.ts";
 import type { EngineIo, HarnessFilter } from "../types.ts";
 import { classifyInvoker, type InvokerClassification, stdoutVariantFor } from "./stdin.ts";
@@ -68,11 +69,13 @@ export async function loadContext(
   };
 }
 
-// The nearest ancestor holding `.git` (a directory, or the file a worktree or submodule leaves).
+// The nearest ancestor holding `.git` (a directory, or the file a worktree or submodule leaves),
+// by its real path: state records a project by that path, and a session started through an
+// alias symlink must find the same entries.
 export function findProjectRoot(startDir: string): string | null {
   let dir = resolve(startDir);
   for (;;) {
-    if (existsSync(join(dir, ".git"))) return dir;
+    if (existsSync(join(dir, ".git"))) return realpathSync(dir);
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -104,6 +107,14 @@ function loadUserConfig(path: string): LoadedUserConfig {
   const parsed = parseUserConfig(json);
   if (parsed.ok) return { config: parsed.config, issue: null };
   return { config: {}, issue: `${path}: ${parsed.issues.join("; ")}; using defaults` };
+}
+
+// A project-scope entry belongs to the project whose root it recorded; a run acts on it only from
+// that project, so two checkouts holding one source never write into each other, and the names,
+// collisions and lookups a run judges are those of the entries it acts on.
+export function actsHere(entry: SourceEntry, ctx: { projectRoot: string | null }): boolean {
+  const { destination } = entry.intent;
+  return destination.scope !== "project" || destination.root === ctx.projectRoot;
 }
 
 export function agentsAllowed(filter: HarnessFilter | undefined, id: HarnessId): boolean {

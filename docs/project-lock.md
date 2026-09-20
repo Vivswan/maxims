@@ -18,14 +18,12 @@ npx -y @vivswan/maxims remove @Vivswan/skills                   # take it out of
 
 | verb | state | the lock |
 | --- | --- | --- |
-| `add -p` without `--share` | records the source | untouched; the source stays yours |
+| `add -p` without `--share` | records the source, private; a re-add of a shared source records it private again | untouched by a private source; a re-added source leaves it |
 | `add -p --share` | records the source | gains the source |
-| `share <source>` | untouched | gains the source |
-| `unshare <source>` | untouched | loses the source |
+| `share <source>` | marks the source shared | gains the source |
+| `unshare <source>` | clears the mark; the source stays installed | loses the source |
 | `remove <source>` | drops the source | loses the source |
 | a project-scope `link`, `unlink`, `disable`, or `enable` on a shared source | changes the intent | rewritten from state, so the two never disagree |
-
-Status: `--share`, `share`, and `unshare` are specified, not yet built.
 
 ## The project manifest
 
@@ -36,11 +34,11 @@ Strategy B rule files also land in the repo, but as the harness's target, never 
 | property | reason |
 | --- | --- |
 | keys sorted, no timestamps, no fetch facts | two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else |
-| holds a projection of intent only: every `intent` field `add` recorded for the source, so `from` with its ref, selection, renames, rule flag, harnesses, memory folder, full depth, copy, and paths, plus the project-scope disabled list | a sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder |
+| holds a projection of intent only: every `intent` field `add` recorded for each shared source, so `from` with its ref, selection, renames, rule flag, harnesses, memory folder, full depth, copy, and paths, plus the project's disabled names that belong to a shared source; the memory folder, full depth, and copy appear only when they differ from what `add` records without a flag | a sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder |
 | written whole, temp plus rename, like state | a half-written lock has no representation |
 | absent means no shared sources | `install` with no lock exits 0 and prints "no manifest" |
 
-The lock never replaces state on the machine that wrote it.
+The lock never replaces state on the machine that wrote it, and a machine edits only the entries it owns: a teammate's entries, and the disabled names of their sources, stay through everything a clone does before it runs `install`.
 
 ## Replaying it: install
 

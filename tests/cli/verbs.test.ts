@@ -280,10 +280,12 @@ test("install replays every manifest entry at project scope and syncs once", asy
         >;
       };
       expect(Object.keys(state.sources).sort()).toEqual(["@a/b", "@a/d#v1"]);
+      // What came from the lock stays in the lock.
       expect(state.sources["@a/b"]?.intent).toMatchObject({
-        destination: { scope: "project" },
+        destination: { scope: "project", root: scenario.cwd },
         harnesses: ["codex"],
         select: ["skip-unfit-skills"],
+        shared: true,
       });
       expect(state.sources["@a/d#v1"]?.intent.from.ref).toBe("v1");
       const badManifest = join(scenario.cwd, ".agents", "maxims.lock");
@@ -474,7 +476,7 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
       all: false,
       confirmed: true,
     });
-    const scopedSource = await runCli(scenario, ["remove", "@a/b", "-p", "-y"]);
+    const scopedSource = await runCli(scenario, ["remove", "@a/b", "-g", "-y"]);
     expect(scopedSource.code).toBe(1);
     expect(scopedSource.stderr).toBe(
       " ERROR  @a/b has one recorded destination; drop -g, -p or -o\n",
@@ -1154,7 +1156,7 @@ test("a live project source is projected as .", async () => {
       join(scenario.cwd, "memories", "own-rule.md"),
       "---\nname: own-rule\ndescription: Ours\n---\n",
     );
-    expect((await runCli(scenario, ["add", ".", "-p", "-a", "codex"])).code).toBe(0);
+    expect((await runCli(scenario, ["add", ".", "-p", "-a", "codex", "--share"])).code).toBe(0);
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
       sources: Record<string, { from: { type: string; path: string; live?: boolean } }>;
     };
@@ -1298,7 +1300,7 @@ test("a project directory named like an object property projects into the manife
       join(scenario.cwd, "constructor", "memories", "own-rule.md"),
       "---\nname: own-rule\ndescription: Ours\n---\n",
     );
-    const run = await runCli(scenario, ["add", "./constructor", "-p", "-a", "codex"]);
+    const run = await runCli(scenario, ["add", "./constructor", "-p", "-a", "codex", "--share"]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
@@ -1319,7 +1321,7 @@ test("a project directory the manifest grammar cannot name is refused before any
     ]) {
       mkdirSync(join(scenario.cwd, name, "memories"), { recursive: true });
       writeFileSync(join(scenario.cwd, name, "memories", `${rule}.md`), memory(rule));
-      const run = await runCli(scenario, ["add", `./${name}`, "-p", "-a", "codex"]);
+      const run = await runCli(scenario, ["add", `./${name}`, "-p", "-a", "codex", "--share"]);
       expect(run.stderr).toBe("");
       expect(run.code).toBe(0);
     }
@@ -1334,7 +1336,7 @@ test("a project directory the manifest grammar cannot name is refused before any
       memory("arrow-rule"),
     );
     const before = await snapshot(scenario.root);
-    const run = await runCli(scenario, ["add", `./${unnameable}`, "-p", "-a", "codex"]);
+    const run = await runCli(scenario, ["add", `./${unnameable}`, "-p", "-a", "codex", "--share"]);
     expect(run.code).toBe(1);
     expect(run.stderr).toContain("cannot be written into");
     expect(await snapshot(scenario.root)).toBe(before);
@@ -1350,7 +1352,7 @@ test("a project source added through an alias symlink is recorded by its real pa
     );
     const alias = join(scenario.root, "alias");
     symlinkSync(join(scenario.cwd, "rules"), alias);
-    const run = await runCli(scenario, ["add", alias, "-p", "-a", "codex"]);
+    const run = await runCli(scenario, ["add", alias, "-p", "-a", "codex", "--share"]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
@@ -1521,6 +1523,35 @@ test("doctor names a harness id no definition answers to and fails an --expect t
     );
     const json = await runCli(scenario, ["doctor", "--json"]);
     expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, unresolved: ["team-agent"] });
+  });
+});
+
+// Sync wants a hook only where an entry of this project or the user lists the harness, so a hook
+// another project alone wants is not missing here.
+test("doctor expects no hook for a harness only another project's source lists", async () => {
+  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    await installSkills(scenario, ["--add-hook"]);
+    const state = readState(scenario) as {
+      sources: Record<string, { intent: { destination: unknown } }>;
+    };
+    const entry = state.sources["@a/b"];
+    if (entry === undefined) throw new Error("@a/b was not recorded");
+    entry.intent.destination = { scope: "project", root: join(scenario.root, "elsewhere") };
+    writeState(scenario, state);
+    const run = await runCli(scenario, ["doctor"]);
+    expect(run.code).toBe(0);
+    expect(run.stdout).not.toContain("codex:");
+    expect(run.stdout).toContain(
+      `!   @a/b: project folder ${join(scenario.root, "elsewhere")} is missing\n`,
+    );
+    // An -o source of this project lists the harness but registers no hook, so none is expected
+    // even where the registry lacks it.
+    entry.intent.destination = { scope: "out", path: join(scenario.cwd, "team") };
+    writeState(scenario, state);
+    scenario.options.hookMissing = ["codex"];
+    const out = await runCli(scenario, ["doctor"]);
+    expect(out.code).toBe(0);
+    expect(out.stdout).not.toContain("hook missing");
   });
 });
 

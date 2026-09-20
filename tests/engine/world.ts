@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { type ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { withTempDir, withTempHome } from "../shared/temp_dir.ts";
@@ -8,8 +8,11 @@ export type World = { home: string; dir: string; userHome: string; project: stri
 
 // A temp maxims home, a user home holding `.fixture/`, and a git project holding `.fixture/`.
 export async function world<T>(fn: (world: World) => Promise<T>): Promise<T> {
-  return withTempHome((home) =>
-    withTempDir(async (dir) => {
+  // Roots are recorded by their real path, so a fixture under a symlinked temp dir names them so.
+  return withTempHome((rawHome) =>
+    withTempDir(async (rawDir) => {
+      const home = realpathSync(rawHome);
+      const dir = realpathSync(rawDir);
       const userHome = join(dir, "user");
       const project = join(dir, "project");
       mkdirSync(join(userHome, ".fixture"), { recursive: true });

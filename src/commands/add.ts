@@ -76,7 +76,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import { projectLockChange } from "./shared/project-lock-io.ts";
+import { insideProject, projectLockChange } from "./shared/project-lock-io.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import {
   detectedHarnesses,
@@ -88,6 +88,7 @@ import {
   realLocal,
   resolveIncoming,
   scopeOf,
+  sourcesHere,
   storeTree,
   targetPath,
   tildify,
@@ -106,6 +107,7 @@ export type AddRequest = {
   rename: RenameMap;
   rule: boolean;
   addHook: boolean;
+  shared: boolean;
   copy: boolean;
   memoryPath: string;
   fullDepth: boolean;
@@ -135,6 +137,7 @@ const ADD_FLAGS: readonly FlagSpec[] = [
   FLAGS.from,
   FLAGS.fullDepth,
   FLAGS.link,
+  FLAGS.share,
   FLAGS.pin,
   FLAGS.paths,
   FLAGS.auth,
@@ -269,15 +272,19 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
     if (link) throw usage("--link applies to a local directory");
     if (pin !== undefined) from = { ...from, ref: gitRefOrUsage(pin) };
   }
-  const explicitDestination = parseDestination(args, io.cwd);
+  const explicitDestination = parseDestination(args, io.cwd, io.projectRoot);
   const destination: Destination =
     explicitDestination ??
-    (io.projectRoot !== null && from.type !== "local" ? { scope: "project" } : { scope: "global" });
-  if (destination.scope === "project" && io.projectRoot === null) {
-    throw usage("a project-scoped install needs a project root", {
-      hint: "run inside a git checkout, or pass -g for the user scope",
+    (io.projectRoot !== null && from.type !== "local"
+      ? { scope: "project", root: io.projectRoot }
+      : { scope: "global" });
+  const shared = args.flag(FLAGS.share);
+  if (shared && destination.scope !== "project") {
+    throw usage("--share applies to a project install; drop -g or -o", {
+      hint: "the project lock holds project-scope sources only",
     });
   }
+  if (shared && destination.scope === "project") assertShareable(from, destination.root);
   const explicitSelect = parseSelect(args);
   let select: Select = explicitSelect ?? "*";
   if (selector.memory !== null) {
@@ -297,6 +304,7 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
     rename: parseRenames(args),
     rule: args.flag(FLAGS.rule) || config.rule === true,
     addHook: hookWanted(from, args.flag(FLAGS.addHook) || config.addHook === true),
+    shared,
     copy: args.flag(FLAGS.copy),
     memoryPath: args.value(FLAGS.from) ?? INTENT_DEFAULTS.memoryPath,
     fullDepth: args.flag(FLAGS.fullDepth),
@@ -310,6 +318,15 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
     verbose: ctx.global.verbose,
     configChanges,
   };
+}
+
+// A local source outside the checkout has no path a teammate's checkout can follow, so it cannot
+// be shared; the refusal names the way out.
+export function assertShareable(from: SourceFrom, projectRoot: string): void {
+  if (from.type !== "local" || insideProject(projectRoot, from.path)) return;
+  throw usage(`${from.path} lies outside the project, so a teammate's checkout cannot reach it`, {
+    hint: "move it inside the project, or install it with -g",
+  });
 }
 
 // The ref lands in a source key and from there in a rule-file marker, so the state schema's
@@ -365,7 +382,7 @@ export async function stageAdd(
     ? await peekIntent(io.home)
     : await loadIntentFor(io.home, ctx.global.dryRun);
   for (const notice of intent.notices) console.warn(notice);
-  const request = adoptRecordedKey(requested, intent.state);
+  const request = adoptRecordedKey(requested, intent.state, io);
   const scan = scanMemories(request, tree.files, io.env, console);
   console.step(found(scan.memories.length, scan.internalHidden));
   const chosen = filterSelection(request.select, scan.memories);
@@ -465,12 +482,24 @@ function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
 }
 
 // GitHub names are case-insensitive and the state file refuses two spellings of one repository,
-// so a re-add typed in another case continues the recorded entry under its recorded key.
-function adoptRecordedKey(request: AddRequest, state: State): AddRequest {
+// so a re-add typed in another case continues the recorded entry under its recorded key. State
+// holds one entry per source, so a source recorded for another project cannot be added here in
+// any scope without taking that project's entry over; it is refused with the root named. A
+// `--list` takes nothing over and previews the source wherever it is recorded.
+function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequest {
   const recorded = findSourceKey(state, request.key);
-  if (recorded === null || recorded === request.key) return request;
+  if (recorded === null) return request;
   const entry = state.sources[recorded];
   if (entry === undefined) return request;
+  const { destination } = entry.intent;
+  if (!request.list && destination.scope === "project" && destination.root !== io.projectRoot) {
+    throw new MaximsError(
+      ExitCode.Usage,
+      `${recorded} is installed for the project at ${destination.root}`,
+      { hint: "remove it from that project first, or install it there" },
+    );
+  }
+  if (recorded === request.key) return request;
   return { ...request, key: recorded, from: entry.intent.from };
 }
 
@@ -569,7 +598,8 @@ export async function commitAdd(
         }
       }
       if (options.writeManifest && touchesProject && io.projectRoot !== null) {
-        changes.push(projectLockChange(io.projectRoot, state));
+        const lock = await projectLockChange(io.projectRoot, current.state, state, io);
+        if (lock !== null) changes.push(lock);
       }
       if (configChanged) changes.push(configWrite(io.home, config));
       await admitIntent(ctx, { state, config, changes }, everyHarness ? [] : [...reached]);
@@ -727,7 +757,7 @@ async function validate(
     }
   }
   const installedNames = new Set<string>();
-  for (const [key, entry] of Object.entries(state.sources)) {
+  for (const [key, entry] of sourcesHere(state, ctx.io)) {
     if (key === request.key || siblings.some((sibling) => sibling.request.key === key)) continue;
     for (const name of await effectiveNames(entry, ctx.io)) installedNames.add(name);
   }
@@ -984,6 +1014,7 @@ function buildEntry(
     fullDepth: request.fullDepth,
     ...(request.paths === undefined ? {} : { paths: request.paths }),
     ...(request.allowHidden ? { allowHidden: true } : {}),
+    ...(request.shared ? { shared: true as const } : {}),
   };
   const from = request.from;
   const fetchedMemories = Object.fromEntries(

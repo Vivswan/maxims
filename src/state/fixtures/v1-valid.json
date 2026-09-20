@@ -5,11 +5,19 @@
   "sources": {
     "@example-user/rules#main": {
       "intent": {
-        "from": { "type": "github", "repo": "example-user/rules", "ref": "main" },
+        "from": {
+          "type": "github",
+          "repo": "example-user/rules",
+          "ref": "main"
+        },
         "select": ["rubber-duck-before-every-commit"],
-        "rename": { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
+        "rename": {
+          "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles"
+        },
         "rule": true,
-        "destination": { "scope": "global" },
+        "destination": {
+          "scope": "global"
+        },
         "copy": false,
         "harnesses": ["claude-code", "codex"]
       },
@@ -26,6 +34,26 @@
         "lastError": null
       },
       "addedAt": "2026-08-20T08:38:04.471Z"
+    },
+    "@example-user/team-rules": {
+      "intent": {
+        "from": {
+          "type": "github",
+          "repo": "example-user/team-rules",
+          "ref": "HEAD"
+        },
+        "select": "*",
+        "rename": {},
+        "rule": true,
+        "destination": {
+          "scope": "project",
+          "root": "/home/user/project"
+        },
+        "copy": false,
+        "harnesses": ["codex"],
+        "shared": true
+      },
+      "addedAt": "2026-08-21T09:00:00.000Z"
     }
   }
 }

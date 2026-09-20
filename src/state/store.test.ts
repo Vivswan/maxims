@@ -101,6 +101,30 @@ const VALID_STATE: State = {
   },
 };
 
+// The v1 fixture also carries a shared project-scope entry, which the legacy shape predates.
+const V1_STATE: State = {
+  ...VALID_STATE,
+  sources: {
+    ...VALID_STATE.sources,
+    "@example-user/team-rules": {
+      intent: {
+        from: { type: "github", repo: "example-user/team-rules", ref: "HEAD" },
+        select: "*",
+        rename: {},
+        rule: true,
+        destination: { scope: "project", root: "/home/user/project" },
+        copy: false,
+        auth: false,
+        harnesses: ["codex"],
+        memoryPath: "memories",
+        fullDepth: false,
+        shared: true,
+      },
+      addedAt: "2026-08-21T09:00:00.000Z",
+    },
+  },
+};
+
 function seed(home: string, fixture: string): string {
   const path = homePaths(home).state;
   copyFileSync(join(FIXTURES, fixture), path);
@@ -205,7 +229,7 @@ describe("readState", () => {
       const before = readFileSync(path, "utf8");
       expect(await readState(home)).toEqual({
         kind: "loaded",
-        state: VALID_STATE,
+        state: V1_STATE,
         migrated: false,
       });
       expect(readFileSync(path, "utf8")).toBe(before);
@@ -234,6 +258,10 @@ describe("readState", () => {
     {
       fixture: "v1-corrupt-nul-path.json",
       issue: /intent\.from\.path: a path cannot contain NUL$/,
+    },
+    {
+      fixture: "v1-corrupt-project-without-root.json",
+      issue: /intent\.destination\.root: Invalid input: expected string, received undefined$/,
     },
   ];
   test.each(hostile)(
@@ -302,7 +330,7 @@ describe("readState", () => {
       const step = concurrentWriterStep(path, landed, () => ({ version: 1 }));
       expect(await readState(home, { migrations: [step] })).toEqual({
         kind: "loaded",
-        state: VALID_STATE,
+        state: V1_STATE,
         migrated: false,
       });
       expect(readFileSync(path, "utf8")).toBe(landed);

@@ -33,17 +33,14 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
       hint: `maxims unlink <source> -a <harness> removes one harness's copy`,
     });
   }
-  const destination = parseDestination(args, ctx.io.cwd);
+  const destination = parseDestination(args, ctx.io.cwd, ctx.io.projectRoot);
   if (destination?.scope === "out") throw usage(`${verb} takes -g or -p, not -o`);
-  const scope = destination?.scope ?? (ctx.io.projectRoot === null ? "global" : "project");
-  let at: DisabledScope;
-  if (scope === "global") at = { scope };
-  else if (ctx.io.projectRoot !== null) at = { scope, root: ctx.io.projectRoot };
-  else {
-    throw usage("a project-scoped change needs a project root", {
-      hint: "run inside a git checkout, or pass -g",
-    });
-  }
+  const at: DisabledScope =
+    destination === null
+      ? ctx.io.projectRoot === null
+        ? { scope: "global" }
+        : { scope: "project", root: ctx.io.projectRoot }
+      : destination;
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const resolved = await resolveMemoryName(state, ctx.io, positional);
   return { at, name: resolved.name, key: resolved.key };
@@ -69,11 +66,12 @@ function command(verb: "disable" | "enable"): Command {
         async (current) => {
           const next = withDisabled(current.state, edit.at, edit.name, disabled);
           changed = next.changed;
-          // The manifest carries a copy of the project's list, so the list's edit rewrites it.
-          const changes =
+          // The lock carries a copy of the project's list, so the list's edit rewrites it.
+          const lock =
             next.changed && edit.at.scope === "project"
-              ? [projectLockChange(edit.at.root, next.state)]
-              : [];
+              ? await projectLockChange(edit.at.root, current.state, next.state, io)
+              : null;
+          const changes = lock === null ? [] : [lock];
           return { state: next.state, changes, notices: current.notices };
         },
         (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),

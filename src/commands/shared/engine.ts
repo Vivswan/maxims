@@ -33,9 +33,10 @@ import type {
 } from "../types.ts";
 import { parseRuleBlocks } from "./blocks.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
-import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
 import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import { destinationUnresolvable } from "./fs-probe.ts";
 import { planHooks } from "./hooks.ts";
 import {
   readSourceMemories,
@@ -521,6 +522,39 @@ async function planInstall(
       retained.push({ key: source.key, target });
     }
   }
+  // Another project's entries render at their own root. Where that root's files are ones this
+  // run reaches (a project rooted at the home directory writes the global rules directory), their
+  // rule files stay off the sweep's list and their blocks are kept, as an unreadable source's are;
+  // a path this run never visits is inert on the list. A destination that project cannot resolve
+  // (a config folder that is a symlink out of the checkout, a root without search permission) is
+  // that project's failure, not this run's, and costs the entry that one harness's targets only.
+  for (const [key, entry] of Object.entries(refreshed.sources)) {
+    const { intent } = entry;
+    if (actsHere(entry, ctx) || intent.destination.scope !== "project" || !intent.rule) continue;
+    const there: EngineContext = { ...ctx, projectRoot: intent.destination.root };
+    for (const id of intent.harnesses) {
+      let resolved: ReturnType<typeof resolveTargets>;
+      try {
+        resolved = resolveTargets({
+          intent,
+          scope: "project",
+          sourceSlug: sourceSlug(intent.from),
+          ctx: there,
+          harnesses: io.harnesses,
+          agents: [id],
+          explicit: [],
+        });
+      } catch (error) {
+        if (!destinationUnresolvable(error)) throw error;
+        continue;
+      }
+      for (const target of resolved.targets) {
+        planned.add(target.realKey);
+        keepBlock(key, target.realKey);
+        retained.push({ key, target });
+      }
+    }
+  }
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
   addSharedFilesWithOrphans(files, scopes, ctx, io, agents);
   // Every file this run visits is registered by now, the orphan visit included; a file no source
@@ -597,7 +631,8 @@ async function planInstall(
   }
   // Rule-file and hook intent follows every entry in state, readable or not: a source whose files
   // cannot be read this run still wants its hook kept and its switched-off rule file gone.
-  const entries = Object.values(refreshed.sources);
+  const entries = Object.values(refreshed.sources).filter((entry) => actsHere(entry, ctx));
+  const elsewhere = Object.values(refreshed.sources).filter((entry) => !actsHere(entry, ctx));
   const outRulesOff = entries.filter((entry) => !entry.intent.rule);
   builder.add("removal", removedOutRuleFiles([...extras.removed, ...outRulesOff], planned));
   const at = (scope: Scope, id: HarnessId) =>
@@ -613,6 +648,18 @@ async function planInstall(
       rules: at(scope, id).some((entry) => entry.intent.rule),
       unreachable: unreachable.has(`${id}@${scope}`),
     }),
+    elsewhere: (id) =>
+      state.hooks.includes(id)
+        ? [
+            ...new Set(
+              elsewhere.flatMap((entry) =>
+                entry.intent.harnesses.includes(id) && entry.intent.destination.scope === "project"
+                  ? [entry.intent.destination.root]
+                  : [],
+              ),
+            ),
+          ]
+        : [],
   });
   builder.add("hook", hooks.changes);
   builder.add("removal", hooks.removals);
@@ -722,7 +769,7 @@ async function noticeLockOnlySources(
     return;
   }
   if (lock.kind !== "parsed") return;
-  const missing = lock.keys.filter((key) => !Object.hasOwn(state.sources, key));
+  const missing = lock.keys.filter((key) => !installedHere(state, key, ctx));
   if (missing.length === 0) return;
   const verb = missing.length === 1 ? "is" : "are";
   notices.notice(
@@ -765,8 +812,7 @@ async function refreshAll(
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined) continue;
-    const installable = entry.intent.destination.scope !== "project" || ctx.projectRoot !== null;
-    if (!isFetchedEntry(entry) || !installable) {
+    if (!isFetchedEntry(entry) || !actsHere(entry, ctx)) {
       sources[key] = entry;
       continue;
     }
@@ -820,6 +866,17 @@ async function refreshAll(
       notices.trace(`${key}: refresh refused; last-good kept`);
     },
   };
+}
+
+// A lock entry is installed here when state holds it for this project (or the user), not merely
+// for some other checkout.
+export function installedHere(
+  state: State,
+  key: string,
+  ctx: { projectRoot: string | null },
+): boolean {
+  const entry = state.sources[key];
+  return entry !== undefined && actsHere(entry, ctx);
 }
 
 // A store swap removes the bodies every rule file of the source points at, so a run limited by
@@ -888,8 +945,8 @@ async function readTrees(
     const { intent } = entry;
     const { from } = intent;
     const scopeKind = intent.destination.scope;
-    if (scopeKind === "project" && ctx.projectRoot === null) {
-      notices.trace(`${key}: project-scoped, but no project root was found; skipped`);
+    if (!actsHere(entry, ctx)) {
+      notices.trace(`${key}: installed for another project; skipped`);
       continue;
     }
     if (held.has(key)) {
@@ -1239,7 +1296,7 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
   if (intent.destination.scope === "out") {
     return [join(intent.destination.path, `maxims-${sourceSlug(intent.from)}.md`)];
   }
-  if (intent.destination.scope === "project" && ctx.projectRoot === null) return [];
+  if (!actsHere(entry, ctx)) return [];
   return resolveTargets({
     intent,
     scope: intent.destination.scope,

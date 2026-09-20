@@ -35,7 +35,8 @@ type SourceRecord = {
     select: string | string[];
     rename: Record<string, string>;
     harnesses: string[];
-    destination: { scope: string; path?: string };
+    destination: { scope: string; path?: string; root?: string };
+    shared?: true;
     from: { type: string; live?: boolean; ref?: string; path?: string };
     rule: boolean;
     auth: boolean;
@@ -430,12 +431,24 @@ test("a local source into the project scope warns with the repository path", asy
   });
 });
 
-test("a project-scope github add writes the manifest as a sorted projection of intent", async () => {
+// A project add stays this machine's until it is shared: the lock appears with the first shared
+// source and lists shared sources only.
+test("a project-scope add writes the lock only for shared sources, as a sorted projection of intent", async () => {
   await withScenario(
     { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
     async (scenario) => {
+      const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
       expect(
         (await runCli(scenario, ["add", "@a/d", "-a", "codex", "--paths", "src/**"])).code,
+      ).toBe(0);
+      expect(existsSync(lockPath)).toBe(false);
+      expect(source(scenario, "@a/d").intent.destination).toEqual({
+        scope: "project",
+        root: scenario.cwd,
+      });
+      expect(
+        (await runCli(scenario, ["add", "@a/d", "-a", "codex", "--paths", "src/**", "--share"]))
+          .code,
       ).toBe(0);
       expect(
         (
@@ -447,12 +460,13 @@ test("a project-scope github add writes the manifest as a sorted projection of i
             "--rule",
             "-m",
             "skip-unfit-skills",
+            "--share",
           ])
         ).code,
       ).toBe(0);
-      const lock = JSON.parse(
-        readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8"),
-      ) as { sources: Record<string, unknown> };
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
+        sources: Record<string, unknown>;
+      };
       expect(Object.keys(lock.sources)).toEqual(["@a/b", "@a/d"]);
       expect(lock.sources["@a/b"]).toEqual({
         from: { type: "github", repo: "a/b" },
@@ -461,9 +475,173 @@ test("a project-scope github add writes the manifest as a sorted projection of i
         harnesses: ["cursor"],
       });
       expect(lock.sources["@a/d"]).toMatchObject({ paths: ["src/**"] });
-      expect(source(scenario, "@a/b").intent.destination).toEqual({ scope: "project" });
+      expect(source(scenario, "@a/b").intent).toMatchObject({
+        destination: { scope: "project", root: scenario.cwd },
+        shared: true,
+      });
+      const global = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--share"]);
+      expect(global.code).toBe(1);
+      expect(global.stderr).toContain("--share applies to a project install");
     },
   );
+});
+
+// State holds one entry per source, so a source another project recorded cannot be added here in
+// any scope without taking that project's entry over; every verb that would edit it names the
+// root to run from instead. Names that project's entries provide are not this project's either.
+test("a source recorded for another project is refused by add, link, update, share and remove, and claims no name here", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    async (scenario) => {
+      const elsewhere = join(scenario.root, "elsewhere");
+      writeState(scenario, {
+        version: 1,
+        writtenBy: "maxims@0.0.0",
+        hooks: [],
+        sources: {
+          "@a/b": {
+            intent: {
+              from: { type: "github", repo: "a/b", ref: "HEAD" },
+              select: "*",
+              rename: {},
+              rule: true,
+              destination: { scope: "project", root: elsewhere },
+              copy: false,
+              harnesses: ["codex"],
+            },
+            fetched: {
+              at: "2026-09-20T11:00:00.000Z",
+              sha: "a".repeat(40),
+              memoryPath: "memories",
+              memories: {
+                "gate-exit-conditions-the-merge": {
+                  content: `sha256:${"1".repeat(64)}`,
+                  description: `sha256:${"2".repeat(64)}`,
+                },
+              },
+              lastError: null,
+            },
+            addedAt: "2026-09-20T11:00:00.000Z",
+          },
+        },
+      });
+      const refusal = ` ERROR  @a/b is installed for the project at ${elsewhere}\n`;
+      for (const argv of [
+        ["add", "@a/b", "-p", "-a", "codex"],
+        ["add", "@a/b", "-g", "-a", "codex"],
+        ["link", "@a/b", "-a", "claude-code"],
+        ["update", "@a/b"],
+        ["share", "@a/b"],
+        ["remove", "@a/b", "-y"],
+      ]) {
+        const run = await runCli(scenario, argv);
+        expect(run.code).toBe(1);
+        expect(run.stderr.startsWith(refusal)).toBe(true);
+      }
+      const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
+      expect([listed.code, listed.stderr]).toEqual([0, ""]);
+      expect(listed.stdout).toContain("gate-exit-conditions-the-merge");
+      expect(source(scenario, "@a/b").intent.destination).toEqual({
+        scope: "project",
+        root: elsewhere,
+      });
+      // The other project's gate-exit-conditions-the-merge does not collide with this one's.
+      const added = await runCli(scenario, ["add", "@a/d", "-p", "-a", "codex"]);
+      expect(added.stderr).toBe("");
+      expect(added.code).toBe(0);
+      expect((await runCli(scenario, ["disable", "gate-exit-conditions-the-merge"])).code).toBe(0);
+      expect(readState(scenario).disabled).toEqual({
+        project: { [scenario.cwd]: ["gate-exit-conditions-the-merge"] },
+      });
+    },
+  );
+});
+
+// A teammate's checkout has no path to a directory outside the project, so such a source is
+// refused at the moment it would be shared rather than dropped from the lock in silence.
+test("a local source outside the project cannot be shared", async () => {
+  await withScenario({ project: true }, async (scenario) => {
+    const outside = join(scenario.root, "outside", "memories");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "own-rule.md"), "---\nname: own-rule\ndescription: Ours\n---\n");
+    const dir = join(scenario.root, "outside");
+    const shared = await runCli(scenario, ["add", dir, "-p", "-a", "codex", "--share"]);
+    expect(shared.code).toBe(1);
+    expect(shared.stderr).toContain(
+      "lies outside the project, so a teammate's checkout cannot reach it",
+    );
+    expect(existsSync(homePaths(scenario.home).state)).toBe(false);
+    expect((await runCli(scenario, ["add", dir, "-p", "-a", "codex"])).code).toBe(0);
+    const later = await runCli(scenario, ["share", dir]);
+    expect(later.code).toBe(1);
+    expect(later.stderr).toContain("lies outside the project");
+    expect("shared" in source(scenario, dir).intent).toBe(false);
+  });
+});
+
+// A clone that has not replayed the lock holds none of the team's entries in state; this machine
+// edits only the entries it owns, so the team's stay through everything it does.
+test("a lock this machine has not replayed keeps the team's entries through a private add, a shared add and an unshare", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    async (scenario) => {
+      const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
+      mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
+      const team = JSON.stringify({
+        version: 1,
+        sources: {
+          "@a/b": {
+            from: { type: "github", repo: "a/b" },
+            select: "*",
+            rule: true,
+            harnesses: ["codex"],
+          },
+        },
+      });
+      writeFileSync(lockPath, team);
+      expect((await runCli(scenario, ["add", "@a/d", "-p", "-a", "codex"])).code).toBe(0);
+      expect(readFileSync(lockPath, "utf8")).toBe(team);
+      expect((await runCli(scenario, ["add", "@a/d", "-p", "-a", "codex", "--share"])).code).toBe(
+        0,
+      );
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
+        sources: Record<string, unknown>;
+      };
+      expect(Object.keys(lock.sources).sort()).toEqual(["@a/b", "@a/d"]);
+      expect(lock.sources["@a/b"]).toEqual({
+        from: { type: "github", repo: "a/b" },
+        select: "*",
+        rule: true,
+        harnesses: ["codex"],
+      });
+      expect((await runCli(scenario, ["unshare", "@a/d"])).code).toBe(0);
+      const after = JSON.parse(readFileSync(lockPath, "utf8")) as { sources: object };
+      expect(Object.keys(after.sources)).toEqual(["@a/b"]);
+    },
+  );
+});
+
+test("share and unshare move a project source in and out of the lock, and the last unshare deletes it", async () => {
+  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
+    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex"])).code).toBe(0);
+    expect(existsSync(lockPath)).toBe(false);
+    const shared = await runCli(scenario, ["share", "@a/b"]);
+    expect(shared.code).toBe(0);
+    expect(shared.stdout).toContain("o  Shared @a/b\n");
+    expect(
+      Object.keys((JSON.parse(readFileSync(lockPath, "utf8")) as { sources: object }).sources),
+    ).toEqual(["@a/b"]);
+    expect(source(scenario, "@a/b").intent).toMatchObject({ shared: true });
+    const userScope = await runCli(scenario, ["share", "@a/b", "-g"]);
+    expect(userScope.code).toBe(1);
+    expect(userScope.stderr).toContain("share applies to a project-scope source; drop -g");
+    const unshared = await runCli(scenario, ["unshare", "@a/b"]);
+    expect(unshared.code).toBe(0);
+    expect(existsSync(lockPath)).toBe(false);
+    expect("shared" in source(scenario, "@a/b").intent).toBe(false);
+    expect(source(scenario, "@a/b").fetched).toBeDefined();
+  });
 });
 
 test("harness selection: detected first, then config.agents, then a global-less harness is skipped", async () => {
@@ -619,7 +797,7 @@ test("re-adding a GitHub source in another case continues the recorded entry", a
 
 test("moving a source from the project to the user scope retires it from the manifest", async () => {
   await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
-    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex"])).code).toBe(0);
+    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(0);
     const lock = join(scenario.cwd, ".agents", "maxims.lock");
     expect(existsSync(lock)).toBe(true);
     expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
@@ -819,9 +997,10 @@ test("--from, --full-depth and --copy round-trip through the manifest into a fre
       "rules",
       "--full-depth",
       "--copy",
+      "--share",
     ]);
     expect(flagged.code).toBe(0);
-    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex"])).code).toBe(0);
+    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(0);
     const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
     const written = readFileSync(lockPath, "utf8");
     const lock = JSON.parse(written) as { sources: Record<string, unknown> };

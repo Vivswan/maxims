@@ -58,7 +58,7 @@ const VALID = {
         select: "*",
         rename: {},
         rule: false,
-        destination: { scope: "project" },
+        destination: { scope: "project", root: "/home/user/project" },
         copy: false,
         harnesses: ["codex"],
       },
@@ -70,7 +70,7 @@ const VALID = {
         select: "*",
         rename: {},
         rule: true,
-        destination: { scope: "project" },
+        destination: { scope: "project", root: "/home/user/project" },
         copy: false,
         harnesses: ["claude-code"],
       },
@@ -128,6 +128,40 @@ describe("parseState", () => {
     });
     expect(local?.intent.memoryPath).toBe("notes");
     expect(local !== undefined && "fetched" in local).toBe(false);
+  });
+
+  // A state written before project destinations carried their root reads as corrupt rather than as
+  // every project's at once, and sharing is refused outside a project destination; the parsed
+  // shapes are pinned by the v1 fixture golden in the store test.
+  const destinations: [string, unknown, unknown, RegExp][] = [
+    ["a project destination without a root", { scope: "project" }, undefined, /root/],
+    [
+      "a relative project root",
+      { scope: "project", root: "./project" },
+      undefined,
+      /destination\.root.*absolute/,
+    ],
+    [
+      "a shared user-scope entry",
+      { scope: "global" },
+      true,
+      /^sources\..*shared applies to a project destination$/,
+    ],
+    [
+      "a shared out folder",
+      { scope: "out", path: "/home/user/team" },
+      true,
+      /shared applies to a project destination/,
+    ],
+  ];
+  test.each(destinations)("destination refused: %s", (_title, destination, shared, issue) => {
+    const json = clone(VALID);
+    const intent = json.sources["@example-user/rules"].intent as Record<string, unknown>;
+    intent.destination = destination;
+    if (shared !== undefined) intent.shared = shared;
+    const result = parseState(json);
+    expect(result.ok).toBe("corrupt");
+    if (result.ok === "corrupt") expect(result.issues.some((line) => issue.test(line))).toBe(true);
   });
 
   // `add --allow-hidden` accepts a source whose descriptions carry hidden characters; refresh

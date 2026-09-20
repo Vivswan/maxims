@@ -39,7 +39,7 @@ import {
   readProjectLock,
   sourceFromLock,
 } from "./shared/project-lock-io.ts";
-import { effectiveNames, knownHarnessIds, tildify } from "./shared/sources.ts";
+import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./shared/sources.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes];
 
@@ -164,7 +164,7 @@ async function assertBatchConsistent(
   const batchKeys = new Set(prepared.map((item) => item.request.key));
   const first = prepared[0];
   if (first !== undefined) {
-    for (const [key, entry] of Object.entries(first.staged.sources)) {
+    for (const [key, entry] of sourcesHere(first.staged, ctx.io)) {
       if (batchKeys.has(key)) continue;
       for (const name of await effectiveNames(entry, ctx.io)) outside.add(name);
     }
@@ -200,11 +200,13 @@ function requestFrom(
   return {
     key: canonicalSourceKey(from),
     from,
-    destination: { scope: "project" },
+    destination: { scope: "project", root: projectRoot },
     select: source.select,
     rename: source.rename ?? {},
     rule: source.rule,
     addHook: hookWanted(from, ctx.config.addHook === true),
+    // An entry came from the lock, so it stays in the lock.
+    shared: true,
     copy: source.copy ?? INTENT_DEFAULTS.copy,
     memoryPath: source.memoryPath ?? INTENT_DEFAULTS.memoryPath,
     fullDepth: source.fullDepth ?? INTENT_DEFAULTS.fullDepth,

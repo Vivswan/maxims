@@ -29,6 +29,7 @@ import {
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
+import { actsHere } from "./context.ts";
 import { realpathOfExistingPrefix } from "./fs-probe.ts";
 import { validateMemoryFiles } from "./memories.ts";
 
@@ -74,9 +75,9 @@ export function targetPath(
   return join(root, target.dir, target.fileName(sourceSlug));
 }
 
-// The memory names a recorded source currently offers: the fetch record for a fetched source, the
-// store entry's tree for a live one, walked and read with the same contract and internal-memory
-// rule the fetch applies, so a name `add` would hide is not a name the index can collide on.
+// The memory names a recorded source currently offers: the fetch record for a fetched source, its
+// own directory for a live one, walked and read with the same contract and internal-memory rule
+// the fetch applies, so a name `add` would hide is not a name the index can collide on.
 export async function upstreamNames(
   entry: SourceEntry,
   io: Pick<CliIo, "home" | "env">,
@@ -87,7 +88,10 @@ export async function upstreamNames(
       return parsed === null ? [] : [parsed];
     });
   }
-  const tree = await storeTree(storePathFor(io.home, entry.intent.from), entry.intent);
+  const { from } = entry.intent;
+  const root =
+    from.type === "local" && from.live === true ? from.path : storePathFor(io.home, from);
+  const tree = await storeTree(root, entry.intent);
   if (tree === null) return [];
   const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
   const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
@@ -122,12 +126,18 @@ export async function effectiveNames(
     .map((name) => localName(entry, name));
 }
 
+// The entries a verb judges names against: the user's, and this project's. Another project's
+// entries are neither written from here nor allowed to claim a name here.
+export function sourcesHere(state: State, io: Pick<CliIo, "projectRoot">): [string, SourceEntry][] {
+  return Object.entries(state.sources).filter(([, entry]) => actsHere(entry, io));
+}
+
 export async function installedSources(
   state: State,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "env" | "projectRoot">,
 ): Promise<IndexedSource[]> {
   return Promise.all(
-    Object.entries(state.sources).map(async ([key, entry]) => ({
+    sourcesHere(state, io).map(async ([key, entry]) => ({
       key,
       addedAt: entry.addedAt,
       intent: { select: entry.intent.select, rename: entry.intent.rename },
@@ -186,13 +196,41 @@ export function realLocal<F extends SourceFrom>(from: F): F {
   return { ...from, path: realpathOfExistingPrefix(from.path) };
 }
 
-export function findInstalledSource(state: State, arg: string, io: CliIo): string {
+export type SourceLookup =
+  | { kind: "here"; key: string }
+  | { kind: "elsewhere"; key: string; root: string }
+  | { kind: "absent" };
+
+// A source recorded for another project is not "installed" to a verb running here: its files
+// live under a root this run never writes, so every verb that would edit it says where to run.
+export function lookupSource(state: State, arg: string, io: CliIo): SourceLookup {
   const direct = findSourceKey(state, arg);
-  if (direct !== null) return direct;
-  const from = realLocal(parseSourceArgument(arg, io.cwd, { ghHost: io.env.GH_HOST }));
-  const key = findSourceKey(state, canonicalSourceKey(from));
-  if (key === null) throw new MaximsError(ExitCode.Usage, `${arg} is not installed`);
-  return key;
+  const key =
+    direct ??
+    findSourceKey(
+      state,
+      canonicalSourceKey(realLocal(parseSourceArgument(arg, io.cwd, { ghHost: io.env.GH_HOST }))),
+    );
+  const entry = key === null ? undefined : state.sources[key];
+  if (key === null || entry === undefined) return { kind: "absent" };
+  const { destination } = entry.intent;
+  if (destination.scope === "project" && destination.root !== io.projectRoot) {
+    return { kind: "elsewhere", key, root: destination.root };
+  }
+  return { kind: "here", key };
+}
+
+export function findInstalledSource(state: State, arg: string, io: CliIo): string {
+  const found = lookupSource(state, arg, io);
+  if (found.kind === "here") return found.key;
+  if (found.kind === "absent") throw new MaximsError(ExitCode.Usage, `${arg} is not installed`);
+  throw installedElsewhere(found.key, found.root);
+}
+
+export function installedElsewhere(key: string, root: string): MaximsError {
+  return new MaximsError(ExitCode.Usage, `${key} is installed for the project at ${root}`, {
+    hint: "run the command from that project",
+  });
 }
 
 // GitHub names are case-insensitive, so `@vivswan/skills` finds the entry recorded as
@@ -215,13 +253,20 @@ export function foldGithubKey(key: string): string {
   return `${key.slice(0, pin).toLowerCase()}${key.slice(pin)}`;
 }
 
+// The identity two records share when they name one source: a GitHub key folds as above, while a
+// local path and a git URL are the keys they are (`Rules.git` and `rules.git` are two repositories).
+export function sourceIdentity(from: SourceFrom): string {
+  const key = canonicalSourceKey(from);
+  return from.type === "github" ? foldGithubKey(key) : key;
+}
+
 export type ResolvedMemory = { key: string; name: MemoryName };
 
 // A bare name is looked up across every source's effective set; two owners make it ambiguous and
 // the qualified `@owner/repo/name` forms are the way out. A qualified name looks up one source.
 export async function resolveMemoryName(
   state: State,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "env" | "projectRoot">,
   raw: string,
 ): Promise<ResolvedMemory> {
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
@@ -232,7 +277,10 @@ export async function resolveMemoryName(
     if (name === null)
       throw new MaximsError(ExitCode.Usage, `"${qualified[2]}" is not a memory name`);
     const entry = state.sources[key];
-    if (entry === undefined || !(await effectiveNames(entry, io)).includes(name)) {
+    if (entry === undefined || !actsHere(entry, io)) {
+      throw new MaximsError(ExitCode.Usage, `${qualified[1]} is not installed`);
+    }
+    if (!(await effectiveNames(entry, io)).includes(name)) {
       throw new MaximsError(ExitCode.Usage, `${key} does not provide ${name}`);
     }
     return { key, name };
@@ -241,7 +289,7 @@ export async function resolveMemoryName(
   if (name === null)
     throw new MaximsError(ExitCode.Usage, `"${raw}" is not a kebab-case memory name`);
   const owners: string[] = [];
-  for (const [key, entry] of Object.entries(state.sources)) {
+  for (const [key, entry] of sourcesHere(state, io)) {
     if ((await effectiveNames(entry, io)).includes(name)) owners.push(key);
   }
   if (owners.length === 0)
@@ -264,23 +312,38 @@ export function tildify(path: string, userHome: string): string {
   return `~/${rel.split("\\").join("/")}`;
 }
 
-// One-field intent edits on either variant of a source entry; the live variant carries no fetch
-// record and the fetched one keeps its own.
+// Every intent field but `from`, which names the entry's variant and is never edited.
+export type IntentFields = Omit<SourceIntent, "from">;
+
+// An intent edit on any variant of a source entry: the fields are edited apart from `from`, then
+// rejoined to the entry's own `from`, so the live variant keeps carrying no fetch record and a
+// fetched one keeps its own.
 export function withIntent(
   entry: SourceEntry,
-  patch: Partial<Pick<SourceIntent, "harnesses" | "rename">>,
+  edit: (fields: IntentFields) => IntentFields,
 ): SourceEntry {
-  if (isLiveEntry(entry)) return { intent: { ...entry.intent, ...patch }, addedAt: entry.addedAt };
+  const { from: _from, ...fields } = entry.intent;
+  const edited = edit(fields);
+  if (isLiveEntry(entry))
+    return { intent: { ...edited, from: entry.intent.from }, addedAt: entry.addedAt };
   if (isCopiedEntry(entry)) {
-    const intent = { ...entry.intent, ...patch };
+    const intent = { ...edited, from: entry.intent.from };
     return entry.fetched === undefined
       ? { intent, addedAt: entry.addedAt }
       : { intent, fetched: entry.fetched, addedAt: entry.addedAt };
   }
-  const intent = { ...entry.intent, ...patch };
+  const intent = { ...edited, from: entry.intent.from };
   return entry.fetched === undefined
     ? { intent, addedAt: entry.addedAt }
     : { intent, fetched: entry.fetched, addedAt: entry.addedAt };
+}
+
+// Sharing is set or cleared on a project-scope entry; the field is absent, never false, so a
+// private entry reads as it did before sharing existed.
+export function withShared(entry: SourceEntry, shared: boolean): SourceEntry {
+  return withIntent(entry, ({ shared: _previous, ...rest }) =>
+    shared ? { ...rest, shared: true } : rest,
+  );
 }
 
 type LiveEntry = Extract<SourceEntry, { intent: { from: { live: true } } }>;

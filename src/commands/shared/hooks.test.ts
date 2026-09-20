@@ -6,8 +6,15 @@
 // registry (a home directory that is itself a git repository), the second sync would remove the
 // hook the first one wrote and the third would put it back.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join } from "node:path";
 import {
   configEditHarness,
   entryFor,
@@ -78,6 +85,7 @@ describe("planHooks", () => {
           agents: undefined,
           wants: (_id, scope: Scope) =>
             scope === "global" ? wants : { ...wants, unreachable: true },
+          elsewhere: () => [],
         });
         const config = join(userHome, FIXTURE_DIR, "config.json");
         const registry = join(userHome, FIXTURE_DIR, "settings.json");
@@ -96,7 +104,7 @@ describe("a hook that lives in one place for both scopes", () => {
     await world(async ({ home, userHome, dir, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       const entry = entryFor(localFrom(source), {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: project },
         harnesses: ["dsh"],
       });
       writeState(home, stateWith({ [source]: entry }, ["dsh"]));
@@ -117,6 +125,121 @@ describe("a hook that lives in one place for both scopes", () => {
       expect(readFileSync(patch, "utf8")).not.toContain("maxims-hooks");
     });
   });
+
+  // The bridge another project's source mounts is the one file this project's run reaches, so a
+  // run here with nothing of its own mounts it whole (the hooks file loads only through the patch
+  // row) and keeps it, as does a run outside any project; the same holds for the registry of a
+  // project rooted at the home directory, which is the global registry under whatever spelling the
+  // home is reached by. A registry under that project's own `.claude/` is written by a sync run
+  // there, never from here.
+  test("a run elsewhere keeps the hook files another project's sources want", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      const other = join(dir, "other");
+      const homeAlias = join(dir, "home-alias");
+      symlinkSync(userHome, homeAlias);
+      const hooks = join(userHome, ".dsh", "maxims-hooks.json");
+      const patch = join(userHome, ".dsh", "cordis.patch.yml");
+      const registry = (root: string) => join(root, ".claude", "settings.json");
+      for (const root of [other, userHome]) {
+        for (const folder of [".git", ".claude"])
+          mkdirSync(join(root, folder), { recursive: true });
+        const source = writeSource(join(root, "memories"), TWO_MEMORIES);
+        const entry = entryFor(localFrom(source, true), {
+          destination: { scope: "project", root },
+          harnesses: ["dsh", "claude-code"],
+        });
+        writeState(home, stateWith({ [source]: entry }, ["dsh", "claude-code"]));
+        const run = (cwd: string) =>
+          runSync(SYNC, fakeIo({ home, userHome: homeAlias, cwd, harnesses: [dsh, claudeCode] }));
+        await run(project);
+        expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+        expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
+        await run(root);
+        expect(readFileSync(registry(root), "utf8")).toContain(HOOK_COMMAND);
+        for (const cwd of [project, dir]) {
+          const report = await run(cwd);
+          const hookFiles = new Set([hooks, patch, registry(root)]);
+          const deleted = report.plan.changes.filter(
+            (change) => change.kind === "delete" && hookFiles.has(change.path),
+          );
+          expect([root, cwd, deleted]).toEqual([root, cwd, []]);
+          expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+          expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
+          expect(readFileSync(registry(root), "utf8")).toContain(HOOK_COMMAND);
+          expect(existsSync(registry(project))).toBe(false);
+        }
+      }
+    });
+  });
+
+  // A registry folder that is a symlink out of its root cannot be written; when nothing here wants
+  // the hook, the other harnesses' sync goes on as before, and another project's such folder is
+  // that project's failure, not this run's.
+  test("a registry folder symlinked out of its root is passed over when nothing here wants it", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      const other = join(dir, "other");
+      const sealed = join(dir, "sealed");
+      for (const root of [other, sealed]) mkdirSync(join(root, ".git"), { recursive: true });
+      for (const root of [userHome, other]) {
+        const dotfiles = join(dir, `dotfiles-${basename(root)}`);
+        mkdirSync(dotfiles);
+        symlinkSync(dotfiles, join(root, ".claude"));
+      }
+      mkdirSync(join(sealed, ".claude"));
+      chmodSync(sealed, 0o000);
+      try {
+        const io = fakeIo({ home, userHome, cwd: project, harnesses: [claudeCode] });
+        const ctx = await loadContext(io, { readHookStdin: false });
+        for (const elsewhere of [[], [other], [sealed]]) {
+          const plan = await planHooks({
+            ctx,
+            harnesses: [claudeCode],
+            agents: undefined,
+            wants: () => ({ hook: false, rules: false, unreachable: false }),
+            elsewhere: () => elsewhere,
+          });
+          expect([elsewhere, plan.changes, plan.removals, plan.failures]).toEqual([
+            elsewhere,
+            [],
+            [],
+            [],
+          ]);
+        }
+      } finally {
+        chmodSync(sealed, 0o700);
+      }
+    });
+  });
+
+  // A registry this run reaches and cannot edit is this run's failure when another project's
+  // source wants a hook in it, as it is when a source of this run's own does; the registry of a
+  // project nobody reaches from here stays that project's.
+  test("a malformed registry another project's hook lands in is reported here", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      mkdirSync(join(userHome, ".git"));
+      mkdirSync(join(userHome, ".claude"));
+      writeFileSync(join(userHome, ".claude", "settings.json"), "{ not json");
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [claudeCode] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const nobody: HarnessWants = { hook: false, rules: false, unreachable: false };
+      const plan = (elsewhere: string[]) =>
+        planHooks({
+          ctx,
+          harnesses: [claudeCode],
+          agents: undefined,
+          wants: () => nobody,
+          elsewhere: () => elsewhere,
+        });
+      expect((await plan([])).failures).toEqual([]);
+      expect((await plan([userHome])).failures.map((failure) => failure.message)).toEqual([
+        expect.stringContaining(join(userHome, ".claude", "settings.json")),
+      ]);
+      const other = join(dir, "other");
+      mkdirSync(join(other, ".claude"), { recursive: true });
+      writeFileSync(join(other, ".claude", "settings.json"), "{ not json");
+      expect((await plan([other])).failures).toEqual([]);
+    });
+  });
 });
 
 describe("both scopes resolving to one registry", () => {
@@ -126,7 +249,7 @@ describe("both scopes resolving to one registry", () => {
       mkdirSync(join(userHome, ".claude"));
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       const entry = entryFor(localFrom(source), {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: userHome },
         harnesses: ["claude-code"],
       });
       writeState(home, stateWith({ [source]: entry }, ["claude-code"]));

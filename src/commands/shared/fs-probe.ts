@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -28,6 +28,12 @@ function cannotInspect(path: string, cause: unknown): MaximsError {
   });
 }
 
+// Only "nothing is there" reads as absent; a path that cannot be looked at (a parent without
+// search permission) throws, so an inaccessible project or lock is never called missing.
+export function pathAbsent(path: string): boolean {
+  return statSync(path, { throwIfNoEntry: false }) === undefined;
+}
+
 // The real path of a location that may not exist yet: its deepest existing prefix resolved, the
 // rest appended as typed. Only "nothing is there" walks up; a prefix that exists but cannot be
 // inspected is exit 4, never a path verdict.
@@ -46,6 +52,14 @@ export function realpathOfExistingPrefix(path: string): string {
       prefix = parent;
     }
   }
+}
+
+// An error from resolving a destination on disk: this program's refusal to write there (a config
+// folder that is a symlink out of its root), or the file system's refusal to look (a root without
+// search permission), as opposed to a defect.
+export function destinationUnresolvable(error: unknown): boolean {
+  if (error instanceof MaximsError) return error.code === ExitCode.DestinationWriteFailed;
+  return typeof (error as NodeJS.ErrnoException).code === "string";
 }
 
 // Whether this process may create symlinks, learned by creating one in a scratch directory that

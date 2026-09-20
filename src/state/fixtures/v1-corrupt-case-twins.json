@@ -21,7 +21,7 @@
         "select": "*",
         "rename": {},
         "rule": false,
-        "destination": { "scope": "project" },
+        "destination": { "scope": "project", "root": "/home/user/project" },
         "copy": false,
         "harnesses": ["claude-code"]
       },

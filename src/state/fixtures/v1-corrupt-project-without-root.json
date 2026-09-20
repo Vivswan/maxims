@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": [],
+  "sources": {
+    "@example-user/rules": {
+      "intent": {
+        "from": {
+          "type": "github",
+          "repo": "example-user/rules",
+          "ref": "HEAD"
+        },
+        "select": "*",
+        "rename": {},
+        "rule": false,
+        "destination": {
+          "scope": "project"
+        },
+        "copy": false,
+        "harnesses": ["codex"]
+      },
+      "addedAt": "2026-08-20T08:38:04.471Z"
+    }
+  }
+}

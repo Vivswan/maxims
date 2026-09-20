@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MemoryName } from "../../memory/contract.ts";
 import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
@@ -18,11 +18,12 @@ import { homePaths } from "../../util/home.ts";
 import { type Args, type CommandContext, FLAGS, parsePositiveInt } from "./options.ts";
 
 // The project root is the nearest ancestor of the cwd that a git checkout marks, so a project
-// install from a subdirectory lands at the repository root the harness reads from.
+// install from a subdirectory lands at the repository root the harness reads from; its real path,
+// since state records a project by it and a cwd reached through an alias must find the same entries.
 export function findProjectRoot(cwd: string): string | null {
   let dir = cwd;
   for (;;) {
-    if (existsSync(join(dir, ".git"))) return dir;
+    if (existsSync(join(dir, ".git"))) return realpathSync(dir);
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;

@@ -3,10 +3,11 @@ import type { Scope } from "../harnesses/contract.ts";
 import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
-import { buildNameIndex } from "../rulefile/dedupe.ts";
+import { buildNameIndex, type NameIndex } from "../rulefile/dedupe.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import {
+  actsHere,
   DEFAULT_COOLDOWN_DAYS,
   type EngineContext,
   harnessContext,
@@ -14,12 +15,14 @@ import {
 } from "./shared/context.ts";
 import { noDefinitionReason, resolveTargets } from "./shared/destination.ts";
 import {
+  installedHere,
   isFetchedEntry,
   readInstalledTree,
   retainedNames,
   shortSha,
   staleness,
 } from "./shared/engine.ts";
+import { pathAbsent } from "./shared/fs-probe.ts";
 import { planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
@@ -98,20 +101,42 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
   // An unreadable source's names are already local (its selection and renames applied), so
-  // they enter the index as they are.
-  const index = buildNameIndex(
-    loaded.map((source) => ({
-      key: source.key,
-      addedAt: source.entry.addedAt,
-      intent: source.tree.kind === "tree" ? source.entry.intent : { select: "*", rename: {} },
-      names: source.upstream,
-    })),
-  );
+  // they enter the index as they are. A rename is judged against the entries that apply together
+  // with its source: the user's and its own project's, whichever project the listing runs in.
+  const indexes = new Map<string | null, NameIndex>();
+  const indexFor = (root: string | null): NameIndex => {
+    const known = indexes.get(root);
+    if (known !== undefined) return known;
+    const index = buildNameIndex(
+      loaded
+        .filter((source) => actsHere(source.entry, { projectRoot: root }))
+        .map((source) => ({
+          key: source.key,
+          addedAt: source.entry.addedAt,
+          intent: source.tree.kind === "tree" ? source.entry.intent : { select: "*", rename: {} },
+          names: source.upstream,
+        })),
+    );
+    indexes.set(root, index);
+    return index;
+  };
   for (const source of loaded) {
     const { key, entry } = source;
     const scope = entry.intent.destination.scope;
+    const index = indexFor(
+      entry.intent.destination.scope === "project"
+        ? entry.intent.destination.root
+        : ctx.projectRoot,
+    );
     const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    const disabled = disabledNames(state, scope, ctx.projectRoot);
+    // A project entry's switched-off names are its own project's, wherever the listing runs.
+    const disabled = disabledNames(
+      state,
+      scope,
+      entry.intent.destination.scope === "project"
+        ? entry.intent.destination.root
+        : ctx.projectRoot,
+    );
     const memories: ListedMemory[] = [];
     if (source.tree.kind === "tree") {
       const selection = selectMemories({
@@ -155,9 +180,19 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
         });
       }
     }
+    const { destination } = entry.intent;
     report.sources.push({
       key,
       scope,
+      project:
+        destination.scope === "project"
+          ? {
+              root: destination.root,
+              here: destination.root === ctx.projectRoot,
+              rootMissing: pathAbsent(destination.root),
+            }
+          : null,
+      shared: entry.intent.shared === true,
       live: !isFetchedEntry(entry),
       outDir: entry.intent.destination.scope === "out" ? entry.intent.destination.path : null,
       sha: fetched?.sha ?? (source.tree.kind === "tree" ? source.tree.tree.sha : null),
@@ -181,7 +216,7 @@ async function addLockOnly(report: ListReport, state: State | null, ctx: EngineC
   if (ctx.projectRoot === null) return;
   const lock = await readProjectLock(ctx.projectRoot);
   if (lock.kind === "parsed") {
-    report.lockOnly = lock.keys.filter((key) => !Object.hasOwn(state?.sources ?? {}, key));
+    report.lockOnly = lock.keys.filter((key) => state === null || !installedHere(state, key, ctx));
   } else if (lock.kind === "corrupt") {
     report.notices.push(`maxims: ${lock.path} could not be read: ${lock.issues.join("; ")}`);
   }
@@ -216,8 +251,8 @@ async function listHarnesses(
       out.push({ ...base, skipped: "out folder" });
       continue;
     }
-    if (scope === "project" && ctx.projectRoot === null) {
-      out.push({ ...base, skipped: "no project root" });
+    if (!actsHere(entry, ctx)) {
+      out.push({ ...base, skipped: "another project" });
       continue;
     }
     const tier = await achievedTier(def, scope, harnessCtx);
@@ -288,6 +323,10 @@ export function renderList(report: ListReport): string {
         lines.push(`${SCOPE_HEADERS.out}: ${source.outDir ?? ""}`);
       }
       lines.push(sourceLine(source));
+      if (source.project !== null && !source.project.here) {
+        const missing = source.project.rootMissing ? " (project folder missing)" : "";
+        lines.push(`  installed for ${source.project.root}${missing}`);
+      }
       for (const memory of source.memories) lines.push(memoryLine(memory, scope));
       lines.push(
         `  Agents: ${source.harnesses.map(harnessCell).join(", ")}  Rules: ${source.rule ? "yes" : "no"}`,
@@ -317,8 +356,9 @@ export function renderList(report: ListReport): string {
 
 function sourceLine(source: ListedSource): string {
   const sha = source.sha === null ? "-" : shortSha(source.sha);
+  const shared = source.shared ? "  shared" : "";
   if (source.fetchedAt === null) {
-    return `${source.key}  ${sha}  ${source.live ? "live" : "not fetched yet"}`;
+    return `${source.key}  ${sha}  ${source.live ? "live" : "not fetched yet"}${shared}`;
   }
   const date = source.fetchedAt.slice(0, "2026-01-01".length);
   const verdict =
@@ -327,7 +367,7 @@ function sourceLine(source: ListedSource): string {
         ? "ok"
         : `ok (last fetch failed: ${source.lastError.kind})`
       : `stale ${source.stale.days}d: ${source.stale.kind}`;
-  return `${source.key}  ${sha}  fetched ${date}  ${verdict}`;
+  return `${source.key}  ${sha}  fetched ${date}  ${verdict}${shared}`;
 }
 
 function memoryLine(memory: ListedMemory, scope: string): string {

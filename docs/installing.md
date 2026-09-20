@@ -21,6 +21,7 @@ The [quickstart](quickstart.md#install-a-source) shows what that command prints 
 | `-p, --project` | the project scope: the git checkout you are in | the explicit opposite of `-g` |
 | neither | a GitHub source installs to the project when inside one, else to the user scope, as in `skills` | a local directory source defaults to the user scope, so personal text stays out of the repo; see [security](security.md#where-personal-text-can-leak) |
 | `-o, --out <dir>` | an output folder for a rule file no harness owns, such as a team folder inside a repo | neither scope; a relative path resolves against the cwd, not the project root |
+| `--share` | with `-p`: the source also enters the [project lock](project-lock.md#sharing-a-source) for teammates | without it a project install stays yours; refused with `-g` or `-o` |
 
 Two of `-g`, `-p`, and `-o` together is exit 1, "two destinations given".
 

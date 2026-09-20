@@ -1,6 +1,7 @@
 import { promptsAllowed } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../harnesses/contract.ts";
+import type { State } from "../state/schema.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { cooldownCapConfig, loadIntentFor, persistConfig } from "./shared/cli-context.ts";
@@ -19,10 +20,12 @@ import {
   usage,
 } from "./shared/options.ts";
 import {
-  findInstalledSource,
+  installedElsewhere,
   knownHarnessIds,
+  lookupSource,
   type ResolvedMemory,
   resolveMemoryName,
+  type SourceLookup,
 } from "./shared/sources.ts";
 import type { CliIo, CommonOptions, HarnessFilter, RemoveOptions, RemoveTarget } from "./types.ts";
 
@@ -152,7 +155,7 @@ export function removeOptions(target: RemoveTarget, common: CommonOptions): Remo
 // meaning, so the two are refused here, once, and the target type cannot hold them together.
 async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Promise<RemoveTarget> {
   const positional = args.positionals[0];
-  const destination = parseDestination(args, ctx.io.cwd);
+  const destination = parseDestination(args, ctx.io.cwd, ctx.io.projectRoot);
   const agents = agentIds(args, ctx.io) ?? null;
   // `-a '*'` parses to "no filter", which on a whole source means every harness; on a memory or
   // a narrowed selection any `-a` is refused, the wildcard included.
@@ -192,18 +195,18 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
 }
 
 // `@owner/repo` names a source and `@owner/repo/name` a memory of one, so the argument is read
-// as a source first and as a memory when no recorded source answers to it.
-function installedSourceOrNull(
-  state: Parameters<typeof findInstalledSource>[0],
-  arg: string,
-  io: CliIo,
-): string | null {
+// as a source first and as a memory when no recorded source answers to it; one recorded for
+// another project is neither.
+function installedSourceOrNull(state: State, arg: string, io: CliIo): string | null {
+  let found: SourceLookup;
   try {
-    return findInstalledSource(state, arg, io);
+    found = lookupSource(state, arg, io);
   } catch (error) {
     if (error instanceof MaximsError && error.code === ExitCode.Usage) return null;
     throw error;
   }
+  if (found.kind === "elsewhere") throw installedElsewhere(found.key, found.root);
+  return found.kind === "here" ? found.key : null;
 }
 
 function describeTarget(target: RemoveTarget): string {

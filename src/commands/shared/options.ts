@@ -75,6 +75,11 @@ export const FLAGS = {
     kind: "boolean",
     summary: "local sources: link the store to the directory",
   },
+  share: {
+    name: "share",
+    kind: "boolean",
+    summary: "project scope: also record the source in .agents/maxims.lock for teammates",
+  },
   pin: { name: "pin", kind: "value", placeholder: "<sha or tag>", summary: "track this ref" },
   paths: {
     name: "paths",
@@ -224,15 +229,31 @@ export function globalFlags(args: Args): GlobalFlags {
 // `-g`, `-p` and `-o` parse into ONE destination; two of them is a usage error here, once, and no
 // downstream type can hold the conflict. Null means "auto": the verb decides from the source and
 // the project root. An `-o` path is resolved against the cwd here, so every consumer holds the
-// absolute path the state schema requires.
-export function parseDestination(args: Args, cwd: string): Destination | null {
-  const chosen: Destination[] = [];
-  if (args.flag(FLAGS.global)) chosen.push({ scope: "global" });
-  if (args.flag(FLAGS.project)) chosen.push({ scope: "project" });
+// absolute path the state schema requires, and `-p` carries the project root it names, so it is
+// refused here, once, when there is none.
+export function parseDestination(
+  args: Args,
+  cwd: string,
+  projectRoot: string | null,
+): Destination | null {
   const out = args.value(FLAGS.out);
-  if (out !== undefined) chosen.push({ scope: "out", path: resolve(cwd, out) });
-  if (chosen.length > 1) throw usage(STRINGS.twoDestinations);
-  return chosen[0] ?? null;
+  const named = [args.flag(FLAGS.global), args.flag(FLAGS.project), out !== undefined].filter(
+    (given) => given,
+  );
+  if (named.length > 1) throw usage(STRINGS.twoDestinations);
+  if (args.flag(FLAGS.global)) return { scope: "global" };
+  if (args.flag(FLAGS.project)) return projectDestination(projectRoot);
+  if (out !== undefined) return { scope: "out", path: resolve(cwd, out) };
+  return null;
+}
+
+export function projectDestination(projectRoot: string | null): Destination {
+  if (projectRoot === null) {
+    throw usage("a project-scoped change needs a project root", {
+      hint: "run inside a git checkout, or pass -g for the user scope",
+    });
+  }
+  return { scope: "project", root: projectRoot };
 }
 
 // `*` is the whole source; a list is parsed into memory names so a name that is not one fails

@@ -29,8 +29,6 @@ The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Comman
 | `config set\|get\|unset <key> [value]` | | read or write a [user default](fetching.md#user-defaults-in-configjson) | no |
 | `init [name]` | | scaffold a contract-valid memory file; the [doctor page](doctor.md#init) owns it | no |
 
-Status: `share`, `unshare`, and `config` are specified, not yet built.
-
 - **Two scopes exist,** project (`-p`) and user (`-g`). `-o` is an output folder for a rule file no harness owns, and it is neither scope.
 - **No source argument.** `sync`, `update`, `install`, and `doctor` read state or the lock instead.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.

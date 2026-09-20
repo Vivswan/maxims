@@ -172,7 +172,7 @@ describe("remove", () => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       const entry = entryFor(localFrom(source), {
         harnesses: ["claude-code", "codex"],
-        destination: { scope: "project" },
+        destination: { scope: "project", root: project },
       });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
@@ -232,7 +232,9 @@ describe("remove", () => {
   test("a live source's project bodies link into the store, stay put on resync, and leave on removal", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const live = writeSource(join(dir, "live"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(live, true), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(live, true), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [live]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       await runSync(SYNC, io);
@@ -251,7 +253,11 @@ describe("remove", () => {
       const source = writeSource(join(project, "src"), TWO_MEMORIES);
       const other = writeSource(join(project, "other"), { three: { description: "Three." } });
       const projectEntry = (path: string, copy: boolean) =>
-        entryFor(localFrom(path), { destination: { scope: "project" }, copy });
+        entryFor(localFrom(path), {
+          destination: { scope: "project", root: project },
+          shared: true,
+          copy,
+        });
       writeState(
         home,
         stateWith({ [source]: projectEntry(source, true), [other]: projectEntry(other, false) }),
@@ -271,6 +277,33 @@ describe("remove", () => {
       await runRemove({ ...REMOVE, targets: [other] }, io);
       expect(existsSync(join(project, ".agents", "maxims.lock"))).toBe(false);
       expect(existsSync(join(bodies, "three.md"))).toBe(false);
+    });
+  });
+
+  // A source another project recorded is that project's to remove: its files live under a root
+  // this run never writes, so it is neither listed for removal nor half removed.
+  test("a source installed for another project is refused with the root named", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const elsewhere = join(dir, "elsewhere");
+      writeState(
+        home,
+        stateWith({
+          [source]: entryFor(localFrom(source), {
+            destination: { scope: "project", root: elsewhere },
+          }),
+        }),
+      );
+      const io = fakeIo({ home, userHome, cwd: project });
+      const error = await expectExit(
+        runRemove({ ...REMOVE, targets: [source] }, io),
+        ExitCode.Usage,
+      );
+      expect(error.message).toBe(`${source} is installed for the project at ${elsewhere}`);
+      expect(readStateFile(home).sources[source]).toBeDefined();
+      const all = await runRemove({ ...REMOVE, all: true }, io);
+      expect(all.notices).toContain("No memories found to remove.");
+      expect(readStateFile(home).sources[source]).toBeDefined();
     });
   });
 
@@ -322,7 +355,9 @@ describe("remove", () => {
       writeState(
         home,
         stateWith({
-          [source]: entryFor(localFrom(source), { destination: { scope: "project" } }),
+          [source]: entryFor(localFrom(source), {
+            destination: { scope: "project", root: project },
+          }),
           "@acme/team": entryFor(githubFrom("acme/team"), {
             destination: { scope: "out", path: out },
           }),
@@ -414,7 +449,7 @@ describe("remove", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
       const entry = entryFor(localFrom(live, true), {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: project },
         copy: true,
       });
       writeState(home, stateWith({ [live]: entry }));
@@ -459,7 +494,10 @@ describe("remove", () => {
       writeState(
         home,
         stateWith({
-          [none]: entryFor(localFrom(none), { destination: { scope: "project" }, harnesses: [] }),
+          [none]: entryFor(localFrom(none), {
+            destination: { scope: "project", root: project },
+            harnesses: [],
+          }),
           [some]: entryFor(localFrom(some), { harnesses: ["codex"] }),
         }),
       );

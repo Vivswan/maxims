@@ -72,6 +72,18 @@ const VERBS: readonly VerbEntry[] = [
     hidden: false,
     load: () => import("./install.ts").then((m) => m.install),
   },
+  {
+    name: "share",
+    aliases: [],
+    hidden: false,
+    load: () => import("./share.ts").then((m) => m.share),
+  },
+  {
+    name: "unshare",
+    aliases: [],
+    hidden: false,
+    load: () => import("./share.ts").then((m) => m.unshare),
+  },
   { name: "link", aliases: [], hidden: false, load: () => import("./link.ts").then((m) => m.link) },
   {
     name: "unlink",

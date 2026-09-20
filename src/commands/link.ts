@@ -17,7 +17,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
-import { projectLockChange } from "./shared/project-lock-io.ts";
+import { lockChanges } from "./shared/project-lock-io.ts";
 import {
   findInstalledSource,
   harnessById,
@@ -90,15 +90,13 @@ export const link: Command = {
           ...current.state,
           sources: {
             ...current.state.sources,
-            [target.key]: withIntent(existing, {
-              harnesses: [...existing.intent.harnesses, ...added],
-            }),
+            [target.key]: withIntent(existing, (fields) => ({
+              ...fields,
+              harnesses: [...fields.harnesses, ...added],
+            })),
           },
         };
-        const changes =
-          existing.intent.destination.scope === "project" && io.projectRoot !== null
-            ? [projectLockChange(io.projectRoot, next)]
-            : [];
+        const changes = await lockChanges(existing, current.state, next, io);
         await admitIntent(ctx, { state: next, config: ctx.config, changes }, added);
         return { state: next, changes, notices: current.notices };
       },

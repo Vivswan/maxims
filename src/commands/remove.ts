@@ -10,7 +10,7 @@ import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
-import { type EngineContext, loadContext } from "./shared/context.ts";
+import { actsHere, type EngineContext, loadContext } from "./shared/context.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
 import { isRemoteEntry } from "./shared/fetch.ts";
 import type { SourceTree } from "./shared/memories.ts";
@@ -63,7 +63,8 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
     }
     const extraChanges: Change[] = [];
     if (removal.projectTouched && ctx.projectRoot !== null) {
-      extraChanges.push(projectLockChange(ctx.projectRoot, removal.nextState));
+      const lock = await projectLockChange(ctx.projectRoot, state, removal.nextState, ctx);
+      if (lock !== null) extraChanges.push(lock);
     }
     const outcome = await planSync(
       removal.nextState,
@@ -158,7 +159,19 @@ async function resolveRemoval(
   const targets: RemoveTargetSpec[] = options.all
     ? installed.map((item) => item.key)
     : options.targets;
+  // A source recorded for another project is not this run's to remove: its files live under a
+  // root this run never writes, so the removal is refused rather than half done.
+  const elsewhere = Object.entries(state.sources).filter(([, entry]) => !actsHere(entry, ctx));
   for (const target of targets) {
+    const named = typeof target === "string" ? target : target.source;
+    const other = elsewhere.find(([key]) => sameSource(key, named, ctx));
+    if (other !== undefined) {
+      const { destination } = other[1].intent;
+      const root = destination.scope === "project" ? destination.root : "";
+      throw new MaximsError(ExitCode.Usage, `${other[0]} is installed for the project at ${root}`, {
+        hint: `run maxims remove ${other[0]} from that project`,
+      });
+    }
     if (typeof target === "string") {
       const bySource = installed.find((item) => sameSource(item.key, target, ctx));
       if (bySource !== undefined) {
@@ -253,7 +266,7 @@ async function readInstalled(
   const installed: Installed[] = [];
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
-    if (entry === undefined) continue;
+    if (entry === undefined || !actsHere(entry, ctx)) continue;
     const read = await readInstalledTree(
       entry,
       storePathFor(ctx.home, entry.intent.from),

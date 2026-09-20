@@ -124,9 +124,14 @@ export type ListedRename = {
   against: string | null;
 };
 
+// `project` is set for a project-scope entry: the root it was added in, whether that is the
+// project this run is in (`here`), and whether the folder still exists at all; `shared` says the
+// entry is in that project's lock.
 export type ListedSource = {
   key: string;
   scope: "project" | "global" | "out";
+  project: { root: string; here: boolean; rootMissing: boolean } | null;
+  shared: boolean;
   live: boolean;
   outDir: string | null;
   sha: string | null;

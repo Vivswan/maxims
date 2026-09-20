@@ -217,7 +217,7 @@ describe("bodies directories that cannot be listed", () => {
         w.home,
         stateWith({
           [source]: entryFor(localFrom(source, true), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: w.project },
             rule: false,
           }),
         }),
@@ -244,7 +244,9 @@ describe("planning failures under --quiet --json", () => {
       rmSync(join(w.project, ".fixture"), { recursive: true });
       const { io, upstream } = await lastGood(w, 1);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
-      const entry = fetchedEntry(FROM, facts, { destination: { scope: "project" } });
+      const entry = fetchedEntry(FROM, facts, {
+        destination: { scope: "project", root: w.project },
+      });
       writeState(w.home, stateWith({ [KEY]: entry }));
       io.cwd = w.project;
       const report = await runSync({ ...QUIET, json: true, agents: ["claude-code"] }, io);
@@ -540,7 +542,9 @@ describe("unreachable harnesses with unreadable sources", () => {
       rmSync(join(w.project, ".fixture"), { recursive: true });
       const upstream = writeSource(join(w.dir, "upstream"), TWO_MEMORIES);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
-      const entry = fetchedEntry(FROM, facts, { destination: { scope: "project" } });
+      const entry = fetchedEntry(FROM, facts, {
+        destination: { scope: "project", root: w.project },
+      });
       writeState(w.home, stateWith({ [KEY]: entry }, ["claude-code"]));
       const fake = fakeResolvers();
       fake.set(FROM, { kind: "fail", failure: "network" });
@@ -581,7 +585,7 @@ describe("live sources whose files all fail the contract", () => {
     await world(async (w) => {
       const live = writeSource(join(w.dir, "live"), { alpha: { description: "Alpha." } });
       const entry = entryFor(localFrom(live, true), {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: w.project },
         copy: true,
       });
       writeState(w.home, stateWith({ [live]: entry }));

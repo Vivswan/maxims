@@ -210,7 +210,9 @@ describe("project scope", () => {
   test("bodies link relatively into the store and rule lines carry the project-relative path", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       await runSync(SYNC, io);
@@ -242,7 +244,10 @@ describe("project scope", () => {
       ];
       for (const { copy, symlink } of cases) {
         rmSync(join(project, ".agents"), { recursive: true, force: true });
-        const entry = entryFor(localFrom(source), { destination: { scope: "project" }, copy });
+        const entry = entryFor(localFrom(source), {
+          destination: { scope: "project", root: project },
+          copy,
+        });
         writeState(home, stateWith({ [source]: entry }));
         const io = fakeIo({ home, userHome, cwd: project });
         io.symlink = symlink;
@@ -260,7 +265,9 @@ describe("project scope", () => {
     await world(async ({ home, dir, userHome, project }) => {
       rmSync(join(project, ".fixture"), { recursive: true });
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       const report = await runSync(SYNC, io);
@@ -301,6 +308,98 @@ describe("project scope", () => {
     });
   });
 });
+
+describe("a project rooted at the home directory", () => {
+  // Its rules directory is the global one, which every run reaches: a run in another checkout
+  // plans nothing for the entry and would sweep its files as orphans.
+  test("keeps its rule files through a run in another checkout", async () => {
+    await world(async ({ home, userHome, project }) => {
+      mkdirSync(join(userHome, ".git"));
+      const source = writeSource(join(userHome, "memories"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source, true), {
+        destination: { scope: "project", root: userHome },
+      });
+      writeState(home, stateWith({ [source]: entry }));
+      const file = globalRulesFile(userHome, sourceSlug(entry.intent.from));
+      const run = (cwd: string) =>
+        runSync(SYNC, fakeIo({ home, userHome, cwd, harnesses: [rulesDirHarness] }));
+      await run(userHome);
+      const written = readFileSync(file, "utf8");
+      expect(written).toContain("keep-tests-green");
+      const report = await run(project);
+      expect(report.plan.changes.filter((change) => change.kind === "delete")).toEqual([]);
+      expect(readFileSync(file, "utf8")).toBe(written);
+    });
+  });
+
+  // Another project's rules directory this run never writes is resolved only to be kept off the
+  // sweep; one that project cannot resolve, its config folder a symlink out of the checkout or its
+  // root without search permission, is that project's failure.
+  test("another project's unresolvable rules folder does not fail a run here", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      const other = join(dir, "other");
+      mkdirSync(join(other, ".git"), { recursive: true });
+      mkdirSync(join(dir, "dotfiles"));
+      symlinkSync(join(dir, "dotfiles"), join(other, ".fixture"));
+      const source = writeSource(join(other, "memories"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source, true), {
+        destination: { scope: "project", root: other },
+      });
+      writeState(home, stateWith({ [source]: entry }));
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [rulesDirHarness] });
+      const symlinked = await runSync(SYNC, io);
+      expect(["symlinked", symlinked.failed, symlinked.plan.changes]).toEqual([
+        "symlinked",
+        [],
+        [],
+      ]);
+      chmodSync(other, 0o000);
+      try {
+        const sealed = await runSync(SYNC, io);
+        expect(["sealed", sealed.failed, sealed.plan.changes]).toEqual(["sealed", [], []]);
+      } finally {
+        chmodSync(other, 0o700);
+      }
+    });
+  });
+
+  // One harness's destination failing to resolve there costs the entry that harness's targets
+  // only: the other harness's rule file stays off the sweep.
+  test("keeps one harness's rule file when another harness's folder cannot be resolved", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      mkdirSync(join(userHome, ".git"));
+      const asideDir = { kind: "rules-dir" as const, dir: ".aside/rules", fileName: ruleFileName };
+      const aside: HarnessDefinition = {
+        ...rulesDirHarness,
+        id: "codex",
+        displayName: "Fixture Aside",
+        targets: { project: asideDir, global: asideDir },
+      };
+      const harnesses = [rulesDirHarness, aside];
+      const source = writeSource(join(userHome, "memories"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source, true), {
+        destination: { scope: "project", root: userHome },
+        harnesses: ["claude-code", "codex"],
+      });
+      writeState(home, stateWith({ [source]: entry }));
+      mkdirSync(join(userHome, ".aside"));
+      await runSync(SYNC, fakeIo({ home, userHome, cwd: userHome, harnesses }));
+      const file = globalRulesFile(userHome, sourceSlug(entry.intent.from));
+      const written = readFileSync(file, "utf8");
+      expect(existsSync(join(userHome, ".aside", "rules"))).toBe(true);
+      rmSync(join(userHome, ".aside"), { recursive: true });
+      mkdirSync(join(dir, "dotfiles"));
+      symlinkSync(join(dir, "dotfiles"), join(userHome, ".aside"));
+      const report = await runSync(SYNC, fakeIo({ home, userHome, cwd: project, harnesses }));
+      expect(report.plan.changes.filter((change) => change.kind === "delete")).toEqual([]);
+      expect(readFileSync(file, "utf8")).toBe(written);
+    });
+  });
+});
+
+function ruleFileName(slug: string): string {
+  return `maxims-${slug}.md`;
+}
 
 describe("shared files and dedupe", () => {
   test("two definitions reading one file get one block per source, with the user's text intact", async () => {
@@ -482,7 +581,7 @@ describe("what a refused or departed source leaves behind", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const first = writeSource(join(dir, "first"), { shared: { description: "First." } });
       const second = writeSource(join(dir, "second"), { shared: { description: "Second." } });
-      const project_ = { destination: { scope: "project" as const } };
+      const project_ = { destination: { scope: "project" as const, root: project } };
       const later = {
         ...entryFor(localFrom(second), project_),
         addedAt: "2026-08-02T00:00:00.000Z",
@@ -538,7 +637,9 @@ describe("what a refused or departed source leaves behind", () => {
   test("a body copied while symlinks were unavailable becomes a link once they are", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       io.symlink = { ok: false, reason: "EPERM" };
@@ -559,7 +660,9 @@ describe("what a refused or departed source leaves behind", () => {
   test("a source refused by the cap or a byte budget keeps its bodies and lands none anew", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       await runSync(SYNC, io);
@@ -579,12 +682,12 @@ describe("what a refused or departed source leaves behind", () => {
   });
 
   test("a project-scoped source is not fetched outside a project, so its facts and store agree", async () => {
-    await world(async ({ home, dir, userHome }) => {
+    await world(async ({ home, dir, userHome, project }) => {
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
       const from = githubFrom("acme/rules");
       seedStore(home, from, upstream);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project" } });
+      const entry = fetchedEntry(from, facts, { destination: { scope: "project", root: project } });
       writeState(home, stateWith({ "@acme/rules": entry }));
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "b".repeat(40) });
@@ -593,6 +696,23 @@ describe("what a refused or departed source leaves behind", () => {
       expect(fake.calls).toEqual([]);
       expect(report.fetched).toEqual([]);
       expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
+      // From another project the entry is equally not this run's: nothing is fetched or written
+      // there, and the entry stays as it is.
+      const other = join(dir, "other-project");
+      mkdirSync(join(other, ".git"), { recursive: true });
+      mkdirSync(join(other, ".fixture"), { recursive: true });
+      const elsewhere = fakeIo({ home, userHome, cwd: other, resolvers: fake.resolvers });
+      const before = treeDigest(other);
+      const away = await runSync(SYNC, elsewhere);
+      expect(fake.calls).toEqual([]);
+      expect(away.sources).toBe(0);
+      expect(treeDigest(other)).toBe(before);
+      expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
+      // The project reached through an alias symlink is the same project: its entries apply.
+      const alias = join(dir, "alias");
+      symlinkSync(project, alias);
+      const viaAlias = fakeIo({ home, userHome, cwd: alias, resolvers: fake.resolvers });
+      expect((await runSync({ ...SYNC, fetch: "none" }, viaAlias)).sources).toBe(1);
     });
   });
 
@@ -602,7 +722,7 @@ describe("what a refused or departed source leaves behind", () => {
       const from = githubFrom("acme/rules");
       seedStore(home, from, upstream);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project" } });
+      const entry = fetchedEntry(from, facts, { destination: { scope: "project", root: project } });
       writeState(home, stateWith({ "@acme/rules": entry }));
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
@@ -637,9 +757,11 @@ describe("what a refused or departed source leaves behind", () => {
       writeState(
         home,
         stateWith({
-          "@acme/rules": fetchedEntry(from, facts, { destination: { scope: "project" } }),
+          "@acme/rules": fetchedEntry(from, facts, {
+            destination: { scope: "project", root: project },
+          }),
           [rival]: {
-            ...entryFor(localFrom(rival), { destination: { scope: "project" } }),
+            ...entryFor(localFrom(rival), { destination: { scope: "project", root: project } }),
             addedAt: "2026-08-02T00:00:00.000Z",
           },
         }),
@@ -683,9 +805,11 @@ describe("what a refused or departed source leaves behind", () => {
       writeState(
         home,
         stateWith({
-          "@acme/rules": fetchedEntry(from, facts, { destination: { scope: "project" } }),
+          "@acme/rules": fetchedEntry(from, facts, {
+            destination: { scope: "project", root: project },
+          }),
           [rival]: {
-            ...entryFor(localFrom(rival), { destination: { scope: "project" } }),
+            ...entryFor(localFrom(rival), { destination: { scope: "project", root: project } }),
             addedAt: "2026-08-02T00:00:00.000Z",
           },
         }),
@@ -805,7 +929,9 @@ describe("what a refused or departed source leaves behind", () => {
   test("an unreadable live source keeps owning the names its retained block points at", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
-      const liveEntry = entryFor(localFrom(live, true), { destination: { scope: "project" } });
+      const liveEntry = entryFor(localFrom(live, true), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [live]: liveEntry }));
       const io = fakeIo({ home, userHome, cwd: project });
       await runSync(SYNC, io);
@@ -818,7 +944,7 @@ describe("what a refused or departed source leaves behind", () => {
         stateWith({
           [live]: liveEntry,
           [rival]: {
-            ...entryFor(localFrom(rival), { destination: { scope: "project" } }),
+            ...entryFor(localFrom(rival), { destination: { scope: "project", root: project } }),
             addedAt: "2026-08-02T00:00:00.000Z",
           },
         }),
@@ -840,7 +966,7 @@ describe("what a refused or departed source leaves behind", () => {
         from,
         await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40)),
         {
-          destination: { scope: "project" },
+          destination: { scope: "project", root: project },
         },
       );
       seedStore(home, from, upstream);
@@ -911,7 +1037,10 @@ describe("what a refused or departed source leaves behind", () => {
       const from = githubFrom("acme/rules");
       seedStore(home, from, upstream);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project" }, copy: true });
+      const entry = fetchedEntry(from, facts, {
+        destination: { scope: "project", root: project },
+        copy: true,
+      });
       writeState(home, stateWith({ "@acme/rules": entry }));
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
@@ -941,7 +1070,7 @@ describe("what a refused or departed source leaves behind", () => {
       const from = githubFrom("acme/rules");
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
       const older = fetchedEntry(from, facts, {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: project },
         select: [memoryName("alpha")],
       });
       const newer = writeSource(join(dir, "newer"), { beta: { description: "Newer beta." } });
@@ -950,7 +1079,7 @@ describe("what a refused or departed source leaves behind", () => {
         stateWith({
           "@acme/rules": older,
           [newer]: {
-            ...entryFor(localFrom(newer), { destination: { scope: "project" } }),
+            ...entryFor(localFrom(newer), { destination: { scope: "project", root: project } }),
             addedAt: "2026-08-02T00:00:00.000Z",
           },
         }),
@@ -1027,7 +1156,10 @@ describe("what a refused or departed source leaves behind", () => {
   test("copy mode leaves a user's own file where a body would go, with a notice", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" }, copy: true });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+        copy: true,
+      });
       writeState(home, stateWith({ [source]: entry }));
       const body = join(project, ".agents", "memories", "always-review.md");
       mkdirSync(join(project, ".agents", "memories"), { recursive: true });
@@ -1046,7 +1178,10 @@ describe("what a refused or departed source leaves behind", () => {
       seedStore(home, from, upstream);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
       const rename = { [memoryName("alpha")]: memoryName("beta") };
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project" }, rename });
+      const entry = fetchedEntry(from, facts, {
+        destination: { scope: "project", root: project },
+        rename,
+      });
       writeState(home, stateWith({ "@acme/rules": entry }));
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
@@ -1097,7 +1232,10 @@ describe("what a refused or departed source leaves behind", () => {
       seedStore(home, from, upstream);
       const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
       const rename = { [memoryName("alpha")]: memoryName("beta") };
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project" }, rename });
+      const entry = fetchedEntry(from, facts, {
+        destination: { scope: "project", root: project },
+        rename,
+      });
       writeState(home, stateWith({ "@acme/rules": entry }));
       const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
@@ -1148,7 +1286,7 @@ describe("what a refused or departed source leaves behind", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
       const liveEntry = entryFor(localFrom(live, true), {
-        destination: { scope: "project" },
+        destination: { scope: "project", root: project },
         copy: true,
       });
       writeState(home, stateWith({ [live]: liveEntry }));
@@ -1169,7 +1307,7 @@ describe("what a refused or departed source leaves behind", () => {
         stateWith({
           [live]: liveEntry,
           [rival]: {
-            ...entryFor(localFrom(rival), { destination: { scope: "project" } }),
+            ...entryFor(localFrom(rival), { destination: { scope: "project", root: project } }),
             addedAt: "2026-08-02T00:00:00.000Z",
           },
         }),
@@ -1349,7 +1487,7 @@ describe("what a refused or departed source leaves behind", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const older = writeSource(join(dir, "older"), { alpha: { description: "Alpha." } });
       const newer = writeSource(join(dir, "newer"), { beta: { description: "Newer beta." } });
-      const projectScope = { destination: { scope: "project" as const } };
+      const projectScope = { destination: { scope: "project" as const, root: project } };
       writeState(
         home,
         stateWith({
@@ -1379,7 +1517,11 @@ describe("what a refused or departed source leaves behind", () => {
       await world(async ({ home, dir, userHome, project }) => {
         const older = writeSource(join(dir, "older"), { alpha: { description: "Alpha." } });
         const newer = writeSource(join(dir, "newer"), { beta: { description: "Newer beta." } });
-        const noRules = { destination: { scope: "project" as const }, rule: false, copy };
+        const noRules = {
+          destination: { scope: "project" as const, root: project },
+          rule: false,
+          copy,
+        };
         writeState(
           home,
           stateWith({
@@ -1408,7 +1550,11 @@ describe("what a refused or departed source leaves behind", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const first = writeSource(join(dir, "first"), { shared: { description: "Same." } });
       const second = writeSource(join(dir, "second"), { shared: { description: "Same." } });
-      const noRules = { destination: { scope: "project" as const }, rule: false, copy: true };
+      const noRules = {
+        destination: { scope: "project" as const, root: project },
+        rule: false,
+        copy: true,
+      };
       writeState(
         home,
         stateWith({
@@ -1434,7 +1580,11 @@ describe("what a refused or departed source leaves behind", () => {
     await world(async ({ home, dir, userHome, project }) => {
       const first = writeSource(join(dir, "first"), { shared: { description: "Same." } });
       const second = writeSource(join(dir, "second"), { shared: { description: "Same." } });
-      const noRules = { destination: { scope: "project" as const }, rule: false, copy: true };
+      const noRules = {
+        destination: { scope: "project" as const, root: project },
+        rule: false,
+        copy: true,
+      };
       const rename = { [memoryName("shared")]: memoryName("shared-second") };
       writeState(
         home,
@@ -1552,7 +1702,9 @@ describe("what a refused or departed source leaves behind", () => {
   test("a hook run leaves a copied body as it is when links become possible", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), { destination: { scope: "project" } });
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+      });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project });
       io.symlink = { ok: false, reason: "EPERM" };
@@ -1766,11 +1918,11 @@ describe("plan surfaces", () => {
         home,
         stateWith({
           [first]: entryFor(localFrom(first, true), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: project },
             harnesses: ["codex"],
           }),
           [second]: entryFor(localFrom(second), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: project },
             harnesses: ["dsh"],
           }),
         }),
@@ -1802,7 +1954,7 @@ describe("plan surfaces", () => {
         home,
         stateWith({
           [second]: entryFor(localFrom(second), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: project },
             harnesses: ["dsh"],
           }),
         }),
@@ -1824,11 +1976,11 @@ describe("plan surfaces", () => {
         home,
         stateWith({
           "@acme/first": fetchedEntry(firstFrom, await fetchedFacts(first, daysAgo(NOW, 1)), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: project },
             harnesses: ["claude-code", "codex"],
           }),
           [second]: entryFor(localFrom(second), {
-            destination: { scope: "project" },
+            destination: { scope: "project", root: project },
             harnesses: ["codex"],
           }),
         }),
@@ -2061,7 +2213,7 @@ describe("shared file byte budget", () => {
       const codexSource = writeSource(join(dir, "codex-src"), { alpha: { description: "Alpha." } });
       const dshSource = writeSource(join(dir, "dsh-src"), { beta: { description: "Beta." } });
       const projectScoped = (harness: HarnessId) => ({
-        destination: { scope: "project" as const },
+        destination: { scope: "project" as const, root: project },
         harnesses: [harness],
       });
       const codexEntry = entryFor(localFrom(codexSource, true), projectScoped("codex"));

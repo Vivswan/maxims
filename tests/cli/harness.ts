@@ -1,4 +1,11 @@
-import { mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { type CliDeps, main } from "../../src/commands/main.ts";
@@ -172,7 +179,9 @@ export async function withScenario<T>(
   options: ScenarioOptions,
   fn: (scenario: Scenario) => Promise<T>,
 ): Promise<T> {
-  return withTempDir(async (root) => {
+  return withTempDir(async (rawRoot) => {
+    // Roots are recorded by their real path, so a scenario under a symlinked temp dir names them so.
+    const root = realpathSync(rawRoot);
     const userHome = join(root, "user");
     const home = join(userHome, ".agents", "maxims");
     const cwd = join(root, "work");
