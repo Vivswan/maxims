@@ -14,6 +14,7 @@ import { sharedBlockPath } from "../../harnesses/strategies/shared-block.ts";
 import type { SourceIntent } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import type { RootedPath } from "../../util/fs.ts";
+import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 
 export type HarnessTarget = {
@@ -45,7 +46,7 @@ export type TargetRequest = {
   sourceSlug: string;
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
-  agents: HarnessId[] | undefined;
+  agents: HarnessFilter | undefined;
 };
 
 // Where one source's rule lines go at one scope: one target per harness the intent names, minus

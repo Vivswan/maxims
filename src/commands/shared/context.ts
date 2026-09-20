@@ -5,7 +5,7 @@ import type { HarnessContext, HarnessId } from "../../harnesses/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
 import { parseUserConfig, type UserConfig } from "../../state/config.ts";
 import { type HomePaths, homePaths, maximsHome } from "../../util/home.ts";
-import type { EngineIo } from "../types.ts";
+import type { EngineIo, HarnessFilter } from "../types.ts";
 import { classifyInvoker, type InvokerClassification, stdoutVariantFor } from "./stdin.ts";
 
 export const DEFAULT_COOLDOWN_DAYS = 7;
@@ -100,7 +100,7 @@ function loadUserConfig(path: string): LoadedUserConfig {
   return { config: {}, issue: `${path}: ${parsed.issues.join("; ")}; using defaults` };
 }
 
-export function agentsAllowed(filter: HarnessId[] | undefined, id: HarnessId): boolean {
+export function agentsAllowed(filter: HarnessFilter | undefined, id: HarnessId): boolean {
   return filter === undefined || filter.includes(id);
 }
 

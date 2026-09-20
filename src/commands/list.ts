@@ -5,7 +5,6 @@ import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex } from "../rulefile/dedupe.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
-import { readState } from "../state/store.ts";
 import { storePathFor } from "../util/home.ts";
 import {
   DEFAULT_COOLDOWN_DAYS,
@@ -23,7 +22,7 @@ import {
 } from "./shared/engine.ts";
 import { planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
-import { unusableStateLine } from "./shared/report.ts";
+import { previewState } from "./shared/report.ts";
 import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import type {
@@ -37,15 +36,16 @@ import type {
 } from "./types.ts";
 
 // Read-only: what state asks for, with everything past intent (tier, hook presence, collisions,
-// staleness, token cost) re-derived from disk on the spot. Never takes the lock.
+// staleness, token cost) re-derived from disk on the spot. Never takes the lock and never settles
+// the state file.
 export async function runList(options: ListOptions, io: EngineIo): Promise<ListReport> {
   const ctx = await loadContext(io, { readHookStdin: false });
-  const loaded = await readState(ctx.home);
+  const preview = await previewState(ctx.home);
   const report =
-    loaded.kind === "loaded"
-      ? await listState(loaded.state, ctx, io)
-      : { ...emptyReport(ctx), notices: [unusableStateLine(loaded)] };
-  if (loaded.kind !== "loaded") await addLockOnly(report, null, ctx);
+    preview.kind === "loaded"
+      ? await listState(preview.state, ctx, io)
+      : { ...emptyReport(ctx), notices: [preview.line] };
+  if (preview.kind !== "loaded") await addLockOnly(report, null, ctx);
   io.stdout(options.json ? `${JSON.stringify(report, null, 2)}\n` : renderList(report));
   return report;
 }

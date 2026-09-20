@@ -38,6 +38,7 @@ import type { LastError } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
+import { runList } from "./list.ts";
 import { classifyInvoker, renderHookStdout } from "./shared/stdin.ts";
 import { runSync } from "./sync.ts";
 import type { SyncOptions } from "./types.ts";
@@ -154,7 +155,7 @@ describe("fail-soft rungs under --quiet", () => {
       const { fake, io, rules, upstream } = await lastGood(w, 9);
       await runSync(SYNC, io);
       const before = readFileSync(rules, "utf8");
-      fake.set(FROM, { kind: "dir", dir: upstream, sha: "sha256:" + "d".repeat(64) });
+      fake.set(FROM, { kind: "dir", dir: upstream, sha: `sha256:${"d".repeat(64)}` });
       io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
       io.out.length = 0;
       await runSync(QUIET, io);
@@ -433,6 +434,41 @@ describe("hook runs", () => {
       });
     });
   }
+
+  test("a listing and a dry run leave a corrupt state file byte-identical; a real sync moves it aside", async () => {
+    await world(async (w) => {
+      const { io, rules } = await lastGood(w, 1);
+      await runSync(SYNC, io);
+      const path = homePaths(w.home).state;
+      writeFileSync(path, "{not json");
+      const before = readFileSync(path, "utf8");
+      const line = expect.stringMatching(
+        /^maxims: state\.json is corrupt: not valid JSON: .*; run maxims sync to quarantine it$/,
+      );
+      io.out.length = 0;
+      const listed = await runList({ quiet: false, dryRun: false, json: true }, io);
+      expect(listed.sources).toEqual([]);
+      expect(listed.notices).toEqual([line]);
+      const previewed = await runSync({ ...SYNC, dryRun: true }, io);
+      expect(previewed.plan.changes).toEqual([]);
+      expect(previewed.notices).toEqual([line]);
+      expect(readFileSync(path, "utf8")).toBe(before);
+      expect(readdirSync(w.home).filter((name) => name.startsWith("state.json."))).toEqual([]);
+      expect(existsSync(rules)).toBe(true);
+      await runSync(SYNC, io);
+      expect(readdirSync(w.home).some((name) => name.startsWith("state.json.corrupt-"))).toBe(true);
+    });
+  });
+
+  test("a failed refresh is reported as failed under --quiet too, and never thrown", async () => {
+    await world(async (w) => {
+      const { fake, io } = await lastGood(w, 9);
+      fake.set(FROM, { kind: "fail", failure: "ratelimit", retryAfterSeconds: 60 });
+      const report = await runSync(QUIET, io);
+      expect(report.failed).toEqual([{ key: KEY, message: "scripted ratelimit" }]);
+      expect(await runSync({ ...SYNC, noFetch: true }, io)).toMatchObject({ failed: [] });
+    });
+  });
 
   test("the lock file's sources this machine lacks earn one notice and no fetch", async () => {
     await world(async (w) => {

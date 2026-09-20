@@ -1,5 +1,6 @@
 import { isAbsolute, relative } from "node:path";
-import type { LoadedState } from "../../state/store.ts";
+import type { State } from "../../state/schema.ts";
+import { inspectState, type LoadedState } from "../../state/store.ts";
 import { applyChanges, planToJson, renderPlan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { appendRefreshLog } from "../../util/log.ts";
@@ -14,6 +15,7 @@ export const EMPTY_REPORT: SyncReport = {
   rules: 0,
   tokens: 0,
   fetched: [],
+  failed: [],
   changed: [],
   notices: [],
   plan: { changes: [], notices: [] },
@@ -156,7 +158,11 @@ export function errorDocument(error: unknown): string {
   return `${JSON.stringify({ ok: false, code, message, hint }, null, 2)}\n`;
 }
 
-export type UnusableState = Exclude<LoadedState, { kind: "loaded" }>;
+// The newer line names the version alone, so an inspection (which knows no path) can feed it.
+export type UnusableState =
+  | { kind: "absent" }
+  | { kind: "newer"; version: number }
+  | Extract<LoadedState, { kind: "quarantined" | "corrupt" }>;
 
 export function unusableStateLine(loaded: UnusableState): string {
   switch (loaded.kind) {
@@ -168,5 +174,32 @@ export function unusableStateLine(loaded: UnusableState): string {
       return `maxims: state.json was corrupt and moved to ${loaded.movedTo}; re-add your sources`;
     case "corrupt":
       return `maxims: state.json is corrupt (${loaded.issues[0] ?? "unreadable"}) and ${loaded.lockedBy}; nothing synced`;
+  }
+}
+
+export type PreviewedState =
+  | { kind: "loaded"; state: State }
+  | { kind: "absent"; line: string }
+  | { kind: "unusable"; line: string };
+
+// The state a run that writes nothing plans against: read without the lock, never quarantined
+// and never migrated on disk, so a listing or a dry run leaves a broken file exactly as it found
+// it and says which locking verb would settle it.
+export async function previewState(home: string): Promise<PreviewedState> {
+  const inspection = await inspectState(home);
+  switch (inspection.kind) {
+    case "current":
+      return { kind: "loaded", state: inspection.state };
+    case "absent":
+      return { kind: "absent", line: unusableStateLine(inspection) };
+    case "newer":
+      return { kind: "unusable", line: unusableStateLine(inspection) };
+    case "corrupt":
+      return {
+        kind: "unusable",
+        line: `maxims: state.json is corrupt: ${inspection.issues[0] ?? "unreadable"}; run maxims sync to quarantine it`,
+      };
+    case "migrated":
+      return { kind: "unusable", line: "maxims: state.json needs migration; run maxims sync" };
   }
 }

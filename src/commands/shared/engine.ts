@@ -23,7 +23,7 @@ import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { EngineIo, SyncOptions, SyncReport } from "../types.ts";
+import type { EngineIo, HarnessFilter, SyncOptions, SyncReport } from "../types.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
@@ -117,10 +117,9 @@ export async function planSync(
   extras: SyncExtras,
 ): Promise<SyncOutcome> {
   const base = new Notices();
-  const baseFailures: SyncFailure[] = [];
   if (ctx.configIssue !== null) base.notice(`maxims: ${ctx.configIssue}`);
   await noticeLockOnlySources(state, ctx, base);
-  const refreshed = await refreshAll(state, ctx, io, options, base, baseFailures);
+  const refreshed = await refreshAll(state, ctx, io, options, base);
   const carried = new Notices();
   const carriedFailures: SyncFailure[] = [];
   // A readable source refused by admission is planned again as if unreadable: its block stays
@@ -141,7 +140,6 @@ export async function planSync(
       notices.absorb(attempt.notices);
       const found = new Set(attempt.failures.map((failure) => failure.message));
       const failures = [
-        ...baseFailures,
         ...carriedFailures.filter((failure) => !found.has(failure.message)),
         ...attempt.failures,
       ];
@@ -161,6 +159,7 @@ export async function planSync(
           rules: attempt.rules,
           tokens: attempt.tokens,
           fetched: refreshed.fetchedKeys,
+          failed: refreshed.failed,
           changed: [...new Set(built.plan.changes.map((change) => change.path))],
           notices: notices.user,
           plan: built.plan,
@@ -662,16 +661,18 @@ type Refreshed = {
   // refresh has survived admission.
   lines: Map<string, string[]>;
   fetchedKeys: string[];
+  failed: SyncReport["failed"];
   refuse(key: string): void;
 };
 
+// A failed fetch is never a stop: the source keeps last-good and the failure is reported, so the
+// caller decides what a manual run's exit says about it.
 async function refreshAll(
   state: State,
   ctx: EngineContext,
   io: EngineIo,
   options: SyncOptions,
   notices: Notices,
-  failures: SyncFailure[],
 ): Promise<Refreshed> {
   const sources: State["sources"] = {};
   const freshTrees = new Map<string, SourceTree>();
@@ -679,6 +680,7 @@ async function refreshAll(
   const changeLines = new Map<string, string[]>();
   const lines = new Map<string, string[]>();
   const fetchedKeys: string[] = [];
+  const failed: SyncReport["failed"] = [];
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined) continue;
@@ -713,12 +715,7 @@ async function refreshAll(
       case "failed":
       case "no-valid":
         notices.trace(`${key}: fetch failed (${result.error.kind}): ${result.error.message}`);
-        if (options.force && !options.quiet) {
-          failures.push({
-            code: ExitCode.SourceUnresolvable,
-            message: `${key}: ${result.error.message}`,
-          });
-        }
+        failed.push({ key, message: result.error.message });
         break;
       case "skipped":
       case "not-due":
@@ -733,6 +730,7 @@ async function refreshAll(
     changeLines,
     lines,
     fetchedKeys,
+    failed,
     refuse(key) {
       if (!freshTrees.has(key)) return;
       const previous = state.sources[key];
@@ -912,7 +910,7 @@ function bodiesDirsFor(
   work: Pick<SourceWork, "intent">,
   ctx: EngineContext,
   io: EngineIo,
-  agents: HarnessId[] | undefined,
+  agents: HarnessFilter | undefined,
 ): BodiesDir[] {
   const { intent } = work;
   if (intent.destination.scope === "out") {
@@ -1203,7 +1201,7 @@ function addSharedFilesWithOrphans(
   scopes: Scope[],
   ctx: EngineContext,
   io: EngineIo,
-  agents: HarnessId[] | undefined,
+  agents: HarnessFilter | undefined,
 ): void {
   for (const def of io.harnesses) {
     if (!agentsAllowed(agents, def.id)) continue;

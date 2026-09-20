@@ -8,6 +8,7 @@ import type {
 import { type HookPlan, planHookWrite } from "../../harnesses/hook-writer.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 
 // `unreachable` says the harness has no home at this scope; nothing there is read or written.
@@ -55,7 +56,7 @@ export async function planHookAlone(
 export async function planHooks(input: {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
-  agents: HarnessId[] | undefined;
+  agents: HarnessFilter | undefined;
   wants: (id: HarnessId, scope: Scope) => HarnessWants;
 }): Promise<HooksPlan> {
   const { ctx } = input;

@@ -1594,7 +1594,7 @@ describe("plan surfaces", () => {
     });
   });
 
-  test("update reports a fetch failure with exit 2 after keeping last-good", async () => {
+  test("a forced refresh that fails keeps last-good and reports the source as failed", async () => {
     await world(async ({ home, dir, userHome }) => {
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
       const from = githubFrom("acme/rules");
@@ -1604,7 +1604,8 @@ describe("plan surfaces", () => {
       const fake = fakeResolvers();
       fake.set(from, { kind: "fail", failure: "network" });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await expectExit(runSync({ ...SYNC, force: true }, io), ExitCode.SourceUnresolvable);
+      const report = await runSync({ ...SYNC, force: true }, io);
+      expect(report.failed).toEqual([{ key: "@acme/rules", message: "scripted network" }]);
       const text = readFileSync(globalRulesFile(userHome, "acme-rules"), "utf8");
       expect(text).toContain("Never merge red.");
       expect(fetchedOf(home, "@acme/rules")?.lastError?.kind).toBe("network");

@@ -9,18 +9,26 @@ export type CommonOptions = {
   json: boolean;
 };
 
+// The harnesses a run is restricted to. Absent means every harness; the list is never empty, so
+// "restrict to nothing" has no spelling.
+export type HarnessFilter = readonly [HarnessId, ...HarnessId[]];
+
 export type SyncOptions = CommonOptions & {
   noFetch: boolean;
-  agents?: HarnessId[];
+  agents?: HarnessFilter;
   force: boolean;
 };
 
+// `failed` lists the sources whose refresh failed in THIS run with the message the fetch left,
+// in key order, so a caller learns of a failure from the report rather than from state, which a
+// dry run leaves unchanged.
 export type SyncReport = {
   sources: number;
   memories: number;
   rules: number;
   tokens: number;
   fetched: string[];
+  failed: { key: string; message: string }[];
   changed: string[];
   notices: string[];
   plan: Plan;
@@ -32,7 +40,7 @@ export type SyncReport = {
 export type RemoveOptions = CommonOptions & {
   targets: string[];
   all: boolean;
-  agents?: HarnessId[];
+  agents?: HarnessFilter;
   confirmed: boolean;
 };
 

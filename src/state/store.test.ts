@@ -33,7 +33,14 @@ import {
   type SourceEntry,
   type State,
 } from "./schema.ts";
-import { readState, serializeState, WRITTEN_BY, withStateLock, writeState } from "./store.ts";
+import {
+  inspectState,
+  readState,
+  serializeState,
+  WRITTEN_BY,
+  withStateLock,
+  writeState,
+} from "./store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
@@ -464,6 +471,24 @@ describe("withStateLock", () => {
       expect(outcome).toEqual({ kind: "ran", value: { written: true } });
       expect(readFileSync(homePaths(home).state, "utf8")).toBe(serializeState(state));
       expect(existsSync(homePaths(home).lock)).toBe(false);
+    });
+  });
+});
+
+describe("inspectState", () => {
+  test("a corrupt file is reported and left in place, with no sibling and no home created", async () => {
+    await withTempHome(async (home) => {
+      const path = seed(home, "v1-corrupt-json.txt");
+      const before = readFileSync(path, "utf8");
+      const result = await inspectState(home);
+      expect(result).toEqual({
+        kind: "corrupt",
+        issues: [expect.stringMatching(/^not valid JSON: /)],
+      });
+      expect(readFileSync(path, "utf8")).toBe(before);
+      expect(readdirSync(home)).toEqual(["state.json"]);
+      expect(await inspectState(join(home, "nowhere"))).toEqual({ kind: "absent" });
+      expect(existsSync(join(home, "nowhere"))).toBe(false);
     });
   });
 });

@@ -60,6 +60,24 @@ const REMOVE: RemoveOptions = {
 };
 
 describe("remove", () => {
+  test("a dry run on a corrupt state file refuses and leaves the file byte-identical", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const path = homePaths(home).state;
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path, "{not json");
+      const io = fakeIo({ home, userHome, cwd: dir });
+      const error = await expectExit(
+        runRemove({ ...REMOVE, dryRun: true, targets: ["anything"] }, io),
+        ExitCode.Usage,
+      );
+      expect(error.message).toMatch(
+        /^maxims: state\.json is corrupt: .*; run maxims sync to quarantine it$/,
+      );
+      expect(readFileSync(path, "utf8")).toBe("{not json");
+      expect(existsSync(homePaths(home).lock)).toBe(false);
+    });
+  });
+
   test("removing the last source returns the user home to its pre-add bytes and clears the hook", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);

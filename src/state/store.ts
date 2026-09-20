@@ -256,3 +256,15 @@ function statePaths(home: string): StatePaths {
 function isStoreLocked(error: unknown): error is MaximsError {
   return error instanceof MaximsError && error.code === ExitCode.StoreLocked;
 }
+
+export type { Inspection };
+
+// The lock-free reading of the file, for a caller that must not write: a dry run, a preview, a
+// report. It never quarantines, never persists a migration and never creates the home; a
+// `corrupt` or `migrated` answer is the caller's notice to run a locking verb.
+export async function inspectState(
+  home: string,
+  options: ReadStateOptions = {},
+): Promise<Inspection> {
+  return inspectStateFile(statePaths(home), options);
+}

@@ -1,4 +1,5 @@
-import type { LoadedState, StateLock } from "../state/store.ts";
+import type { State } from "../state/schema.ts";
+import type { StateLock } from "../state/store.ts";
 import { withStateLock } from "../state/store.ts";
 import { maximsHome } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
@@ -10,6 +11,7 @@ import {
   emptyDocument,
   errorDocument,
   finishSync,
+  previewState,
   ReportedMaximsError,
   unusableStateLine,
 } from "./shared/report.ts";
@@ -41,7 +43,8 @@ async function runSyncChecked(options: SyncOptions, io: EngineIo): Promise<SyncR
   if (options.quiet && isDebounced(ctx.paths, ctx.now)) {
     return skipped("maxims: skipped, a sync ran less than a minute ago");
   }
-  if (!options.dryRun) stampLastSync(ctx.home, ctx.paths, ctx.now);
+  if (options.dryRun) return syncPreview(ctx, io, options);
+  stampLastSync(ctx.home, ctx.paths, ctx.now);
   const run = (lock: StateLock): Promise<SyncReport> => syncUnderLock(lock, ctx, io, options);
   if (!options.quiet) return withStateLock(ctx.home, "manual", run);
   const outcome = await withStateLock(ctx.home, "hook", run);
@@ -60,10 +63,32 @@ async function syncUnderLock(
   options: SyncOptions,
 ): Promise<SyncReport> {
   const loaded = await lock.read();
-  if (loaded.kind !== "loaded") return reportUnusableState(loaded, ctx, io, options);
-  const outcome = await planSync(loaded.state, ctx, io, options, {
+  if (loaded.kind !== "loaded")
+    return reportUnusableState(unusableStateLine(loaded), ctx, io, options);
+  return planAndFinish(loaded.state, ctx, io, options);
+}
+
+// A dry run takes no lock and settles nothing: a corrupt or outdated file is left as it is and
+// named, since the run that would move it aside is the one that writes.
+async function syncPreview(
+  ctx: EngineContext,
+  io: EngineIo,
+  options: SyncOptions,
+): Promise<SyncReport> {
+  const preview = await previewState(ctx.home);
+  if (preview.kind !== "loaded") return reportUnusableState(preview.line, ctx, io, options);
+  return planAndFinish(preview.state, ctx, io, options);
+}
+
+async function planAndFinish(
+  state: State,
+  ctx: EngineContext,
+  io: EngineIo,
+  options: SyncOptions,
+): Promise<SyncReport> {
+  const outcome = await planSync(state, ctx, io, options, {
     verb: "sync",
-    previousState: loaded.state,
+    previousState: state,
     extraChanges: [],
     removed: [],
     removedCopies: new Set(),
@@ -71,16 +96,15 @@ async function syncUnderLock(
   return finishSync(outcome, ctx, io, { ...options, verb: "sync" });
 }
 
-// Step 1's three stops. Each is a clean exit 0 that changes nothing: under `--quiet` the line
-// goes to the log alone, since a hook has no user to tell and a corrupt file must not empty a
-// machine; an interactive run prints it.
+// Step 1's stops. Each is a clean exit 0 that changes nothing: under `--quiet` the line goes to
+// the log alone, since a hook has no user to tell and a corrupt file must not empty a machine; an
+// interactive run prints it.
 async function reportUnusableState(
-  loaded: Exclude<LoadedState, { kind: "loaded" }>,
+  line: string,
   ctx: EngineContext,
   io: EngineIo,
   options: SyncOptions,
 ): Promise<SyncReport> {
-  const line = unusableStateLine(loaded);
   if (!options.dryRun) await appendRefreshLog(ctx.home, `${ctx.now.toISOString()} sync: ${line}`);
   if (options.json) {
     io.stdout(emptyDocument([line]));

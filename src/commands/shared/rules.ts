@@ -1,11 +1,6 @@
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  type HarnessDefinition,
-  type HarnessId,
-  type Scope,
-  scopeRoot,
-} from "../../harnesses/contract.ts";
+import { type HarnessDefinition, type Scope, scopeRoot } from "../../harnesses/contract.ts";
 import { achievedTier } from "../../harnesses/hook-writer.ts";
 import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-target.ts";
 import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
@@ -15,6 +10,7 @@ import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf } from "./destination.ts";
 
@@ -214,7 +210,7 @@ function blockChangeNotices(
 export type RulesDirSweepInput = {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
-  agents: HarnessId[] | undefined;
+  agents: HarnessFilter | undefined;
   scopes: readonly Scope[];
   // Real paths of the rule files this run plans or keeps; a file is compared by its real path
   // too, so a rules directory reached through a symlink agrees with its other spelling.

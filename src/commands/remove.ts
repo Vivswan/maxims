@@ -21,6 +21,7 @@ import {
   emptyDocument,
   errorDocument,
   finishSync,
+  previewState,
   ReportedMaximsError,
   unusableStateLine,
 } from "./shared/report.ts";
@@ -50,11 +51,8 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
     if (options.json) io.stdout(emptyDocument(lines));
     return { ...EMPTY_REPORT, notices: lines };
   };
-  return withStateLock(ctx.home, "manual", async (lock) => {
-    const loaded = await lock.read();
-    if (loaded.kind === "absent") return nothing(["No memories found to remove."]);
-    if (loaded.kind !== "loaded") throw new MaximsError(ExitCode.Usage, unusableStateLine(loaded));
-    const removal = await resolveRemoval(loaded.state, options, ctx, io);
+  const remove = async (state: State): Promise<SyncReport> => {
+    const removal = await resolveRemoval(state, options, ctx, io);
     if (removal.labels.length === 0) {
       return nothing([...removal.notices, "No memories found to remove."]);
     }
@@ -76,7 +74,7 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
       { ...options, agents: undefined, noFetch: true, force: false },
       {
         verb: "remove",
-        previousState: loaded.state,
+        previousState: state,
         extraChanges,
         removed: removal.removed,
         removedCopies: removal.removedCopies,
@@ -84,6 +82,19 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
     );
     outcome.notices.notice(`Removed ${countOf(removal.labels.length, "memory", "memories")}`);
     return finishSync(outcome, ctx, io, { ...options, verb: "remove" });
+  };
+  // A dry run reads without the lock and settles nothing, like a listing.
+  if (options.dryRun) {
+    const preview = await previewState(ctx.home);
+    if (preview.kind === "loaded") return remove(preview.state);
+    if (preview.kind === "absent") return nothing(["No memories found to remove."]);
+    throw new MaximsError(ExitCode.Usage, preview.line);
+  }
+  return withStateLock(ctx.home, "manual", async (lock) => {
+    const loaded = await lock.read();
+    if (loaded.kind === "absent") return nothing(["No memories found to remove."]);
+    if (loaded.kind !== "loaded") throw new MaximsError(ExitCode.Usage, unusableStateLine(loaded));
+    return remove(loaded.state);
   });
 }
 
