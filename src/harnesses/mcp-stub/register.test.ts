@@ -84,7 +84,7 @@ const refusals: [string, (dir: string) => void][] = [
     "a servers path that is not an object",
     (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": { "servers": [] } }\n'),
   ],
-  ["unparseable JSON", (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": {\n')],
+  ["unparsable JSON", (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": {\n')],
   [
     "an existing file that cannot be read",
     (dir) => {

@@ -187,7 +187,7 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, an
 
 const refusals: [string, string][] = [
   ["a patch file that is a map, not a list", "plugins:\n  - name: x\n"],
-  ["unparseable YAML", "- insert:\n  - id: [\n"],
+  ["unparsable YAML", "- insert:\n  - id: [\n"],
   ["a non-empty flow-style list", "[{ insert: [] }]\n"],
   ["an indented list", "  - insert: []\n"],
   ["a list followed by a document end marker", "- replace: { id: a }\n...\n"],

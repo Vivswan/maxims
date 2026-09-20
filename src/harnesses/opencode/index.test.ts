@@ -115,7 +115,7 @@ test("both config names count: no second entry is added and removal clears every
 });
 
 const refusals: [string, string][] = [
-  ["unparseable JSON", '{\n  "instructions": [\n'],
+  ["unparsable JSON", '{\n  "instructions": [\n'],
   ["an instructions value that is not an array", '{\n  "instructions": "AGENTS.md"\n}\n'],
 ];
 

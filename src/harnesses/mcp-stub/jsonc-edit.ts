@@ -41,7 +41,7 @@ export async function readConfigText(path: string): Promise<string | null> {
   }
 }
 
-// An unparseable config is never rewritten: a typo in the user's file must not become a
+// An unparsable config is never rewritten: a typo in the user's file must not become a
 // clobbered file, and a splice that cut through a comment must not land in it. `path` only
 // names the file in the error.
 export function assertParses(text: string, path: string): Node {
