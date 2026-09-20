@@ -1,12 +1,12 @@
-// Cold-start benchmark: `bun scripts/bench.ts [--runs N] [--json path] -- <command...>`.
 // Every run is a fresh process with its own throwaway HOME, so the number is the every-session
 // cost and nothing the developer's real home holds can shorten or lengthen it.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const DEFAULT_COMMAND = ["node", "dist/cli.js", "--version"];
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
+const repoRoot = resolve(import.meta.dir, "..");
 
 interface Options {
   runs: number;
@@ -14,18 +14,31 @@ interface Options {
   command: string[];
 }
 
-interface BenchRecord {
-  command: string[];
-  runs: number;
+interface Summary {
   medianMs: number;
   minMs: number;
   maxMs: number;
+}
+
+interface BenchRecord extends Summary {
+  command: string[];
+  runs: number;
 }
 
 function fail(message: string): never {
   process.stderr.write(`bench: ${message}\n`);
   process.stderr.write(USAGE);
   process.exit(2);
+}
+
+// Timings measured on a real machine describe that machine; refusing to write them inside the
+// repository is what keeps them out of a commit, since .gitignore is not consulted by `git add -f`.
+function measuredDataPath(value: string): string {
+  const out = resolve(value);
+  const rel = relative(repoRoot, out);
+  const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  if (!outside) fail(`refusing to write measured data inside the repository: ${out}`);
+  return out;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -46,7 +59,7 @@ function parseArgs(argv: string[]): Options {
         fail(`--runs must be a positive integer, got ${value}`);
       options.runs = runs;
     } else {
-      options.json = value;
+      options.json = measuredDataPath(value);
     }
     i++;
   }
@@ -86,43 +99,50 @@ function timeOneRun(command: string[]): RunResult {
   }
 }
 
-// Median, never the mean: one page-cache miss or scheduler hiccup must not move the reported
-// number, since CI compares this figure against the base branch on the same shared runner.
-function median(sorted: number[]): number {
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
 const round = (ms: number): number => Math.round(ms * 1000) / 1000;
 
-const options = parseArgs(process.argv.slice(2));
-const timings: number[] = [];
-for (let run = 0; run < options.runs; run++) {
-  const result = timeOneRun(options.command);
-  if (result.exitCode !== 0) {
-    const how =
-      result.exitCode === null
-        ? `was killed by ${result.signalCode}`
-        : `exited with code ${result.exitCode}`;
-    process.stderr.write(result.stderr);
-    process.stderr.write(`bench: ${options.command.join(" ")} ${how}\n`);
-    process.exit(1);
-  }
-  timings.push(result.elapsedMs);
+// Median, never the mean: one page-cache miss or scheduler hiccup must not move the reported
+// number, since CI compares this figure against the base branch on the same shared runner.
+export function summarize(durationsMs: number[]): Summary {
+  const sorted = [...durationsMs].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  return {
+    medianMs: round(median),
+    minMs: round(sorted[0]),
+    maxMs: round(sorted[sorted.length - 1]),
+  };
 }
-timings.sort((a, b) => a - b);
 
-const record: BenchRecord = {
-  command: options.command,
-  runs: options.runs,
-  medianMs: round(median(timings)),
-  minMs: round(timings[0]),
-  maxMs: round(timings[timings.length - 1]),
-};
-const line = `${JSON.stringify(record)}\n`;
-if (options.json !== undefined) {
-  const out = resolve(options.json);
-  mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, line);
+function main(): void {
+  const options = parseArgs(process.argv.slice(2));
+  const timings: number[] = [];
+  for (let run = 0; run < options.runs; run++) {
+    const result = timeOneRun(options.command);
+    if (result.exitCode !== 0) {
+      const how =
+        result.exitCode === null
+          ? `was killed by ${result.signalCode}`
+          : `exited with code ${result.exitCode}`;
+      process.stderr.write(result.stderr);
+      process.stderr.write(`bench: ${options.command.join(" ")} ${how}\n`);
+      process.exit(1);
+    }
+    timings.push(result.elapsedMs);
+  }
+
+  const record: BenchRecord = {
+    command: options.command,
+    runs: options.runs,
+    ...summarize(timings),
+  };
+  const line = `${JSON.stringify(record)}\n`;
+  if (options.json !== undefined) {
+    mkdirSync(dirname(options.json), { recursive: true });
+    writeFileSync(options.json, line);
+  }
+  process.stdout.write(line);
 }
-process.stdout.write(line);
+
+if (import.meta.main) main();

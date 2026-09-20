@@ -1,4 +1,3 @@
-// The one build entry: `bun scripts/build.ts [--outfile path] [--size-json path]`.
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
