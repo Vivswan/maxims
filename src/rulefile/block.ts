@@ -126,15 +126,21 @@ type OpenBlock =
   | { kind: "comment" }
   | { kind: "html"; until: RegExp | "blank-line"; closer: string };
 
+// A leaf left open at the end of the file, with the content column of the innermost list item
+// holding it (0 outside any item). A closer written at that column stays inside the item: with no
+// closer the blank line before the appended block would sit inside the user's fence, a closer at
+// column 0 would end the item and open a new fence that swallows the block, and an HTML closer
+// indented past the column would put that indentation inside the user's raw HTML.
+type OpenLeaf = { block: OpenBlock; column: number };
+
 // `items` holds the content column of each open list item, outermost first; a non-blank line
 // indented short of one ends it unless it lazily continues an open paragraph, and a blank line
 // ends an item that was opened with nothing after its marker (`emptyItem`). A leaf lives in the
-// innermost item, and a line that ends that item ends the leaf too, so a column-0 marker line can
-// sit inside a leaf only while no item is open, and only such a leaf needs a closer when a block is
-// appended. A blockquote's content is scanned by a scanner of its own, held in the innermost item
-// and dropped whenever `items` changes; `paragraph` then mirrors whether the quote ends in one.
-// `definitions` tracks whether the open paragraph holds only link reference definitions so far,
-// which decides whether an `===` line under it is a heading underline or new paragraph text.
+// innermost item, and a line that ends that item ends the leaf too. A blockquote's content is
+// scanned by a scanner of its own, held in the innermost item and dropped whenever `items` changes;
+// `paragraph` then mirrors whether the quote ends in one. `definitions` tracks whether the open
+// paragraph holds only link reference definitions so far, which decides whether an `===` line
+// under it is a heading underline or new paragraph text.
 type Scanner = {
   items: number[];
   leaf: OpenBlock | null;
@@ -237,7 +243,7 @@ const DESTINATION_LINE = new RegExp(
   "u",
 );
 const TITLE_LINE = new RegExp(String.raw`^${TITLE}[ \t]*$`, "u");
-const UNTERMINATED_TITLE_LINE = new RegExp(String.raw`^${UNTERMINATED_TITLE}`, "u");
+const UNTERMINATED_TITLE_LINE = new RegExp(`^${UNTERMINATED_TITLE}`, "u");
 const TITLE_CLOSES = {
   "quoted-double": new RegExp(String.raw`^${TITLE_BODY["quoted-double"]}"[ \t]*$`, "u"),
   "quoted-single": new RegExp(String.raw`^${TITLE_BODY["quoted-single"]}'[ \t]*$`, "u"),
@@ -259,7 +265,7 @@ export function markdownLines(fileText: string): MarkdownLine[] {
 
 // A leading byte order mark is not part of the first line: Markdown parsers drop it, so the line
 // behind it opens a block as if it were at column 0, and the mark stays outside any block's span.
-function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenBlock | null } {
+function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenLeaf | null } {
   const lines: MarkdownLine[] = [];
   const scanner = newScanner();
   let start = fileText.startsWith(BOM) ? BOM.length : 0;
@@ -272,7 +278,11 @@ function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenBlock |
     lines.push({ text, start, end, kind: scanLine(scanner, text) });
     start = end;
   }
-  return { lines, open: scanner.items.length === 0 ? scanner.leaf : null };
+  const open =
+    scanner.leaf === null
+      ? null
+      : { block: scanner.leaf, column: contentColumn(scanner, scanner.items.length) };
+  return { lines, open };
 }
 
 // A level's reading of its part of the line, or the blockquote the rest of the line belongs to.
@@ -306,9 +316,9 @@ function scanLine(scanner: Scanner, text: string): MarkdownLine["kind"] {
   return chain.length === 1 ? kind : "text";
 }
 
-// A fence or HTML block has no lazy continuation: a non-blank line indented short of the item that
-// holds it ends both, and is then read afresh at the level it does reach. A paragraph has one: a
-// line indented short of its item that starts no block continues it, and the item stays open.
+// A fence or HTML block has no lazy continuation, a paragraph has one: a non-blank line indented
+// short of the item that holds it ends the former and is read afresh at the level it does reach,
+// while it continues the latter unless it starts a block.
 function scanLevel(scanner: Scanner, content: Content, tail: number): Step {
   const blank = content.body === "";
   if (scanner.leaf !== null) {
@@ -368,13 +378,10 @@ function contentColumn(scanner: Scanner, depth: number): number {
   return depth === 0 ? 0 : scanner.items[depth - 1];
 }
 
-// Reads a line's content, which begins at `column`: a paragraph absorbs any line that cannot
-// interrupt it, a setext underline being the one that also ends it unless the paragraph is only
-// link reference definitions; a paragraph inside an open blockquote is continued only by a line
-// that starts no block at all, and no underline reaches it lazily. A list marker opens an item
-// whose content is read again at the item's own column; a `>` then hands the rest to the
-// blockquote's scanner (the open one only while no item was opened before it on this line); the
-// remaining text opens a leaf, an indented code block, a heading or a paragraph.
+// A setext underline is the one line that continues a paragraph and also ends it, unless the
+// paragraph is only link reference definitions; no underline reaches a paragraph inside an open
+// blockquote lazily. A `>` reaches the open blockquote's scanner only while no item was opened
+// before it on this line.
 function openBlocks(scanner: Scanner, content: Content, column: number, tail: number): Step {
   if (scanner.paragraph && scanner.quote !== null && !startsBlock(content, tail)) {
     scanner.definitions = advanceDefinitions(scanner.definitions, content);
@@ -672,9 +679,10 @@ function isMarker(line: MarkdownLine): boolean {
 
 // Appending closes a block the file left open at its end: a fence, comment or raw HTML block runs
 // to the end of the document anyway, so closing it there renders identically and keeps the new
-// markers where the parser can find them on the next run. The blank line before the block is what
-// closes a block-tag HTML block, so that kind needs no closer of its own; one opened inside a list
-// item needs none either, since the block's own column-0 marker line ends the item and it.
+// markers where the parser can find them on the next run. The closer sits at the content column
+// of the list item holding the block, a fence's own indentation past it kept, so that the block is
+// closed inside the item before the blank line; the block-tag HTML kind needs no closer but that
+// blank line.
 export function replaceBlock(fileText: string, source: string, newBlock: string): string {
   const block = firstBlock(fileText, source);
   const rendered = withNewline(newBlock);
@@ -688,10 +696,10 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
   return `${terminated}${closer}${ending ?? "\n"}${rendered}`;
 }
 
-function closerFor(open: OpenBlock): string {
-  if (open.kind === "fence") return `${" ".repeat(open.indent)}${open.opener}\n`;
-  if (open.kind === "comment") return "-->\n";
-  return open.closer === "" ? "" : `${open.closer}\n`;
+function closerFor({ block, column }: OpenLeaf): string {
+  if (block.kind === "fence") return `${" ".repeat(column + block.indent)}${block.opener}\n`;
+  const closer = block.kind === "comment" ? "-->" : block.closer;
+  return closer === "" ? "" : `${" ".repeat(column)}${closer}\n`;
 }
 
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {

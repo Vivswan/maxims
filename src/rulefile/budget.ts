@@ -7,7 +7,9 @@ export const DEFAULT_RULE_CAP = 25;
 // Claude Code strips block-level HTML comments before injection and keeps the ones inside fenced
 // code, so a stripped estimate removes exactly the comment spans the scanner classes as comment
 // blocks: a complete `<!-- ... -->` goes with the spaces around it and the line ending it sits on,
-// while text beside it and an unclosed comment ride into context and are counted.
+// while text beside it and an unclosed comment ride into context and are counted. The estimate is
+// a characters-over-four heuristic, and it treats a comment inside a list item as stripped although
+// Claude Code retains that one.
 export function estimateTokens(renderedFile: string, markers: Markers): number {
   const injected = markers === "counted" ? renderedFile : withoutBlockComments(renderedFile);
   return Math.ceil(injected.length / 4);

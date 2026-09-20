@@ -544,10 +544,70 @@ describe("replaceBlock and stripBlock", () => {
       "- a\n  ```\n  x\n- b\n",
       ["- a\n  ```\n  x\n- b\n\n", BLOCK].join(""),
     ],
+    // A blank line continues a list item and the leaf inside it absorbs it, so a fence, comment or
+    // pre block left open in an item is closed at the item's column before it. With no closer the
+    // blank line lands inside the user's fence (markdown-it 14.3.1 reads that form's fence content
+    // as "x\n\n", the closed form's as "x\n"); a closer at column 0 would end the item and open a
+    // new fence that swallows the block. A block-tag kind is closed by the blank line inside the
+    // item as it is at column 0.
     [
-      "a file ending inside a list item's fence, which the block's own markers end",
+      "a file ending inside a list item's fence, closed at the item's column",
       "- a\n  ```\n  x\n",
-      ["- a\n  ```\n  x\n\n", BLOCK].join(""),
+      ["- a\n  ```\n  x\n  ```\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a nested item's fence, closed at the inner item's column",
+      "- a\n  - b\n    ~~~\n    x\n",
+      ["- a\n  - b\n    ~~~\n    x\n    ~~~\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside an item's fence indented past the item's column",
+      "- a\n    ```\n    x\n",
+      ["- a\n    ```\n    x\n    ```\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a fence under a tab-padded item, closed at the tab's column",
+      "-\t```\n\tx\n",
+      ["-\t```\n\tx\n    ```\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a list item's comment, closed at the item's column",
+      "- a\n  <!--\n  x\n",
+      `- a\n  <!--\n  x\n  -->\n\n${BLOCK}`,
+    ],
+    [
+      "a file ending inside a list item's pre block, closed at the item's column",
+      "- a\n  <pre>\n  x\n",
+      `- a\n  <pre>\n  x\n  </pre>\n\n${BLOCK}`,
+    ],
+    // An HTML closer indented past the item's column would put the indentation inside the user's
+    // preformatted text (markdown-it 14.3.1 renders it as a trailing space run before `</pre>`).
+    [
+      "a file ending inside an item's pre block opened past the item's column",
+      "- a\n   <pre>\n  x\n",
+      `- a\n   <pre>\n  x\n  </pre>\n\n${BLOCK}`,
+    ],
+    [
+      "a file ending inside an indented top-level pre block",
+      "  <pre>\nx\n",
+      `  <pre>\nx\n</pre>\n\n${BLOCK}`,
+    ],
+    // The parsers part here: CommonMark and commonmark.js 0.31.2 read a heading-shaped line
+    // indented four columns, short of the item's five, as lazily continuing the item's paragraph,
+    // so the fence on the next line opens inside the item and the closer belongs at its column.
+    // markdown-it 14.3.1 and marked 16.4.2 end the item at that line and read the two lines as a
+    // top-level indented code block, which the closer then joins. No one line closes the fence in
+    // the first reading and stays out of the code block in the second; the scanner keeps the
+    // specification's reading.
+    [
+      "a file ending inside an item's fence reached across a lazy heading-shaped line",
+      "-    a\n    # h\n     ```\n",
+      ["-    a\n    # h\n     ```\n     ```\n\n", BLOCK].join(""),
+    ],
+    [
+      "a file ending inside a list item's block tag, which the blank line closes",
+      "- a\n  <div>\n  x\n",
+      `- a\n  <div>\n  x\n\n${BLOCK}`,
     ],
     [
       "a file ending inside a custom tag block, which the blank line closes",
@@ -592,9 +652,14 @@ describe("replaceBlock and stripBlock", () => {
       ["```\nx\n```\u00a0\n```\n\n", BLOCK].join(""),
     ],
   ];
+  // Stripping takes back the block and its blank line, never the closer the append wrote or any
+  // byte of the user's text.
   test.each(appends)("an absent block is appended after %s", (_label, before, expected) => {
     expect(replaceBlock(before, SOURCE, BLOCK)).toBe(expected);
     expect(parseBlocks(expected).blocks.map((block) => block.source)).toContain(SOURCE);
+    const stripped = stripBlock(expected, SOURCE).text;
+    expect(stripped.startsWith(before)).toBe(true);
+    expect(parseBlocks(stripped).blocks.map((block) => block.source)).not.toContain(SOURCE);
   });
 
   const strips: [string, string, { text: string; emptied: boolean }][] = [
