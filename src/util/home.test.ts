@@ -1,7 +1,7 @@
 // Guards store-path derivation: two local sources sharing a basename must not share an entry, and
 // a github entry must fold case so one repo never lands in two folders.
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { homePaths, storePathFor } from "./home.ts";
 
 describe("storePathFor", () => {
@@ -11,8 +11,50 @@ describe("storePathFor", () => {
   test("github sources key on lower-cased owner/repo", () => {
     const path = storePathFor(home, { type: "github", repo: "Example-User/Rules", ref: "HEAD" });
     expect(path).toBe(join(store, "example-user", "rules"));
-    expect(storePathFor(home, { type: "github", repo: "example-user/rules", ref: "v1" })).toBe(
+    expect(storePathFor(home, { type: "github", repo: "example-user/rules", ref: "HEAD" })).toBe(
       path,
+    );
+  });
+
+  test("a pin or an enterprise host gives a source its own store entry", () => {
+    const tracking = storePathFor(home, { type: "github", repo: "acme/rules", ref: "HEAD" });
+    const pinnedV2 = storePathFor(home, { type: "github", repo: "acme/rules", ref: "v2" });
+    const pinnedSlash = storePathFor(home, {
+      type: "github",
+      repo: "acme/rules",
+      ref: "release/1.0",
+    });
+    const pinnedDash = storePathFor(home, {
+      type: "github",
+      repo: "acme/rules",
+      ref: "release-1.0",
+    });
+    const hosted = storePathFor(home, {
+      type: "github",
+      repo: "acme/rules",
+      ref: "HEAD",
+      host: "github.example.com",
+    });
+    expect(tracking).toBe(join(store, "acme", "rules"));
+    expect(pinnedV2).toMatch(new RegExp(`^${join(store, "acme", "rules@v2-")}[0-9a-f]{8}$`));
+    expect(new Set([tracking, pinnedV2, pinnedSlash, pinnedDash, hosted]).size).toBe(5);
+    const longRef = storePathFor(home, {
+      type: "github",
+      repo: "acme/rules",
+      ref: "r".repeat(250),
+    });
+    expect(basename(longRef).length).toBeLessThan(80);
+    expect(longRef).not.toBe(
+      storePathFor(home, { type: "github", repo: "acme/rules", ref: "r".repeat(251) }),
+    );
+    expect(hosted).toBe(join(store, "_github", "github.example.com", "acme", "rules"));
+    const gitPinned = storePathFor(home, {
+      type: "git",
+      url: "https://gitlab.example.com/team/rules.git",
+      ref: "v2",
+    });
+    expect(gitPinned).toMatch(
+      new RegExp(`^${join(store, "_git", "gitlab.example.com", "team", "rules@v2-")}[0-9a-f]{8}$`),
     );
   });
 
@@ -24,7 +66,11 @@ describe("storePathFor", () => {
     });
     expect(https).toBe(join(store, "_git", "gitlab.example.com", "team", "sub", "rules"));
     expect(
-      storePathFor(home, { type: "git", url: "git@gitlab.example.com:team/sub/rules", ref: "v1" }),
+      storePathFor(home, {
+        type: "git",
+        url: "git@gitlab.example.com:team/sub/rules",
+        ref: "HEAD",
+      }),
     ).toBe(https);
     expect(
       storePathFor(home, { type: "git", url: "ssh://git@gitea.example.com:2222/a/b", ref: "HEAD" }),

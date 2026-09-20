@@ -9,6 +9,7 @@ import {
   canonicalSourceKey,
   emptyState,
   parseSourceArgument,
+  parseSourceSelector,
   parseState,
   type SourceFrom,
 } from "./schema.ts";
@@ -25,11 +26,10 @@ const VALID = {
   version: 1,
   writtenBy: "maxims@0.4.1",
   hooks: ["claude-code", "codex"],
-  config: { cooldownDays: 7 },
   sources: {
     "@example-user/rules": {
       intent: {
-        from: { type: "github", repo: "example-user/rules", ref: "main" },
+        from: { type: "github", repo: "example-user/rules", ref: "HEAD" },
         select: ["rubber-duck-before-every-commit"],
         rename: { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
         rule: true,
@@ -231,10 +231,31 @@ describe("parseSourceArgument", () => {
       "git@gitlab.example.com:/srv/team/rules.git",
       git("git@gitlab.example.com:/srv/team/rules.git"),
     ],
+    ["git@gitlab.example.com:.git/rules.git", git("git@gitlab.example.com:.git/rules.git")],
     ["git@github.com:example-user/rules.git", github("example-user/rules")],
     [
       "https://mirror.example.com/github.com/example-user/rules",
       git("https://mirror.example.com/github.com/example-user/rules"),
+    ],
+    [
+      "https://dev.azure.com/org/project/_git/repo",
+      git("https://dev.azure.com/org/project/_git/repo"),
+    ],
+    [
+      "https://github.com/example-user/rules/tree/main",
+      { type: "github", repo: "example-user/rules", ref: "main" },
+    ],
+    [
+      "https://github.com/example-user/rules/tree/release.git",
+      { type: "github", repo: "example-user/rules", ref: "release.git" },
+    ],
+    [
+      "https://github.com/example-user/rules/tree/release@2026",
+      { type: "github", repo: "example-user/rules", ref: "release@2026" },
+    ],
+    [
+      "https://github.com/example-user/rules.git/tree/v1",
+      { type: "github", repo: "example-user/rules", ref: "v1" },
     ],
     ["@Example-User/rules", github("Example-User/rules")],
     ["example-user/rules", github("example-user/rules")],
@@ -250,15 +271,64 @@ describe("parseSourceArgument", () => {
   ];
   test.each(accepted)("%s", (arg, expected) => {
     expect(parseSourceArgument(arg, cwd)).toEqual(expected);
-    const key = canonicalSourceKey(expected);
-    if (expected.type === "github") expect(key).toBe(`@${expected.repo}`);
-    else if (expected.type === "git") expect(key).toBe(arg);
-    else expect(key).toBe(expected.path);
   });
 
-  test("GH_HOST moves the github host; github.com then becomes a plain git remote", () => {
+  test("a pinned source and its tracking twin are distinct keys; an enterprise host is named", () => {
+    expect(canonicalSourceKey({ type: "github", repo: "acme/rules", ref: "HEAD" })).toBe(
+      "@acme/rules",
+    );
+    expect(canonicalSourceKey({ type: "github", repo: "acme/rules", ref: "v2" })).toBe(
+      "@acme/rules#v2",
+    );
+    expect(
+      canonicalSourceKey({
+        type: "github",
+        repo: "acme/rules",
+        ref: "HEAD",
+        host: "github.example.com",
+      }),
+    ).toBe("@github.example.com/acme/rules");
+    expect(
+      canonicalSourceKey({ type: "git", url: "https://gitlab.example.com/a/b", ref: "1.0" }),
+    ).toBe("https://gitlab.example.com/a/b#1.0");
+  });
+
+  test("the @owner/repo@memory-name suffix selects one memory", () => {
+    expect(parseSourceSelector("@example-user/rules@rubber-duck-before-every-commit", cwd)).toEqual(
+      {
+        from: github("example-user/rules"),
+        memory: RUBBER_DUCK,
+      },
+    );
+    expect(parseSourceSelector("example-user/rules", cwd)).toEqual({
+      from: github("example-user/rules"),
+      memory: null,
+    });
+    const attempts: (() => unknown)[] = [
+      () => parseSourceSelector("@example-user/rules@NotKebab", cwd),
+      () => parseSourceSelector("@example-user/rules@", cwd),
+      () => parseSourceSelector("@example-user/rules@one@two", cwd),
+      () => parseSourceArgument("@example-user/rules@rubber-duck-before-every-commit", cwd),
+    ];
+    for (const attempt of attempts) {
+      let caught: unknown;
+      try {
+        attempt();
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as MaximsError).code).toBe(ExitCode.Usage);
+    }
+  });
+
+  test("GH_HOST moves the github host and is recorded; github.com then becomes a plain git remote", () => {
     const ghHost = "github.example.com";
+    const hosted: SourceFrom = { type: "github", repo: "team/rules", ref: "HEAD", host: ghHost };
     expect(parseSourceArgument("https://github.example.com/team/rules", cwd, { ghHost })).toEqual(
+      hosted,
+    );
+    expect(parseSourceArgument("@team/rules", cwd, { ghHost })).toEqual(hosted);
+    expect(parseSourceArgument("@team/rules", cwd, { ghHost: "github.com" })).toEqual(
       github("team/rules"),
     );
     expect(parseSourceArgument("https://github.com/team/rules", cwd, { ghHost })).toEqual(
@@ -272,6 +342,15 @@ describe("parseSourceArgument", () => {
     "@a/b/c",
     "ftp://gitlab.example.com/a/b",
     "https://github.com/only-owner",
+    "https://github.com/example-user/rules/blob/main/README.md",
+    "https://gitlab.example.com/team/.git",
+    "https://gitlab.example.com/acme/rules/..git",
+    "git@gitlab.example.com:acme/rules#v2",
+    "git@gitlab.example.com:acme/rules@v2-fb04dcb6",
+    "https://gitlab.example.com/acme/rules#v2",
+    "https://gitlab.example.com/acme/rules#",
+    "https://gitlab.example.com/...git",
+    "https://github.com/example-user/rules/tree/release/1.0",
     "https://gitlab.example.com/team/100%.git",
     "https://gitlab.example.com/team/a%00b.git",
     "https://gitlab.example.com/team/a%2Fb.git",

@@ -2,7 +2,13 @@
 // multi-line description that reached a rule file, or a README treated as a memory would each
 // pass silently without these rows.
 import { describe, expect, test } from "bun:test";
-import { type Memory, parseMemory, parseMemoryName } from "./contract.ts";
+import {
+  type HiddenCharacter,
+  hiddenCharacters,
+  type Memory,
+  parseMemory,
+  parseMemoryName,
+} from "./contract.ts";
 
 const FRONTMATTER = [
   "---",
@@ -75,6 +81,22 @@ describe("parseMemory", () => {
       scope: "common",
       extra: { originSessionId: "abc123", type: "insight" },
     });
+  });
+
+  test("metadata.internal is kept when boolean and warned about otherwise", () => {
+    const yes = parseMemory(
+      "gate-exit-conditions-the-merge.md",
+      FILE.replace("  scope: common", "  scope: common\n  internal: true"),
+    );
+    expect(yes.ok && yes.memory.metadata.internal).toBe(true);
+    expect(yes.ok && yes.warning).toBeUndefined();
+    const bad = parseMemory(
+      "gate-exit-conditions-the-merge.md",
+      FILE.replace("  scope: common", "  scope: common\n  internal: soon"),
+    );
+    expect(bad.ok && bad.warning).toBe('metadata.internal "soon" is not a boolean');
+    expect(bad.ok && bad.memory.metadata.internal).toBeUndefined();
+    expect(bad.ok && bad.memory.metadata.extra.internal).toBe("soon");
   });
 
   test("older files without metadata, and an empty body, are accepted", () => {
@@ -192,5 +214,25 @@ describe("parseMemory", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(reason);
+  });
+});
+
+describe("hiddenCharacters", () => {
+  const cases: [string, string, HiddenCharacter[]][] = [
+    ["clean", "Review before every commit, however trivial.", []],
+    ["zero-width", "Review\u200bbefore", [{ kind: "zero-width", codePoint: 0x200b, index: 6 }]],
+    ["bidi", "ok \u202eevil", [{ kind: "bidi", codePoint: 0x202e, index: 3 }]],
+    ["bidi mark", "a\u200fb", [{ kind: "bidi", codePoint: 0x200f, index: 1 }]],
+    ["control", "a\u0000b\tc", [{ kind: "control", codePoint: 0, index: 1 }]],
+    ["ansi", "x\u001b[31mred", [{ kind: "ansi", codePoint: 0x1b, index: 1 }]],
+    ["html-comment", "rule <!-- hidden -->", [{ kind: "html-comment", index: 5 }]],
+    [
+      "astral text keeps indexes in code units",
+      "\u{1F600}\u200b",
+      [{ kind: "zero-width", codePoint: 0x200b, index: 2 }],
+    ],
+  ];
+  test.each(cases)("%s", (_, text, expected) => {
+    expect(hiddenCharacters(text)).toEqual(expected);
   });
 });

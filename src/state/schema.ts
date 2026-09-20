@@ -11,6 +11,7 @@ export const CURRENT_STATE_VERSION = 1;
 export const DEFAULT_GIT_REF = "HEAD";
 
 // A repo segment of only dots would collapse the derived store path onto the store root itself.
+const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 const GITHUB_REPO_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 
@@ -27,10 +28,13 @@ const IsoTimestamp = z.iso.datetime();
 
 // Every object is strict: a hand-edited state file with a misspelled or foreign key is quarantined
 // rather than half-obeyed, and a `-g` destination carrying an `-o` path has no way to parse.
+// `host` is absent for github.com and set from `GH_HOST` otherwise, so a source recorded under an
+// enterprise host is never re-expanded against github.com at sync time.
 const GithubFrom = z.strictObject({
   type: z.literal("github"),
   repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
   ref: z.string().min(1),
+  host: z.string().regex(HOSTNAME, "expected a hostname").optional(),
 });
 // Any non-GitHub git remote (GitLab, Gitea, a mirror, an air-gapped proxy). The URL is stored as
 // the user gave it and never rewritten, so a proxy path or an ssh alias survives round trips.
@@ -124,17 +128,11 @@ export const SourceEntrySchema = z.union([
 /** @public */
 export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 
-export const StateConfigSchema = z.strictObject({
-  cooldownDays: z.number().int().positive().optional(),
-  ruleCap: z.number().int().positive().optional(),
-});
-
 export const StateSchema = z
   .strictObject({
     version: z.literal(CURRENT_STATE_VERSION),
     writtenBy: z.string().min(1),
     hooks: z.array(HarnessIdSchema),
-    config: StateConfigSchema.optional(),
     overrides: z.record(z.string(), z.unknown()).optional(),
     sources: z.record(z.string(), SourceEntrySchema),
   })
@@ -193,15 +191,23 @@ function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): strin
   });
 }
 
+// A pinned source is a different source from the tracking one: `@acme/rules` and `@acme/rules#v2`
+// may both be installed, so the pin is part of the key. An enterprise host precedes the repo.
 export function canonicalSourceKey(from: SourceFrom): string {
   switch (from.type) {
-    case "github":
-      return `@${from.repo}`;
+    case "github": {
+      const base = from.host === undefined ? `@${from.repo}` : `@${from.host}/${from.repo}`;
+      return withPin(base, from.ref);
+    }
     case "git":
-      return from.url;
+      return withPin(from.url, from.ref);
     case "local":
       return from.path;
   }
+}
+
+function withPin(base: string, ref: string): string {
+  return ref === DEFAULT_GIT_REF ? base : `${base}#${ref}`;
 }
 
 const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
@@ -213,40 +219,108 @@ export type SourceArgumentOptions = {
   ghHost?: string;
 };
 
+export type SourceSelector = {
+  from: SourceFrom;
+  memory: MemoryName | null;
+};
+
 // `owner/repo` with exactly one slash and no path prefix is a GitHub source, mirroring `skills`; a
 // relative directory that happens to look like one is spelled `./owner/repo`. A URL is GitHub
 // only when its HOST is github.com (or `GH_HOST`): a mirror carrying "github.com" in its path
-// stays a plain git source, stored verbatim.
+// stays a plain git source, stored verbatim. A `/tree/<ref>` GitHub URL pins that ref; a longer
+// tail is refused rather than guessed, because `/tree/release/1.0` cannot be told from a branch
+// `release` at path `1.0`.
 export function parseSourceArgument(
   arg: string,
   cwd: string,
   options: SourceArgumentOptions = {},
 ): SourceFrom {
+  const selector = parseSourceSelector(arg, cwd, options);
+  if (selector.memory !== null) {
+    throw usage(`${arg} names a single memory; this command takes a whole source (use --memory)`);
+  }
+  return selector.from;
+}
+
+// The `@owner/repo@memory-name` suffix selects one memory of a source; it applies only to the
+// shorthand forms, where the trailing `@` is unambiguous (a URL's `@` belongs to its user part).
+export function parseSourceSelector(
+  arg: string,
+  cwd: string,
+  options: SourceArgumentOptions = {},
+): SourceSelector {
   if (arg === "") throw usage("a source is required: @owner/repo, a git URL, or a local directory");
   const remote = parseRemote(arg);
-  if (remote !== null) {
-    const ghHost = (options.ghHost ?? "github.com").toLowerCase();
-    if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
-    if (remote.host === ghHost) {
-      const repo = remote.segments.join("/");
-      if (remote.segments.length !== 2 || !GITHUB_REPO_PATTERN.test(repo)) {
-        throw usage(`${arg} is not a GitHub owner/repo URL`);
-      }
-      return { type: "github", repo, ref: DEFAULT_GIT_REF };
-    }
-    return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
-  }
+  if (remote !== null) return { from: fromRemote(arg, remote, options), memory: null };
   if (URL_SCHEME.test(arg) || SCP_LIKE.test(arg)) {
     throw usage(
       `${arg} is not a usable git URL; https, http, ssh, git and git@host:path are accepted`,
     );
   }
-  if (arg.startsWith("@")) return github(arg.slice(1), arg);
+  if (arg.startsWith("@")) {
+    const shorthand = /^@([^@\s]+)(?:@([^@\s]+))?$/.exec(arg);
+    if (shorthand === null) throw usage(`${arg} is not @owner/repo or @owner/repo@memory-name`);
+    const [, repo = "", suffix] = shorthand;
+    const memory = suffix === undefined ? null : parseMemoryName(suffix);
+    if (suffix !== undefined && memory === null) {
+      throw usage(`${arg}: "${suffix}" is not a kebab-case memory name`);
+    }
+    return { from: github(repo, arg, options), memory };
+  }
   const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(arg);
-  if (!looksLocal && GITHUB_REPO_PATTERN.test(arg)) return github(arg, arg);
+  if (!looksLocal && GITHUB_REPO_PATTERN.test(arg)) {
+    return { from: github(arg, arg, options), memory: null };
+  }
   if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
   const path = resolve(cwd, arg);
-  return arg === "." ? { type: "local", path, live: true } : { type: "local", path };
+  return {
+    from: arg === "." ? { type: "local", path, live: true } : { type: "local", path },
+    memory: null,
+  };
+}
+
+const GITHUB_TREE_SEGMENT = 2;
+
+// A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
+// a directory, so the store-path usability check does not apply to it.
+function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
+  const ghHost = (options.ghHost ?? "github.com").toLowerCase();
+  if (remote.host !== ghHost) {
+    if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
+    return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
+  }
+  const [owner, repoName, tree, ...rest] = remote.segments;
+  const repo = `${owner ?? ""}/${stripGitSuffix(repoName ?? "")}`;
+  const isTreeUrl = tree === "tree" && rest.length >= 1;
+  if (
+    !GITHUB_REPO_PATTERN.test(repo) ||
+    (remote.segments.length > GITHUB_TREE_SEGMENT && !isTreeUrl)
+  ) {
+    throw usage(`${arg} is not a GitHub owner/repo URL`);
+  }
+  if (rest.length > 1) {
+    throw usage(
+      `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; use @${repo} with --pin and --from`,
+    );
+  }
+  const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
+  return github(repo, arg, options, ref);
+}
+
+function github(
+  repo: string,
+  original: string,
+  options: SourceArgumentOptions,
+  ref: string = DEFAULT_GIT_REF,
+): SourceFrom {
+  if (!GITHUB_REPO_PATTERN.test(repo)) throw usage(`${original} is not a valid @owner/repo source`);
+  const ghHost = options.ghHost?.toLowerCase();
+  const from: SourceFrom = { type: "github", repo, ref };
+  if (ghHost !== undefined && ghHost !== "github.com") {
+    if (!HOSTNAME.test(ghHost)) throw usage(`GH_HOST "${ghHost}" is not a hostname`);
+    from.host = ghHost;
+  }
+  return from;
 }
 
 export type GitRemote = {
@@ -255,10 +329,11 @@ export type GitRemote = {
 };
 
 // The host is lower-cased and stripped of user and port. The path is kept as SEGMENTS, each
-// decoded on its own with the trailing `.git` removed, so an encoded slash stays inside its
-// segment where the usability check rejects it instead of splitting into two directories.
+// decoded on its own and otherwise verbatim (`.git` included), so an encoded slash stays inside
+// its segment where the usability check rejects it instead of splitting into two directories.
 // `parseSourceArgument` and the store-path derivation both read a remote this way.
 export function parseRemote(url: string): GitRemote | null {
+  if (url.includes("#")) return null;
   const scp = SCP_LIKE.exec(url);
   if (scp !== null && !URL_SCHEME.test(url)) {
     return { host: (scp[1] ?? "").toLowerCase(), segments: toSegments((scp[2] ?? "").split("/")) };
@@ -285,16 +360,24 @@ function toSegments(raw: string[]): string[] {
   const segments = [...raw];
   while (segments.length > 0 && segments[0] === "") segments.shift();
   while (segments.length > 0 && segments[segments.length - 1] === "") segments.pop();
-  const last = segments.length - 1;
-  if (last >= 0) segments[last] = (segments[last] ?? "").replace(/\.git$/i, "");
   return segments;
+}
+
+// `.git` is stripped from the REPOSITORY segment only, never from a ref: `/tree/release.git` names
+// a branch called release.git.
+export function stripGitSuffix(segment: string): string {
+  return segment.replace(/\.git$/i, "");
 }
 
 // The store derives `_git/<host>/<path>` from a remote, so a remote is usable only when the host
 // and every path segment are real directory names: no dot segments, no control characters, no
-// separators. This is checked once here, at the source boundary.
-const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
-const SEGMENT_SEPARATORS = new Set(["/", "\\"]);
+// separators, and the repository segment must survive `.git` stripping. A `#` anywhere makes the
+// URL unusable: a fragment means nothing to git, and the canonical key relies on the first `#`
+// separating the URL from a pin. This is checked once here, at the source boundary.
+// `/` and `\\` would split a segment; `@` and `#` are what the store suffix and the canonical
+// key add for a pin, so a repository name may not carry them or a tracking source could forge a
+// pinned one's identity.
+const SEGMENT_SEPARATORS = new Set(["/", "\\", "@", "#"]);
 
 function isUnsafeSegment(segment: string): boolean {
   for (const char of segment) {
@@ -307,14 +390,11 @@ function isUnsafeSegment(segment: string): boolean {
 export function isUsableRemote(url: string): boolean {
   const remote = parseRemote(url);
   if (remote === null || !HOSTNAME.test(remote.host) || remote.segments.length === 0) return false;
-  return remote.segments.every(
-    (segment) => segment !== "" && segment !== "." && segment !== ".." && !isUnsafeSegment(segment),
-  );
-}
-
-function github(repo: string, original: string): SourceFrom {
-  if (!GITHUB_REPO_PATTERN.test(repo)) throw usage(`${original} is not a valid @owner/repo source`);
-  return { type: "github", repo, ref: DEFAULT_GIT_REF };
+  const last = remote.segments.length - 1;
+  return remote.segments.every((segment, index) => {
+    const bare = index === last ? stripGitSuffix(segment) : segment;
+    return bare !== "" && bare !== "." && bare !== ".." && !isUnsafeSegment(segment);
+  });
 }
 
 function usage(message: string): MaximsError {

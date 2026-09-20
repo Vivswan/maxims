@@ -26,6 +26,7 @@ export type MemoryMetadata = {
   nodeType?: "memory";
   type?: MemoryType;
   scope?: string;
+  internal?: boolean;
   extra: Record<string, unknown>;
 };
 
@@ -105,7 +106,7 @@ type ReadMetadata =
 function readMetadata(value: unknown): ReadMetadata {
   if (value === undefined || value === null) return { ok: true, metadata: { extra: {} } };
   if (!isRecord(value)) return { ok: false, reason: "metadata is not a mapping" };
-  const { node_type: nodeType, type, scope, ...extra } = value;
+  const { node_type: nodeType, type, scope, internal, ...extra } = value;
   if (nodeType !== undefined && nodeType !== "memory") {
     return { ok: false, reason: `metadata.node_type is ${show(nodeType)}, expected "memory"` };
   }
@@ -113,15 +114,24 @@ function readMetadata(value: unknown): ReadMetadata {
   if (nodeType === "memory") metadata.nodeType = "memory";
   if (typeof scope === "string") metadata.scope = scope;
   else if (scope !== undefined) extra.scope = scope;
-  let warning: string | undefined;
+  const warnings: string[] = [];
   if (type !== undefined) {
     if (isMemoryType(type)) metadata.type = type;
     else {
       extra.type = type;
-      warning = `metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`;
+      warnings.push(`metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`);
     }
   }
-  return warning === undefined ? { ok: true, metadata } : { ok: true, metadata, warning };
+  if (internal !== undefined) {
+    if (typeof internal === "boolean") metadata.internal = internal;
+    else {
+      extra.internal = internal;
+      warnings.push(`metadata.internal ${show(internal)} is not a boolean`);
+    }
+  }
+  return warnings.length === 0
+    ? { ok: true, metadata }
+    : { ok: true, metadata, warning: warnings.join("; ") };
 }
 
 function isMemoryType(value: unknown): value is MemoryType {
@@ -158,4 +168,45 @@ function splitFrontmatter(text: string): { yaml: string; body: string } | null {
     yaml: rest.slice(0, close.index),
     body: rest.slice(close.index + close[0].length),
   };
+}
+
+export type HiddenCodePointKind = "zero-width" | "bidi" | "control" | "ansi";
+
+export type HiddenCharacter =
+  | { kind: HiddenCodePointKind; codePoint: number; index: number }
+  | { kind: "html-comment"; index: number };
+
+const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
+// The Bidi_Control marks outside the two embedding ranges: ALM, LRM and RLM.
+const BIDI_MARKS = new Set([0x061c, 0x200e, 0x200f]);
+
+// A description reaches the always-loaded layer of every session, so text that renders as nothing
+// (or reorders what renders) is where an injected instruction would hide. This only REPORTS; the
+// caller decides whether to refuse, since the contract is a parser, not a policy.
+export function hiddenCharacters(text: string): HiddenCharacter[] {
+  const found: HiddenCharacter[] = [];
+  let index = 0;
+  for (const char of text) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    const kind = classify(codePoint);
+    if (kind !== null) found.push({ kind, codePoint, index });
+    if (char === "<" && text.startsWith("<!--", index)) found.push({ kind: "html-comment", index });
+    index += char.length;
+  }
+  return found;
+}
+
+function classify(codePoint: number): HiddenCodePointKind | null {
+  if (ZERO_WIDTH.has(codePoint)) return "zero-width";
+  if (BIDI_MARKS.has(codePoint)) return "bidi";
+  if (
+    (codePoint >= 0x202a && codePoint <= 0x202e) ||
+    (codePoint >= 0x2066 && codePoint <= 0x2069)
+  ) {
+    return "bidi";
+  }
+  if (codePoint === 0x1b) return "ansi";
+  if (codePoint === 0x09) return null;
+  if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)) return "control";
+  return null;
 }
