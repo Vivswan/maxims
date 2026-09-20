@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
-// The page probe of /docs-discipline: the two readings a reviewer otherwise
+// The page probe of /docs-discipline: the readings a reviewer otherwise
 // takes by eye, made exact.
 //   a paragraph or list item over the word cap (default 70)  -> finding, exit 1
+//   a table cell over the cell cap (default 15)              -> finding, exit 1
 //   a repository path the prose names that does not exist    -> finding, exit 1
 // Block structure comes from Bun's Markdown renderer, so what counts as prose
-// is what Markdown renders as a paragraph or a tight list item: headings,
-// code (fenced or indented), tables, raw HTML, and images contribute nothing.
+// is what Markdown renders as a paragraph or a tight list item, and a table
+// contributes its cells, each against the cell cap: headings, code (fenced or
+// indented), raw HTML, and images contribute nothing.
 // Front matter is blanked before rendering; a BEGIN/END GENERATED region is
 // dropped where the renderer sees its markers as HTML blocks, so a marker
 // quoted inside a fence is code and changes nothing.
@@ -18,6 +20,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 export const DEFAULT_MAX_WORDS = 70;
+export const DEFAULT_MAX_CELL_WORDS = 15;
 
 export interface Finding {
   readonly file: string;
@@ -30,12 +33,14 @@ export interface ProbeOptions {
   /** Repository root every slash path resolves against. */
   readonly root: string;
   readonly maxWords: number;
+  /** The cap on one table cell; a cell holds one fact, and the explanation goes below the table. */
+  readonly maxCellWords: number;
   /** false: word counts only, for pages that describe another repository's files. */
   readonly paths: boolean;
 }
 
 export interface Unit {
-  readonly kind: "paragraph" | "item";
+  readonly kind: "paragraph" | "item" | "cell";
   readonly line: number;
   /** The prose as the reader sees it: link labels and code spans kept, markup gone. */
   readonly text: string;
@@ -48,11 +53,13 @@ export interface Scan {
 }
 
 // Marker bytes the renderer callbacks emit; blocks nest, inlines do not. P and L are prose
-// (paragraph, list item); N is a block whose paths and links are checked but whose words are not counted.
+// (paragraph, list item), D a table cell; N is a block whose paths and links are checked but whose
+// words are not counted; T is a table and R one of its rows, which only steer the line locator.
 const OPEN = "";
 const INLINE_END = "";
 const BLOCK_END = "";
-const isBlockKind = (ch: string | undefined) => ch === "P" || ch === "L" || ch === "N";
+const isBlockKind = (ch: string | undefined) =>
+  ch === "P" || ch === "L" || ch === "D" || ch === "N" || ch === "T" || ch === "R";
 
 /** The page with front matter blanked, line for line, so line numbers still match the file. */
 function blankFrontMatter(text: string): string[] {
@@ -65,6 +72,9 @@ function blankFrontMatter(text: string): string[] {
   }
   return out;
 }
+
+// A blank line, or one that is only a blockquote prefix, such as the lines before a table.
+const isBlank = (line: string) => /^\s*(>\s*)*$/.test(line);
 
 const ENTITIES: Record<string, string> = {
   "&amp;": "&",
@@ -166,7 +176,10 @@ export function scanPage(text: string): Scan {
     list: same,
     heading: (c: string) => `${OPEN}N${c}${BLOCK_END}`,
     code: nothing,
-    table: (c: string) => `${OPEN}N${c}${BLOCK_END}`,
+    table: (c: string) => `${OPEN}T${c}${BLOCK_END}`,
+    tr: (c: string) => `${OPEN}R${c}${BLOCK_END}`,
+    th: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
+    td: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
     html: (c: string) => {
       // Only the documented marker comment, with its name, opens or closes a region.
       const begin = /^\s*<!-- BEGIN GENERATED: (\S+)/.exec(c);
@@ -190,24 +203,57 @@ export function scanPage(text: string): Scan {
   // Rendered text has lost its markup (**bold**, [label](url) with the url between label and text),
   // so a line matches when it carries the unit's first two words, letters and digits only.
   const letters = (text: string) => text.replace(/[^A-Za-z0-9]+/g, "");
-  const locate = (needle: string): number => {
+  const search = (needle: string): number => {
     const probes = unescapeEntities(needle).split(/\s+/).map(letters).filter(Boolean).slice(0, 2);
-    if (probes.length === 0) return cursor;
+    if (probes.length === 0) return -1;
     for (let i = cursor; i < lines.length; i++) {
       const line = letters(lines[i] ?? "");
       if (probes.every((probe) => line.includes(probe))) return i;
     }
-    return cursor;
+    return -1;
+  };
+  // Inside a table every unit sits on its row's line, which the table fixes; nothing is searched.
+  let rowLine: number | null = null;
+  const locate = (needle: string): number => {
+    if (rowLine !== null) return rowLine;
+    const found = search(needle);
+    return found === -1 ? cursor : found;
+  };
+  const KINDS: Record<string, Unit["kind"] | undefined> = { P: "paragraph", L: "item", D: "cell" };
+  const firstLineOf = (block: string) =>
+    visibleText(ownText(block.slice(2, -1)))
+      .split("\n")
+      .find((l) => l.trim() !== "") ?? "";
+  // A table's rows are consecutive source lines: the header, its separator, then one line per body
+  // row. Only the header is searched for, by whichever of its cells a probe can match; a header no
+  // cell anchors (empty cells, a first word that is a link with a suffix) sits on the first
+  // non-blank line at the cursor. Every other row's line follows from the header's.
+  const visitTable = (inner: string) => {
+    while (cursor < lines.length && isBlank(lines[cursor] ?? "")) cursor += 1;
+    const rows = nestedBlocks(inner);
+    const anchors = nestedBlocks(rows[0]?.slice(2, -1) ?? "")
+      .map((cellBlock) => search(firstLineOf(cellBlock)))
+      .filter((line) => line !== -1);
+    const header = anchors.length === 0 ? cursor : Math.min(...anchors);
+    rows.forEach((row, index) => {
+      rowLine = index === 0 ? header : header + 1 + index;
+      visit(row);
+    });
+    rowLine = null;
+    cursor = header + 1 + rows.length;
   };
   const visit = (block: string) => {
-    const prose = block[1] !== "N";
-    const kind = block[1] === "L" ? "item" : "paragraph";
     const inner = block.slice(2, -1);
+    if (block[1] === "T") {
+      visitTable(inner);
+      return;
+    }
+    const kind = KINDS[block[1] ?? ""];
     const own = ownText(inner);
     const plain = visibleText(own);
     const firstLine = plain.split("\n").find((l) => l.trim() !== "") ?? "";
     const line = locate(firstLine);
-    if (prose && plain.trim() !== "") {
+    if (kind !== undefined && plain.trim() !== "") {
       scan.units.push({ kind, line: line + 1, text: unescapeEntities(plain) });
     }
     for (const m of own.matchAll(new RegExp(CODESPAN, "g"))) {
@@ -218,8 +264,9 @@ export function scanPage(text: string): Scan {
       const href = unescapeEntities(m[1] ?? "");
       scan.links.push({ href, line: locate(href) + 1 });
     }
-    // The next unit starts after this one, so a repeated opening line finds its own line, not this one again.
-    if (plain.trim() !== "") cursor = line + plain.trim().split("\n").length;
+    // The next unit starts after this one, so a repeated opening line finds its own line, not this
+    // one again; a table moves the cursor itself, past its last row.
+    if (plain.trim() !== "" && rowLine === null) cursor = line + plain.trim().split("\n").length;
     for (const nested of nestedBlocks(inner)) visit(nested);
   };
   for (const block of nestedBlocks(prose)) visit(block);
@@ -299,7 +346,15 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
   const scan = scanPage(text);
   for (const unit of scan.units) {
     const words = wordCount(unit.text);
-    if (words > options.maxWords) {
+    if (unit.kind === "cell") {
+      if (words > options.maxCellWords) {
+        findings.push({
+          file,
+          line: unit.line,
+          message: `table cell of ${words} words; the cap is ${options.maxCellWords}. Move the explanation below the table`,
+        });
+      }
+    } else if (words > options.maxWords) {
       const noun = unit.kind === "item" ? "list item" : "paragraph";
       findings.push({
         file,
@@ -330,16 +385,18 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
 }
 
 const USAGE = [
-  "usage: docs-probe.mts [--root <dir>] [--max-words <n>] [--shape-only] <page.md>...",
-  "  --root        the repository root paths resolve against (default: cwd)",
-  "  --max-words   the cap on a paragraph or list item (default: 70)",
-  "  --shape-only  word counts only; skip the check that named paths exist",
+  "usage: docs-probe.mts [--root <dir>] [--max-words <n>] [--max-cell-words <n>] [--shape-only] <page.md>...",
+  "  --root             the repository root paths resolve against (default: cwd)",
+  "  --max-words        the cap on a paragraph or list item (default: 70)",
+  "  --max-cell-words   the cap on a table cell (default: 15)",
+  "  --shape-only       word counts only; skip the check that named paths exist",
   "exit 0: every page is clean; 1: findings, one per line as page:line: message; 2: usage or an unreadable page",
 ].join("\n");
 
 interface CliOptions {
   readonly root: string;
   readonly maxWords: number;
+  readonly maxCellWords: number;
   readonly paths: boolean;
   readonly pages: readonly string[];
 }
@@ -353,6 +410,7 @@ function realpath(path: string): string {
 export function parseArgs(argv: readonly string[]): CliOptions {
   let root = realpath(process.cwd());
   let maxWords = DEFAULT_MAX_WORDS;
+  let maxCellWords = DEFAULT_MAX_CELL_WORDS;
   let paths = true;
   const pages: string[] = [];
   for (let index = 0; index < argv.length; index++) {
@@ -370,12 +428,16 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       maxWords = Number(value());
       if (!Number.isInteger(maxWords) || maxWords < 1)
         throw new Error(`--max-words needs a positive integer\n${USAGE}`);
+    } else if (arg === "--max-cell-words") {
+      maxCellWords = Number(value());
+      if (!Number.isInteger(maxCellWords) || maxCellWords < 1)
+        throw new Error(`--max-cell-words needs a positive integer\n${USAGE}`);
     } else if (arg === "--shape-only") paths = false;
     else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}\n${USAGE}`);
     else pages.push(arg);
   }
   if (pages.length === 0) throw new Error(USAGE);
-  return { root, maxWords, paths, pages };
+  return { root, maxWords, maxCellWords, paths, pages };
 }
 
 if (import.meta.main) {
@@ -396,7 +458,7 @@ if (import.meta.main) {
   }
   if (findings.length === 0) {
     console.log(
-      `docs-probe: ${options.pages.length} page(s) clean (cap ${options.maxWords} words)`,
+      `docs-probe: ${options.pages.length} page(s) clean (cap ${options.maxWords} words, ${options.maxCellWords} per table cell)`,
     );
     process.exit(0);
   }

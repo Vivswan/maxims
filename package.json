@@ -34,7 +34,7 @@
     "bench:ci": "bun scripts/bench_ci.ts",
     "nightly": "bun scripts/nightly.ts",
     "test:container": "bun scripts/container_tests.ts",
-    "docs:check": "bun scripts/docs_probe.mts README.md AGENTS.md docs/*.md",
+    "docs:check": "bun scripts/docs_probe.mts --max-cell-words 15 README.md AGENTS.md docs/*.md",
     "docs:matrix": "bun scripts/render_harness_matrix.ts",
     "docs:matrix:check": "bun scripts/render_harness_matrix.ts --check",
     "lint:arch": "bun scripts/arch_lint.mts --root .",
