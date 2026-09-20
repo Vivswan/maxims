@@ -83,15 +83,11 @@ jobs:
           fi
       - if: steps.oidc.outputs.proceed == 'true'
         run: bun install --frozen-lockfile
-      - name: Build the bundle
-        if: steps.oidc.outputs.proceed == 'true'
-        run: bun run build
       # The verdict reads the registry's origin record (the CDN's copy lags a publish by up to 300 s) and places
       # every published pre-release by the ancestry of the source sha it names, so next never moves back on what
-      # the run can see; a registry error stops the job instead of publishing blind. npm's provenance names the
-      # commit in GITHUB_SHA, so the source is passed in.
-      - name: Publish the pre-release under the next dist-tag
-        id: publish
+      # the run can see; a registry error stops the job instead of publishing blind.
+      - name: Judge whether this commit's pre-release goes to npm
+        id: verdict
         if: steps.oidc.outputs.proceed == 'true'
         env:
           SOURCE_SHA: ${{ inputs.sha }}
@@ -99,25 +95,54 @@ jobs:
           verdict="$(GITHUB_SHA="$SOURCE_SHA" bun .github/scripts/release-pipeline.ts npm-verdict next)"
           case "$verdict" in
             publish\ *)
-              npm version "${verdict#publish }" --no-git-tag-version
-              GITHUB_SHA="$SOURCE_SHA" npm publish --tag next
-              echo "confirm=true" >> "$GITHUB_OUTPUT" ;;
+              echo "action=publish" >> "$GITHUB_OUTPUT"
+              echo "version=${verdict#publish }" >> "$GITHUB_OUTPUT" ;;
             present\ *)
               echo "::notice::${verdict#present } is already on the registry; nothing published, next is confirmed below."
-              echo "confirm=true" >> "$GITHUB_OUTPUT" ;;
-            skip\ *) echo "::notice::${verdict#skip }" ;;
+              echo "action=present" >> "$GITHUB_OUTPUT" ;;
+            skip\ *)
+              echo "::notice::${verdict#skip }"
+              echo "action=skip" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "unexpected npm-verdict output: $verdict"
               echo "::error::npm-verdict printed none of publish, present, or skip; see the line above."
               exit 1 ;;
           esac
+      # The bundle reads its version from package.json when it is built, so the manifest carries the pre-release
+      # version before the build runs; a bundle built first would announce the last stable version under the new one.
+      - name: Set package.json to the pre-release version
+        if: steps.verdict.outputs.action == 'publish'
+        env:
+          VERSION: ${{ steps.verdict.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version
+      - name: Build the bundle
+        if: steps.verdict.outputs.action == 'publish'
+        run: bun run build
+      # The postcondition the reorder above exists for, checked where it matters: the built bundle announces the
+      # version npm is about to publish. A bundle built before the manifest carried it fails here, never on the registry.
+      - name: Confirm the bundle announces the version being published
+        if: steps.verdict.outputs.action == 'publish'
+        env:
+          VERSION: ${{ steps.verdict.outputs.version }}
+        run: |
+          announced="$(node dist/cli.js --version)"
+          if [ "$announced" != "maxims $VERSION" ]; then
+            echo "::error::dist/cli.js --version prints '$announced', not 'maxims $VERSION', the version about to be published; the bundle was built before package.json carried it."
+            exit 1
+          fi
+      # npm's provenance names the commit in GITHUB_SHA, so the source is passed in.
+      - name: Publish the pre-release under the next dist-tag
+        if: steps.verdict.outputs.action == 'publish'
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: GITHUB_SHA="$SOURCE_SHA" npm publish --tag next
       # npm makes a publish readable asynchronously. This step holds the lane until the record shows the version,
       # so the next holder's verdict sees it; a record that never shows it warns. It then fails the job when next
       # names neither this version nor a descendant's: OIDC authenticates npm publish alone, not npm dist-tag add,
       # so no tag is moved here; the next green push moves next forward, or a hand npm dist-tag add does, and a
       # rerun then confirms and passes.
       - name: Confirm the registry shows the publish and next moved forward
-        if: steps.publish.outputs.confirm == 'true'
+        if: steps.verdict.outputs.action == 'publish' || steps.verdict.outputs.action == 'present'
         env:
           SOURCE_SHA: ${{ inputs.sha }}
         run: |

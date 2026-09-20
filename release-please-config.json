@@ -10,10 +10,7 @@
       "initial-version": "0.0.1",
       "draft": true,
       "force-tag-creation": true,
-      "extra-files": [
-        { "type": "json", "path": "package.json", "jsonpath": "$.version" },
-        { "type": "generic", "path": "src/version.ts" }
-      ]
+      "extra-files": [{ "type": "json", "path": "package.json", "jsonpath": "$.version" }]
     }
   }
 }

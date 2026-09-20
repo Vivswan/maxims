@@ -117,6 +117,16 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the bundle
         run: bun run build
+      # The built bundle announces the version npm is about to publish, package.json's at the release source; a bundle
+      # that carries its version from anywhere else fails here, never on the registry.
+      - name: Confirm the bundle announces the version being published
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          announced="$(node dist/cli.js --version)"
+          if [ "$announced" != "maxims $version" ]; then
+            echo "::error::dist/cli.js --version prints '$announced', not 'maxims $version', the version about to be published."
+            exit 1
+          fi
       # The verdict holds package.json's version to the tag and reads the registry's origin record, so no release
       # ever displaces a newer one from latest (a pre-release there, the bootstrap's, is taken over); a registry
       # error stops the job instead of publishing blind. GITHUB_SHA on the publish line sets only the SLSA
