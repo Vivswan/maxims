@@ -12,6 +12,10 @@ export type Runtime = (typeof RUNTIMES)[number];
 export const CONTAINER_HOME = "/home/tester";
 export const CONTAINER_WORK = "/work";
 
+// A developer machine without a runtime skips with a notice; the nightly job sets this variable
+// so a runner that lost its daemon fails instead of passing with nothing built.
+export const REQUIRE_RUNTIME_ENV = "MAXIMS_REQUIRE_CONTAINER_RUNTIME";
+
 const CONTEXT_DIR = import.meta.dir;
 export const REPO_ROOT = resolve(CONTEXT_DIR, "..", "..");
 const CONTEXT_FILES = ["Dockerfile", "entrypoint.sh"] as const;
@@ -116,6 +120,52 @@ export function buildImage(runtime: Runtime, tag: string): RunResult {
 
 export function runInContainer(runtime: Runtime, options: RunOptions): RunResult {
   return run(runArgv(runtime, options, REPO_ROOT));
+}
+
+export function imageSizeArgv(runtime: Runtime, tag: string): string[] {
+  return [runtime, "image", "inspect", tag, "--format", "{{.Size}}"];
+}
+
+// The size of an image the tier just built; a runtime that cannot answer for it is an error, not
+// a zero, since a summary row saying 0 B would read as a passing build.
+export function imageSize(
+  runtime: Runtime,
+  tag: string,
+  exec: (argv: string[]) => RunResult = run,
+): number {
+  const result = exec(imageSizeArgv(runtime, tag));
+  const bytes = Number(result.stdout.trim());
+  if (result.exitCode !== 0 || !Number.isInteger(bytes) || bytes <= 0) {
+    throw new Error(
+      `${runtime} image inspect ${tag} answered exit ${result.exitCode} with ` +
+        `${JSON.stringify(result.stdout.trim())}: ${result.stderr.trim()}`,
+    );
+  }
+  return bytes;
+}
+
+const IEC_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
+
+export function iec(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < IEC_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${IEC_UNITS[unit]}`;
+}
+
+export function renderBuildSummary(seconds: string, bytes: number): string {
+  return [
+    "## Container tier",
+    "",
+    "| Metric | Value |",
+    "| --- | --- |",
+    `| Image build | ${seconds} s |`,
+    `| Image size | ${iec(bytes)} (${bytes} bytes) |`,
+    "",
+  ].join("\n");
 }
 
 function run(argv: string[]): RunResult {

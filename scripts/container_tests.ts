@@ -9,10 +9,14 @@ import {
   detectRuntime,
   HERMETIC_PROBE_OK,
   hermeticProbe,
+  imageSize,
+  REQUIRE_RUNTIME_ENV,
   type RunResult,
+  renderBuildSummary,
   runInContainer,
   skipNotice,
 } from "../tests/container/runner.ts";
+import { writeStepSummary } from "./nightly/report.ts";
 
 const IMAGE = "maxims-container-tier:local";
 const PROBE = hermeticProbe({
@@ -21,23 +25,33 @@ const PROBE = hermeticProbe({
   networkDir: "/sys/class/net",
 });
 
-function report(step: string, started: number, result: RunResult): void {
+function report(step: string, started: number, result: RunResult): string {
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
   const seconds = ((performance.now() - started) / 1000).toFixed(1);
   process.stdout.write(`container tier: ${step} exit ${result.exitCode} in ${seconds}s\n`);
+  return seconds;
 }
 
 const runtime = detectRuntime();
 if (runtime === null) {
+  if (process.env[REQUIRE_RUNTIME_ENV]) {
+    process.stderr.write(
+      `container tier: no container runtime, and ${REQUIRE_RUNTIME_ENV} is set\n`,
+    );
+    process.exit(1);
+  }
   process.stdout.write(`${skipNotice()}\n`);
   process.exit(0);
 }
 
 let started = performance.now();
 const build = buildImage(runtime, IMAGE);
-report(`image build (${IMAGE})`, started, build);
+const buildSeconds = report(`image build (${IMAGE})`, started, build);
 if (build.exitCode !== 0) process.exit(build.exitCode);
+if (process.env.GITHUB_STEP_SUMMARY) {
+  writeStepSummary(renderBuildSummary(buildSeconds, imageSize(runtime, IMAGE)), process.env);
+}
 
 started = performance.now();
 const suite = runInContainer(runtime, {

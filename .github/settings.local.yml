@@ -14,11 +14,25 @@ repository:
   private: false
 
 # This repository's own labels (the fleet layers already carry the
-# dependabot, release, and tracking labels its modules need):
-# labels:
-#   - name: my-label
-#     color: "0e8a16"
-#     description: What it marks
+# dependabot, release, and tracking labels its modules need). One label per
+# nightly category, matching the tuple each report job in nightly.yml files
+# its issue with; nothing gates a release on them.
+labels:
+  - name: nightly-parity-drift
+    color: "D93F0B"
+    description: npx skills --help drifted from the parity fixture
+  - name: nightly-harness-drift
+    color: "D93F0B"
+    description: A harness definition's verified documentation page changed
+  - name: nightly-live-network
+    color: "D93F0B"
+    description: The live fetch ladder against Vivswan/skills failed
+  - name: nightly-latency-trend
+    color: "D93F0B"
+    description: Hook-path latency or bundle size regressed against 7 days ago
+  - name: nightly-container
+    color: "D93F0B"
+    description: The hermetic container tier failed
 
 # This repository's own rulesets, or additions to a fleet one (an entry
 # named like a fleet ruleset merges into it and adds its rules):

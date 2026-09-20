@@ -1,7 +1,15 @@
-# Nightly CI: seeded before the fleet sync, never overwritten by it. The checks job runs the
-# repository's nightly suite and the container job runs the hermetic container tier; the report
-# job files one label-deduplicated tracking issue on a red night and closes it on a green one
-# (repo-platform's docs/nightly.md).
+# Nightly CI: seeded before the fleet sync, never overwritten by it. One job per category and one
+# tracking issue per category (repo-platform's docs/nightly.md and docs/fuzzer.md): a red category
+# writes its evidence to a failure report, uploads it, and its report job files or refreshes the
+# issue carrying that category's label; a green category closes it. Every category job is
+# unconditional, so no report job ever sees a sibling as skipped.
+#
+#   scripts/nightly.ts <category>      -> runs the category, writes the step summary and the report
+#   $RUNNER_TEMP/nightly-report/       -> <category>/report.md, the failure-report contract v1
+#   report-<category>                  -> fuzz-issue report on failure or cancellation, resolve on success
+#
+# A CANCELLED job counts as red: hitting the timeout cancels rather than fails, and a hang is
+# exactly what a nightly exists to catch.
 name: Nightly
 
 on:
@@ -12,81 +20,361 @@ on:
 concurrency:
   group: nightly
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  checks:
+  # The ordinary suite with a larger property-test iteration count than a pull request pays for.
+  property-deep:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - name: Nightly checks
-        run: bun run nightly
-
-  # The tier builds the image and runs the suite inside it; the summary step then inspects the
-  # image the tier built, so a tier that silently skipped for want of a runtime fails here rather
-  # than passing empty.
-  container:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      IMAGE: maxims-container-tier:local
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - run: bun run nightly property-deep --report-dir "$RUNNER_TEMP/nightly-report"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
         with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - name: Container tier
-        shell: bash
-        run: bun run test:container | tee "$RUNNER_TEMP/container-tier.log"
-      - name: Image build time and size
-        shell: bash
-        run: |
-          seconds=$(sed -n "s/^container tier: image build (.*) exit 0 in \([0-9.]*\)s$/\1/p" "$RUNNER_TEMP/container-tier.log")
-          : "${seconds:?no image build line in the tier output}"
-          bytes=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          {
-            echo "## Container tier"
-            echo
-            echo "| Metric | Value |"
-            echo "| --- | --- |"
-            echo "| Image build | ${seconds} s |"
-            echo "| Image size | $(numfmt --to=iec-i --suffix=B "$bytes") (${bytes} bytes) |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          name: nightly-property-deep
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
 
-  # A CANCELLED job counts as red: hitting the timeout cancels rather than fails, and a hang is
-  # exactly what a nightly exists to catch.
-  report:
-    needs: [checks, container]
+  report-property-deep:
+    needs: [property-deep]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write
     steps:
-      - name: File or update the nightly issue
-        if: >-
-          contains(fromJSON('["failure", "cancelled"]'), needs.checks.result)
-          || contains(fromJSON('["failure", "cancelled"]'), needs.container.result)
+      - if: needs.property-deep.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-property-deep
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.property-deep.result)
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
           label: nightly-failure
-          title: Nightly CI failures
+          title: Nightly deep property run failed
           label-color: D93F0B
           label-description: Automated nightly CI failure
           stream: generic
-
-      - name: Close the nightly issue on a green night
-        if: needs.checks.result == 'success' && needs.container.result == 'success'
+          artifacts-dir: nightly-report
+          artifact-name: nightly-property-deep
+      - if: needs.property-deep.result == 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
           label: nightly-failure
+          stream: generic
+
+  # `npx skills@latest --help` re-captured and diffed against the committed parity fixture.
+  parity-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run nightly parity-drift --report-dir "$RUNNER_TEMP/nightly-report"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: nightly-parity-drift
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
+
+  report-parity-drift:
+    needs: [parity-drift]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.parity-drift.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-parity-drift
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.parity-drift.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-parity-drift
+          title: npx skills --help drifted from the parity fixture
+          label-color: D93F0B
+          label-description: npx skills --help drifted from the parity fixture
+          stream: generic
+          artifacts-dir: nightly-report
+          artifact-name: nightly-parity-drift
+      - if: needs.parity-drift.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-parity-drift
+          stream: generic
+
+  # Every harness definition's verified documentation page re-fetched and hashed.
+  harness-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run nightly harness-drift --report-dir "$RUNNER_TEMP/nightly-report"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: nightly-harness-drift
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
+
+  report-harness-drift:
+    needs: [harness-drift]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.harness-drift.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-harness-drift
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.harness-drift.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-harness-drift
+          title: A harness definition's verified documentation page changed
+          label-color: D93F0B
+          label-description: A harness definition's verified documentation page changed
+          stream: generic
+          artifacts-dir: nightly-report
+          artifact-name: nightly-harness-drift
+      - if: needs.harness-drift.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-harness-drift
+          stream: generic
+
+  # The built bundle driven through the fetch ladder against Vivswan/skills on the public network.
+  live-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run nightly live-network --report-dir "$RUNNER_TEMP/nightly-report"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: nightly-live-network
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
+
+  report-live-network:
+    needs: [live-network]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.live-network.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-live-network
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.live-network.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-live-network
+          title: The live fetch ladder against Vivswan/skills failed
+          label-color: D93F0B
+          label-description: The live fetch ladder against Vivswan/skills failed
+          stream: generic
+          artifacts-dir: nightly-report
+          artifact-name: nightly-live-network
+      - if: needs.live-network.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-live-network
+          stream: generic
+
+  # HEAD built and timed, then compared against the entry recorded a week ago. The trend lives in
+  # trend.json on the orphan `benchmarks` branch, checked out into a scratch clone under
+  # $RUNNER_TEMP so the measured checkout stays clean; the push goes through the workflow token.
+  latency-trend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Check out the benchmarks branch into a scratch clone
+        env:
+          SCRATCH: ${{ runner.temp }}/benchmarks
+        # ls-remote exits 2 when the ref does not exist and otherwise on a failed lookup; only the
+        # first is a first run, since an orphan created over a live branch could never be pushed.
+        run: |
+          git init -q "$SCRATCH"
+          git -C "$SCRATCH" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          status=0
+          git -C "$SCRATCH" ls-remote --exit-code --heads origin benchmarks >/dev/null || status=$?
+          case "$status" in
+            0)
+              git -C "$SCRATCH" fetch -q origin benchmarks
+              git -C "$SCRATCH" checkout -q -b benchmarks FETCH_HEAD ;;
+            2)
+              echo "::notice::no benchmarks branch yet; this run creates it"
+              git -C "$SCRATCH" checkout -q --orphan benchmarks ;;
+            *)
+              echo "::error::could not look up the benchmarks branch (git ls-remote exited $status)"
+              exit "$status" ;;
+          esac
+      - run: bun run nightly latency-trend --trend "$RUNNER_TEMP/benchmarks/trend.json" --report-dir "$RUNNER_TEMP/nightly-report"
+      # The entry is recorded whether or not the compare passed, so the trend keeps its history
+      # through a red night; a run that never measured leaves nothing to commit.
+      - name: Commit and push the trend
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCRATCH: ${{ runner.temp }}/benchmarks
+        run: |
+          git -C "$SCRATCH" add trend.json
+          if git -C "$SCRATCH" diff --cached --quiet; then
+            echo "trend.json unchanged; nothing to push"
+            exit 0
+          fi
+          git -C "$SCRATCH" config user.name "github-actions[bot]"
+          git -C "$SCRATCH" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$SCRATCH" commit -q -m "chore: record nightly latency for ${GITHUB_SHA::7}"
+          git -C "$SCRATCH" push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:benchmarks
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: nightly-latency-trend
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
+
+  report-latency-trend:
+    needs: [latency-trend]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.latency-trend.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-latency-trend
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.latency-trend.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-latency-trend
+          title: Hook-path latency or bundle size regressed against 7 days ago
+          label-color: D93F0B
+          label-description: Hook-path latency or bundle size regressed against 7 days ago
+          stream: generic
+          artifacts-dir: nightly-report
+          artifact-name: nightly-latency-trend
+      - if: needs.latency-trend.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-latency-trend
+          stream: generic
+
+  # The hermetic container tier: the script builds the image, runs the suite inside it, probes the
+  # sandbox, and writes the build time and image size to the step summary itself. The runtime is
+  # required here, so a runner without a daemon fails instead of skipping with a notice.
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run test:container
+        env:
+          MAXIMS_REQUIRE_CONTAINER_RUNTIME: "1"
+
+  # No failure report here: the tier's evidence is its log, so the issue points at the run.
+  report-container:
+    needs: [container]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.container.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-container
+          title: The hermetic container tier failed
+          label-color: D93F0B
+          label-description: The hermetic container tier failed
+          stream: generic
+      - if: needs.container.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-container
           stream: generic
