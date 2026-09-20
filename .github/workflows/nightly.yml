@@ -1,6 +1,7 @@
 # Nightly CI: seeded before the fleet sync, never overwritten by it. The checks job runs the
-# repository's nightly suite; the report job files one label-deduplicated tracking issue on a red
-# night and closes it on a green one (repo-platform's docs/nightly.md).
+# repository's nightly suite and the container job runs the hermetic container tier; the report
+# job files one label-deduplicated tracking issue on a red night and closes it on a green one
+# (repo-platform's docs/nightly.md).
 name: Nightly
 
 on:
@@ -27,10 +28,42 @@ jobs:
       - name: Nightly checks
         run: bun run nightly
 
-  # A CANCELLED checks job counts as red: hitting the timeout cancels rather than fails, and a hang
-  # is exactly what a nightly exists to catch.
+  # The tier builds the image and runs the suite inside it; the summary step then inspects the
+  # image the tier built, so a tier that silently skipped for want of a runtime fails here rather
+  # than passing empty.
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: maxims-container-tier:local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Container tier
+        shell: bash
+        run: bun run test:container | tee "$RUNNER_TEMP/container-tier.log"
+      - name: Image build time and size
+        shell: bash
+        run: |
+          seconds=$(sed -n "s/^container tier: image build (.*) exit 0 in \([0-9.]*\)s$/\1/p" "$RUNNER_TEMP/container-tier.log")
+          : "${seconds:?no image build line in the tier output}"
+          bytes=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          {
+            echo "## Container tier"
+            echo
+            echo "| Metric | Value |"
+            echo "| --- | --- |"
+            echo "| Image build | ${seconds} s |"
+            echo "| Image size | $(numfmt --to=iec-i --suffix=B "$bytes") (${bytes} bytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A CANCELLED job counts as red: hitting the timeout cancels rather than fails, and a hang is
+  # exactly what a nightly exists to catch.
   report:
-    needs: [checks]
+    needs: [checks, container]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -38,7 +71,9 @@ jobs:
       issues: write
     steps:
       - name: File or update the nightly issue
-        if: needs.checks.result == 'failure' || needs.checks.result == 'cancelled'
+        if: >-
+          contains(fromJSON('["failure", "cancelled"]'), needs.checks.result)
+          || contains(fromJSON('["failure", "cancelled"]'), needs.container.result)
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
@@ -49,7 +84,7 @@ jobs:
           stream: generic
 
       - name: Close the nightly issue on a green night
-        if: needs.checks.result == 'success'
+        if: needs.checks.result == 'success' && needs.container.result == 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
