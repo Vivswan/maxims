@@ -19,7 +19,7 @@ export const spec = {
     url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:4aaff5814a41d41b14d3ebeb12126d1eb7974180fe4ec42414f8641f6bf440fb",
+      "sha256:3dbc33bd46c3a452a1f41aba1f4a3d7a18a4460d9f0b3a58b376819bf39b826d",
     ),
   },
   globalRoot: { default: ".dsh", env: { name: "DSH_HOME" } },

@@ -19,7 +19,7 @@ export const spec = {
     url: "https://docs.devin.ai/desktop/cascade/hooks",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:e4cef5a0685b214e4a80179bcfb4ea2f834b9e7659935d181a943a42ce941c46",
+      "sha256:ddf6ae169320bd550e14908d907f6b25aab78e26269740dc502cef5ff91c472a",
     ),
   },
   globalRoot: { default: ".codeium/windsurf" },

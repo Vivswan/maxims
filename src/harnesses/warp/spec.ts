@@ -14,7 +14,7 @@ export const spec = {
     url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:150dc63558ea424e97d9376e2ae7ac84678b12d3bc36aa2e9941162310a7f2de",
+      "sha256:8bb458d10895a0344c908be66f9871d840bb4132ab62fcf7ecc6bf06b79339fe",
     ),
   },
   targets: {

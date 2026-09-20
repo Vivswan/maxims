@@ -1,6 +1,7 @@
 // Fails if a definition lands without its baseline hash, so the nightly could never see its page
 // move, or if the normalization behind every stored hash changes, which would repaint all
-// fourteen as drift in one night; also if a fetch failure or a missing hash turns the table the
+// fourteen as drift in one night, or if it misreads markup so a page's own words go missing or
+// unseen script text gets counted; also if a fetch failure or a missing hash turns the table the
 // issue shows red instead of unverifiable, or if the fill instruction stops showing the fetched
 // hash an author pastes in.
 import { describe, expect, test } from "bun:test";
@@ -27,14 +28,14 @@ const PAGE = [
 ].join("\n");
 
 const NORMALIZED =
-  "Hooks & rules Session hooks Run maxims sync on SessionStart & write <slug>.md ; it's fast.";
+  "Hooks & rules Session hooks Run maxims sync on SessionStart & write <slug>.md; it's fast.";
 const PAGE_HASH = contentHashOf(NORMALIZED);
 
 describe("normalizeDocument", () => {
   test("pins the normalized text and its hash for a fixed page", () => {
     expect(normalizeDocument(PAGE)).toBe(NORMALIZED);
     expect<string>(PAGE_HASH).toBe(
-      "sha256:1f61dd2cfa60a9c9d4c1286d2e0ac15f9038eeecbbbccb9c8aff58c27427f866",
+      "sha256:250b9c5827a7d9789921817c234d05933e4a4b1561c1cdd05bda81565741d4e2",
     );
     expect(contentHashOf(normalizeDocument(PAGE))).toBe(PAGE_HASH);
   });
@@ -50,6 +51,25 @@ describe("normalizeDocument", () => {
     const redeployed = PAGE.replace("build-1234", "build-5678").replace("nonce-abc", "nonce-xyz");
     expect(normalizeDocument(redeployed)).toBe(NORMALIZED);
     expect(contentHashOf(normalizeDocument(redeployed))).toBe(PAGE_HASH);
+  });
+
+  // Markup a tag-stripping regex misreads: a ">" inside an attribute value ends the tag early and
+  // leaks the rest as words, a bare "<" in prose swallows the words after it as a tag, and the
+  // text browsers show only without scripts is kept although no reader with scripts sees it.
+  // Then markup node-html-parser misreads with its defaults: a pre block's inner tags count as
+  // text, a doctype rides along as text or takes the words next to it, and a raw-text element
+  // whose end tag differs in case or carries a space before ">" swallows the rest of the page.
+  test.each([
+    ['<p>See <a title="a > b">the link</a> here.</p>', "See the link here."],
+    ["<p>if a < b then c</p>", "if a < b then c"],
+    ["<p>a </p><noscript>enable js</noscript><p> b</p>", "a b"],
+    ['<pre><code class="language-sh">maxims sync</code></pre>', "maxims sync"],
+    ["<!DOCTYPE html>Hello <b>world</b>", "Hello world"],
+    ["\n<!DOCTYPE html><p>hello</p>", "hello"],
+    ["<SCRIPT>1</script><p>hello</p>", "hello"],
+    ["<script>1</script ><p>hello</p>", "hello"],
+  ])("reads %s as the words a reader sees", (html, words) => {
+    expect(normalizeDocument(html)).toBe(words);
   });
 });
 

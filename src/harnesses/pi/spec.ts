@@ -14,7 +14,7 @@ export const spec = {
     url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:f60abaa25440d30469d94b1c27ac8c6b4a28ecafdd60e5d93cc92c46e8f67ed5",
+      "sha256:5926e083454a96d842270c536837743cc29d34f502c10034f05cf6ba12db4461",
     ),
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },

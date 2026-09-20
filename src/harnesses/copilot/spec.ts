@@ -15,7 +15,7 @@ export const spec = {
     url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:cb5e029b9ba14164411d5681615ff1d73d16d0f8b17e510761fcf6b2a5fa2921",
+      "sha256:d03214f47b4186d4ca429d3cf5d8ddea8d80bfaaf1316ffe4dc253deffb91cae",
     ),
   },
   globalRoot: { default: ".copilot", env: { name: "COPILOT_HOME" } },

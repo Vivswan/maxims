@@ -12,7 +12,7 @@ export const spec = {
     url: "https://learn.chatgpt.com/docs/hooks",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:289b77f35834f070c739dd0590b54209088b311b39d9b254b0c92a11fb16cdbc",
+      "sha256:b863c59e2e36c9638071652c4c1eef330e2518bbf40f6e10515b93123b38d4ee",
     ),
   },
   globalRoot: { default: ".codex", env: { name: "CODEX_HOME" } },

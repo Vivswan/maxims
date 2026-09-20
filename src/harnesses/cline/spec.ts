@@ -15,7 +15,7 @@ export const spec = {
     url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:e050c3a7df7d88b7248b1ee5d5b3b9ca13940f98dc37e7df045240be3b50e89d",
+      "sha256:72c168370c887de43fb25dc6d1013595b351ff1b3b92bd1f6c6486abe1176553",
     ),
   },
   targets: {

@@ -14,7 +14,7 @@ export const spec = {
     url: "https://zed.dev/docs/ai/instructions",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:22f2de60f9767faa275d538380f075f236e2400905a0ba7663265311bacec515",
+      "sha256:9728b4f04f0d60a1ad87f6b50ab8d72db5984ef64349cdeef959b425da95508e",
     ),
   },
   globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },

@@ -13,7 +13,7 @@ export const spec = {
     url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:9ca6653bf30f06e590aebf445ab50381367ec89254776b3ffbc5525a734ab936",
+      "sha256:47bd5b860be52758cc40edf015ea56af9ec5e4c1d6227e8047c5bf268f287589",
     ),
   },
   targets: {

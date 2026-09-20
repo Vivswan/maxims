@@ -14,7 +14,7 @@ export const spec = {
     url: "https://code.claude.com/docs/en/memory",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:8b0293c0b433c082cee1712f624b34c32980f7888a1702a56d631ddf9e0b1046",
+      "sha256:0741063f0ebe0e003c194d775353e072c59c880eb8cee119d569092796dca442",
     ),
   },
   targets: {

@@ -16,7 +16,7 @@ export const spec = {
     url: "https://cursor.com/docs/context/rules",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:2c400ceca96de581fc42d269a8f3fd3b145ca949a31e2550a510f04d19adf486",
+      "sha256:46711ebcd28feb5ca06a97f8cf2bc2878346654503a63704ee7876b41d4985a2",
     ),
   },
   targets: {

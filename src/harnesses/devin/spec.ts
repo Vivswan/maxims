@@ -14,7 +14,7 @@ export const spec = {
     url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
     date: "2026-09-20",
     contentHash: contentHashLiteral(
-      "sha256:5f7c187da8dfcfa870f7309a9ab7585356a972dcc890d6e9f2aadecf390f6d1f",
+      "sha256:92b0ff94fd8a3d88511a1fb0d17a433dace1b713883569d45773fc1308044ed2",
     ),
   },
   globalRoot: { default: ".config/devin" },

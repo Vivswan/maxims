@@ -1,7 +1,7 @@
 // Re-fetches every harness definition's verified documentation page and compares its content hash
 // with the one the definition recorded, so a page that moved is dated to a 24-hour window instead
 // of waiting for someone to look.
-import { decodeHTML } from "entities";
+import { parse } from "node-html-parser";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -9,14 +9,26 @@ import { markdownTable, type Outcome } from "./report.ts";
 export const FETCH_TIMEOUT_MS = 20_000;
 const USER_AGENT = "maxims-nightly";
 
+// Two constructs node-html-parser reads wrongly on its own: a doctype rides along as page text,
+// and a raw-text element's end tag is found only as the exact `</name>`, so `</script >` swallows
+// the rest of the page.
+const DOCTYPE = /<!DOCTYPE[^>]*>/gi;
+const UNSEEN_END_TAG = /<\/(script|style|noscript)\s+>/gi;
+
+// The elements whose bodies the parser drops (false) are the ones no reader with scripts enabled
+// sees; sites restamp build ids and nonces into them on every deploy. `pre` is left out of the
+// list so its inner markup is parsed instead of hashed as text.
+const PARSE_OPTIONS = {
+  lowerCaseTagName: true,
+  blockTextElements: { script: false, style: false, noscript: false },
+};
+
 // The one normalization behind every stored hash: changing it repaints every definition as drift,
-// so the harness_drift test pins a sample's exact normalized text and hash.
+// so the harness_drift test pins a sample's exact normalized text and hash. The parser decodes
+// entities in its text getter.
 export function normalizeDocument(html: string): string {
-  const text = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
-    .replace(/<[^>]*>/g, " ");
-  return decodeHTML(text).replace(/\s+/g, " ").trim();
+  const root = parse(html.replace(DOCTYPE, "").replace(UNSEEN_END_TAG, "</$1>"), PARSE_OPTIONS);
+  return root.textContent.replace(/\s+/g, " ").trim();
 }
 
 export type Fetched =
