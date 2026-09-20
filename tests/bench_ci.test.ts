@@ -124,7 +124,9 @@ const failing: Report = {
   ],
 };
 
-const reports: [string, Report, boolean, string][] = [
+// The JSON line is pinned byte for byte: a parse-and-compare would let key order, whitespace, or a
+// stray prefix drift under it.
+const reports: [string, Report, boolean, string, string][] = [
   [
     "a passing report with a warning on the interactive path",
     passing,
@@ -145,6 +147,17 @@ const reports: [string, Report, boolean, string][] = [
       "Commands timed: `node dist/cli.js sync --quiet`, `node dist/cli.js add @example/repo --list --no-fetch`.",
       "",
     ].join("\n"),
+    [
+      '{"base":{"ref":"origin/main","sha":"0123456789abcdef0123456789abcdef01234567"},',
+      '"head":{"sha":"89abcdef0123456789abcdef0123456789abcdef"},"runs":10,',
+      '"commands":[["node","dist/cli.js","sync","--quiet"],',
+      '["node","dist/cli.js","add","@example/repo","--list","--no-fetch"]],',
+      '"signals":[',
+      '{"name":"sync --quiet","unit":"ms","gate":"fail","base":40,"head":42.4,"ratio":0.06,"status":"ok"},',
+      '{"name":"add --list","unit":"ms","gate":"warn","base":80,"head":104,"ratio":0.3,"status":"warn"},',
+      '{"name":"bundle size","unit":"bytes","gate":"fail","base":1234567,"head":1200000,"ratio":-0.028,"status":"ok"}',
+      '],"verdict":"pass"}\n',
+    ].join(""),
   ],
   [
     "a failing report naming every failed signal",
@@ -166,18 +179,26 @@ const reports: [string, Report, boolean, string][] = [
       "Commands timed: `node dist/cli.js sync --quiet`.",
       "",
     ].join("\n"),
+    [
+      '{"base":{"ref":"fedcba9876543210fedcba9876543210fedcba98",',
+      '"sha":"fedcba9876543210fedcba9876543210fedcba98"},',
+      '"head":{"sha":"89abcdef0123456789abcdef0123456789abcdef"},"runs":3,',
+      '"commands":[["node","dist/cli.js","sync","--quiet"]],',
+      '"signals":[',
+      '{"name":"sync --quiet","unit":"ms","gate":"fail","base":40,"head":52,"ratio":0.3,"status":"fail"},',
+      '{"name":"add --list","unit":"ms","gate":"warn","base":80,"head":78,"ratio":-0.025,"status":"ok"},',
+      '{"name":"bundle size","unit":"bytes","gate":"fail","base":1000,"head":1300,"ratio":0.3,"status":"fail"}',
+      '],"verdict":"fail"}\n',
+    ].join(""),
   ],
 ];
 
 test.each(reports)(
   "%s renders the comment markdown and one JSON line",
-  (_name, report, fails, markdown) => {
+  (_name, report, fails, markdown, json) => {
     expect(failed(report.signals)).toBe(fails);
     expect(renderMarkdown(report)).toBe(markdown);
-    const json = renderJson(report);
-    expect(json.endsWith("\n")).toBe(true);
-    expect(json.slice(0, -1)).not.toContain("\n");
-    expect(JSON.parse(json)).toEqual({ ...report, verdict: fails ? "fail" : "pass" });
+    expect(renderJson(report)).toBe(json);
   },
 );
 
