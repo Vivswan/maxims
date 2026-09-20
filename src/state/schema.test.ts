@@ -691,6 +691,32 @@ describe("parseSourceArgument", () => {
     expect(message).toContain("--pin <ref> --from <path>");
   });
 
+  // A GH_HOST or URL host that is an alias of github.com must record NO host, or the fetch ladder
+  // offers the enterprise token and builds `https://api.github.com/api/v3/...`; an `api.` prefix
+  // on a tenancy host must fold to the tenant, or the ladder builds `api.api.<tenant>.ghe.com`.
+  // The folding is go-gh's NormalizeHostname, so gh and maxims agree on what one GH_HOST means.
+  const hosted = (host: string): SourceFrom => ({
+    type: "github",
+    repo: "team/rules",
+    ref: "HEAD",
+    host,
+  });
+  const aliases: [string, string | undefined, SourceFrom][] = [
+    ["@team/rules", "api.github.com", github("team/rules")],
+    ["@team/rules", "www.github.com", github("team/rules")],
+    ["@team/rules", "API.Octo.GHE.com", hosted("octo.ghe.com")],
+    ["@team/rules", "octo.ghe.com", hosted("octo.ghe.com")],
+    ["@team/rules", "api.github.localhost", hosted("github.localhost")],
+    ["@team/rules", "GitLab.Example.com", hosted("gitlab.example.com")],
+    ["https://api.github.com/example-user/rules", undefined, github("example-user/rules")],
+    ["https://www.github.com/example-user/rules", undefined, github("example-user/rules")],
+    ["https://api.octo.ghe.com/team/rules", "octo.ghe.com", hosted("octo.ghe.com")],
+    ["https://octo.ghe.com/team/rules", "api.octo.ghe.com", hosted("octo.ghe.com")],
+  ];
+  test.each(aliases)("%s with GH_HOST %s folds the host like go-gh", (arg, ghHost, expected) => {
+    expect(parseSourceArgument(arg, cwd, ghHost === undefined ? {} : { ghHost })).toEqual(expected);
+  });
+
   const rejected = [
     "",
     "@only-owner",

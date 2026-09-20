@@ -404,8 +404,10 @@ const GITHUB_TREE_SEGMENT = 2;
 // A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
 // a directory, so the store-path usability check does not apply to it.
 function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
-  const isGithubCom = remote.host === "github.com";
-  if (!isGithubCom && remote.host !== options.ghHost?.toLowerCase()) {
+  const remoteHost = normalizeGithubHost(remote.host);
+  const isGithubCom = remoteHost === GITHUB_COM;
+  const ghHost = options.ghHost === undefined ? undefined : normalizeGithubHost(options.ghHost);
+  if (!isGithubCom && remoteHost !== ghHost) {
     if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
     return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
   }
@@ -431,10 +433,31 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
 // github.com is the default and carries no host field, so `GH_HOST=github.com` is the same as
 // leaving it unset and a source recorded on one machine reads the same on another.
 function enterpriseHost(options: SourceArgumentOptions): string | undefined {
-  const ghHost = options.ghHost?.toLowerCase();
-  if (ghHost === undefined || ghHost === "github.com") return undefined;
+  if (options.ghHost === undefined) return undefined;
+  const ghHost = normalizeGithubHost(options.ghHost);
+  if (ghHost === GITHUB_COM) return undefined;
   if (!HOSTNAME.test(ghHost)) throw usage(`GH_HOST "${ghHost}" is not a hostname`);
   return ghHost;
+}
+
+const GITHUB_COM = "github.com";
+const GITHUB_LOCALHOST = "github.localhost";
+const TENANCY_SUFFIX = ".ghe.com";
+
+// go-gh's NormalizeHostname, so a GH_HOST means to maxims what it means to gh. The recorded host
+// is what the fetch ladder builds its API URL and picks its token from, so an alias must fold
+// before it is recorded: `api.github.com` kept verbatim would offer the enterprise token and
+// request `https://api.github.com/api/v3/...`; `api.octo.ghe.com` kept verbatim would request
+// `api.api.octo.ghe.com`. A tenancy host keeps only its last label before the suffix.
+function normalizeGithubHost(host: string): string {
+  const hostname = host.toLowerCase();
+  if (hostname.endsWith(`.${GITHUB_COM}`)) return GITHUB_COM;
+  if (hostname.endsWith(`.${GITHUB_LOCALHOST}`)) return GITHUB_LOCALHOST;
+  if (hostname.endsWith(TENANCY_SUFFIX)) {
+    const before = hostname.slice(0, -TENANCY_SUFFIX.length);
+    return `${before.slice(before.lastIndexOf(".") + 1)}${TENANCY_SUFFIX}`;
+  }
+  return hostname;
 }
 
 function github(
