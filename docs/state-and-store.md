@@ -15,7 +15,9 @@ Everything maxims owns lives under one directory, and one file in it, `state.jso
 |   |-- vivswan/skills/                 # a GitHub source: store/<owner>/<repo>, lower-cased
 |   |   |-- rubber-duck-before-every-commit.md
 |   |   `-- ...
-|   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>/<path without .git>
+|   |-- vivswan/skills@v2-fb04dcb6/     # the same repo pinned: <repo>@<ref, unsafe characters folded to -, cut at 40>-<8 hex of the ref>; a separate source
+|   |-- _github/ghe.example.com/acme/rules/ # a GitHub Enterprise source: _github/<host>/<owner>/<repo>
+|   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>[_<port>]/<path without .git>
 |   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>
 |-- state.json                          # intent: what should be true
 |-- state.json.lock                     # the writer mutex, present only while a process writes
@@ -118,7 +120,7 @@ The sha and hash values above are shortened for display; state stores full diges
 | `writtenBy` | which maxims wrote this, so a bug report is reproducible without asking |
 | `hooks` | the harnesses where the user wants a sync hook kept: a list, not records |
 | `disabled` | the memories `disable` withheld, by local name, one list per scope, so a memory disabled at project scope stays live for `-g`; the [project manifest](#the-project-manifest) copies the project list so `install` can replay it |
-| `intent.from` | `github` with `repo` and `ref`; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
+| `intent.from` | `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
 | `intent.auth` | whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own |
 | `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
 | `intent.rename` | upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision |
@@ -131,7 +133,14 @@ The sha and hash values above are shortened for display; state stores full diges
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
 
-A GitHub source is keyed by `@owner/repo`, a git source by its URL, a local source by its absolute path. Keying by source rather than by memory name is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
+Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
+
+| source | key | note |
+| --- | --- | --- |
+| GitHub | `@owner/repo`, or `@<host>/owner/repo` on a GitHub Enterprise host | the key keeps the case you typed, but GitHub names are case-insensitive and the store folds them, so two keys whose `owner/repo` differ only by letter case are corrupt and the file is refused; a `#<ref>` suffix is compared as typed |
+| any other git remote | the URL as you typed it | never rewritten |
+| local directory | its absolute path | |
+| any pinned source | the key above plus `#<ref>` | `@acme/rules` and `@acme/rules#v2` are two sources and may both be installed |
 
 ## Idempotency
 

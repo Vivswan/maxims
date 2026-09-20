@@ -30,7 +30,7 @@ A source is `@owner/repo`, `owner/repo`, a GitHub URL, any other git remote URL 
 | source form | what it means |
 | --- | --- |
 | `@owner/repo@memory-name` | the same as `@owner/repo -m memory-name`: one memory, by name |
-| `https://github.com/owner/repo/tree/<ref>/...` | a GitHub URL whose `/tree/<ref>/` segment sets the ref, as `--pin <ref>` would |
+| `https://github.com/owner/repo/tree/<ref>` | a GitHub URL whose `/tree/<ref>` segment sets the ref, as `--pin <ref>` would; a path after the ref is refused, because a branch containing `/` cannot be told from the path, so drop the `/tree/` tail and pass the ref with `--pin` and the path with `--from` |
 | `https://git.example.com/team/rules.git`, `git@host:path` | any git remote, stored verbatim; the [fetch section](#how-a-source-is-fetched) owns what happens to it |
 
 `sync`, `update`, `install`, and `doctor` take no source argument; state or the manifest supplies it. `remove` takes either a source or a bare memory name, and a bare name two sources both provide is ambiguous, so it exits 1 and prints the qualified forms.
@@ -125,7 +125,7 @@ A non-GitHub git URL is stored as you typed it and cloned as you typed it, with 
 | variable | effect |
 | --- | --- |
 | `MAXIMS_HOME` | moves the [canonical home](state-and-store.md#the-canonical-home), state, store, and `config.json` with it |
-| `GH_HOST` | the GitHub host `@owner/repo` resolves against, for a GitHub Enterprise instance; unset means `github.com` |
+| `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and the host whose URLs count as GitHub sources; a `github.com` URL stays `github.com` whatever the shell exports, so one pasted command installs the same source on every machine. Unset, or set to `github.com`, means `github.com` and records no host |
 | `MAXIMS_FETCH_TIMEOUT` | seconds one fetch may take before it counts as failed |
 | `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](memory-files.md#the-contract) |
 
