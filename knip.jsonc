@@ -12,11 +12,5 @@
   "ignoreExportsUsedInFile": true,
   // Pinned dependencies whose first importer has not landed yet. Knip reports each entry below as
   // a configuration hint once it is genuinely used; drop it then.
-  "ignoreDependencies": [
-    "@clack/prompts",
-    "@vercel/detect-agent",
-    "picocolors",
-    "picomatch",
-    "@types/picomatch"
-  ]
+  "ignoreDependencies": ["picomatch", "@types/picomatch"]
 }

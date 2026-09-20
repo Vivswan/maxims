@@ -1,0 +1,20 @@
+|
+o   claude-code  Agent detected - installing non-interactively
+|
+o  Source: https://github.com/Vivswan/skills.git
+o  Repository cloned
+o  Found 4 memories
+|
+o  Memories to install
+   Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md
+|
+|    gate-exit-conditions-the-merge
+|
+|      Never chain a merge in the same command as reading a gate log - condition
+|      the merge on the gate's exit code
+|
+|    ... 3 more
+|
+o  Installed 4 memories, 4 rule lines (~103 tokens)
+o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
+|

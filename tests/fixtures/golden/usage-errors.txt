@@ -1,0 +1,4 @@
+ ERROR  Missing required argument: source
+ ERROR  two destinations given
+ ERROR  Unknown command: frob
+Tip: Run maxims --help for usage.

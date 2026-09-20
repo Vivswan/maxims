@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type LockSource,
+  lockSourceKey,
   PROJECT_LOCK_RELATIVE_PATH,
   PROJECT_LOCK_VERSION,
   type ProjectLock,
@@ -16,7 +17,9 @@ import {
   type State,
 } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
+import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
+import { realpathOfExistingPrefix } from "./fs-probe.ts";
 
 export type LoadedProjectLock =
   | { kind: "absent" }
@@ -28,7 +31,9 @@ export function projectLockPath(projectRoot: string): string {
 }
 
 // `keys` are the state keys the entries stand for, so a lock entry and its state entry are found
-// by one string: a local path, relative in the lock, is made absolute against the project root.
+// by one string. The manifest is committed and edited by teammates, so a shape error, or an entry
+// this checkout cannot honor (a local path leaving it), is reported whole rather than installing
+// the entries that happened to parse.
 export async function readProjectLock(projectRoot: string): Promise<LoadedProjectLock> {
   const path = projectLockPath(projectRoot);
   let text: string;
@@ -37,19 +42,35 @@ export async function readProjectLock(projectRoot: string): Promise<LoadedProjec
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
       return { kind: "absent" };
-    throw error;
+    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}`, { cause: error });
   }
   const parsed = parseProjectLock(text);
   if (parsed.ok === "corrupt") return { kind: "corrupt", path, issues: parsed.issues };
-  const keys = Object.values(parsed.lock.sources).map((source) =>
-    canonicalSourceKey(stateFrom(source, projectRoot)),
-  );
+  const keys: string[] = [];
+  for (const source of Object.values(parsed.lock.sources)) {
+    try {
+      keys.push(canonicalSourceKey(sourceFromLock(source, projectRoot)));
+    } catch (error) {
+      if (!(error instanceof MaximsError) || error.code !== ExitCode.Usage) throw error;
+      return { kind: "corrupt", path, issues: [error.message] };
+    }
+  }
   return { kind: "parsed", lock: parsed.lock, keys };
 }
 
-function stateFrom(source: LockSource, projectRoot: string): SourceFrom {
+// A lock entry's source as state records it: the pin becomes the ref, a relative local path is
+// anchored at the project root, must stay inside it (the lock is shared with people who have only
+// the checkout), and is recorded by its real path like every local source.
+export function sourceFromLock(source: LockSource, projectRoot: string): SourceFrom {
   if (source.from.type === "local") {
-    const path = resolve(projectRoot, source.from.path);
+    const typed = resolve(projectRoot, source.from.path);
+    if (!insideProject(projectRoot, typed)) {
+      throw new MaximsError(
+        ExitCode.Usage,
+        `manifest source ${source.from.path} leaves the project root`,
+      );
+    }
+    const path = realpathOfExistingPrefix(typed);
     return source.from.live === true
       ? { type: "local", path, live: true }
       : { type: "local", path };
@@ -57,28 +78,80 @@ function stateFrom(source: LockSource, projectRoot: string): SourceFrom {
   return { ...source.from, ref: source.pin ?? DEFAULT_GIT_REF };
 }
 
-// The projection of this project's intent: every project-scope source in state and the project's
-// disabled names, or a deletion when there is nothing to project. A local source is keyed by its
-// project-relative path, like its `from`, so two checkouts of the project write the same bytes.
-export function projectLockChange(projectRoot: string, state: State): Change {
-  const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
-  const sources: Record<string, LockSource> = {};
-  for (const key of Object.keys(state.sources).sort()) {
-    const entry = state.sources[key];
-    if (entry === undefined || entry.intent.destination.scope !== "project") continue;
-    const source = lockSource(entry.intent, projectRoot);
-    const lockKey = source.from.type === "local" ? source.from.path : key;
-    sources[lockKey] = source;
-  }
-  const disabled = state.disabled?.project?.[projectRoot] ?? [];
-  if (Object.keys(sources).length === 0 && disabled.length === 0) return { kind: "delete", path };
-  const lock: ProjectLock = { version: PROJECT_LOCK_VERSION, sources };
-  if (disabled.length > 0) lock.disabled = disabled;
-  return { kind: "write", path, content: serializeProjectLock(lock) };
+// Containment is judged on real paths: a source directory that is itself a symlink to somewhere
+// outside the checkout is outside, whatever its name inside it says. A path that does not exist
+// yet is judged by the real path of its deepest existing prefix.
+function insideProject(projectRoot: string, path: string): boolean {
+  const rel = realRelative(projectRoot, path);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-function lockSource(intent: SourceIntent, projectRoot: string): LockSource {
-  const fields = {
+function realRelative(projectRoot: string, path: string): string {
+  return relative(realpathOfExistingPrefix(projectRoot), realpathOfExistingPrefix(path));
+}
+
+// The path the manifest records: relative to the REAL project root from the REAL source path (an
+// alias symlink outside the checkout that points inside it names the inside directory), with
+// `/` as the separator on every platform so a lock written on Windows replays elsewhere.
+function projectRelative(projectRoot: string, path: string): string {
+  const rel = realRelative(projectRoot, path);
+  return rel === "" ? "." : rel.split(sep).join("/");
+}
+
+// The projection of this project's intent: every project-scope source in state whose path, for a
+// local source, lies inside it (a path elsewhere names one machine), plus the project's disabled
+// names; or a deletion when there is nothing to project, so "no manifest" keeps its one meaning.
+// The bytes are read back through the lock parser before they are planned: a directory name the
+// manifest grammar refuses (a drive-relative `a:rules`, a leading space, a bare `__proto__`)
+// would otherwise leave a committed file the next `install` rejects.
+export function projectLockChange(projectRoot: string, state: State): Change {
+  const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
+  const lock = projectLockFrom(state, projectRoot);
+  const empty = Object.keys(lock.sources).length === 0 && (lock.disabled ?? []).length === 0;
+  if (empty) return { kind: "delete", path };
+  const content = serializeProjectLock(lock);
+  const back = parseProjectLock(content);
+  const expected = Object.keys(lock.sources).sort();
+  const got = back.ok === "parsed" ? Object.keys(back.lock.sources).sort() : [];
+  if (back.ok === "corrupt" || got.join("\n") !== expected.join("\n")) {
+    const issues =
+      back.ok === "corrupt" ? back.issues.join("; ") : "an entry does not survive the round trip";
+    throw new MaximsError(
+      ExitCode.Usage,
+      `a project source cannot be written into ${path}: ${issues}`,
+      { hint: "rename the directory, or install it with -g" },
+    );
+  }
+  return { kind: "write", path, content };
+}
+
+// The serializer sorts, so two machines write the same bytes.
+export function projectLockFrom(state: State, projectRoot: string): ProjectLock {
+  const sources: Record<string, LockSource> = Object.create(null);
+  for (const [stateKey, entry] of Object.entries(state.sources)) {
+    if (entry.intent.destination.scope !== "project") continue;
+    const source = lockSource(entry.intent, projectRoot);
+    if (source === null) continue;
+    const key = lockSourceKey(source);
+    if (Object.hasOwn(sources, key)) {
+      throw new MaximsError(
+        ExitCode.Usage,
+        `${stateKey} and another project source both project to the manifest key ${key}`,
+        { hint: "move one of them to the user scope with add -g" },
+      );
+    }
+    sources[key] = source;
+  }
+  const disabled = state.disabled?.project?.[projectRoot];
+  return {
+    version: PROJECT_LOCK_VERSION,
+    sources,
+    ...(disabled === undefined ? {} : { disabled }),
+  };
+}
+
+function lockSource(intent: SourceIntent, projectRoot: string): LockSource | null {
+  const shared = {
     select: intent.select,
     ...(Object.keys(intent.rename).length === 0 ? {} : { rename: intent.rename }),
     rule: intent.rule,
@@ -89,32 +162,21 @@ function lockSource(intent: SourceIntent, projectRoot: string): LockSource {
   };
   const from = intent.from;
   if (from.type === "local") {
-    const path = relativeToProject(projectRoot, from.path);
+    if (!insideProject(projectRoot, from.path)) return null;
+    const live = from.live === true ? { live: true as const } : {};
     return {
-      from: from.live === true ? { type: "local", path, live: true } : { type: "local", path },
-      ...fields,
+      from: { type: "local", path: projectRelative(projectRoot, from.path), ...live },
+      ...shared,
     };
   }
   const pin = from.ref === DEFAULT_GIT_REF ? {} : { pin: from.ref };
-  if (from.type === "github") {
-    return {
-      from:
-        from.host === undefined
-          ? { type: "github", repo: from.repo }
-          : { type: "github", repo: from.repo, host: from.host },
-      ...pin,
-      ...fields,
-    };
-  }
-  return { from: { type: "git", url: from.url }, ...pin, ...fields };
-}
-
-// A local source is spelled relative to the project, always starting with `./` or `../`, so its
-// key cannot read like a GitHub key (`@owner/repo`) or a URL whatever the directory is called. A
-// source outside the project has no spelling a clone could follow; the closest honest record is
-// the relative path git would compute, which `install` resolves back.
-function relativeToProject(projectRoot: string, path: string): string {
-  const rel = relative(projectRoot, resolve(path)).split(sep).join("/");
-  if (rel === "") return ".";
-  return rel.startsWith("../") || rel === ".." ? rel : `./${rel}`;
+  const lockFrom =
+    from.type === "github"
+      ? {
+          type: "github" as const,
+          repo: from.repo,
+          ...(from.host === undefined ? {} : { host: from.host }),
+        }
+      : { type: "git" as const, url: from.url };
+  return { from: lockFrom, ...pin, ...shared };
 }

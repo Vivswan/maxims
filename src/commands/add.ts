@@ -1,0 +1,943 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, relative } from "node:path";
+import type { Console } from "../console/contract.ts";
+import { type Collision, promptRenames } from "../console/rename.ts";
+import {
+  found,
+  hiddenCharacter,
+  hookRegistered,
+  installed,
+  linksTo,
+  noTargetAtScope,
+  notAMemory,
+  notDefinedHere,
+  ownedBy,
+  privacyWarning,
+  renameHint,
+  replacedSelection,
+  STRINGS,
+  selected,
+} from "../console/strings.ts";
+import {
+  type HarnessDefinition,
+  type HarnessId,
+  HOOK_COMMAND,
+  isBuiltInHarnessId,
+} from "../harnesses/contract.ts";
+import {
+  contentHashOf,
+  type HiddenCharacter,
+  hiddenCharacters,
+  type Memory,
+  type MemoryName,
+  parseContentHash,
+  parseMemory,
+} from "../memory/contract.ts";
+import { resolveWikilinks } from "../memory/wikilinks.ts";
+import type { UserConfig } from "../state/config.ts";
+import {
+  canonicalSourceKey,
+  type Destination,
+  parseGitSha,
+  parseSourceSelector,
+  type RenameMap,
+  type Select,
+  type SourceEntry,
+  type SourceFrom,
+  type State,
+} from "../state/schema.ts";
+import { applyChanges, type Change } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { storePathFor } from "../util/home.ts";
+import { configWrite, cooldownCapConfig, loadIntent, updateIntent } from "./shared/cli-context.ts";
+import {
+  type AgentSelection,
+  type Args,
+  type Command,
+  type CommandContext,
+  commonOptions,
+  FLAGS,
+  type FlagSpec,
+  parseAgents,
+  parseDestination,
+  parseRenames,
+  parseSelect,
+  usage,
+} from "./shared/options.ts";
+import { finish, mergePlans } from "./shared/output.ts";
+import { planProjectLock } from "./shared/project-lock-io.ts";
+import {
+  detectedHarnesses,
+  effectiveNames,
+  findSourceKey,
+  harnessContext,
+  installedSources,
+  knownHarnessIds,
+  markdownFiles,
+  realLocal,
+  scopeOf,
+  sourceSlug,
+  targetPath,
+  tildify,
+} from "./shared/sources.ts";
+import type { EngineIo, SyncOptions, SyncPreview, TreeFile } from "./types.ts";
+
+export const DEFAULT_RULE_CAP = 25;
+
+// Everything `add` decided from the command line and the config, parsed once into a shape that
+// cannot hold a conflict: one destination, one selection, one harness choice.
+export type AddRequest = {
+  key: string;
+  from: SourceFrom;
+  destination: Destination;
+  select: Select;
+  rename: RenameMap;
+  rule: boolean;
+  addHook: boolean;
+  copy: boolean;
+  memoryPath: string;
+  fullDepth: boolean;
+  paths: string[] | undefined;
+  auth: boolean;
+  agents: AgentSelection;
+  allowHidden: boolean;
+  cap: number;
+  list: boolean;
+  noFetch: boolean;
+  verbose: boolean;
+  configChanges: UserConfig | null;
+};
+
+const ADD_FLAGS: readonly FlagSpec[] = [
+  FLAGS.global,
+  FLAGS.project,
+  FLAGS.out,
+  FLAGS.memory,
+  FLAGS.agent,
+  FLAGS.list,
+  FLAGS.yes,
+  FLAGS.all,
+  FLAGS.rule,
+  FLAGS.addHook,
+  FLAGS.copy,
+  FLAGS.from,
+  FLAGS.fullDepth,
+  FLAGS.link,
+  FLAGS.pin,
+  FLAGS.paths,
+  FLAGS.auth,
+  FLAGS.rename,
+  FLAGS.allowHidden,
+  FLAGS.cooldown,
+  FLAGS.cap,
+  FLAGS.noFetch,
+];
+
+export const add: Command = {
+  summary: "fetch a source, record it in state, then sync",
+  usage: "add <source>",
+  arity: 1,
+  flags: ADD_FLAGS,
+  async run(args, ctx) {
+    const request = parseAddRequest(args, ctx);
+    const yes = args.flag(FLAGS.yes) || args.flag(FLAGS.all) || ctx.config.yes === true;
+    const console = await ctx.openConsole(yes);
+    console.intro();
+    if (request.list) {
+      for (const spec of [FLAGS.rule, FLAGS.addHook, FLAGS.yes]) {
+        if (args.flag(spec)) console.warn(`--${spec.name} is ignored with --list`);
+      }
+      if (args.value(FLAGS.out) !== undefined) console.warn("--out is ignored with --list");
+    }
+    const outcome = await prepareAdd(request, ctx, console);
+    if (outcome.kind === "store-empty") {
+      return finish(ctx, console, {
+        plan: { changes: [], notices: [] },
+        notices: [],
+        json: { source: request.key, memories: [], harnesses: [] },
+        lines: [STRINGS.storeEmpty],
+      });
+    }
+    if (outcome.kind !== "prepared") return ExitCode.Ok;
+    const { prepared } = outcome;
+    const commit = await commitAdd([prepared], ctx, true);
+    const report = await ctx.engine.runSync(
+      syncAfterCommit(ctx, commit, prepared.harnesses.ids),
+      ctx.io,
+    );
+    const lines = [installed(prepared.names.length, report.rules, report.tokens)];
+    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND));
+    const code = finish(ctx, console, {
+      plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
+      notices: [...commit.notices, ...report.notices],
+      json: {
+        source: prepared.request.key,
+        memories: prepared.names,
+        harnesses: prepared.harnesses.ids,
+      },
+      lines,
+    });
+    if (!ctx.global.json && !ctx.global.quiet) console.gap();
+    return code;
+  },
+};
+
+// The sync that follows a commit never fetches (the commit just did) and, under --dry-run, plans
+// against the state the commit would have written, since the file itself was left alone.
+export function syncAfterCommit(
+  ctx: CommandContext,
+  preview: SyncPreview,
+  agents: HarnessId[],
+): SyncOptions {
+  return {
+    ...commonOptions(ctx.global),
+    noFetch: true,
+    agents,
+    force: false,
+    ...(ctx.global.dryRun ? { preview } : {}),
+  };
+}
+
+// A live source registers no hook: a refresh would clobber an unpushed edit, so the wish is
+// dropped for that variant however it was expressed.
+export function hookWanted(from: SourceFrom, wanted: boolean): boolean {
+  return wanted && !(from.type === "local" && from.live === true);
+}
+
+export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
+  const { io, config } = ctx;
+  const sourceArg = args.positionals[0];
+  if (sourceArg === undefined) throw usage(STRINGS.missingSource);
+  const selector = parseSourceSelector(sourceArg, io.cwd, { ghHost: io.env.GH_HOST });
+  const list = args.flag(FLAGS.list);
+  if (args.flag(FLAGS.noFetch) && !list) {
+    throw usage("--no-fetch on add previews the store copy; add --list", {
+      hint: "an install always fetches; run sync --no-fetch for an offline apply",
+    });
+  }
+  const pin = args.value(FLAGS.pin);
+  const link = args.flag(FLAGS.link);
+  let from = selector.from;
+  if (from.type === "local") {
+    if (pin !== undefined) throw usage("--pin applies to a GitHub or git source, not a directory");
+    // The real path is the identity: state, the store entry and the project manifest then agree
+    // on one location whether the user typed the directory or a symlink to it.
+    const path = realLocal(from).path;
+    from =
+      link || sourceArg === "." ? { type: "local", path, live: true } : { type: "local", path };
+  } else {
+    if (link) throw usage("--link applies to a local directory");
+    if (pin !== undefined) from = { ...from, ref: pin };
+  }
+  const explicitDestination = parseDestination(args, io.cwd);
+  const destination: Destination =
+    explicitDestination ??
+    (io.projectRoot !== null && from.type !== "local" ? { scope: "project" } : { scope: "global" });
+  if (destination.scope === "project" && io.projectRoot === null) {
+    throw usage("a project-scoped install needs a project root", {
+      hint: "run inside a git checkout, or pass -g for the user scope",
+    });
+  }
+  const explicitSelect = parseSelect(args);
+  let select: Select = explicitSelect ?? "*";
+  if (selector.memory !== null) {
+    if (args.flag(FLAGS.all)) throw usage(STRINGS.allWithNames);
+    select =
+      explicitSelect === null || explicitSelect === "*"
+        ? [selector.memory]
+        : [...new Set([...explicitSelect, selector.memory])];
+  }
+  const configChanges = cooldownCapConfig(args, config);
+  const paths = args.list(FLAGS.paths);
+  return {
+    key: canonicalSourceKey(from),
+    from,
+    destination,
+    select,
+    rename: parseRenames(args),
+    rule: args.flag(FLAGS.rule) || config.rule === true,
+    addHook: hookWanted(from, args.flag(FLAGS.addHook) || config.addHook === true),
+    copy: args.flag(FLAGS.copy),
+    memoryPath: args.value(FLAGS.from) ?? "memories",
+    fullDepth: args.flag(FLAGS.fullDepth),
+    paths: paths.length === 0 ? undefined : paths,
+    auth: args.flag(FLAGS.auth) || io.env.MAXIMS_AUTH === "1",
+    agents: parseAgents(args, knownHarnessIds(io)),
+    allowHidden: args.flag(FLAGS.allowHidden),
+    cap: configChanges?.ruleCap ?? config.ruleCap ?? DEFAULT_RULE_CAP,
+    list,
+    noFetch: args.flag(FLAGS.noFetch),
+    verbose: ctx.global.verbose,
+    configChanges,
+  };
+}
+
+type FetchedFiles = { sha: string; memoryPath: string; files: TreeFile[] };
+type FetchedTree = FetchedFiles | { kind: "store-empty" };
+
+export type PreparedAdd = {
+  request: AddRequest;
+  tree: FetchedFiles;
+  memories: Memory[];
+  chosen: Memory[];
+  staged: State;
+  rename: RenameMap;
+  harnesses: HarnessChoice;
+  names: MemoryName[];
+};
+
+export type PrepareOutcome =
+  | { kind: "listed" }
+  | { kind: "store-empty" }
+  | { kind: "cancelled" }
+  | { kind: "prepared"; prepared: PreparedAdd };
+
+// Steps 1 to 4 of `add`: fetch, filter, validate, show the plan and confirm. Nothing is written,
+// so a failure here (exit 2, 3, 6, 7, 8) leaves the machine exactly as it was, and `install` can
+// prepare every manifest entry before it commits any of them.
+// A source after steps 1 and 2: fetched, scanned and filtered, nothing validated yet. `install`
+// stages every manifest entry before planning any, so the entries validate against each other.
+export type StagedAdd = {
+  request: AddRequest;
+  tree: FetchedFiles;
+  memories: Memory[];
+  chosen: Memory[];
+  state: State;
+};
+
+export type StageOutcome = { kind: "store-empty" } | { kind: "staged"; staged: StagedAdd };
+
+export async function stageAdd(
+  requested: AddRequest,
+  ctx: CommandContext,
+  console: Console,
+): Promise<StageOutcome> {
+  const { io } = ctx;
+  console.step(`Source: ${describeSource(requested.from)}`);
+  const tree = await fetchTree(requested, io, console);
+  if ("kind" in tree) return { kind: "store-empty" };
+  const intent = await loadIntent(io.home);
+  for (const notice of intent.notices) console.warn(notice);
+  const request = adoptRecordedKey(requested, intent.state);
+  const scan = scanMemories(request, tree.files, io.env, console);
+  console.step(found(scan.memories.length, scan.internalHidden));
+  const chosen = filterSelection(request.select, scan.memories);
+  if (chosen.length === 0) {
+    throw new MaximsError(
+      ExitCode.NothingResolved,
+      "No valid memories found. Memories require frontmatter with name and description.",
+    );
+  }
+  if (request.select !== "*") console.step(selected(chosen.map((memory) => memory.name)));
+  return {
+    kind: "staged",
+    staged: { request, tree, memories: scan.memories, chosen, state: intent.state },
+  };
+}
+
+// Steps 3 and 4: validate, show the plan and confirm. Nothing is written, so a failure here
+// (exit 3, 6, 7, 8) leaves the machine exactly as it was. `--list` stops before validation: a
+// preview exists so the user can see and narrow a source whose install would be refused. `siblings` are the other sources staged
+// in the same run: their names satisfy wikilinks and take part in the collision walk as if they
+// were already recorded.
+export async function planAdd(
+  staged: StagedAdd,
+  ctx: CommandContext,
+  console: Console,
+  siblings: readonly StagedAdd[],
+): Promise<PrepareOutcome> {
+  const { io } = ctx;
+  const { request, tree, chosen } = staged;
+  const existing = staged.state.sources[request.key];
+  if (request.list) {
+    console.gap();
+    console.note("", STRINGS.availableMemories);
+    showItems(console, chosen, request.rename, request.verbose);
+    console.outro(STRINGS.runWithoutList);
+    return { kind: "listed" };
+  }
+  const rename = await validate(request, chosen, staged.state, siblings, ctx, console);
+  const harnesses = await chooseHarnesses(request, ctx, console);
+  if (harnesses === null) {
+    console.step(STRINGS.installationCancelled);
+    return { kind: "cancelled" };
+  }
+  console.gap();
+  if (existing !== undefined && !sameSelect(existing.intent.select, request.select)) {
+    console.step(replacedSelection(showSelect(existing.intent.select), showSelect(request.select)));
+  }
+  console.note(planBody(request, harnesses.ids, io), STRINGS.memoriesToInstall);
+  if (
+    request.from.type === "local" &&
+    request.destination.scope === "project" &&
+    io.projectRoot !== null
+  ) {
+    console.warn(privacyWarning(io.projectRoot));
+  }
+  for (const warning of harnesses.warnings) console.warn(warning);
+  console.gap();
+  showItems(console, chosen, rename, request.verbose);
+  const proceed = await console.confirm(STRINGS.proceed, true);
+  if (!proceed) {
+    console.step(STRINGS.installationCancelled);
+    return { kind: "cancelled" };
+  }
+  return {
+    kind: "prepared",
+    prepared: {
+      request,
+      tree,
+      memories: staged.memories,
+      chosen,
+      staged: staged.state,
+      rename,
+      harnesses,
+      names: chosen.map((memory) => renamed(rename, memory.name)).sort(),
+    },
+  };
+}
+
+// Steps 1 to 4 for one source on its own.
+export async function prepareAdd(
+  requested: AddRequest,
+  ctx: CommandContext,
+  console: Console,
+): Promise<PrepareOutcome> {
+  const stage = await stageAdd(requested, ctx, console);
+  if (stage.kind === "store-empty") return stage;
+  return planAdd(stage.staged, ctx, console, []);
+}
+
+// A harness that declares no hook shape has nothing to register; asking for one is not an error,
+// it is a no-op that must not be reported as a registration.
+function hookable(ids: readonly HarnessId[], io: EngineIo): HarnessId[] {
+  return ids.filter((id) => io.harnesses.some((def) => def.id === id && def.hook.kind !== "none"));
+}
+
+// GitHub names are case-insensitive and the state file refuses two spellings of one repository,
+// so a re-add typed in another case continues the recorded entry under its recorded key.
+function adoptRecordedKey(request: AddRequest, state: State): AddRequest {
+  const recorded = findSourceKey(state, request.key);
+  if (recorded === null || recorded === request.key) return request;
+  const entry = state.sources[recorded];
+  if (entry === undefined) return request;
+  return { ...request, key: recorded, from: entry.intent.from };
+}
+
+export type CommitOutcome = SyncPreview & {
+  notices: string[];
+  hooked: HarnessId[];
+};
+
+// Steps 5 and 6: the one durable transition, for one or several prepared sources under one lock.
+// The store entries, the manifest projection and the config file ride in the same plan as the
+// state write; the caller runs the sync that writes destinations. `install` passes
+// `writeManifest: false` because the manifest is its input, not a projection of its result.
+export async function commitAdd(
+  prepared: readonly PreparedAdd[],
+  ctx: CommandContext,
+  writeManifest: boolean,
+): Promise<CommitOutcome> {
+  const { io, engine } = ctx;
+  const now = io.now().toISOString();
+  const hooked = new Set<HarnessId>();
+  let config: UserConfig = { ...ctx.config };
+  const update = await updateIntent(
+    io.home,
+    ctx.global.dryRun,
+    async (current) => {
+      let state = current.state;
+      const changes: Change[] = [];
+      let touchesProject = false;
+      let configChanged = false;
+      for (const item of prepared) {
+        const { request, harnesses } = item;
+        const previous = state.sources[request.key];
+        const entry = buildEntry(
+          request,
+          item.rename,
+          harnesses.ids,
+          item.tree,
+          item.memories,
+          now,
+          state,
+        );
+        state = {
+          ...state,
+          sources: { ...state.sources, [request.key]: entry },
+          hooks: request.addHook
+            ? [...new Set([...state.hooks, ...hookable(harnesses.ids, io)])]
+            : state.hooks,
+        };
+        changes.push(...engine.planStoreEntry(request.from, io.home, item.tree.files));
+        if (
+          previous?.intent.destination.scope === "project" ||
+          request.destination.scope === "project"
+        ) {
+          touchesProject = true;
+        }
+        if (request.configChanges !== null) {
+          config = { ...config, ...request.configChanges };
+          configChanged = true;
+        }
+        if (harnesses.remember) {
+          config.lastAgents = harnesses.ids.filter(isBuiltInHarnessId);
+          configChanged = true;
+        }
+        if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);
+      }
+      if (writeManifest && touchesProject && io.projectRoot !== null) {
+        changes.push(planProjectLock(io.projectRoot, state));
+      }
+      if (configChanged) changes.push(configWrite(io.home, config));
+      return { state, changes, notices: [...current.notices] };
+    },
+    (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
+  );
+  return {
+    state: update.state,
+    config,
+    changes: update.changes,
+    notices: update.notices,
+    hooked: [...hooked],
+  };
+}
+
+export function describeSource(from: SourceFrom): string {
+  switch (from.type) {
+    case "github":
+      return `https://${from.host ?? "github.com"}/${from.repo}.git`;
+    case "git":
+      return from.url;
+    case "local":
+      return from.path;
+  }
+}
+
+// A fetch lands in a temp directory removed on every path; a `--list --no-fetch` reads the store
+// copy instead and never opens a socket, which is what keeps the benchmark's preview offline.
+async function fetchTree(
+  request: AddRequest,
+  io: EngineIo,
+  console: Console,
+): Promise<FetchedTree> {
+  if (request.noFetch) {
+    const root = storePathFor(io.home, request.from);
+    const files = markdownFiles(join(root, request.memoryPath), request.fullDepth);
+    if (files === null) return { kind: "store-empty" };
+    return {
+      sha: "store",
+      memoryPath: request.memoryPath,
+      files: files.map((file) => ({
+        relPath: relative(root, file),
+        text: readFileSync(file, "utf8"),
+      })),
+    };
+  }
+  const local = request.from.type === "local";
+  const spinner = console.spinner(local ? STRINGS.readingDirectory : STRINGS.cloning);
+  const tempDir = mkdtempSync(join(tmpdir(), "maxims-add-"));
+  try {
+    const resolver = io.resolvers(request.from);
+    const result = await resolver.fetch(request.from, {
+      memoryPath: request.memoryPath,
+      fullDepth: request.fullDepth,
+      tempDir,
+      auth: request.auth,
+    });
+    spinner.stop(local ? STRINGS.directoryRead : STRINGS.cloned);
+    return { sha: result.sha, memoryPath: result.memoryPath, files: result.files };
+  } catch (error) {
+    spinner.fail(local ? STRINGS.directoryUnreadable : STRINGS.cloneFailed);
+    if (error instanceof MaximsError) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new MaximsError(
+      ExitCode.SourceUnresolvable,
+      `cannot fetch ${describeSource(request.from)}: ${detail}`,
+      {
+        cause: error,
+      },
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+type Scan = { memories: Memory[]; internalHidden: number };
+
+// Every `.md` under the memory folder is parsed; a file that fails the contract is skipped with
+// one warning naming the reason, never fatal. A memory marked internal is hidden unless it was
+// named on the command line or MAXIMS_INSTALL_INTERNAL=1 asks for the internal set.
+function scanMemories(
+  request: AddRequest,
+  files: readonly TreeFile[],
+  env: Record<string, string | undefined>,
+  console: Console,
+): Scan {
+  const named = new Set<string>(request.select === "*" ? [] : request.select);
+  const installInternal = env.MAXIMS_INSTALL_INTERNAL === "1";
+  const memories: Memory[] = [];
+  let internalHidden = 0;
+  for (const file of files) {
+    if (!file.relPath.endsWith(".md")) continue;
+    const parsed = parseMemory(file.relPath, file.text);
+    if (!parsed.ok) {
+      console.warn(notAMemory(basename(file.relPath), parsed.reason));
+      continue;
+    }
+    if (parsed.warning !== undefined) console.warn(`${parsed.memory.name}: ${parsed.warning}`);
+    if (
+      parsed.memory.metadata.internal === true &&
+      !installInternal &&
+      !named.has(parsed.memory.name)
+    ) {
+      internalHidden += 1;
+      continue;
+    }
+    memories.push(parsed.memory);
+  }
+  memories.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { memories, internalHidden };
+}
+
+function filterSelection(select: Select, memories: readonly Memory[]): Memory[] {
+  if (select === "*") return [...memories];
+  const byName = new Map(memories.map((memory) => [memory.name, memory] as const));
+  const missing = select.filter((name) => !byName.has(name));
+  if (missing.length > 0) {
+    const available = memories.map((memory) => `  - ${memory.name}`).join("\n");
+    throw new MaximsError(
+      ExitCode.NothingResolved,
+      `No matching memories found for: ${missing.join(", ")}\nAvailable memories:\n${available}`,
+    );
+  }
+  return select.flatMap((name) => {
+    const memory = byName.get(name);
+    return memory === undefined ? [] : [memory];
+  });
+}
+
+// Step 3: the hidden-character gate, the wikilink check and the collision walk, in that order, all
+// before anything is written. A collision is offered a rename when the console can ask; the
+// answer is merged into the request's rename map and the walk runs again against it.
+async function validate(
+  request: AddRequest,
+  chosen: readonly Memory[],
+  state: State,
+  siblings: readonly StagedAdd[],
+  ctx: CommandContext,
+  console: Console,
+): Promise<RenameMap> {
+  if (!request.allowHidden) {
+    for (const memory of chosen) {
+      const hidden = hiddenCharacters(memory.description);
+      const first = hidden[0];
+      if (first !== undefined) {
+        throw new MaximsError(
+          ExitCode.NothingResolved,
+          hiddenCharacter(memory.name, describeHidden(first), first.index + 1),
+          { hint: "pass --allow-hidden to install it anyway" },
+        );
+      }
+    }
+  }
+  const installedNames = new Set<string>();
+  for (const [key, entry] of Object.entries(state.sources)) {
+    if (key === request.key || siblings.some((sibling) => sibling.request.key === key)) continue;
+    for (const name of effectiveNames(entry, ctx.io)) installedNames.add(name);
+  }
+  for (const sibling of siblings) {
+    for (const memory of sibling.chosen) {
+      installedNames.add(renamed(sibling.request.rename, memory.name));
+    }
+  }
+  let rename: RenameMap = { ...request.rename };
+  const unknownRenames = Object.keys(rename).filter(
+    (name) => !chosen.some((memory) => memory.name === name),
+  );
+  if (unknownRenames.length > 0) {
+    throw new MaximsError(
+      ExitCode.NothingResolved,
+      `--rename names memories the source lacks: ${unknownRenames.join(", ")}`,
+    );
+  }
+  const { unmet } = resolveWikilinks([...chosen], installedNames, rename);
+  const firstUnmet = unmet[0];
+  if (firstUnmet !== undefined) {
+    throw new MaximsError(ExitCode.UnmetDependency, linksTo(firstUnmet.memory, firstUnmet.link), {
+      hint: `install a source providing ${firstUnmet.link} first`,
+    });
+  }
+  const installed = [
+    ...installedSources(state, ctx.io).filter(
+      (source) => !siblings.some((sibling) => sibling.request.key === source.key),
+    ),
+    ...siblings.map((sibling) => ({
+      key: sibling.request.key,
+      addedAt: ctx.io.now().toISOString(),
+      intent: { select: sibling.request.select, rename: sibling.request.rename },
+      names: sibling.memories.map((memory) => memory.name),
+    })),
+  ];
+  for (;;) {
+    const outcome = ctx.engine.resolveIncoming({
+      source: request.key,
+      memories: chosen.map((memory) => ({
+        name: memory.name,
+        description: memory.description,
+        contentHash: contentHashOf(memory.raw),
+      })),
+      select: "*",
+      rename,
+      cap: request.cap,
+      installed,
+    });
+    if (outcome.ok) return rename;
+    if (outcome.code === ExitCode.RuleCapExceeded) {
+      throw new MaximsError(
+        ExitCode.RuleCapExceeded,
+        `${request.key} would publish ${outcome.count} rule lines, over the cap of ${outcome.cap}`,
+        { hint: outcome.hint },
+      );
+    }
+    const collisions: Collision[] = outcome.collisions;
+    const taken = new Set<string>(installedNames);
+    for (const memory of chosen) taken.add(renamed(rename, memory.name));
+    const answer = await promptRenames(console, collisions, renameSuffix(request.from), taken);
+    const first = collisions[0];
+    if (answer.kind === "declined" || first === undefined) {
+      const owner = first === undefined ? request.key : first.ownedBy;
+      const name = first === undefined ? "" : first.name;
+      throw new MaximsError(ExitCode.NameCollision, ownedBy(name, owner), {
+        hint: renameHint(name),
+      });
+    }
+    // The prompt answers per LOCAL name; the map is keyed by upstream name, so an answer for a
+    // memory already renamed once replaces that memory's entry rather than adding a second hop.
+    for (const [local, next] of Object.entries(answer.rename)) {
+      const upstream = chosen.find((memory) => renamed(rename, memory.name) === local);
+      if (upstream !== undefined) rename = { ...rename, [upstream.name]: next };
+    }
+  }
+}
+
+function renameSuffix(from: SourceFrom): string {
+  const key = canonicalSourceKey(from);
+  const slug = sourceSlug(key);
+  const tail = slug.split("-").pop();
+  return tail === undefined || tail === "" ? "renamed" : tail;
+}
+
+const HIDDEN_LABELS: Record<number, string> = {
+  8203: "zero-width space",
+  8204: "zero-width non-joiner",
+  8205: "zero-width joiner",
+  8288: "word joiner",
+  65279: "byte order mark",
+};
+
+function describeHidden(hidden: HiddenCharacter): string {
+  if (hidden.kind === "html-comment") return "an HTML comment";
+  const hex = `U+${hidden.codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+  const label = HIDDEN_LABELS[hidden.codePoint] ?? `${hidden.kind} character`;
+  return `${hex} ${label}`;
+}
+
+type HarnessChoice = { ids: HarnessId[]; warnings: string[]; remember: boolean };
+
+// Default `-a`: the harnesses detected on this machine, then `config.agents`, then the remembered
+// last selection, then a prompt when the console can ask. A harness without a target at the
+// destination's scope is skipped with a warning, never silently. Null means the user cancelled
+// the prompt, which ends the run like a declined confirmation.
+async function chooseHarnesses(
+  request: AddRequest,
+  ctx: CommandContext,
+  console: Console,
+): Promise<HarnessChoice | null> {
+  const { io, config } = ctx;
+  const scope = scopeOf(request.destination);
+  const hasTarget = (def: HarnessDefinition): boolean =>
+    request.destination.scope === "out" || def.targets[scope] !== null;
+  // An id this machine has no definition for (a user-declared harness from a manifest) stays in
+  // intent, where sync notices and skips it, rather than being dropped from what was asked.
+  const withTarget = (ids: readonly HarnessId[], warnings: string[]): HarnessId[] =>
+    ids.filter((id) => {
+      const def = io.harnesses.find((candidate) => candidate.id === id);
+      if (def === undefined) {
+        warnings.push(notDefinedHere(id));
+        return true;
+      }
+      if (hasTarget(def)) return true;
+      warnings.push(noTargetAtScope(id, scope));
+      return false;
+    });
+  const warnings: string[] = [];
+  if (request.agents.kind === "ids") {
+    return { ids: withTarget(request.agents.ids, warnings), warnings, remember: false };
+  }
+  if (request.agents.kind === "all") {
+    return { ids: io.harnesses.filter(hasTarget).map((def) => def.id), warnings, remember: false };
+  }
+  const detected = detectedHarnesses(io);
+  if (detected.length > 0)
+    return { ids: withTarget(detected, warnings), warnings, remember: false };
+  if (config.agents !== undefined && config.agents.length > 0) {
+    return { ids: withTarget(config.agents, warnings), warnings, remember: false };
+  }
+  const ctxHarness = harnessContext(io);
+  const options = io.harnesses.filter(hasTarget).map((def) => ({
+    value: def.id,
+    label: def.displayName,
+    hint: tildify(
+      targetPath(def, request.destination, ctxHarness, sourceSlug(request.key)) ?? "",
+      io.userHome,
+    ),
+  }));
+  const remembered = config.lastAgents ?? [];
+  const answer = await console.multiselect(STRINGS.whichAgents, options, remembered);
+  if (answer.kind === "cancelled") return null;
+  const chosen =
+    answer.kind === "silent"
+      ? remembered
+      : answer.values.flatMap((id) => io.harnesses.filter((d) => d.id === id).map((d) => d.id));
+  if (chosen.length === 0) {
+    throw usage("no harness detected on this machine", { hint: "pass -a <id> (or -a '*')" });
+  }
+  return { ids: withTarget(chosen, warnings), warnings, remember: answer.kind === "chosen" };
+}
+
+function planBody(request: AddRequest, ids: readonly HarnessId[], io: EngineIo): string {
+  const ctx = harnessContext(io);
+  const slug = sourceSlug(request.key);
+  const lines = ids.map((id) => {
+    const def = io.harnesses.find((candidate) => candidate.id === id);
+    if (def === undefined) return id;
+    const destination = request.destination;
+    const path =
+      destination.scope === "out"
+        ? destination.path
+        : request.rule
+          ? targetPath(def, destination, ctx, slug)
+          : (def.bodiesDir(destination.scope, ctx) ?? targetPath(def, destination, ctx, slug));
+    return `${sourceTitle(request.from)} -> ${tildify(path ?? "(no target)", io.userHome)}`;
+  });
+  return lines.join("\n");
+}
+
+// `Vivswan/skills` reads as `Vivswan Skills` on the plan screen, as `skills` titles a source.
+export function sourceTitle(from: SourceFrom): string {
+  const raw =
+    from.type === "github"
+      ? from.repo.split("/")
+      : from.type === "git"
+        ? [
+            from.url
+              .replace(/\.git$/, "")
+              .split(/[/:]/)
+              .pop() ?? from.url,
+          ]
+        : [basename(from.path)];
+  return raw
+    .flatMap((part) => part.split(/[-_]+/))
+    .filter((word) => word !== "")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+// The plan screen lists EVERY incoming one-liner in plain mode and under --verbose: it is the
+// review gate for what will sit in the agent's context, so a fold is allowed only on a TTY where
+// the user can rerun with --verbose.
+function showItems(
+  console: Console,
+  chosen: readonly Memory[],
+  rename: RenameMap,
+  verbose: boolean,
+): void {
+  const items = [...chosen].sort((a, b) =>
+    renamed(rename, a.name) < renamed(rename, b.name) ? -1 : 1,
+  );
+  const fold = console.mode.tty && !verbose && items.length > 1;
+  const shown = fold ? items.slice(0, 1) : items;
+  for (const memory of shown) console.item(renamed(rename, memory.name), memory.description);
+  if (fold) console.more(items.length - shown.length);
+}
+
+function renamed(rename: RenameMap, name: MemoryName): MemoryName {
+  return Object.hasOwn(rename, name) ? rename[name] : name;
+}
+
+function sameSelect(a: Select, b: Select): boolean {
+  if (a === "*" || b === "*") return a === b;
+  return a.length === b.length && a.every((name, index) => name === b[index]);
+}
+
+function showSelect(select: Select): string {
+  return select === "*" ? "*" : select.join(", ");
+}
+
+// Three entry shapes, one per source variant: a remote source records the sha its remote
+// reported, a copied local directory records a content hash of its tree, and a live directory
+// records no fetch at all. Each hash is parsed into its brand here, at the one place a resolver's
+// answer becomes state.
+function buildEntry(
+  request: AddRequest,
+  rename: RenameMap,
+  harnesses: HarnessId[],
+  tree: FetchedFiles,
+  memories: readonly Memory[],
+  now: string,
+  state: State,
+): SourceEntry {
+  const addedAt = state.sources[request.key]?.addedAt ?? now;
+  const base = {
+    select: request.select,
+    rename,
+    rule: request.rule,
+    destination: request.destination,
+    copy: request.copy,
+    auth: request.auth,
+    harnesses,
+    memoryPath: request.memoryPath,
+    fullDepth: request.fullDepth,
+    ...(request.paths === undefined ? {} : { paths: request.paths }),
+    ...(request.allowHidden ? { allowHidden: true } : {}),
+  };
+  const from = request.from;
+  const fetchedMemories = Object.fromEntries(
+    memories.map((memory) => [
+      memory.name,
+      { content: contentHashOf(memory.raw), description: contentHashOf(memory.description) },
+    ]),
+  );
+  if (from.type === "local") {
+    if (from.live === true) return { intent: { from, ...base }, addedAt };
+    const sha = parseContentHash(tree.sha);
+    if (sha === null) throw badSha(request.key, tree.sha, "a sha256 content hash");
+    const fetched = {
+      at: now,
+      sha,
+      memoryPath: tree.memoryPath,
+      memories: fetchedMemories,
+      lastError: null,
+    };
+    return { intent: { from: { type: "local", path: from.path }, ...base }, fetched, addedAt };
+  }
+  const sha = parseGitSha(tree.sha);
+  if (sha === null) throw badSha(request.key, tree.sha, "a 40-character commit sha");
+  const fetched = {
+    at: now,
+    sha,
+    memoryPath: tree.memoryPath,
+    memories: fetchedMemories,
+    lastError: null,
+  };
+  return { intent: { from, ...base }, fetched, addedAt };
+}
+
+function badSha(key: string, reported: string, expected: string): MaximsError {
+  return new MaximsError(
+    ExitCode.SourceUnresolvable,
+    `${key}: the resolver reported "${reported}" where ${expected} was expected`,
+  );
+}

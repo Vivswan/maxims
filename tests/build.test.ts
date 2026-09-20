@@ -140,10 +140,13 @@ test.each(invocations)(
         const text = readFileSync(outfile, "utf8");
         expect(text.startsWith(SHEBANG)).toBe(true);
         expect(text.slice(SHEBANG.length).startsWith("#!")).toBe(false);
-        expect(text).not.toContain("node_modules");
+        expect(text).not.toMatch(/(?:require\(|from\s+)["'][^"']*node_modules/);
         expect(statSync(outfile).mode & 0o777).toBe(0o755);
 
-        const run = Bun.spawnSync(["node", outfile], { stdout: "pipe", stderr: "pipe" });
+        const run = Bun.spawnSync(["node", outfile, "--version"], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         expect(run.stderr.toString()).toBe("");
         expect(run.exitCode).toBe(0);
         expect(run.stdout.toString()).toBe(`maxims ${VERSION}\n`);

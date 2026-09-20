@@ -11,6 +11,9 @@ export const UserConfigSchema = z.strictObject({
   rule: z.boolean().optional(),
   cooldownDays: z.number().int().positive().optional(),
   ruleCap: z.number().int().positive().optional(),
+  // The harnesses chosen at the last interactive prompt, pre-selected next time; a memory of a
+  // choice, not a default, so `-a` and `agents` both win over it.
+  lastAgents: z.array(z.enum(HARNESS_IDS)).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 

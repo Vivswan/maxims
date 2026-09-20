@@ -1,0 +1,3 @@
+|
+o  Memories to remove: @a/b
+ ERROR  Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.
