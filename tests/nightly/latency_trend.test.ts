@@ -105,17 +105,18 @@ describe("runLatencyTrend", () => {
     });
   });
 
-  test("the file written keeps the newest 400 entries, oldest dropped", async () => {
+  test("the file written keeps the newest 400 entries in time order, oldest dropped", async () => {
     await withTempDir(async (dir) => {
       const trend = join(dir, "trend.json");
-      const entries = Array.from({ length: 400 }, (_, i) => entry(400 - i, "abcdef0"));
+      const days = Array.from({ length: 400 }, (_, i) => 400 - i);
+      const shuffled = [...days.filter((d) => d % 2 === 1), ...days.filter((d) => d % 2 === 0)];
+      const entries = shuffled.map((d) => entry(d, "abcdef0"));
       writeFileSync(trend, JSON.stringify({ version: 1, entries }));
       await runLatencyTrend(trend, { now: NOW, measure: async () => measurement(40, 800_000) });
       const written = readTrend(trend);
       const ats = written.ok ? written.trend.entries.map((e) => e.at) : [];
-      expect(ats.length).toBe(400);
-      expect(ats[0]).toBe(daysAgo(399));
-      expect(ats[399]).toBe(NOW.toISOString());
+      const expected = [...days.slice(1).map(daysAgo), NOW.toISOString()];
+      expect(ats).toEqual(expected);
     });
   });
 

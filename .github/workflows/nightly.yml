@@ -279,13 +279,18 @@ jobs:
           esac
       - run: bun run nightly latency-trend --trend "$RUNNER_TEMP/benchmarks/trend.json" --report-dir "$RUNNER_TEMP/nightly-report"
       # The entry is recorded whether or not the compare passed, so the trend keeps its history
-      # through a red night; a run that never measured leaves nothing to commit.
+      # through a red night; a run that never measured leaves nothing to commit, and on a first
+      # run there is no file at all yet.
       - name: Commit and push the trend
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           SCRATCH: ${{ runner.temp }}/benchmarks
         run: |
+          if [ ! -f "$SCRATCH/trend.json" ]; then
+            echo "trend.json was never written; nothing to push"
+            exit 0
+          fi
           git -C "$SCRATCH" add trend.json
           if git -C "$SCRATCH" diff --cached --quiet; then
             echo "trend.json unchanged; nothing to push"

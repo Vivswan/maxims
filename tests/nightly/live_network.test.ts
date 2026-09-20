@@ -60,22 +60,24 @@ test("the ladder runs every rung against the bundle with the expected homes and 
   });
 });
 
-// The mirror must resolve a name the way the shell does: the first executable wins, and a plain
-// file of that name earlier on PATH does not shadow it.
+// The mirror must resolve a name the way the shell does: the first executable regular file wins;
+// a directory or a plain file of that name earlier on PATH does not shadow it.
 test("mirroring PATH drops git and keeps the first executable of every other name", async () => {
   await withTempDir((dir) => {
     const first = join(dir, "first");
+    const middle = join(dir, "middle");
     const second = join(dir, "second");
     const into = join(dir, "into");
-    for (const d of [first, second, into]) mkdirSync(d);
+    for (const d of [first, middle, second, into]) mkdirSync(d);
     const executable = (d: string, name: string): void => {
       writeFileSync(join(d, name), "");
       chmodSync(join(d, name), 0o755);
     };
     for (const name of ["git", "node", "sh"]) executable(first, name);
-    writeFileSync(join(first, "tar"), "not a program");
+    mkdirSync(join(first, "tar"), { mode: 0o755 });
+    writeFileSync(join(middle, "tar"), "not a program");
     for (const name of ["git", "node", "tar"]) executable(second, name);
-    const path = [first, join(dir, "absent"), second].join(":");
+    const path = [first, middle, join(dir, "absent"), second].join(":");
     expect(mirrorPathWithoutGit(path, into)).toBe(into);
     expect(readdirSync(into).sort()).toEqual(["node", "sh", "tar"]);
     expect(readlinkSync(join(into, "node"))).toBe(join(first, "node"));
@@ -124,5 +126,19 @@ describe("summarizeLadder", () => {
       ].join("\n"),
     );
     expect(body).not.toContain("hunter2");
+    expect(
+      body.endsWith(
+        [
+          "### add a repository that does not exist",
+          "",
+          "`maxims add @Vivswan/maxims-nightly-missing-repo` (git on-path) expected exit 2, got 2.",
+          "",
+          "```text",
+          "maxims: @Vivswan/maxims-nightly-missing-repo: not found",
+          "```",
+          "",
+        ].join("\n"),
+      ),
+    ).toBe(true);
   });
 });

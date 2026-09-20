@@ -1,7 +1,15 @@
 // Drives the built bundle through the fetch ladder against the reference source on the public
 // network: the sparse clone, the pinned-sha short circuit, the tarball rung with no git on PATH,
 // and a repository that does not exist. Each rung has one expected exit code.
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import { delimiter, join } from "node:path";
 import { redactUserinfo } from "../../src/sources/github/ladder.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -72,7 +80,8 @@ async function spawnNode(argv: readonly string[], env: Record<string, string>): 
 
 // Every executable on PATH is mirrored into one directory except git, so the bundle finds node
 // and everything else it might shell out to, and only git is absent. As in a PATH lookup, the
-// first EXECUTABLE of a name wins; a plain file of the same name earlier on PATH is passed over.
+// first executable REGULAR FILE of a name wins; a plain file or a directory of the same name
+// earlier on PATH is passed over.
 export function mirrorPathWithoutGit(path: string, into: string): string {
   const seen = new Set<string>();
   for (const dir of path.split(delimiter)) {
@@ -95,7 +104,7 @@ export function mirrorPathWithoutGit(path: string, into: string): string {
 function isExecutable(path: string): boolean {
   try {
     accessSync(path, constants.X_OK);
-    return true;
+    return statSync(path).isFile();
   } catch {
     return false;
   }

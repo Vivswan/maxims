@@ -83,8 +83,9 @@ describe("the tier's entry with a fake runtime", () => {
       });
       const written = readFileSync(summary, "utf8");
       const seconds = /\| Image build \| (\d+\.\d) s \|/.exec(written)?.[1] ?? "(missing)";
-      expect(written).toBe(renderBuildSummary(seconds, 812345));
+      expect(seconds).toMatch(/^\d+\.\d$/);
       expect(written).toContain("| Image size | 793 KiB (812345 bytes) |");
+      expect(written).toBe(renderBuildSummary(seconds, 812345));
     });
   });
 });
