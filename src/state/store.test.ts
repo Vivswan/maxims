@@ -10,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -114,9 +115,13 @@ function concurrentWriterStep(
   };
 }
 
-function holdLock(home: string, holder: Record<string, unknown>): string {
+// Staleness is the lock file's age, so a stale fixture backdates the file's mtime along with the
+// record; a record alone, however old, is a live holder's lock.
+function holdLock(home: string, holder: Record<string, unknown>, ageMs = 0): string {
   const lockPath = homePaths(home).lock;
   writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
+  const then = new Date(Date.now() - ageMs);
+  utimesSync(lockPath, then, then);
   return lockPath;
 }
 
@@ -407,12 +412,11 @@ describe("withStateLock", () => {
   test("a stale lock from a dead holder is stolen, the theft reported, and the callback runs", async () => {
     await withTempHome(async (home) => {
       const startedAt = new Date(Date.now() - 120_000).toISOString();
-      const lockPath = holdLock(home, {
-        pid: 999_999,
-        host: "example.com",
-        startedAt,
-        argv: ["maxims", "sync"],
-      });
+      const lockPath = holdLock(
+        home,
+        { pid: 999_999, host: "example.com", startedAt, argv: ["maxims", "sync"] },
+        120_000,
+      );
       const outcome = await withStateLock(home, "hook", async (lock) => lock.stolen);
       expect(outcome).toEqual({
         kind: "ran",
