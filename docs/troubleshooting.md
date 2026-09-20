@@ -70,9 +70,9 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 **What you see:** inside the moved folder a sync installs nothing for the project, and `list` names a project root that no longer exists.
 
-**What it means:** project intent is recorded under the project's absolute root, and nothing follows a rename. This is the specified behavior.
+**What it means:** a project-scope source records its project root in `state.json`, as `destination: {scope: "project", root}`, and nothing follows a rename. This is the specified behavior; the [state schema](state.md#the-schema) owns the field.
 
-**What to do:** edit the root in `state.json` by hand, the way the [moving section](recovery.md#moving-state-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
+**What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project`, in `state.json` by hand, the way the [moving section](recovery.md#moving-state-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
 
 ## `--quiet` printed nothing
 

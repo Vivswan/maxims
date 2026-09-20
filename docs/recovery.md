@@ -58,7 +58,7 @@ The store is single-writer. A writer creates `state.json.lock` atomically, holdi
 State carries the intent, so moving an install is three steps.
 
 1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses. Without that file a source naming one in `intent.harnesses` restores nothing for it, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns what you see instead.
-2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, and each project root under `disabled.project`.
+2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project`.
 3. Run `npx -y @vivswan/maxims sync`; the [failure paths](#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
 
 ## Uninstalling everything

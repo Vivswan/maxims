@@ -118,7 +118,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 | `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
 | `intent.rename` | upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision |
 | `intent.rule` | whether this source publishes one-liners; the field that separates `--rule` from `--add-hook` |
-| `intent.destination` | `global`, `project`, or `out` with a path; `-g` with `-o` has no representation |
+| `intent.destination` | `global`; `project` with the project's absolute `root`, so `sync` and `list` find a project's sources from state alone and a moved folder shows as a root that no longer exists; or `out` with a `path`. `-g` with `-o` has no representation |
 | `intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths` | `--copy`, `--from`, `--full-depth`, `--paths`, recorded per source |
 | `intent.harnesses` | which harnesses this source writes to |
 | `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for: the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record. |
@@ -126,6 +126,8 @@ The example is hand-written and parses against the current schema; a test keeps 
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
 | `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project lock](project-lock.md#the-project-manifest) carries a copy of its own root's list |
+
+Status: `destination.root` is specified, not yet in the schema; it lands with `--share`, whose status the [sharing section](project-lock.md#sharing-a-source) tracks.
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
