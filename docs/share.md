@@ -1,9 +1,9 @@
 ---
-order: 72
-group: Reference
+order: 41
+group: Guides
 ---
 
-# The project lock
+# Share rules with your team
 
 `.agents/maxims.lock` is the file a project commits so a fresh clone gets the team's rules with one command. It holds only the sources you chose to share, `sync` never reads it, and `install` replays it. The [state page](state.md) owns what the machine itself records.
 
@@ -40,7 +40,7 @@ Strategy B rule files also land in the repo, but as the harness's target, never 
 
 The lock never replaces state on the machine that wrote it, and a machine edits only the entries it owns: a teammate's entries, and the disabled names of their sources, stay through everything a clone does before it runs `install`.
 
-## Replaying it: install
+## Replaying it on a fresh clone: install
 
 ```bash
 npx -y @vivswan/maxims install

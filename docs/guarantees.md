@@ -1,11 +1,11 @@
 ---
-order: 74
+order: 54
 group: Reference
 ---
 
-# Recovery
+# What sync guarantees
 
-What happens when a fetch, a write, or a process fails, and what to do afterwards: the guarantees behind `sync` as the repair step, the failure table, the lock, moving to a new machine, and removing everything. The [troubleshooting page](troubleshooting.md) owns the symptoms as you see them; this page owns the mechanisms behind them.
+What happens when a fetch, a write, or a process fails: the guarantees behind `sync` as the repair step, the failure table, and the lock. The [troubleshooting page](troubleshooting.md) owns the symptoms as you see them; this page owns the mechanisms behind them, and the [move page](move-or-uninstall.md) owns carrying an install elsewhere or removing it.
 
 ## Idempotency
 
@@ -53,19 +53,3 @@ The store is single-writer. A writer creates `state.json.lock` atomically, holdi
 | the holder crashed and left the lock | a lock older than 60 seconds is stolen, and the theft is logged with whether the holder's pid was still alive |
 | NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
 
-## Moving state to a new machine
-
-State carries the intent, so moving an install is three steps.
-
-1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses. Without that file a source naming one in `intent.harnesses` restores nothing for it, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns what you see instead.
-2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project`.
-3. Run `npx -y @vivswan/maxims sync`; the [failure paths](#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
-
-## Uninstalling everything
-
-```bash
-npx -y @vivswan/maxims remove --all      # every source out of state, then a sync
-rm -rf ~/.agents/maxims                  # or $MAXIMS_HOME: the store, state, config, and log
-```
-
-`remove --all` takes every source out of state and syncs; the [remove section](quickstart.md#remove) of the quickstart owns what that sync removes and when the hook goes. What remains is the canonical home itself, with an empty state and your `config.json`, and you delete that by hand.

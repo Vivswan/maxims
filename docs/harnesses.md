@@ -1,5 +1,5 @@
 ---
-order: 60
+order: 51
 group: Reference
 ---
 
@@ -9,7 +9,7 @@ Every registered harness gets a rule file in its always-loaded layer, and every 
 
 ## The matrix
 
-Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](installing.md#where-it-lands).
+Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](install.md#where-it-lands).
 
 <!-- BEGIN GENERATED: harness-matrix -->
 
@@ -52,36 +52,10 @@ A harness you declare in `harnesses.json` has no row here, because it exists onl
 | tier | meaning | freshness |
 | --- | --- | --- |
 | 1 | a rule file plus a hook that runs the sync | loads every session and refreshes itself |
-| 2 | a rule file, no hook | kept fresh by any hooked harness on the same machine (below), or by the MCP stub where the `mcp stub` column names a file; manual otherwise |
+| 2 | a rule file, no hook | kept fresh by [any hooked harness on the same machine](keep-fresh.md#one-hook-refreshes-every-harness), or by the MCP stub where the `mcp stub` column names a file; manual otherwise |
 | 3 | unsupported | no file-based always-loaded layer exists, so there is nowhere to put a guarantee; web-only agents with UI-stored rules |
 
 The tier a harness achieves is a sync-time result that `list` reports. It is not stored, so a config edit that demotes a harness is visible the next time you look.
-
-## One hook refreshes every harness
-
-`maxims sync` applies state for every harness on the machine, not only the one whose hook invoked it. Any one tier 1 hook therefore refreshes every tier 2 target as a side effect, and the tenth source costs no tenth hook.
-
-Tier 2 therefore means fresh as long as some hooked harness gets used on this machine, so a tier 2 harness is stale only on a machine with zero tier 1 harnesses. The matrix's tier column shows which registered harnesses have no hook system and start at tier 2.
-
-Copilot's IDE half has no hook at all, and Codex with hooks switched off or Cline without hooks enabled also land at tier 2; the catches below name each prerequisite.
-
-A shell-rc line, an OS scheduler, an editor folder-open task, and a git hook were each considered as a fallback for that machine and rejected. Each forks per platform or writes into shared territory for a benefit the property above already delivers. The [design decisions](design-decisions.md) page records them.
-
-## The staleness notice and the self-refresh line
-
-A source is stale once its last successful fetch is more than 7 days old, or immediately when the repo returns 404. The notice names the reason (network, rate limit, missing) rather than just "stale".
-
-| where the harness has | the notice goes to |
-| --- | --- |
-| a hook with a stdout channel, anything but `none` or `-` in the matrix | the hook's stdout, which the harness adds to the agent's context on exit 0, so no non-zero exit and no hook error banner |
-| a hook without one, `none` or `-` in the matrix | nowhere through the hook: the definition declares no channel the harness reads sync's output from |
-| no hook (tier 2) | one managed line at the top of the maxims block in the rule file, removed on the next successful refresh |
-
-Beneath that line, and only there, maxims writes the self-refresh line: if the staleness notice is present, run `npx -y @vivswan/maxims sync --quiet` before continuing. It is a rule asking an agent to act, so it is best-effort even from the always-loaded layer, and some harnesses gate shell commands behind approval.
-
-On tier 1 harnesses the self-refresh line is not written, because the hook already guarantees freshness and the line would be wasted context.
-
-Neither the notice line nor the self-refresh line counts against the [rule cap](fetching.md#the-cap-and-the-cooldown); the cap governs how many of a source's memories reach the file, not what maxims says about its own state.
 
 ## The rule file
 

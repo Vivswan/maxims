@@ -1,26 +1,11 @@
 ---
-order: 20
-group: Start here
+order: 60
+group: Behind the design
 ---
 
 # Why maxims
 
-An agent can hold a rule in its memory and still not act on it, because memory bodies load on recall and recall is probabilistic. maxims puts each rule's one-line summary in the layer the agent loads every session and leaves the body on disk behind a pointer. This page is the reasoning; the [quickstart](quickstart.md) is the commands.
-
-## How it works in one picture
-
-```mermaid
-flowchart LR
-    repo["source repo<br/>memories/*.md"] -->|add, update, or a sync past the cooldown| store["store<br/>~/.agents/maxims/store/"]
-    state["state.json<br/>what should be installed"] --> sync["sync"]
-    store --> sync
-    sync --> cc["Claude Code<br/>~/.claude/rules/maxims-*.md"]
-    sync --> cx["Codex<br/>~/.codex/AGENTS.md block"]
-    sync --> more["every other harness in the matrix"]
-    hook["session-start hook<br/>npx -y @vivswan/maxims sync --quiet"] -.->|every session| sync
-```
-
-`state.json` is the only record `sync` trusts. A rule file on disk is compared to what it should be, never read back as a record, so the next sync repairs a crash or a hand edit. The [architecture page](architecture.md) shows the same flow as code.
+An agent can hold a rule in its memory and still not act on it, because memory bodies load on recall and recall is probabilistic. maxims puts each rule's one-line summary in the layer the agent loads every session and leaves the body on disk behind a pointer. This page is the reasoning; the [quickstart](quickstart.md) is the commands, and [how it works](how-it-works.md) is the mechanism.
 
 ## The rule the agent held but did not act on
 
@@ -46,20 +31,6 @@ After, the same rule's one-liner sits in the rules layer the harness reads at la
 
 The body's content is unchanged; its home is now the store. Only the one line that must always be present changed layers.
 
-## Two layers, one source
-
-```text
- always-loaded layer: the rule file           on-demand layer: the memory body
- +-------------------------------------+      +----------------------------------------+
- | - one-liner A   (detail: .../A.md) |----->| A.md  frontmatter, Why, How to apply   |
- | - one-liner B   (detail: .../B.md) |----->| B.md                                   |
- | - one-liner C   (detail: .../C.md) |----->| C.md                                   |
- +-------------------------------------+      +----------------------------------------+
-   read by the harness every session            opened by the agent when it wants detail
-```
-
-The one-liner is the memory file's `description` field, and the rule file is generated from it. One field feeds both layers, so there is nothing to drift; the [memory-files page](memory-files.md) owns the file format.
-
 ## The npx skills analogy
 
 ```text
@@ -80,8 +51,8 @@ Each tool below already solved part of the problem. The table says what maxims c
 
 | tool or practice | what it does | what maxims took | what maxims left |
 | --- | --- | --- | --- |
-| `npx skills` (vercel-labs/skills) | installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays | the verbs, the flag names and short forms, which the [parity page](parity.md) pins against a captured `skills --help`; the `@owner/repo` shorthand; [`~/.agents/`](state.md#the-canonical-home) as the home; and the committed project lock, which the [project lock](project-lock.md) mirrors | the skills layer itself; maxims adds the rule line in the always-loaded layer and the session-start hook that re-syncs it, which skills do not have |
-| Claude Code's `MEMORY.md` index | one index file, loaded every session, with one line per memory that points at the body file beside it | the shape of the two layers, and the [memory file format](memory-files.md) itself, so a source repo needs no new format | the single harness and the single folder; maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code |
+| `npx skills` (vercel-labs/skills) | installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays | the verbs, the flag names and short forms, which the [parity page](parity.md) pins against a captured `skills --help`; the `@owner/repo` shorthand; [`~/.agents/`](files.md#the-canonical-home) as the home; and the committed project lock, which the [project lock](share.md) mirrors | the skills layer itself; maxims adds the rule line in the always-loaded layer and the session-start hook that re-syncs it, which skills do not have |
+| Claude Code's `MEMORY.md` index | one index file, loaded every session, with one line per memory that points at the body file beside it | the shape of the [two layers](how-it-works.md#two-layers-one-source), and the [memory file format](write-memories.md) itself, so a source repo needs no new format | the single harness and the single folder; maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code |
 | rulesync (dyoshikawa/rulesync) | compiles rule files under `.rulesync/` into the native rule format of each supported agent when you run `rulesync generate` | the fan-out, one source written in each harness's own format | the unit and the trigger; maxims installs published memories from a repo rather than compiling your own local files, and a hook re-syncs at session start rather than a generate step you run by hand |
 | a shell rc line, an OS scheduler, an editor folder-open task, or a git hook | refreshes a file from outside the agent, on a shell start, a clock, an editor open, or a commit | nothing | all four; none fires on the agent's session start, so a session can still open on a stale file, and the [freshness fallbacks decision](design-decisions.md#harnesses) records the rest of the reasons |
 
@@ -91,4 +62,4 @@ Each tool below already solved part of the problem. The table says what maxims c
 | --- | --- |
 | one rule line in the rule file | about 25 tokens, loaded every session |
 | the memory body | zero tokens until an agent opens the file |
-| a source at the default [rule cap](fetching.md#the-cap-and-the-cooldown) | about 600 to 700 tokens |
+| a source at the default [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | about 600 to 700 tokens |

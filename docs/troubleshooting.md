@@ -1,9 +1,9 @@
 ---
-order: 75
-group: Reference
+order: 45
+group: Guides
 ---
 
-# Troubleshooting
+# When something breaks
 
 What a session start, a sync, or an install can report, what each report means, and what to do. This page owns the symptoms; the pages it links own the mechanisms. Every exit code is in the [exit code table](cli.md#exit-codes).
 
@@ -11,7 +11,7 @@ What a session start, a sync, or an install can report, what each report means, 
 
 **What you see:** `add`, `sync`, or `update` refuses one source with exit 8, and the hint names `--memory` and `--cap`. Nothing is written for that source, and every other source is unaffected.
 
-**What it means:** the source's rule-flagged set has more memories than `ruleCap` allows, 25 by default. The [cap](fetching.md#the-cap-and-the-cooldown) is a count and a hard gate; truncating would drop the last rule silently.
+**What it means:** the source's rule-flagged set has more memories than `ruleCap` allows, 25 by default. The [cap](keep-fresh.md#the-cap-and-the-cooldown) is a count and a hard gate; truncating would drop the last rule silently.
 
 **What to do:** install fewer memories, or raise the cap once, which persists it in `config.json`:
 
@@ -37,7 +37,7 @@ store is locked by <who>
 wait for it to finish, or remove <path to state.json.lock> if that process is gone
 ```
 
-**What it means:** another maxims process holds `state.json.lock`: a second manual command, or a hook that took the lock first. A hook that meets a held lock exits 0 without waiting, so the hook itself never reports this; the [concurrency section](recovery.md#concurrency) owns the rules.
+**What it means:** another maxims process holds `state.json.lock`: a second manual command, or a hook that took the lock first. A hook that meets a held lock exits 0 without waiting, so the hook itself never reports this; the [concurrency section](guarantees.md#concurrency) owns the rules.
 
 **What to do:** let the other command finish and run yours again. A lock left behind by a crashed process is stolen after 60 seconds on its own, and the theft is logged.
 
@@ -55,13 +55,13 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 | message | cause |
 | --- | --- |
-| the file and the character named | a memory carries a [hidden character](memory-files.md#hidden-characters-are-refused) |
+| the file and the character named | a memory carries a [hidden character](write-memories.md#hidden-characters-are-refused) |
 | a `--memory` name the source lacks | a misspelled or renamed memory |
-| "Found 0 memories", after one warning per skipped file | the wrong folder, or every file fails the [contract](memory-files.md#the-contract) |
+| "Found 0 memories", after one warning per skipped file | the wrong folder, or every file fails the [contract](write-memories.md#the-contract) |
 
 **What it means:** the install would be incomplete, so maxims writes nothing rather than a set of rules you believe is loaded and is not.
 
-**What to do:** for a hidden character, fix the file upstream or pass `--allow-hidden`. For a name, `add <source> --list` prints the names the source has. For zero memories, check `--from`, and run `lint` in the source repo to see the reason per file; the [lint section](doctor.md#lint) owns it.
+**What to do:** for a hidden character, fix the file upstream or pass `--allow-hidden`. For a name, `add <source> --list` prints the names the source has. For zero memories, check `--from`, and run `lint` in the source repo to see the reason per file; the [lint section](write-memories.md#lint-a-folder-before-publishing) owns it.
 
 ## state.json was quarantined
 
@@ -81,7 +81,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 **What it means:** a project-scope source records its project root in `state.json`, as `destination: {scope: "project", root}`, and nothing follows a rename. This is the specified behavior; the [state schema](state.md#the-schema) owns the field.
 
-**What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project`, in `state.json` by hand, the way the [moving section](recovery.md#moving-state-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
+**What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project`, in `state.json` by hand, the way the [moving section](move-or-uninstall.md#back-up-or-move-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
 
 ## `--quiet` printed nothing
 
@@ -98,7 +98,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 | the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-` | nothing reaches the agent, whatever sync printed |
 | the column is `json:` | the same lines inside one JSON document, in the named field |
 
-**What to do:** run `sync` without `--quiet` in a terminal to see the full report. `log/refresh.log` in the [canonical home](state.md#the-canonical-home) records what each run changed.
+**What to do:** run `sync` without `--quiet` in a terminal to see the full report. `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records what each run changed.
 
 ## Cline reports the TaskStart hook as failed on the first task after install
 
@@ -124,6 +124,6 @@ The [Cline catch](harnesses.md#per-harness-catches) names the hook's other prere
 maxims: <key>: skipped <id> (<reason>)
 ```
 
-**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](state.md#the-canonical-home) records it.
+**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records it.
 
 **What to do:** Restore the definition in `harnesses.json`, or take the id out of intent with `unlink <source> -a <id>` for each source the notice names; the [verb table](cli.md#verbs) owns `unlink`.

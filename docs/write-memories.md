@@ -1,11 +1,13 @@
 ---
-order: 40
-group: Reference
+order: 43
+group: Guides
 ---
 
-# Memory files
+# Write your own memories
 
 A memory is one markdown file holding one rule: YAML frontmatter with a `name` and a one-line `description`, then a body with the why and the how. maxims reads the format Claude Code's auto-memory already writes, unchanged, so a file that works there is a memory here without edits.
+
+This page is the format, the folder layout, and the two verbs that help you write one: `init` scaffolds a file and `lint` checks a folder before you publish it.
 
 ## A complete example
 
@@ -61,7 +63,7 @@ The refusal is exit 3, nothing written, with the file and the character named. `
 
 A `[[name]]` in the body names another memory this rule depends on. `add` requires every link target to resolve, either inside the same install or among memories already installed. A dangling link aborts the add and names the unmet dependency, with [exit 7](cli.md#exit-codes), the way a package manager refuses a missing dependency.
 
-Resolution runs through the rename map, so a memory renamed locally after a [name collision](installing.md#name-collisions-and-renames) still satisfies links written against its upstream name. The file content is never rewritten to match.
+Resolution runs through the rename map, so a memory renamed locally after a [name collision](install.md#name-collisions-and-renames) still satisfies links written against its upstream name. The file content is never rewritten to match.
 
 ## Layout in a source
 
@@ -83,6 +85,44 @@ The reference source `@Vivswan/skills` uses this layout, a `memories/` directory
 
 Autodetecting memories by frontmatter is not attempted, because any README with a `name:` field would become a rule. You name the folder; the tool never guesses.
 
-## Scaffolding a new file
+## Scaffold a file with init
 
-`maxims init <name>` writes a contract-valid file at `memories/<name>.md` for you to fill in. The [cli page](doctor.md#init) owns what it writes and when it refuses.
+```bash
+npx -y @vivswan/maxims init gate-exit-conditions-the-merge
+```
+
+`init <name>` writes `memories/<name>.md` under the current directory, creating `memories/` if needed, and refuses to overwrite an existing file. Without a name it prompts; non-interactively without one it exits 1.
+
+The file passes the [contract](#the-contract) as written:
+
+| field | value |
+| --- | --- |
+| `name` | the name you gave |
+| `description` | a placeholder for you to replace |
+| `metadata.node_type` | `memory` |
+| `metadata.type` | `feedback` |
+| body | `**Why:**` and `**How to apply:**` stubs |
+
+## Lint a folder before publishing
+
+```bash
+npx -y @vivswan/maxims lint            # checks memories/ under the current directory
+npx -y @vivswan/maxims lint path/to/folder --full-depth --cap 30
+```
+
+`lint` is the source repo's check. It reads every `.md` in the folder and prints one `path:line: reason` per problem, so an editor can jump to it. It never writes into a harness.
+
+| check | problem it reports |
+| --- | --- |
+| the [contract](#the-contract) | a file that would be skipped at `add`, with the contract's reason; a `metadata.type` warning counts |
+| [hidden characters](#hidden-characters-are-refused) | a `description` carrying one, with its code point and column |
+| [wikilinks](#wikilinks-are-dependencies) | a `[[link]]` that names no memory in this folder |
+| the [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | more memories than the cap allows; `--cap <n>` sets the threshold for this run only and persists nothing |
+
+| outcome | exit |
+| --- | --- |
+| no problems | 0 |
+| any problem | 3, the same code an incomplete install gets |
+| a folder or file that cannot be read | 1; "no problems" is a claim about files that were inspected |
+
+`--full-depth` scans subfolders too. `--json` prints `{ "ok": true, "problems": [] }` with one object per problem instead of the lines.

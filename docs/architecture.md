@@ -1,6 +1,6 @@
 ---
-order: 35
-group: Start here
+order: 63
+group: Behind the design
 ---
 
 # Architecture
@@ -54,7 +54,7 @@ flowchart LR
 ```
 
 - **Every destination has one writer.** `add`, `update` and `remove` change `state.json` and then run `sync`; no verb has a private path to a rules directory, an instruction file or a registry.
-- The [canonical home](state.md#the-canonical-home) owns the tree, why it sits inside the agents folder, every naming rule of the store, and which two files are not state.
+- The [canonical home](files.md#the-canonical-home) owns the tree, why it sits inside the agents folder, every naming rule of the store, and which two files are not state.
 
 Demonstrated by: [src/util/home.test.ts](../src/util/home.test.ts), [src/state/store.test.ts](../src/state/store.test.ts), [src/util/log.test.ts](../src/util/log.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
 
@@ -128,10 +128,10 @@ flowchart LR
   local -->|"copied: one write per file, live: one symlink"| storedir
 ```
 
-- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way; [How a source is fetched](fetching.md#how-a-source-is-fetched) owns the user-facing table.
-- **Nothing under `src/sources/` writes a remote source into the store.** A remote fetch lands in the temporary directory and returns its files in memory, so a fetch that fails on every rung leaves the previous store entry untouched: the last good copy the [failure paths](recovery.md#failure-paths) promise.
+- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way; [How a source is fetched](keep-fresh.md#how-a-source-is-fetched) owns the user-facing table.
+- **Nothing under `src/sources/` writes a remote source into the store.** A remote fetch lands in the temporary directory and returns its files in memory, so a fetch that fails on every rung leaves the previous store entry untouched: the last good copy the [failure paths](guarantees.md#failure-paths) promise.
 - **A rung may only end in an outcome.** Whatever a rung throws becomes that rung's failure, and when every rung fails the most actionable failure wins: rate limit, then auth, missing, invalid, network.
-- **The memory contract reports, the caller refuses.** `parseMemory()` returns a reason instead of throwing, and `hiddenCharacters()` lists what renders as nothing; [memory files](memory-files.md#the-contract) owns what is refused and why.
+- **The memory contract reports, the caller refuses.** `parseMemory()` returns a reason instead of throwing, and `hiddenCharacters()` lists what renders as nothing; [memory files](write-memories.md#the-contract) owns what is refused and why.
 
 Demonstrated by: [src/sources/github/ladder.test.ts](../src/sources/github/ladder.test.ts), [src/sources/github/index.test.ts](../src/sources/github/index.test.ts), [src/sources/git/index.test.ts](../src/sources/git/index.test.ts), [src/sources/local.test.ts](../src/sources/local.test.ts), [src/sources/tree.test.ts](../src/sources/tree.test.ts), [src/memory/contract.test.ts](../src/memory/contract.test.ts), [src/memory/wikilinks.test.ts](../src/memory/wikilinks.test.ts).
 
@@ -266,7 +266,7 @@ flowchart LR
 ```
 
 - **The command carries no source, no filter and no version pin:** intent supplies the first two, and the missing pin lets a fix reach hooked sessions without a re-add.
-- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](harnesses.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
+- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](keep-fresh.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
 - **The verbs are not drawn yet.** `src/commands/` holds their option and report types; each verb's flow joins this page as the verb lands there.
 
 Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).

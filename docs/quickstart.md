@@ -1,11 +1,11 @@
 ---
-order: 30
+order: 20
 group: Start here
 ---
 
 # Quickstart
 
-One command installs a source's one-liners into your agent's always-loaded layer and registers the hook that keeps them fresh. Every console block on this page is the specified output the code is built against, not a capture from a running build.
+One command installs a source's one-liners into your agent's always-loaded layer and registers the hook that keeps them fresh. This page is that command and what it writes; every console block on it is the specified output the code is built against, not a capture from a running build.
 
 ## Install a source
 
@@ -68,92 +68,10 @@ The rule file for that install, cut to two of its four rule lines. Each rule lin
 
 The file is generated on every sync and never hand-edited; the [rule file section](harnesses.md#the-rule-file) of the harnesses page owns its grammar.
 
-## Keep it fresh: sync
-
-The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run it yourself to apply state now:
-
-```bash
-npx -y @vivswan/maxims sync
-```
-
-In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
-
-```text
-maxims: @Vivswan/skills has not refreshed since 2026-08-26 (network unreachable); rules may be out of date
-maxims: rules refreshed (1 file updated)
-```
-
-`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](fetching.md#the-cap-and-the-cooldown) sets the window; the [failure paths](recovery.md#failure-paths) own what each failure does.
-
-## Refresh now: update
-
-```bash
-npx -y @vivswan/maxims update
-```
-
-`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` lines above; in a terminal it follows the `npx skills update` frame, which the specification leaves to be mirrored:
-
-```text
-|
-o  Checking for memory updates...
-o  Found 1 update(s)
-|  Updating @Vivswan/skills...
-|    ok Updated @Vivswan/skills
-o  ok Updated 1 source(s)
-|
-```
-
-With nothing to fetch the frame is one line, "ok All sources are up to date".
-
-## See what is installed: list
-
-```bash
-npx -y @vivswan/maxims list
-```
-
-The specification fixes what `list` reports and leaves the layout to mirror `npx skills list`: a "Global Memories" or "Project Memories" header, then one row per memory with its path and an indented line naming the agents and the source. Everything past the recorded intent is re-derived when you run it, so a hand-edited hook registry is reported as it is, not as it was.
-
-| `list` reports | derived from |
-| --- | --- |
-| each source, its selected memories, the fetched sha and each memory's short content hash | state |
-| staleness per source, with the reason of the last failed fetch | state |
-| live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |
-| the tier each harness achieves, and the rule file token estimate | the harness configs and rule files on disk |
-
-## Remove
-
-```bash
-npx -y @vivswan/maxims remove @Vivswan/skills                  # a whole source
-npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by name
-```
-
-`remove` takes the source or memory out of state and syncs; there is no separate uninstall path, because the regenerated output no longer contains those lines.
-
-In a terminal it lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Removed 2 memories". The [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY.
-
-| after `remove` | result |
-| --- | --- |
-| a rule file that was only the maxims block | deleted |
-| a rule file with hand-written content beside the block | the block goes, the rest stays byte for byte |
-| a live local source (installed with `--link`) | the store symlink is unlinked; the source directory is never touched |
-| the hook | stays until the last source leaves state, then is unregistered from every harness |
-
 ## Preview before writing
 
 Add `--dry-run` to any verb to see the plan without writing anything; the [flag reference](cli.md#flags) owns it and `--json`.
 
-## A cloned project: install
+## What happens next
 
-```bash
-npx -y @vivswan/maxims install
-```
-
-A project that committed `.agents/maxims.lock` carries its own source list. `install` in a fresh clone adds every source the [project lock](project-lock.md) names at project scope, then syncs, so the first session start already holds the team's rules.
-
-## Check what a harness loads: doctor
-
-```bash
-npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit
-```
-
-`doctor` checks each harness's rule file and hook against what that harness loads, and `--expect` turns one memory into an assertion with exit 1 when it is missing; the [doctor section](doctor.md#doctor) owns the report.
+The hook now runs `npx -y @vivswan/maxims sync --quiet` at every session start, and the [session hook section](keep-fresh.md#the-session-hook) owns what that run prints and when it fetches. To see what each harness loads right now, run [`doctor`](check.md#doctor-what-each-harness-loads).

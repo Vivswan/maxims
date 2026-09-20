@@ -1,42 +1,13 @@
 ---
-order: 70
+order: 53
 group: Reference
 ---
 
 # State
 
-Everything maxims owns lives under one directory, and one file in it, `state.json`, records what should be installed. `sync` reads that file and makes the machine match; nothing else on disk is ever read back as a record of what maxims did.
+One file in the [maxims home](files.md#the-canonical-home), `state.json`, records what should be installed. `sync` reads that file and makes the machine match; nothing else on disk is ever read back as a record of what maxims did.
 
-This page owns the layout, the schema, and migrations. The [recovery page](recovery.md) owns what happens when a run fails, and the [project lock page](project-lock.md) owns the file a project commits.
-
-## The canonical home
-
-```text
-~/.agents/maxims/                       # or $MAXIMS_HOME
-|-- store/
-|   |-- vivswan/skills/                 # a GitHub source: store/<owner>/<repo>, lower-cased
-|   |   |-- rubber-duck-before-every-commit.md
-|   |   `-- ...
-|   |-- vivswan/skills@v2-fb04dcb6/     # the same repo pinned: <repo>@<ref, unsafe characters folded to -, cut at 40>-<8 hex of the ref>; a separate source
-|   |-- _github/ghe.example.com/acme/rules/ # a GitHub Enterprise source: _github/<host>/<owner>/<repo>
-|   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>[_<port>]/<path without .git>
-|   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>
-|-- state.json                          # intent: what should be true
-|-- state.json.lock                     # the writer mutex, present only while a process writes
-|-- config.json                         # user defaults for future commands; never read as intent
-|-- last-sync                           # the stamp quiet-mode syncs debounce on
-`-- log/refresh.log                     # rolling, capped: what each run changed
-
-<project>/.agents/
-|-- memories/                           # bodies linked in by a project install
-`-- maxims.lock                         # the project lock, committed; replayed by `maxims install`
-```
-
-The home sits inside `.agents`, the directory `npx skills` already owns, so no new dotfolder appears and the layout is the same whether or not Claude Code is installed. Project memory directories link into it and rule lines point into it; the store is the only place a body lives, so a stale body cannot exist.
-
-A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
-
-Two files are not state. `config.json`, beside it, holds the [user defaults](fetching.md#user-defaults-in-configjson), which are preferences about future commands. The [project lock](project-lock.md), in the project's `.agents/`, is the committed record a fresh clone replays.
+This page owns what belongs in the file, the schema, and migrations. The [guarantees page](guarantees.md) owns what happens when a run fails, and the [share page](share.md) owns the file a project commits.
 
 ## State holds intent, never actuality
 
@@ -58,7 +29,7 @@ Each fact has exactly one owner. State records only what nothing else on the mac
 | retired memories | the log; a retired memory drops out of the regenerated block on its own |
 | `updatedAt` | the state file's mtime, plus the log |
 | user defaults: which harnesses, `--yes`, `--rule`, `--add-hook`, the cooldown, the cap | `config.json`, beside state; `sync` reads the cooldown and the cap from it, and every other key fills in a flag on `add`, whose result is ordinary intent |
-| the project's source list for a fresh clone | the [project lock](project-lock.md) in the project; state is per machine and the lock is per repository |
+| the project's source list for a fresh clone | the [project lock](share.md) in the project; state is per machine and the lock is per repository |
 
 Storing "it is installed" beside "it should be installed" creates two fields that can disagree the moment a user hand-edits a settings file. With no actuality fields there is nothing to reconcile, and recovery from any crash is `maxims sync` again.
 
@@ -125,9 +96,9 @@ The example is hand-written and parses against the current schema; a test keeps 
 | `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
-| `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project lock](project-lock.md#the-project-manifest) carries a copy of its own root's list |
+| `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project lock](share.md#the-project-manifest) carries a copy of its own root's list |
 
-Status: `destination.root` is specified, not yet in the schema; it lands with `--share`, whose status the [sharing section](project-lock.md#sharing-a-source) tracks.
+Status: `destination.root` is specified, not yet in the schema; it lands with `--share`, whose status the [sharing section](share.md#sharing-a-source) tracks.
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
