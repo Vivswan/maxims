@@ -1,3 +1,6 @@
+// Test oracle for src/rulefile/block.ts: the same line kinds and closer, read off micromark's flow
+// tokens. It stays out of the shipped scanner because micromark is 20x to 30x slower on 3 MB files
+// and quadratic in list nesting, which a session-start hook cannot afford.
 import { parse, preprocess } from "micromark";
 import { subtokenize } from "micromark-util-subtokenize";
 import type { Event, Token } from "micromark-util-types";

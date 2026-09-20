@@ -1,10 +1,12 @@
-// Differential gate: the micromark scanner must read every non-blank line and place every closer
-// exactly as the hand-rolled scanner did on the corpus that verified it, or name the CommonMark
-// rule the hand-rolled scanner missed. A silent divergence would move a marker line into or out of
-// a block on some rule file, and a block sync cannot find again is appended forever.
+// Differential gate: the shipped scanner in src/rulefile/block.ts must read every non-blank line
+// and place every closer exactly as the micromark oracle does, or the row names the CommonMark
+// section where the shipped reading is an accepted deviation. A silent divergence would move a
+// marker line into or out of a block on some rule file, and a block sync cannot find again is
+// appended forever. The oracle never ships: micromark is 20x to 30x slower on 3 MB files and
+// quadratic in list nesting, which a session-start hook cannot afford.
 import { describe, expect, test } from "bun:test";
-import { closerFor, scanLines } from "./block.ts";
-import { scanDocument } from "./scanner.ts";
+import { closerFor, scanLines } from "../../src/rulefile/block.ts";
+import { scanDocument } from "./scanner-oracle.ts";
 
 const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
 const END = "<!-- maxims:end @Vivswan/skills -->";
@@ -14,12 +16,12 @@ const BLOCK = `${BEGIN}\n${RULE}\n${END}\n`;
 type Line = { text: string; start: number; end: number; kind: string };
 type Reading = { lines: string[]; closer: string };
 
-function oldReading(text: string): Reading {
+function shippedReading(text: string): Reading {
   const { lines, open } = scanLines(text);
   return reading(lines, open === null ? "" : closerFor(open, "\n"));
 }
 
-function newReading(text: string): Reading {
+function oracleReading(text: string): Reading {
   const { lines, open } = scanDocument(text);
   return reading(lines, open === null ? "" : `${" ".repeat(open.column)}${open.closer}\n`);
 }
@@ -35,9 +37,9 @@ function reading(lines: Line[], closer: string): Reading {
 }
 
 // Every line is compared exactly except blank lines inside a fence or a raw HTML block, which
-// read as "text" in both: the old scanner gives the blank line that ends a block-tag HTML block
-// the block's kind, and keeps the kind of a leaf a list leaves open through the blank lines after
-// it, where micromark ends the leaf before them; no consumer reads those kinds. A blank line inside
+// read as "text" in both: the shipped scanner gives the blank line that ends a block-tag HTML
+// block the block's kind, and keeps the kind of a leaf a list leaves open through the blank lines
+// after it, where micromark ends the leaf before them; no consumer reads those kinds. A blank line inside
 // a comment keeps its kind, since budget.ts strips a comment only when its lines stay together,
 // except the trailing blank lines of a comment left open, which budget.ts keeps whole either way.
 function canonical(lines: Line[]): string[] {
@@ -64,8 +66,12 @@ function isBlank(line: Line): boolean {
   return /^[ \t]*$/.test(line.text);
 }
 
-function kinds(text: string): string[] {
+function oracleKinds(text: string): string[] {
   return scanDocument(text).lines.map((line) => line.kind);
+}
+
+function shippedKinds(text: string): string[] {
+  return scanLines(text).lines.map((line) => line.kind);
 }
 
 describe("both scanners agree", () => {
@@ -258,83 +264,83 @@ describe("both scanners agree", () => {
     ["a lone tag with text after it on a lazy line under an item", `- a\n<custom> x\n${BLOCK}`],
   ];
   test.each(agreed)("%s", (_label, text) => {
-    expect(newReading(text)).toEqual(oldReading(text));
+    expect(oracleReading(text)).toEqual(shippedReading(text));
   });
 });
 
-// Each row is a reading of the CommonMark 0.31.2 text the hand-rolled scanner missed, with the
-// section it comes from and where the reference parsers stand; the differential proves the two
-// scanners part there, and the row pins the specification's reading. Where marked, Claude Code's
-// lexer, sides with the old scanner, a marker directly under the construct now reads differently
-// from how Claude Code renders it.
-describe("the hand-rolled scanner misread the specification", () => {
-  // Columns: what the construct is, the specification section, where the reference parsers stand
-  // (JS = commonmark.js and markdown-it), the document, the new scanner's kinds and closer.
-  const misread: [string, string, string, string, string[], string][] = [
+// Accepted deviations: rows where the shipped scanner reads whitespace as JavaScript does, as
+// commonmark.js and markdown-it do, where the CommonMark 0.31.2 text (and the oracle) mean spaces
+// and tabs only. Each row pins the shipped reading as the behavior that ships, names the section,
+// and says where the reference parsers stand; marked is Claude Code's lexer.
+describe("accepted deviations of the shipped scanner from the specification", () => {
+  // Columns: what the shipped scanner does, the section it deviates from, where the reference
+  // parsers stand (JS = commonmark.js and markdown-it), the document, the shipped kinds and closer.
+  const deviations: [string, string, string, string, string[], string][] = [
     [
-      "a tag holding a form feed is no tag, so the marker interrupts the paragraph",
+      "a tag holding a form feed opens a block that hides the marker under it",
       "6.6: attributes are separated by spaces, tabs and up to one line ending",
-      "marked agrees; JS sides with the old scanner",
+      "JS agrees; marked reads a paragraph and the marker",
       `<custom\f>\n${BLOCK}`,
-      ["text", "comment", "text", "comment"],
+      ["html", "html", "html", "html"],
       "",
     ],
     [
-      "a tag followed by a form feed opens no block",
+      "a tag followed by a form feed opens a block that hides the marker under it",
       "4.6 start condition 7: followed only by spaces or tabs",
-      "marked agrees; JS sides with the old scanner",
+      "JS agrees; marked reads a paragraph and the marker",
       `<custom>\f\n${BLOCK}`,
-      ["text", "comment", "text", "comment"],
+      ["html", "html", "html", "html"],
       "",
     ],
     [
-      "a tag followed by a non-breaking space opens no block",
+      "a tag followed by a non-breaking space opens a block that hides the marker under it",
       "4.6 start condition 7",
-      "marked agrees; JS sides with the old scanner",
+      "JS agrees; marked reads a paragraph and the marker",
       `<b>\u00a0\n${BLOCK}`,
-      ["text", "comment", "text", "comment"],
+      ["html", "html", "html", "html"],
       "",
     ],
     [
-      "a pre tag broken by a non-breaking space is no tag and opens no block",
+      "a pre tag broken by a non-breaking space opens a block-tag block, closed by the blank line",
       "6.6: tag whitespace is spaces, tabs and one line ending",
-      "JS and marked read JavaScript whitespace and side with the old scanner",
+      "JS and marked agree",
       "<pre\u00a0>\nx\n",
-      ["text", "text"],
+      ["html", "html"],
       "",
     ],
     [
-      "a label of only a non-breaking space is a link label, so its definition keeps the equals signs and the lone tag from opening blocks",
+      "a label of only a non-breaking space is no link label, so the equals signs underline a heading and the lone tag opens a block",
       "6.3: a label holds a character that is not a space, tab or line ending",
-      "JS and marked trim JavaScript whitespace and side with the old scanner",
+      "JS and marked agree",
       `[\u00a0]: /url\n===\n<custom>\n${BLOCK}`,
-      ["text", "text", "text", "comment", "text", "comment"],
+      ["text", "text", "html", "html", "html", "html"],
       "",
     ],
   ];
-  test.each(misread)(
+  test.each(deviations)(
     "%s (spec %s; %s)",
     (_label, _spec, _sides, text, expectedKinds, expectedCloser) => {
-      expect(newReading(text)).not.toEqual(oldReading(text));
-      expect(kinds(text)).toEqual(expectedKinds);
-      expect(newReading(text).closer).toBe(expectedCloser);
+      expect(shippedKinds(text)).toEqual(expectedKinds);
+      expect(shippedReading(text).closer).toBe(expectedCloser);
+      expect(oracleReading(text)).not.toEqual(shippedReading(text));
     },
   );
 });
 
-// Where micromark departs from the other CommonMark parsers. Each row pins micromark's reading so
-// that a release changing it is noticed, and says what the marker after the construct becomes.
-describe("micromark departs from the reference parsers", () => {
+// Where the oracle departs from the other CommonMark parsers. Each row pins the oracle's reading
+// so that a micromark release changing it is noticed, and says what the marker after the
+// construct becomes.
+describe("the oracle departs from the reference parsers", () => {
   // A complete tag alone on a lazy line under a list item: the spec's laziness rule (5.2) makes it
-  // paragraph text, as commonmark.js reads it, since the tag could not interrupt the paragraph
-  // behind the item's indentation. micromark opens an HTML block inside the item, which the
-  // unindented marker line then ends, so the marker is recognized either way; cmark and marked
-  // open the block at the top level and hide the marker in it.
+  // paragraph text, as the shipped scanner and commonmark.js read it, since the tag could not
+  // interrupt the paragraph behind the item's indentation. micromark opens an HTML block inside
+  // the item, which the unindented marker line then ends, so the marker is recognized either way;
+  // cmark and marked open the block at the top level and hide the marker in it.
   test("a lone tag on a lazy line under a list item reads as HTML, and the marker after it stays a marker", () => {
     const text = `- a\n<custom>\n${BLOCK}`;
-    expect(newReading(text)).not.toEqual(oldReading(text));
-    expect(kinds(text)).toEqual(["text", "html", "comment", "text", "comment"]);
-    expect(kinds(`- a\n<custom>\n\n${BLOCK}`)).toEqual([
+    expect(shippedKinds(text)).toEqual(["text", "text", "comment", "text", "comment"]);
+    expect(oracleKinds(text)).toEqual(["text", "html", "comment", "text", "comment"]);
+    expect(oracleKinds(`- a\n<custom>\n\n${BLOCK}`)).toEqual([
       "text",
       "html",
       "text",
@@ -345,12 +351,12 @@ describe("micromark departs from the reference parsers", () => {
   });
 
   // A self-closing raw tag alone on a line: spec 4.6 condition 7 excludes the four raw names, so
-  // marked reads a paragraph and the marker under it; cmark, commonmark.js, micromark and the old
-  // scanner all open a block that hides the marker until a blank line.
+  // marked reads a paragraph and the marker under it; cmark, commonmark.js, micromark and the
+  // shipped scanner all open a block that hides the marker until a blank line.
   test("a self-closing pre tag alone opens an HTML block, as every CommonMark parser but the specification reads it", () => {
     const text = `<pre/>\n${BLOCK}`;
-    expect(newReading(text)).toEqual(oldReading(text));
-    expect(kinds(text)).toEqual(["html", "html", "html", "html"]);
+    expect(oracleReading(text)).toEqual(shippedReading(text));
+    expect(oracleKinds(text)).toEqual(["html", "html", "html", "html"]);
   });
 
   // micromark keeps the paragraph-interrupting rule (spec 5.3, example 304: an ordered list that
@@ -358,8 +364,8 @@ describe("micromark departs from the reference parsers", () => {
   // line, so `2)` after `1. +` reads as paragraph text; cmark, commonmark.js, markdown-it and
   // marked all open the list. micromark also ends an unquoted attribute value at a slash, which
   // spec 6.6 allows there, so a tag holding one is no tag and the marker under it interrupts the
-  // paragraph; cmark, commonmark.js and marked read the block. Each row fails on purpose until a
-  // micromark release corrects it.
+  // paragraph; cmark, commonmark.js, marked and the shipped scanner read the block. Each row
+  // fails on purpose until a micromark release corrects it.
   const defects: [string, string][] = [
     [
       "an ordered marker numbered two after containers opened on a paragraph-interrupting line",
@@ -368,12 +374,12 @@ describe("micromark departs from the reference parsers", () => {
     ["a tag whose unquoted attribute value holds a slash", `<custom a=b/c>\n${BLOCK}`],
   ];
   test.failing.each(defects)("%s", (_label, text) => {
-    expect(newReading(text)).toEqual(oldReading(text));
+    expect(oracleReading(text)).toEqual(shippedReading(text));
   });
 });
 
-// mulberry32 and the inline pieces, copied from block.test.ts so that a failing case is
-// reproducible from its index alone. The copy leaves out the inline tags and the non-breaking
+// mulberry32 and the inline pieces, copied from src/rulefile/block.test.ts so that a failing case
+// is reproducible from its index alone. The copy leaves out the inline tags and the non-breaking
 // space: a lone tag under a list item and a non-breaking space beside a tag are the two readings
 // the rows above attribute, and every generated document must read alike. The pieces can still
 // spell a bare tag such as `<a-->` from `<`, `a` and `-->`; the seeds in use never place one
@@ -565,7 +571,9 @@ describe("random documents", () => {
         const random = rng(20260920 + i);
         const body = text(random, pieces, length(random));
         for (const doc of [body, `${body}${separator}${BLOCK}`]) {
-          expect(newReading(doc), `case ${i}: ${JSON.stringify(doc)}`).toEqual(oldReading(doc));
+          expect(oracleReading(doc), `case ${i}: ${JSON.stringify(doc)}`).toEqual(
+            shippedReading(doc),
+          );
         }
       }
     },
