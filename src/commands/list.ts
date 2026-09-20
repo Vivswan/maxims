@@ -22,7 +22,7 @@ import {
 } from "./shared/engine.ts";
 import { planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
-import { previewState } from "./shared/report.ts";
+import { errorDocument, previewState } from "./shared/report.ts";
 import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import type {
@@ -39,6 +39,15 @@ import type {
 // staleness, token cost) re-derived from disk on the spot. Never takes the lock and never settles
 // the state file.
 export async function runList(options: ListOptions, io: EngineIo): Promise<ListReport> {
+  try {
+    return await runListChecked(options, io);
+  } catch (error) {
+    if (options.json) io.stdout(errorDocument(error));
+    throw error;
+  }
+}
+
+async function runListChecked(options: ListOptions, io: EngineIo): Promise<ListReport> {
   const ctx = await loadContext(io, { readHookStdin: false });
   const preview = await previewState(ctx.home);
   const report =

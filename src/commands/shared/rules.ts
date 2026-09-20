@@ -119,10 +119,13 @@ export async function planRuleFile(
   // already replaced: a source that grew while a later one shrank would be refused on that
   // intermediate text even when the finished file fits. So the blocks are spliced here with the
   // grammar's own splicer (which closes a construct the user left open, as the strategy does) and
-  // the budget is judged once, on the finished text.
+  // the budget is judged once, on the finished text, against every reader of the file.
   let text = current ?? "";
   for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
-  if (rendered.length > 0) assertWithinBudget(primary.def, primary.scope, file.path, text);
+  if (rendered.length > 0) {
+    for (const target of file.targets)
+      assertWithinBudget(target.def, target.scope, file.path, text);
+  }
   if (text !== (current ?? "")) {
     writes.push({ kind: "write", path: file.path, content: text });
     tokens.push({ path: file.path, tokens: estimateTokens(text, rendering.markers) });
@@ -250,7 +253,7 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
           if (!isAbsent(error)) input.warn(`cannot read ${path}: ${describe(error)}`);
           return false;
         }
-        return parseBlocks(text).blocks.length > 0;
+        return claimedByMaxims(text);
       });
       if (orphans.length === 0) continue;
       const realDir = realDirOf(dir);
@@ -265,6 +268,12 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
     }
   }
   return changes;
+}
+
+// A file at a name maxims derives is ours to remove only while it carries a managed block; the
+// user may keep a file of their own at that name once the rules that wrote it are gone.
+export function claimedByMaxims(text: string): boolean {
+  return parseBlocks(text).blocks.length > 0;
 }
 
 function isSymlink(path: string): boolean {

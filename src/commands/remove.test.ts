@@ -336,6 +336,27 @@ describe("remove", () => {
     });
   });
 
+  // The `-o` rule file's name is derived, so a user may have a file of their own at it once the
+  // rules are switched off; only a file carrying maxims markers is ours to take away.
+  test("removing an -o source leaves a marker-less file at its rule file's name alone", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const out = join(dir, "out");
+      mkdirSync(out);
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "out", path: out },
+        rule: false,
+      });
+      writeState(home, stateWith({ [source]: entry }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const own = join(out, `maxims-${sourceSlug(localFrom(source))}.md`);
+      writeFileSync(own, "# My notes\n");
+      await runRemove({ ...REMOVE, all: true }, io);
+      expect(readFileSync(own, "utf8")).toBe("# My notes\n");
+    });
+  });
+
   test("a bare name is found by its installed local name even when the rename map is stale", async () => {
     await world(async ({ home, dir, userHome }) => {
       const live = writeSource(join(dir, "live"), {

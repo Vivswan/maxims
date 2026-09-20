@@ -40,7 +40,7 @@ import {
   writeState,
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
-import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
+import { type HarnessDefinition, type HarnessId, HOOK_COMMAND } from "../harnesses/contract.ts";
 import { parseBlocks } from "../rulefile/block.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
@@ -380,6 +380,53 @@ describe("shared files and dedupe", () => {
       const budgeted = fakeIo({ home, userHome, cwd: dir, harnesses: [tiny] });
       await expectExit(runSync(SYNC, budgeted), ExitCode.RuleCapExceeded);
       expect(existsSync(join(userHome, ".fixture", "rules"))).toBe(false);
+    });
+  });
+
+  const readerOrders: HarnessId[][] = [
+    ["codex", "dsh"],
+    ["dsh", "codex"],
+  ];
+  for (const harnesses of readerOrders) {
+    test(`a shared file over one reader's byte budget is refused with readers ${harnesses.join(",")}`, async () => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(home, stateWith({ [source]: entryFor(localFrom(source), { harnesses }) }));
+        const budgeted: HarnessDefinition = {
+          ...sharedBlockHarness,
+          id: "dsh",
+          displayName: "Fixture Budgeted",
+          byteBudget: 64,
+        };
+        const io = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness, budgeted] });
+        const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
+        expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
+        expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
+      });
+    });
+  }
+
+  test("a reader only a later source brings to a shared file still judges the whole file", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const first = writeSource(join(dir, "first"), { one: { description: "One." } });
+      const second = writeSource(join(dir, "second"), { two: { description: "Two." } });
+      writeState(
+        home,
+        stateWith({
+          [first]: entryFor(localFrom(first), { harnesses: ["codex"] }),
+          [second]: entryFor(localFrom(second), { harnesses: ["codex", "dsh"] }),
+        }),
+      );
+      const budgeted: HarnessDefinition = {
+        ...sharedBlockHarness,
+        id: "dsh",
+        displayName: "Fixture Budgeted",
+        byteBudget: 64,
+      };
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness, budgeted] });
+      const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
+      expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
+      expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
     });
   });
 

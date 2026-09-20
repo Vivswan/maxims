@@ -24,6 +24,7 @@ import {
 } from "../../tests/engine/harness.ts";
 import { TWO_MEMORIES, world } from "../../tests/engine/world.ts";
 import type { HarnessDefinition } from "../harnesses/contract.ts";
+import { ExitCode } from "../util/exit-codes.ts";
 import { runList } from "./list.ts";
 import { runSync } from "./sync.ts";
 import type { ListReport, SyncOptions } from "./types.ts";
@@ -331,6 +332,30 @@ describe("list", () => {
       const [harness] = report.sources[0]?.harnesses ?? [];
       expect(harness?.skipped).toContain("is a file, not the directory");
       expect(harness?.hook).toBe("not-wanted");
+    });
+  });
+
+  // `--json` is one document or nothing to a caller parsing stdout; a lock path that cannot be
+  // read used to throw past the printer.
+  test("--json prints one ok:false document when the lock path is a directory", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      mkdirSync(join(project, ".agents", "maxims.lock"), { recursive: true });
+      const io = fakeIo({ home, userHome, cwd: project });
+      const thrown = await runList({ quiet: false, dryRun: false, json: true }, io).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(thrown).toBeInstanceOf(Error);
+      expect(io.out).toHaveLength(1);
+      const document = JSON.parse(io.out[0] ?? "");
+      expect(document).toEqual({
+        ok: false,
+        code: ExitCode.Usage,
+        message: expect.stringContaining("EISDIR"),
+        hint: null,
+      });
     });
   });
 

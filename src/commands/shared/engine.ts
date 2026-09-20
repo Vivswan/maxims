@@ -35,6 +35,7 @@ import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
 import { readProjectLock } from "./project-lock-io.ts";
 import {
+  claimedByMaxims,
   isAbsent,
   planRuleFile,
   planRulesDirSweep,
@@ -417,13 +418,7 @@ async function planInstall(
       const [first] = group;
       if (first === undefined) continue;
       requests.push({
-        file: files.get(first.realKey) ?? {
-          kind: "harness",
-          path: first.path,
-          sourceSlug: slug,
-          targets: group,
-          blocks: [],
-        },
+        file: harnessFile(files, group, first, slug),
         lines: linesFor(detailPathFor(work, group, ctx)),
       });
       if (intent.paths !== undefined && !supportsPathScoping(first)) {
@@ -599,6 +594,28 @@ async function planInstall(
     tokens,
     nextState,
   };
+}
+
+// Sources sharing one file each bring their own readers; the file carries the union, so its
+// rendering and its byte budget answer to every harness that reads it, not the first source's.
+function harnessFile(
+  files: Map<string, RuleFile>,
+  group: HarnessTarget[],
+  first: HarnessTarget,
+  slug: string,
+): Extract<RuleFile, { kind: "harness" }> {
+  const existing = files.get(first.realKey);
+  const file: Extract<RuleFile, { kind: "harness" }> =
+    existing?.kind === "harness"
+      ? existing
+      : { kind: "harness", path: first.path, sourceSlug: slug, targets: [], blocks: [] };
+  for (const target of group) {
+    const seen = file.targets.some(
+      (known) => known.def.id === target.def.id && known.scope === target.scope,
+    );
+    if (!seen) file.targets.push(target);
+  }
+  return file;
 }
 
 // The identity a rule file is kept and grouped under: the real path of the target file.
@@ -1144,13 +1161,16 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
   }).targets.map((target) => target.path);
 }
 
+// The `-o` rule files of sources that left intent or switched rules off, taken only when the file
+// carries maxims markers: the name is derived, and a user's own file at it stays theirs.
 function removedOutRuleFiles(removed: readonly SourceEntry[]): Change[] {
   const changes: Change[] = [];
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
     const path = join(root, `maxims-${sourceSlug(entry.intent.from)}.md`);
-    if (readIfPresent(path) === null) continue;
+    const text = readIfPresent(path);
+    if (text === null || !claimedByMaxims(text)) continue;
     changes.push({ kind: "delete", path: assertInsideRoot(root, path) });
   }
   return changes;
