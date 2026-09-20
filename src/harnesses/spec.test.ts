@@ -98,6 +98,15 @@ const refusals: [string, Mutation, string][] = [
     "targets.global.precedence: must include the default file AGENTS.md",
   ],
   [
+    "a scoped frontmatter whose paths key already holds a value",
+    at(["targets", "project", "frontmatter", "scoped"], {
+      fields: { globs: "**", alwaysApply: false },
+      pathsKey: "globs",
+      pathsAs: "list",
+    }),
+    "targets.project.frontmatter.scoped.fields.globs: the paths key holds null where the paths go, or is left out",
+  ],
+  [
     "no target in either scope",
     (spec) => at(["targets", "global"], null)(at(["targets", "project"], null)(spec)),
     "targets: at least one scope needs a target",

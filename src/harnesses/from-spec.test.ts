@@ -109,6 +109,37 @@ test("frontmatter without a scoped form refuses paths out loud and fences the al
   expect(def.scopeFrontmatter?.(globs)).toBe("---\npaths:\n  - src/**\n  - docs/**\n---\n");
 });
 
+// Cursor reads `globs` between `description` and `alwaysApply`; a YAML reader does not care, but
+// the written bytes are what the folder test pins, so the placement is part of the contract.
+test("a null paths key among the scoped fields fixes where the paths land", () => {
+  const def = toDefinition(
+    specOf({
+      ...rendering,
+      targets: {
+        ...rendering.targets,
+        project: {
+          kind: "rules-dir",
+          dir: ".example/rules",
+          fileName: "maxims-{{slug}}.md",
+          frontmatter: {
+            always: { mode: "always" },
+            scoped: {
+              fields: { mode: "glob", globs: null, alwaysApply: false },
+              pathsKey: "globs",
+              pathsAs: "list",
+            },
+          },
+        },
+      },
+    }),
+  );
+  const target = def.targets.project;
+  if (target?.kind !== "rules-dir" || target.frontmatter === undefined) throw new Error("no fm");
+  expect(target.frontmatter({ paths: globs })).toBe(
+    "---\nmode: glob\nglobs:\n  - src/**\n  - docs/**\nalwaysApply: false\n---\n",
+  );
+});
+
 test("the global root joins the env override with its subdirectory and strips ~/ from the default", () => {
   const def = toDefinition(rendering);
   const home = "/home/user";

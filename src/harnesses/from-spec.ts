@@ -163,6 +163,8 @@ function compileScopeFrontmatter(
   return (globs) => (globs.length === 0 ? null : fenced(scopedFields(scoped, globs)));
 }
 
+// Overwriting a key the fields already hold keeps its position, so a `null` placeholder in the
+// fields fixes where the paths land.
 function scopedFields(scoped: ScopedFrontmatterSpec, paths: string[]): Record<string, unknown> {
   return {
     ...scoped.fields,

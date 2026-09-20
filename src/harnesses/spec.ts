@@ -117,11 +117,25 @@ const Fields = z.record(z.string(), z.json());
 
 // A path-scoped install puts the globs under `pathsKey`, as a YAML list or one comma-joined
 // string, beside `fields`; a harness with no scoped form declares none and refuses `--paths`.
-const ScopedFrontmatter = z.strictObject({
-  fields: Fields,
-  pathsKey: z.string().min(1),
-  pathsAs: z.enum(["list", "comma-list"]),
-});
+// Naming `pathsKey` inside `fields` with `null` fixes where the globs land among the other keys
+// (Cursor lists `globs` before `alwaysApply`); left out, they land last.
+const ScopedFrontmatter = z
+  .strictObject({
+    fields: Fields,
+    pathsKey: z.string().min(1),
+    pathsAs: z.enum(["list", "comma-list"]),
+  })
+  .check((ctx) => {
+    const { fields, pathsKey } = ctx.value;
+    if (Object.hasOwn(fields, pathsKey) && fields[pathsKey] !== null) {
+      ctx.issues.push({
+        code: "custom",
+        input: fields[pathsKey],
+        path: ["fields", pathsKey],
+        message: "the paths key holds null where the paths go, or is left out",
+      });
+    }
+  });
 
 const Frontmatter = z.strictObject({
   always: Fields,
