@@ -1,5 +1,5 @@
 import { ExitCode } from "../util/exit-codes.ts";
-import type { Command } from "./shared/options.ts";
+import { type Command, usage } from "./shared/options.ts";
 
 // Hidden from `--help`: a harness that starts its MCP servers eagerly spawns `maxims mcp-serve`
 // and the sync runs before the agent reads a word. The server exposes zero tools; the quiet sync
@@ -10,6 +10,7 @@ export const mcpServe: Command = {
   arity: 0,
   flags: [],
   async run(_args, ctx) {
+    if (ctx.global.json) throw usage("mcp-serve speaks MCP on stdout; drop --json");
     await ctx.engine.serveMcpStub({
       runSync: () =>
         ctx.engine.runSync(

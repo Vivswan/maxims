@@ -299,9 +299,6 @@ export type PrepareOutcome =
   | { kind: "cancelled" }
   | { kind: "prepared"; prepared: PreparedAdd };
 
-// Steps 1 to 4 of `add`: fetch, filter, validate, show the plan and confirm. Nothing is written,
-// so a failure here (exit 2, 3, 6, 7, 8) leaves the machine exactly as it was, and `install` can
-// prepare every manifest entry before it commits any of them.
 // A source after steps 1 and 2: fetched, scanned and filtered, nothing validated yet. `install`
 // stages every manifest entry before planning any, so the entries validate against each other.
 export type StagedAdd = {
@@ -404,7 +401,8 @@ export async function planAdd(
   };
 }
 
-// Steps 1 to 4 for one source on its own.
+// Steps 1 to 4 for one source on its own: fetch, filter, validate, show the plan and confirm.
+// Nothing is written, so a failure here (exit 2, 3, 6, 7, 8) leaves the machine exactly as it was.
 export async function prepareAdd(
   requested: AddRequest,
   ctx: CommandContext,
@@ -542,8 +540,8 @@ async function fetchTree(
     };
   }
   const local = request.from.type === "local";
-  const spinner = console.spinner(local ? STRINGS.readingDirectory : STRINGS.cloning);
   const tempDir = mkdtempSync(join(tmpdir(), "maxims-add-"));
+  const spinner = console.spinner(local ? STRINGS.readingDirectory : STRINGS.cloning);
   try {
     const resolver = io.resolvers(request.from);
     const result = await resolver.fetch(request.from, {

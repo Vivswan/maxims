@@ -5,6 +5,7 @@
 // `-y` non-interactively, or `disable` accepting `-a`.
 import { expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -593,6 +594,14 @@ test("mcp-serve hands the stub a quiet sync and stays out of --help", async () =
     ]);
     const help = await runCli(scenario, ["--help"]);
     expect(help.stdout).not.toContain("mcp-serve");
+    const json = await runCli(scenario, ["mcp-serve", "--json"]);
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      ok: false,
+      code: 1,
+      message: "mcp-serve speaks MCP on stdout; drop --json",
+    });
+    expect(scenario.engine.calls.mcpServe).toBe(1);
   });
 });
 
@@ -701,6 +710,19 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
     const missing = await runCli(scenario, ["lint", "nowhere"]);
     expect(missing.code).toBe(1);
     expect(missing.stderr).toContain(" ERROR  cannot read ");
+    // A permission refusal reads the same as an absent folder: lint inspected nothing there, so
+    // it is a failed check (exit 1), never the destination-write code. Root ignores modes.
+    if (process.getuid?.() === 0) return;
+    const nested = join(dir, "locked");
+    mkdirSync(nested);
+    chmodSync(nested, 0o000);
+    try {
+      const locked = await runCli(scenario, ["lint", dir, "--full-depth"]);
+      expect(locked.code).toBe(1);
+      expect(locked.stderr).toContain(` ERROR  cannot read ${nested}: EACCES`);
+    } finally {
+      chmodSync(nested, 0o755);
+    }
   });
 });
 

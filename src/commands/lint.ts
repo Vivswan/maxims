@@ -48,12 +48,12 @@ export function lintFolder(
   recursive: boolean,
   cap: number,
 ): LintProblem[] {
-  const files = collectMarkdown(root, recursive, true);
+  const files = collectMarkdown(root, recursive);
   const problems: LintProblem[] = [];
   const memories: { memory: Memory; path: string }[] = [];
   for (const file of files) {
     const path = relative(cwd, file) || file;
-    const text = readFileSync(file, "utf8");
+    const text = readOrRefuse(file, () => readFileSync(file, "utf8"));
     const parsed = parseMemory(file, text);
     if (!parsed.ok) {
       problems.push({ path, line: keyLine(text, parsed.reason), reason: parsed.reason });
@@ -98,30 +98,30 @@ export function lintFolder(
   return problems.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
 }
 
-// A folder that cannot be read is an error, never a clean result: "no problems" is a claim about
-// files that were inspected.
-function collectMarkdown(dir: string, recursive: boolean, isRoot: boolean): string[] {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new MaximsError(
-      isRoot ? ExitCode.Usage : ExitCode.DestinationWriteFailed,
-      `cannot read ${dir}: ${detail}`,
-      { cause },
-    );
-  }
+// A folder or file that cannot be read is an error, never a clean result: "no problems" is a
+// claim about files that were inspected. Lint reads a source folder and writes nothing, so the
+// refusal is the usage code, wherever in the tree the unreadable entry sits.
+function collectMarkdown(dir: string, recursive: boolean): string[] {
+  const entries = readOrRefuse(dir, () => readdirSync(dir));
   const out: string[] = [];
   for (const entry of entries.sort()) {
     const path = join(dir, entry);
-    const stat = statSync(path, { throwIfNoEntry: false });
+    const stat = readOrRefuse(path, () => statSync(path, { throwIfNoEntry: false }));
     if (stat === undefined) continue;
     if (stat.isDirectory()) {
-      if (recursive) out.push(...collectMarkdown(path, recursive, false));
+      if (recursive) out.push(...collectMarkdown(path, recursive));
     } else if (entry.endsWith(".md")) out.push(path);
   }
   return out;
+}
+
+function readOrRefuse<T>(path: string, read: () => T): T {
+  try {
+    return read();
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new MaximsError(ExitCode.Usage, `cannot read ${path}: ${detail}`, { cause });
+  }
 }
 
 // The line of the frontmatter key a reason names, so `description is missing or empty` points at
