@@ -1,0 +1,42 @@
+{
+  "name": "maxims",
+  "version": "0.0.0",
+  "description": "One-line rule memories installed from GitHub repos into coding agents, guaranteed to load every session",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vivswan/maxims.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "maxims": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip",
+    "lint": "bun x biome ci .",
+    "lint:fix": "bun x biome check --write .",
+    "typecheck": "bun x tsc -p .",
+    "test": "bun scripts/run_tests.ts",
+    "build": "bun build src/cli.ts --target node --outfile dist/cli.js",
+    "knip": "bun x knip",
+    "bench": "bun scripts/bench.ts",
+    "nightly": "bun scripts/nightly.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.11",
+    "@types/bun": "1.4.2",
+    "knip": "6.35.1",
+    "typescript": "7.0.2"
+  }
+}

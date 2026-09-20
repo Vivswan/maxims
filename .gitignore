@@ -1,0 +1,6 @@
+# Repository-local patterns; the repo-platform managed region is appended below by the sync.
+node_modules/
+dist/
+coverage/
+*.tgz
+.claude/worktrees/

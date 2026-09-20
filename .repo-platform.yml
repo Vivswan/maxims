@@ -1,0 +1,12 @@
+# Registration with Vivswan/repo-platform: the sync reads this file and never rewrites it.
+modules:
+  - bun
+  - site
+  - release-please
+  - pr-title
+  - nightly
+project:
+  name: maxims
+  slug: maxims
+  description: One-line rule memories installed from GitHub repos into coding agents, guaranteed to load every session
+  copyright_holder: Vivswan Shah (https://github.com/Vivswan)
