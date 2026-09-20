@@ -41,7 +41,18 @@ export type ParsedMemory =
   | { ok: true; memory: Memory; warning?: string }
   | { ok: false; reason: string };
 
+// A source file can carry anything YAML can express, and a file that fails the contract is
+// skipped with a reason, never fatal; the outer catch makes that promise hold for inputs the
+// row-by-row checks did not anticipate.
 export function parseMemory(filename: string, text: string): ParsedMemory {
+  try {
+    return parseMemoryChecked(filename, text);
+  } catch (error) {
+    return { ok: false, reason: `unreadable memory file: ${describe(error)}` };
+  }
+}
+
+function parseMemoryChecked(filename: string, text: string): ParsedMemory {
   const file = basename(filename);
   if (RESERVED_FILES.has(file)) return { ok: false, reason: `${file} is reserved` };
   if (!file.endsWith(".md")) return { ok: false, reason: `${file} is not a .md file` };
@@ -55,14 +66,14 @@ export function parseMemory(filename: string, text: string): ParsedMemory {
   try {
     frontmatter = parseYaml(split.yaml);
   } catch (error) {
-    return { ok: false, reason: `frontmatter is not valid YAML: ${(error as Error).message}` };
+    return { ok: false, reason: `frontmatter is not valid YAML: ${describe(error)}` };
   }
   if (!isRecord(frontmatter)) return { ok: false, reason: "frontmatter is not a mapping" };
 
   if (frontmatter.name !== name) {
     return {
       ok: false,
-      reason: `name "${String(frontmatter.name)}" does not equal filename stem "${stem}"`,
+      reason: `name ${show(frontmatter.name)} does not equal filename stem "${stem}"`,
     };
   }
   const description = frontmatter.description;
@@ -96,7 +107,7 @@ function readMetadata(value: unknown): ReadMetadata {
   if (!isRecord(value)) return { ok: false, reason: "metadata is not a mapping" };
   const { node_type: nodeType, type, scope, ...extra } = value;
   if (nodeType !== undefined && nodeType !== "memory") {
-    return { ok: false, reason: `metadata.node_type is "${String(nodeType)}", expected "memory"` };
+    return { ok: false, reason: `metadata.node_type is ${show(nodeType)}, expected "memory"` };
   }
   const metadata: MemoryMetadata = { extra };
   if (nodeType === "memory") metadata.nodeType = "memory";
@@ -107,7 +118,7 @@ function readMetadata(value: unknown): ReadMetadata {
     if (isMemoryType(type)) metadata.type = type;
     else {
       extra.type = type;
-      warning = `metadata.type "${String(type)}" is not one of ${MEMORY_TYPES.join(", ")}`;
+      warning = `metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`;
     }
   }
   return warning === undefined ? { ok: true, metadata } : { ok: true, metadata, warning };
@@ -115,6 +126,19 @@ function readMetadata(value: unknown): ReadMetadata {
 
 function isMemoryType(value: unknown): value is MemoryType {
   return typeof value === "string" && (MEMORY_TYPES as readonly string[]).includes(value);
+}
+
+// JSON rendering never consults the value's own toString, which YAML can set to anything.
+function show(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? typeof value;
+  } catch {
+    return typeof value;
+  }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : show(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

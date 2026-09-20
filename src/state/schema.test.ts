@@ -75,7 +75,9 @@ describe("parseState", () => {
     const github = result.state.sources["@example-user/rules"];
     expect(github?.intent.memoryPath).toBe("memories");
     expect(github?.intent.fullDepth).toBe(false);
-    expect(github?.fetched?.memories[RUBBER_DUCK]?.content).toMatch(/^sha256:/);
+    expect(github !== undefined && "fetched" in github).toBe(true);
+    if (github === undefined || !("fetched" in github)) return;
+    expect(github.fetched?.memories[RUBBER_DUCK]?.content).toMatch(/^sha256:/);
     const local = result.state.sources["/home/user/dotfiles/memories"];
     expect(local?.intent.from).toEqual({
       type: "local",
@@ -83,7 +85,7 @@ describe("parseState", () => {
       live: true,
     });
     expect(local?.intent.memoryPath).toBe("notes");
-    expect(local?.fetched).toBeUndefined();
+    expect(local !== undefined && "fetched" in local).toBe(false);
   });
 
   test("a newer version is reported as such, never parsed", () => {
@@ -123,12 +125,20 @@ describe("parseState", () => {
         } as (typeof j.sources)["/home/user/dotfiles/memories"];
         return j;
       },
-      issue: /live local source carries no fetched block/,
+      issue: /fetched/,
     },
     {
       title: "a source key that is not the canonical key",
       mutate: (j) => ({ ...j, sources: { "@Other/name": j.sources["@example-user/rules"] } }),
       issue: /source key must be @example-user\/rules/,
+    },
+    {
+      title: "an unknown source type",
+      mutate: (j) => {
+        (j.sources["@example-user/rules"].intent.from as Record<string, unknown>).type = "gitlab";
+        return j;
+      },
+      issue: /intent\.from/,
     },
     {
       title: "a traversal name in select",
@@ -203,6 +213,8 @@ describe("parseSourceArgument", () => {
     "https://gitlab.com/a/b",
     "~/dotfiles",
     "@-bad/repo",
+    "@octocat/..",
+    "@octocat/.",
   ];
   test.each(rejected)("rejects %j as a usage error", (arg) => {
     let caught: unknown;

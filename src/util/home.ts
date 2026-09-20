@@ -3,6 +3,7 @@ import { basename, join, resolve } from "node:path";
 import type { SourceFrom } from "../state/schema.ts";
 import { assertInsideRoot, sha256 } from "./fs.ts";
 
+/** @public */
 export function maximsHome(env: Record<string, string | undefined>): string {
   const override = env.MAXIMS_HOME;
   if (override !== undefined && override !== "") return resolve(override);

@@ -16,10 +16,17 @@ export type WriteFileAtomicOptions = {
   mode?: number;
 };
 
+declare const rootedPathBrand: unique symbol;
+
+// A path that `assertInsideRoot` has resolved and proven to lie under its destination root. It is
+// the only path type a `Change` accepts, so a planner cannot hand `applyChanges` a path it never
+// checked; the brand is erased at runtime and the value is the resolved absolute path.
+export type RootedPath = string & { readonly [rootedPathBrand]: true };
+
 // Every destination write is temp + rename so a reader in another process sees the old file or the
 // new one, never a partial one; the memory-file and rule-file guarantees in sync rely on this.
 export function writeFileAtomic(
-  path: string,
+  path: RootedPath,
   data: string | Uint8Array,
   options: WriteFileAtomicOptions = {},
 ): void {
@@ -29,7 +36,7 @@ export function writeFileAtomic(
     mkdirSync(dir, { recursive: true });
     const fd = openSync(tempPath, "w", options.mode ?? 0o644);
     try {
-      writeSync(fd, typeof data === "string" ? Buffer.from(data) : data);
+      writeAll(fd, typeof data === "string" ? Buffer.from(data) : data);
       fsyncSync(fd);
     } finally {
       closeSync(fd);
@@ -52,7 +59,18 @@ export function writeFileAtomic(
   }
 }
 
-export function assertInsideRoot(root: string, candidate: string): string {
+// A single write may stop short of the buffer's end on a nearly full disk; renaming that partial
+// temp file into place would publish a truncated destination as if it were complete.
+function writeAll(fd: number, data: Uint8Array): void {
+  let offset = 0;
+  while (offset < data.byteLength) {
+    const written = writeSync(fd, data, offset, data.byteLength - offset);
+    if (written <= 0) throw new Error(`short write at byte ${offset} of ${data.byteLength}`);
+    offset += written;
+  }
+}
+
+export function assertInsideRoot(root: string, candidate: string): RootedPath {
   const resolvedRoot = resolve(root);
   const resolved = resolve(candidate);
   const rel = relative(resolvedRoot, resolved);
@@ -62,7 +80,7 @@ export function assertInsideRoot(root: string, candidate: string): string {
       `refusing to write outside ${resolvedRoot}: ${resolved}`,
     );
   }
-  return resolved;
+  return resolved as RootedPath;
 }
 
 export function sha256(text: string | Uint8Array): string {

@@ -91,7 +91,9 @@ export type HookShape =
 // registry is searched for the PREFIX so a later flag change still finds the entry it replaces.
 const HOOK_PREFIX_ARGV = ["npx", "-y", "maxims", "sync"] as const;
 const HOOK_ARGV = [...HOOK_PREFIX_ARGV, "--quiet"] as const;
+/** @public */
 export const HOOK_COMMAND = HOOK_ARGV.join(" ");
+/** @public */
 export const HOOK_COMMAND_PREFIX = HOOK_PREFIX_ARGV.join(" ");
 export const HOOK_TIMEOUT_SECONDS = 20;
 
@@ -119,6 +121,7 @@ export interface HarnessDefinition {
   fixtures?: HarnessFixtures;
 }
 
+/** @public */
 export function hookSpecFor(def: Pick<HarnessDefinition, "hook">): HookSpec {
   const [command, ...args] = HOOK_ARGV;
   return {

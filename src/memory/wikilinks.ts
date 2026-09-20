@@ -18,7 +18,8 @@ export type UnmetWikilink = {
 };
 
 // A link written against an upstream name resolves through the rename map to the local memory
-// installed under the renamed name, so a collision rename never turns a valid link into an error.
+// installed under the renamed name, and ONLY to it: a same-named memory another source owns is
+// the collision the rename exists to step around, so it must not satisfy the link.
 export function resolveWikilinks(
   incoming: Memory[],
   installedNames: Set<string>,
@@ -29,7 +30,7 @@ export function resolveWikilinks(
   const unmet: UnmetWikilink[] = [];
   for (const memory of incoming) {
     for (const link of extractWikilinks(memory.body)) {
-      if (available.has(link) || available.has(rename[link] ?? link)) continue;
+      if (available.has(rename[link] ?? link)) continue;
       unmet.push({ memory: memory.name, link });
     }
   }

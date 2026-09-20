@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { writeFileAtomic } from "./fs.ts";
+import { assertInsideRoot, writeFileAtomic } from "./fs.ts";
 import { homePaths } from "./home.ts";
 
 export const MAX_LOG_BYTES = 256 * 1024;
@@ -12,7 +12,9 @@ export async function appendRefreshLog(home: string, line: string): Promise<void
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, `${line.replace(/\r?\n$/, "")}\n`);
     const size = (await stat(path)).size;
-    if (size > MAX_LOG_BYTES) writeFileAtomic(path, trimOldest(await readFile(path, "utf8")));
+    if (size > MAX_LOG_BYTES) {
+      writeFileAtomic(assertInsideRoot(home, path), trimOldest(await readFile(path, "utf8")));
+    }
   } catch (cause) {
     if (cause instanceof MaximsError) throw cause;
     throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot append to ${path}`, { cause });

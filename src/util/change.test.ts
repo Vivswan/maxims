@@ -1,13 +1,16 @@
 // Guards the property every verb's --dry-run and idempotency claim rests on: a dry run touches
-// nothing, and re-applying an already-applied plan counts zero writes.
+// nothing, re-applying an already-applied plan counts zero writes, and a probe that could not
+// look never reads as "already done".
 import { describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   readlinkSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -15,18 +18,30 @@ import { join } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { applyChanges, type Plan, planToJson, renderPlan } from "./change.ts";
 import { ExitCode, type MaximsError } from "./exit-codes.ts";
+import { assertInsideRoot } from "./fs.ts";
 
 function planFor(dir: string): Plan {
+  const rooted = (...parts: string[]) => assertInsideRoot(dir, join(dir, ...parts));
   return {
     changes: [
-      { kind: "mkdir", path: join(dir, "rules") },
-      { kind: "write", path: join(dir, "rules", "maxims-a.md"), content: "- rule\n" },
-      { kind: "symlink", path: join(dir, "memories", "a.md"), target: join(dir, "store", "a.md") },
-      { kind: "unlink", path: join(dir, "old-link.md") },
-      { kind: "delete", path: join(dir, "old-rule.md") },
+      { kind: "mkdir", path: rooted("rules") },
+      { kind: "write", path: rooted("rules", "maxims-a.md"), content: "- rule\n" },
+      { kind: "symlink", path: rooted("memories", "a.md"), target: join(dir, "store", "a.md") },
+      { kind: "unlink", path: rooted("old-link.md") },
+      { kind: "delete", path: rooted("old-rule.md") },
     ],
     notices: ["one notice"],
   };
+}
+
+async function expectWriteFailed(action: () => Promise<unknown>): Promise<void> {
+  let caught: unknown;
+  try {
+    await action();
+  } catch (error) {
+    caught = error;
+  }
+  expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
 }
 
 describe("applyChanges", () => {
@@ -54,9 +69,23 @@ describe("applyChanges", () => {
     });
   });
 
+  test("identical content with a different requested mode is a mode change, counted once", async () => {
+    await withTempDir(async (dir) => {
+      const path = assertInsideRoot(dir, join(dir, "hook.sh"));
+      writeFileSync(path, "#!/bin/sh\n", { mode: 0o644 });
+      const plan: Plan = {
+        changes: [{ kind: "write", path, content: "#!/bin/sh\n", mode: 0o755 }],
+        notices: [],
+      };
+      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 1 });
+      expect(statSync(path).mode & 0o777).toBe(0o755);
+      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+    });
+  });
+
   test("a changed symlink target is repointed; a real file in its place is refused", async () => {
     await withTempDir(async (dir) => {
-      const link = join(dir, "a.md");
+      const link = assertInsideRoot(dir, join(dir, "a.md"));
       symlinkSync(join(dir, "old"), link);
       const repoint: Plan = {
         changes: [{ kind: "symlink", path: link, target: join(dir, "new") }],
@@ -65,19 +94,15 @@ describe("applyChanges", () => {
       expect(await applyChanges(repoint, { dryRun: false })).toEqual({ applied: 1 });
       expect(readlinkSync(link)).toBe(join(dir, "new"));
 
-      const real = join(dir, "real.md");
+      const real = assertInsideRoot(dir, join(dir, "real.md"));
       writeFileSync(real, "user content");
       for (const change of [
         { kind: "symlink", path: real, target: join(dir, "new") } as const,
         { kind: "unlink", path: real } as const,
       ]) {
-        let caught: unknown;
-        try {
-          await applyChanges({ changes: [change], notices: [] }, { dryRun: false });
-        } catch (error) {
-          caught = error;
-        }
-        expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+        await expectWriteFailed(() =>
+          applyChanges({ changes: [change], notices: [] }, { dryRun: false }),
+        );
         expect(readFileSync(real, "utf8")).toBe("user content");
       }
     });
@@ -85,10 +110,10 @@ describe("applyChanges", () => {
 
   test("delete removes a directory tree but only unlinks a symlink to one", async () => {
     await withTempDir(async (dir) => {
-      const tree = join(dir, "tree");
+      const tree = assertInsideRoot(dir, join(dir, "tree"));
       mkdirSync(join(tree, "sub"), { recursive: true });
       writeFileSync(join(tree, "sub", "f"), "");
-      const link = join(dir, "link");
+      const link = assertInsideRoot(dir, join(dir, "link"));
       symlinkSync(tree, link);
       expect(
         await applyChanges(
@@ -106,6 +131,32 @@ describe("applyChanges", () => {
       expect(existsSync(tree)).toBe(false);
     });
   });
+
+  test.skipIf(process.getuid?.() === 0)(
+    "a path that cannot be inspected is exit 4, never a silent no-op",
+    async () => {
+      await withTempDir(async (dir) => {
+        const sealed = join(dir, "sealed");
+        mkdirSync(sealed);
+        writeFileSync(join(sealed, "x.md"), "");
+        const target = assertInsideRoot(dir, join(sealed, "x.md"));
+        chmodSync(sealed, 0o000);
+        try {
+          for (const change of [
+            { kind: "delete", path: target } as const,
+            { kind: "unlink", path: target } as const,
+            { kind: "write", path: target, content: "y" } as const,
+          ]) {
+            await expectWriteFailed(() =>
+              applyChanges({ changes: [change], notices: [] }, { dryRun: false }),
+            );
+          }
+        } finally {
+          chmodSync(sealed, 0o700);
+        }
+      });
+    },
+  );
 });
 
 test("renderPlan and planToJson describe the same plan for humans and for --json", () => {
@@ -122,5 +173,8 @@ test("renderPlan and planToJson describe the same plan for humans and for --json
     ].join("\n"),
   );
   expect(renderPlan({ changes: [], notices: [] })).toBe("nothing to change\n");
-  expect(JSON.parse(JSON.stringify(planToJson(plan)))).toEqual(plan);
+  const json = planToJson(plan);
+  expect(json.endsWith("\n")).toBe(true);
+  expect(json.split("\n")[1]).toBe('  "changes": [');
+  expect(JSON.parse(json)).toEqual(plan);
 });

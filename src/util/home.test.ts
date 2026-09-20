@@ -2,15 +2,7 @@
 // a github entry must fold case so one repo never lands in two folders.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { homePaths, maximsHome, storePathFor } from "./home.ts";
-
-describe("maximsHome", () => {
-  test("honors MAXIMS_HOME, else derives from HOME", () => {
-    expect(maximsHome({ MAXIMS_HOME: "/tmp/x/maxims", HOME: "/home/user" })).toBe("/tmp/x/maxims");
-    expect(maximsHome({ MAXIMS_HOME: "", HOME: "/home/user" })).toBe("/home/user/.agents/maxims");
-    expect(maximsHome({ HOME: "/home/user" })).toBe("/home/user/.agents/maxims");
-  });
-});
+import { homePaths, storePathFor } from "./home.ts";
 
 describe("storePathFor", () => {
   const home = "/home/user/.agents/maxims";

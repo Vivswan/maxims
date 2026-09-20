@@ -1,5 +1,6 @@
-// Guards decision 16 through decision 17: a link written against an upstream name must still
-// resolve after a collision rename, and a dangling link must surface as the unmet dependency.
+// Guards dependency resolution across a collision rename: a link written against an upstream name
+// must resolve to the renamed local memory and to nothing else, and a dangling link must surface
+// as the unmet dependency rather than being satisfied by another source's same-named memory.
 import { describe, expect, test } from "bun:test";
 import type { Memory } from "./contract.ts";
 import { extractWikilinks, resolveWikilinks } from "./wikilinks.ts";
@@ -48,6 +49,16 @@ describe("resolveWikilinks", () => {
       ),
     ];
     expect(resolveWikilinks(incoming, new Set(), rename)).toEqual({ unmet: [] });
+  });
+
+  test("a renamed upstream name is not satisfied by another source's memory of that name", () => {
+    const incoming = [memory("caller", "needs [[alpha]]")];
+    expect(resolveWikilinks(incoming, new Set(["alpha"]), { alpha: "alpha-local" })).toEqual({
+      unmet: [{ memory: "caller", link: "alpha" }],
+    });
+    expect(
+      resolveWikilinks(incoming, new Set(["alpha", "alpha-local"]), { alpha: "alpha-local" }),
+    ).toEqual({ unmet: [] });
   });
 
   test("reports every dangling link with the memory that carries it", () => {

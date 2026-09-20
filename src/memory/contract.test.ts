@@ -121,6 +121,12 @@ describe("parseMemory", () => {
       reason: /does not equal filename stem "other-name"/,
     },
     {
+      title: "a name that is a YAML mapping with a null toString",
+      filename: "rule.md",
+      text: "---\nname: {toString: null}\ndescription: x\n---\n",
+      reason: /does not equal filename stem "rule"/,
+    },
+    {
       title: "no frontmatter",
       filename: "readme-ish.md",
       text: "# Title\n\nprose\n",

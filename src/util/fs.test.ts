@@ -6,12 +6,19 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { assertInsideRoot, ensureDir0700, hashDirectory, sha256, writeFileAtomic } from "./fs.ts";
+import {
+  assertInsideRoot,
+  ensureDir0700,
+  hashDirectory,
+  type RootedPath,
+  sha256,
+  writeFileAtomic,
+} from "./fs.ts";
 
 describe("writeFileAtomic", () => {
   test("writes the content with the requested mode and leaves no temp file behind", async () => {
     await withTempDir((dir) => {
-      const target = join(dir, "nested", "rules.md");
+      const target = assertInsideRoot(dir, join(dir, "nested", "rules.md"));
       writeFileAtomic(target, "one\n", { mode: 0o600 });
       writeFileAtomic(target, "two\n", { mode: 0o600 });
       expect(readFileSync(target, "utf8")).toBe("two\n");
@@ -26,7 +33,7 @@ describe("writeFileAtomic", () => {
       writeFileSync(blocker, "");
       let caught: unknown;
       try {
-        writeFileAtomic(join(blocker, "child.md"), "x");
+        writeFileAtomic(assertInsideRoot(dir, join(blocker, "child.md")), "x");
       } catch (error) {
         caught = error;
       }
@@ -51,7 +58,7 @@ describe("assertInsideRoot", () => {
   ];
   test.each(cases)("$candidate inside root: $ok", ({ candidate, ok }) => {
     if (ok) {
-      expect(assertInsideRoot(root, candidate)).toBe(resolve(candidate));
+      expect(assertInsideRoot(root, candidate)).toBe(resolve(candidate) as RootedPath);
       return;
     }
     let caught: unknown;

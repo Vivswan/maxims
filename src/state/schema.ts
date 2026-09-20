@@ -10,7 +10,9 @@ export const CURRENT_STATE_VERSION = 1;
 // sha. The default branch NAME is never stored because a repo can rename it without notice.
 export const DEFAULT_GITHUB_REF = "HEAD";
 
-const GITHUB_REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/[A-Za-z0-9._-]+$/;
+// A repo segment of only dots would collapse the derived store path onto the store root itself.
+const GITHUB_REPO_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 
 export const MemoryNameSchema = z.custom<MemoryName>(
   (value) => typeof value === "string" && parseMemoryName(value) !== null,
@@ -25,18 +27,25 @@ const IsoTimestamp = z.iso.datetime();
 
 // Every object is strict: a hand-edited state file with a misspelled or foreign key is quarantined
 // rather than half-obeyed, and a `-g` destination carrying an `-o` path has no way to parse.
-export const SourceFromSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("github"),
-    repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
-    ref: z.string().min(1),
-  }),
-  z.strictObject({
-    type: z.literal("local"),
-    path: AbsolutePath,
-    live: z.boolean().optional(),
-  }),
-]);
+const GithubFrom = z.strictObject({
+  type: z.literal("github"),
+  repo: z.string().regex(GITHUB_REPO_PATTERN, "expected owner/repo"),
+  ref: z.string().min(1),
+});
+const CopiedLocalFrom = z.strictObject({
+  type: z.literal("local"),
+  path: AbsolutePath,
+  live: z.literal(false).optional(),
+});
+const LiveLocalFrom = z.strictObject({
+  type: z.literal("local"),
+  path: AbsolutePath,
+  live: z.literal(true),
+});
+// A live source is split from the fetched sources at the schema level so that `SourceEntry` is a
+// union in which the live variant has no `fetched` member at all; nothing has to check for it.
+const FetchedFrom = z.union([GithubFrom, CopiedLocalFrom]);
+export const SourceFromSchema = z.union([GithubFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
 
 export const DestinationSchema = z.discriminatedUnion("scope", [
@@ -57,8 +66,7 @@ export type RenameMap = z.infer<typeof RenameMapSchema>;
 
 export const HarnessIdSchema = z.enum(HARNESS_IDS);
 
-export const SourceIntentSchema = z.strictObject({
-  from: SourceFromSchema,
+const IntentFields = {
   select: SelectSchema,
   rename: RenameMapSchema,
   rule: z.boolean(),
@@ -68,7 +76,10 @@ export const SourceIntentSchema = z.strictObject({
   memoryPath: z.string().min(1).default("memories"),
   fullDepth: z.boolean().default(false),
   paths: z.array(z.string().min(1)).optional(),
-});
+};
+const FetchedIntent = z.strictObject({ from: FetchedFrom, ...IntentFields });
+const LiveIntent = z.strictObject({ from: LiveLocalFrom, ...IntentFields });
+export const SourceIntentSchema = z.union([FetchedIntent, LiveIntent]);
 /** @public */
 export type SourceIntent = z.infer<typeof SourceIntentSchema>;
 
@@ -94,25 +105,14 @@ export const FetchedSchema = z.strictObject({
 /** @public */
 export type Fetched = z.infer<typeof FetchedSchema>;
 
-// A live local source has no fetch, so a `fetched` block on one is a shape error, not a stale
-// cache to tolerate: the tree is its record.
-export const SourceEntrySchema = z
-  .strictObject({
-    intent: SourceIntentSchema,
+export const SourceEntrySchema = z.union([
+  z.strictObject({
+    intent: FetchedIntent,
     fetched: FetchedSchema.optional(),
     addedAt: IsoTimestamp,
-  })
-  .check((ctx) => {
-    const { from } = ctx.value.intent;
-    if (from.type === "local" && from.live === true && ctx.value.fetched !== undefined) {
-      ctx.issues.push({
-        code: "custom",
-        input: ctx.value,
-        path: ["fetched"],
-        message: "a live local source carries no fetched block",
-      });
-    }
-  });
+  }),
+  z.strictObject({ intent: LiveIntent, addedAt: IsoTimestamp }),
+]);
 /** @public */
 export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 
@@ -169,7 +169,7 @@ export function parseState(json: unknown): ParsedState {
 function flattenIssues(issues: z.core.$ZodIssue[], prefix: PropertyKey[]): string[] {
   return issues.flatMap((issue) => {
     const path = [...prefix, ...issue.path];
-    if (issue.code === "invalid_union") {
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
       return issue.errors.flatMap((branch) => flattenIssues(branch, path));
     }
     if (issue.code === "invalid_key" || issue.code === "invalid_element") {
@@ -189,7 +189,7 @@ const GITHUB_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/
 // `owner/repo` with exactly one slash and no path prefix is a GitHub source, mirroring `skills`; a
 // relative directory that happens to look like one is spelled `./owner/repo`.
 export function parseSourceArgument(arg: string, cwd: string): SourceFrom {
-  const trimmed = arg.trim();
+  const trimmed = arg;
   if (trimmed === "") throw usage("a source is required: @owner/repo or a local directory");
   const url = GITHUB_URL.exec(trimmed);
   if (url !== null) return github(`${url[1]}/${url[2]}`, trimmed);

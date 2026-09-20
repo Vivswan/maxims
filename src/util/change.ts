@@ -1,14 +1,17 @@
-import { lstat, mkdir, readFile, readlink, rm, symlink, unlink } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { chmod, lstat, mkdir, readFile, readlink, rm, symlink, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { writeFileAtomic } from "./fs.ts";
+import { type RootedPath, writeFileAtomic } from "./fs.ts";
 
+// Every `path` is a RootedPath, so a change can only name a location some planner has already
+// proven to lie under its destination root; a symlink `target` may point anywhere (the store).
 export type Change =
-  | { kind: "write"; path: string; content: string; mode?: number }
-  | { kind: "delete"; path: string }
-  | { kind: "symlink"; path: string; target: string }
-  | { kind: "unlink"; path: string }
-  | { kind: "mkdir"; path: string };
+  | { kind: "write"; path: RootedPath; content: string; mode?: number }
+  | { kind: "delete"; path: RootedPath }
+  | { kind: "symlink"; path: RootedPath; target: string }
+  | { kind: "unlink"; path: RootedPath }
+  | { kind: "mkdir"; path: RootedPath };
 
 export type Plan = {
   changes: Change[];
@@ -37,13 +40,24 @@ export async function applyChanges(plan: Plan, options: ApplyOptions): Promise<A
 async function applyOne(change: Change): Promise<boolean> {
   switch (change.kind) {
     case "write": {
-      const existing = await readFile(change.path, "utf8").catch(() => null);
-      if (existing === change.content) return false;
-      writeFileAtomic(change.path, change.content, { mode: change.mode });
-      return true;
+      const existing = await lstatOrNull(change.path);
+      const current = existing?.isFile() ? await readFile(change.path, "utf8") : null;
+      if (current !== change.content) {
+        writeFileAtomic(change.path, change.content, { mode: change.mode });
+        return true;
+      }
+      if (
+        change.mode !== undefined &&
+        existing !== null &&
+        (existing.mode & 0o777) !== change.mode
+      ) {
+        await guarded(change.path, () => chmod(change.path, change.mode as number));
+        return true;
+      }
+      return false;
     }
     case "delete": {
-      const entry = await lstat(change.path).catch(() => null);
+      const entry = await lstatOrNull(change.path);
       if (entry === null) return false;
       await guarded(change.path, () =>
         entry.isSymbolicLink() ? unlink(change.path) : rm(change.path, { recursive: true }),
@@ -51,7 +65,7 @@ async function applyOne(change: Change): Promise<boolean> {
       return true;
     }
     case "symlink": {
-      const entry = await lstat(change.path).catch(() => null);
+      const entry = await lstatOrNull(change.path);
       if (entry !== null) {
         if (!entry.isSymbolicLink()) {
           throw new MaximsError(
@@ -69,7 +83,7 @@ async function applyOne(change: Change): Promise<boolean> {
       return true;
     }
     case "unlink": {
-      const entry = await lstat(change.path).catch(() => null);
+      const entry = await lstatOrNull(change.path);
       if (entry === null) return false;
       if (!entry.isSymbolicLink()) {
         throw new MaximsError(
@@ -81,7 +95,7 @@ async function applyOne(change: Change): Promise<boolean> {
       return true;
     }
     case "mkdir": {
-      const entry = await lstat(change.path).catch(() => null);
+      const entry = await lstatOrNull(change.path);
       if (entry?.isDirectory()) return false;
       await guarded(change.path, () => mkdir(change.path, { recursive: true }));
       return true;
@@ -89,15 +103,40 @@ async function applyOne(change: Change): Promise<boolean> {
   }
 }
 
+// Only "nothing is there" reads as absent; a probe that could not look (EACCES on a parent, an
+// I/O error) surfaces as exit 4 rather than as a change that silently did not happen.
+async function lstatOrNull(path: string): Promise<Stats | null> {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `cannot inspect ${path}: ${detail(error)}`,
+      {
+        cause: error,
+      },
+    );
+  }
+}
+
 async function guarded(path: string, action: () => Promise<unknown>): Promise<void> {
   try {
     await action();
   } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot update ${path}: ${detail}`, {
-      cause,
-    });
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `cannot update ${path}: ${detail(cause)}`,
+      {
+        cause,
+      },
+    );
   }
+}
+
+function detail(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function renderPlan(plan: Plan): string {
@@ -122,13 +161,8 @@ function describeChange(change: Change): string {
   }
 }
 
-export type PlanJson = {
-  changes: Change[];
-  notices: string[];
-};
-
-// The `--json` shape is the plan itself; naming the conversion keeps the CLI's output contract in
-// one place should the wire shape ever diverge from the in-memory one.
-export function planToJson(plan: Plan): PlanJson {
-  return { changes: plan.changes.map((change) => ({ ...change })), notices: [...plan.notices] };
+// The `--json` wire format: the plan as two-space-indented JSON with a trailing newline, so a CI
+// assertion can diff it byte for byte across runs.
+export function planToJson(plan: Plan): string {
+  return `${JSON.stringify(plan, null, 2)}\n`;
 }

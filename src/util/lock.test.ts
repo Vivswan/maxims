@@ -84,11 +84,11 @@ describe("withLock", () => {
       const startedAt = new Date(Date.now() - 120_000).toISOString();
       writeFileSync(
         lockPath,
-        `${JSON.stringify({ pid: 999_999, host: "example.com", startedAt, argv: ["maxims", "sync"] })}\n`,
+        `${JSON.stringify({ pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: ["maxims", "sync"] })}\n`,
       );
       const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => lock);
       expect(seen.stolen?.holder).toEqual({
-        pid: 999_999,
+        pid: 2 ** 31 - 1,
         host: "example.com",
         startedAt,
         argv: ["maxims", "sync"],
