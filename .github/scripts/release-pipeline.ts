@@ -13,11 +13,12 @@
  *   npm-confirm next        GITHUB_SHA, NPM_REGISTRY_URL (optional), NPM_CONFIRM_PAUSE_MS (optional)
  *   npm-confirm stable      TAG, GITHUB_SHA, NPM_REGISTRY_URL (optional), NPM_CONFIRM_PAUSE_MS (optional)
  *
- * Node builtins only, so the script needs no install to run. Tests: tests/release/*.test.ts.
+ * Depends on semver, so both workflows run bun install before calling it. Tests: tests/release/*.test.ts.
  */
 
 import { execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { gt, parse } from "semver";
 
 const MANIFEST = "package.json";
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -114,8 +115,9 @@ export function prereleaseVersion(
   position: MainPosition,
   sourceSha: string,
 ): string {
-  const version = manifestVersion.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!version) {
+  const version = parse(manifestVersion);
+  // parse also reads "v1.2.3" and "1.2.3-rc.1"; the manifest must be the bare release it is about to bump.
+  if (version === null || version.version !== manifestVersion || version.prerelease.length > 0) {
     throw new Error(
       `the manifest version ${JSON.stringify(manifestVersion)} is not X.Y.Z; refusing to derive a pre-release version from it.`,
     );
@@ -131,8 +133,8 @@ export function prereleaseVersion(
       `the source ${JSON.stringify(sourceSha)} is not a full commit sha; refusing to mint a pre-release version from it.`,
     );
   }
-  const [, major, minor, patch] = version;
-  return `${major}.${minor}.${Number(patch) + 1}-main.${position.count}.${position.date}.g${sourceSha.slice(0, 7)}`;
+  const { major, minor, patch } = version;
+  return `${major}.${minor}.${patch + 1}-main.${position.count}.${position.date}.g${sourceSha.slice(0, 7)}`;
 }
 
 function packageFieldAt(cwd: string, treeish: string, field: "name" | "version"): string {
@@ -176,19 +178,30 @@ function releaseVersionAt(cwd: string, sourceSha: string, tag: string): string {
  * identifiers between `main` and the sha are not read back: a published pre-release is placed by its source's
  * ancestry, never by comparing them. */
 interface MintedVersion {
-  release: [number, number, number];
+  /** The release, X.Y.Z, that the version is or precedes. */
+  release: string;
   sha7: string | null;
 }
 
+/** semver reads a numeric identifier as a number and anything else as a string, so `main` and the g-prefixed sha
+ * stay strings and the count and date between them are numbers. */
 function mintedVersion(version: string): MintedVersion | null {
-  const match = version.match(
-    /^(\d+)\.(\d+)\.(\d+)(?:-main\.(?:(?:0|[1-9]\d*)\.)+g([0-9a-f]{7}))?$/,
-  );
-  if (!match) {
+  const parsed = parse(version);
+  if (parsed === null || parsed.version !== version) {
     return null;
   }
-  const [, major = "", minor = "", patch = "", sha7 = null] = match;
-  return { release: [Number(major), Number(minor), Number(patch)], sha7 };
+  const release = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+  const identifiers = parsed.prerelease;
+  if (identifiers.length === 0) {
+    return { release, sha7: null };
+  }
+  const last = identifiers.at(-1);
+  const sha7 = typeof last === "string" ? last.match(/^g([0-9a-f]{7})$/)?.[1] : undefined;
+  const placed =
+    identifiers[0] === "main" &&
+    identifiers.length >= 3 &&
+    identifiers.slice(1, -1).every((identifier) => typeof identifier === "number");
+  return placed && sha7 !== undefined ? { release, sha7 } : null;
 }
 
 /** A version a dist-tag names must be one this pipeline mints; anything else stops the run rather than being guessed at. */
@@ -200,10 +213,6 @@ function parseMinted(version: string): MintedVersion {
     );
   }
   return minted;
-}
-
-function newerRelease(a: [number, number, number], b: [number, number, number]): boolean {
-  return a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2];
 }
 
 /** What the registry holds for the package: every published version, and where each dist-tag points. */
@@ -365,7 +374,7 @@ export function stablePublishVerdict(version: string, packument: Packument | nul
   // REGISTRY-API.md, "dist-tags: an object with at least one key, latest"), so the first publish took it whatever
   // --tag asked for. A release must take latest over from it, so only a newer RELEASE holds one back.
   const held = latest === undefined ? null : parseMinted(latest);
-  if (held?.sha7 === null && newerRelease(held.release, parseMinted(version).release)) {
+  if (held?.sha7 === null && gt(held.release, parseMinted(version).release)) {
     return {
       action: "skip",
       version,
@@ -499,7 +508,7 @@ function stableBehind(version: string, name: string, packument: Packument): stri
   if (
     held !== null &&
     held.sha7 === null &&
-    (latest === version || newerRelease(held.release, parseMinted(version).release))
+    (latest === version || gt(held.release, parseMinted(version).release))
   ) {
     return null;
   }
