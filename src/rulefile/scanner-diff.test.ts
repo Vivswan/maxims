@@ -79,6 +79,8 @@ describe("both scanners agree", () => {
     ["a marker inside a comment", `<!--\n${BLOCK}-->\n`],
     ["a marker inside a processing instruction", `<?xml\n${BLOCK}?>\n`],
     ["a marker inside a declaration", `<!DOCTYPE\n${BLOCK}>\n`],
+    ["a marker inside a lowercase declaration", `<!doctype\n${BLOCK}>\n`],
+    ["a lowercase declaration left open", "<!doctype\nx\n"],
     ["a marker inside a CDATA section", `<![CDATA[\n${BLOCK}]]>\n`],
     ["a marker inside a div block", `<div>\n${BLOCK}</div>\n`],
     ["a marker inside a custom tag block", `<custom>\n${BLOCK}</custom>\n`],
@@ -269,14 +271,6 @@ describe("the hand-rolled scanner misread the specification", () => {
   // Columns: what the construct is, the specification section, where the reference parsers stand
   // (JS = commonmark.js and markdown-it), the document, the new scanner's kinds and closer.
   const misread: [string, string, string, string, string[], string][] = [
-    [
-      "a lowercase doctype opens a declaration block",
-      "4.6 start condition 4: `<!` and any ASCII letter (uppercase only before 0.31)",
-      "commonmark.js and marked agree; markdown-it sides with the old scanner",
-      "<!doctype\nx\n",
-      ["html", "html"],
-      ">\n",
-    ],
     [
       "a tag holding a form feed is no tag, so the marker interrupts the paragraph",
       "6.6: attributes are separated by spaces, tabs and up to one line ending",

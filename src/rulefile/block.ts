@@ -184,9 +184,9 @@ type Content = { indent: number; body: string; column: number };
 
 // A block may open behind up to three spaces, as CommonMark allows, and a marker inside one is
 // then quoted text. Whitespace in these rules is CommonMark's space and tab, never other Unicode
-// whitespace; an info string may hold any character (dotAll). A declaration starts with an
-// uppercase letter, as Bun's parser and CommonMark 0.29 require. Each rule reads a `Content`
-// body, so none carries the leading indentation itself.
+// whitespace; an info string may hold any character (dotAll). A declaration starts with any
+// ASCII letter (CommonMark 4.6, start condition 4). Each rule reads a `Content` body, so none
+// carries the leading indentation itself.
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/s;
 const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t]*$/;
 const COMMENT_OPEN = /^<!--/;
@@ -194,7 +194,7 @@ const LITERAL_TAG_OPEN = /^<(pre|script|style|textarea)(?=[ \t>]|$)/i;
 const LITERAL_TAG_END = /<\/(pre|script|style|textarea)>/i;
 const INSTRUCTION_OPEN = /^<\?/;
 const CDATA_OPEN = /^<!\[CDATA\[/;
-const DECLARATION_OPEN = /^<![A-Z]/;
+const DECLARATION_OPEN = /^<![A-Za-z]/;
 const BLOCK_TAGS = [
   "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details",
   "dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header",

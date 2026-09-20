@@ -640,7 +640,11 @@ describe("replaceBlock and stripBlock", () => {
       "<pre\u00a0>\nx\n",
       `<pre\u00a0>\nx\n\n${BLOCK}`,
     ],
-    ["a lowercase doctype, which is text", "<!doctype\nx\n", `<!doctype\nx\n\n${BLOCK}`],
+    [
+      "a lowercase doctype, which opens a declaration block",
+      "<!doctype\nx\n",
+      `<!doctype\nx\n>\n\n${BLOCK}`,
+    ],
     [
       "a file ending inside a block tag, which the blank line closes",
       "<div>\nx\n",
