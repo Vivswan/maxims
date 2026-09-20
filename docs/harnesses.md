@@ -5,28 +5,37 @@ group: Reference
 
 # Harnesses
 
-Eight coding agents ship in the first release, and each one gets a rule file in its always-loaded layer plus one session-start hook that runs `npx -y @vivswan/maxims sync --quiet`. This matrix is rendered by hand until it is generated from the harness definitions in the code, so a path here is the specification the code must satisfy.
+Every registered harness gets a rule file in its always-loaded layer plus one session-start hook that runs `npx -y @vivswan/maxims sync --quiet`. The matrix below is rendered from the harness definitions by `scripts/render_harness_matrix.ts`: `bun run docs:matrix` regenerates it, and `bun run check` fails while the page is behind the registry.
 
 ## The matrix
 
 Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](cli.md#flags).
 
-| id | harness | project target | global target | strategy | hook | tier |
-| --- | --- | --- | --- | --- | --- | --- |
-| `claude-code` | Claude Code | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | 1 |
-| `codex` | Codex CLI | `AGENTS.md` block | `~/.codex/AGENTS.md` block | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | 1, or 2 when `hooks = false` |
-| `gemini-cli` | Gemini CLI | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | 1 |
-| `copilot` | GitHub Copilot | `.github/instructions/maxims-<source>.instructions.md` | `~/.copilot/instructions/maxims-<source>.instructions.md` | A | `sessionStart` entry in a maxims-owned `maxims.json` under `.github/hooks` or `~/.copilot/hooks`, with `bash` and `powershell` command keys | 1 for the CLI, 2 for the IDE |
-| `cursor` | Cursor | `.cursor/rules/maxims-<source>.mdc` | none; user rules are UI-stored | A | `sessionStart` entry in `.cursor/hooks.json` | 1, project only |
-| `cline` | Cline | `.clinerules/maxims-<source>.md` | `~/Documents/Cline/Rules/maxims-<source>.md` | A | executable `.clinerules/hooks/TaskStart` or `~/Documents/Cline/Hooks/TaskStart` | 1 |
-| `opencode` | OpenCode | `.opencode/memories/maxims-<source>.md`, listed in `opencode.json` | `~/.config/opencode/AGENTS.md` block | A for the project, B for global | plugin file in `.opencode/plugins/` or `~/.config/opencode/plugins/`, run on `session.created` | 1 |
-| `dsh` | DeepSeek Harness | `AGENTS.md` block | `~/.dsh/AGENTS.md` block | B | `dsh-hooks-claude-code` bridge entry in `cordis.yml`, pointing at a maxims-owned `.dsh/maxims-hooks.json` | 1, with caveats |
+<!-- BEGIN GENERATED: harness-matrix -->
 
-Strategy A writes one whole file per source into a rules directory, so removal is a file delete. Strategy B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest.
+| id | harness | tier | project target | global target | strategy | hook | stdout | markers | byte budget |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | stripped | 4,194,304 bytes |
+| `codex` | Codex | 1, or 2 when `features.hooks` is `false` | `AGENTS.md` block | `~/.codex/AGENTS.md` block | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | `plain` | counted | - |
+| `gemini-cli` | Gemini CLI | 1 | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | `json:hookSpecificOutput.additionalContext` | counted | - |
+| `copilot` | GitHub Copilot | 1 | `.github/instructions/maxims-<source>.instructions.md` | `~/.copilot/instructions/maxims-<source>.instructions.md` | A | maxims-owned file `.github/hooks/maxims.json` or `~/.copilot/hooks/maxims.json` | `json:additionalContext` | counted | - |
+| `cursor` | Cursor | 1 | `.cursor/rules/maxims-<source>.mdc` | none | A | `sessionStart` entry in `.cursor/hooks.json` | `json:additional_context` | counted | - |
+| `cline` | Cline | 1 | `.clinerules/maxims-<source>.md` | `~/Documents/Cline/Rules/maxims-<source>.md` | A | maxims-owned executable `.clinerules/hooks/TaskStart` or `~/Documents/Cline/Hooks/TaskStart` | `none` | counted | - |
+| `opencode` | OpenCode | 1 | `.opencode/memories/maxims-<source>.md` | `~/.config/opencode/AGENTS.md` block | A project, B global | maxims-owned file `.opencode/plugins/maxims.ts` or `~/.config/opencode/plugins/maxims.ts` | `none` | counted | - |
+| `dsh` | DeepSeek Harness | 1 | `AGENTS.md` block | `~/.dsh/AGENTS.md` block | B | custom | - | counted | 64,512 bytes |
+
+<!-- END GENERATED: harness-matrix -->
+
+| column | how to read it |
+| --- | --- |
+| `tier` | the declared tier; the config key that demotes it to 2 follows when the definition names one |
+| `strategy` | A writes one whole file per source into a rules directory, so removal is a file delete; B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest |
+| `hook` | the registry entry, hook file, or custom reconcile that runs the sync command, with its path for each scope the harness installs into; a maxims-owned file is written whole and deleted on removal, so nothing else belongs in it; `custom` means the definition writes its own files, named in the catches below |
+| `stdout` | how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, `-` means a custom hook whose definition declares no stdout variant |
+| `markers` | `stripped` when the harness drops HTML comments before injection, so the marker pair is free; `counted` when they ride into context |
+| `byte budget` | the largest rule file the writer will produce for the harness, refusing past it; `-` when the definition declares no budget, so the writer enforces none |
 
 Memory bodies do not vary by harness. They live in the maxims store and rule lines point at them; a project install links them into `.agents/memories/` for every harness, the convention `npx skills` set with `.agents/skills/`.
-
-Pi, Windsurf, Amp, Warp, and Zed have designed rows but do not ship: Pi's freshness needs a maxims extension package, Windsurf would reuse the same hook writer, and Amp, Warp, and Zed have no hook system, so they would rely on the tier 2 mechanisms below.
 
 ## Tiers
 
@@ -52,7 +61,8 @@ A source is stale once its last successful fetch is more than 7 days old, or imm
 
 | where the harness has | the notice goes to |
 | --- | --- |
-| a hook | the hook's stdout, which the harness adds to the agent's context on exit 0, so no non-zero exit and no hook error banner |
+| a hook with a stdout channel, anything but `none` or `-` in the matrix | the hook's stdout, which the harness adds to the agent's context on exit 0, so no non-zero exit and no hook error banner |
+| a hook without one, `none` or `-` in the matrix | nowhere through the hook: the definition declares no channel the harness reads sync's output from |
 | no hook (tier 2) | one managed line at the top of the maxims block in the rule file, removed on the next successful refresh |
 
 Beneath that line, and only there, maxims writes the self-refresh line: if the staleness notice is present, run `npx -y @vivswan/maxims sync --quiet` before continuing. It is a rule asking an agent to act, so it is best-effort even from the always-loaded layer, and some harnesses gate shell commands behind approval.
@@ -93,9 +103,13 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 | Gemini CLI | a project hook is fingerprinted and must be trusted again whenever it changes. The hook must print nothing to stdout except one JSON object, so the staleness notice goes out as `hookSpecificOutput.additionalContext`, never as plain text. Its hook timeout is in milliseconds where the others use seconds. |
 | Cline | hooks run only after "Enable Hooks" is switched on in Cline's feature settings, and the hook is an executable file named exactly `TaskStart` with a shebang. Windows is not supported by Cline's hooks. |
 | OpenCode | `AGENTS.md` does not expand file references, so the per-source project file must be listed in the `instructions` array of `opencode.json`; maxims edits that array surgically. Freshness comes from a plugin file maxims writes whole and deletes on removal. |
-| DeepSeek Harness | a 65,536-byte instruction budget applies to the whole file, so the writer refuses past it rather than truncating. The spec reports, unverified here, that the bridge reads its config path once at process start, so a change would need a dsh restart, and that it has no per-project discovery. |
+| DeepSeek Harness | dsh renders every instruction file it finds into one 65,536-byte block and truncates the most specific file past it, so the writer refuses a rule file over 64,512 bytes (the rest is dsh's own framing) rather than truncating. dsh has no per-project config discovery, so the hook is one `@deepseek-ai/dsh-hooks-claude-code` bridge row in `$DSH_HOME/cordis.patch.yml` whatever the install scope, pointing by absolute path at a maxims-owned `$DSH_HOME/maxims-hooks.json`. The bridge reads that file once at process start, so a new or changed row needs a dsh restart. |
 | Codex, Gemini CLI, DeepSeek Harness | the block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses |
 | every hook | a repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once |
-| MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It ships dormant: no shipped harness needs it while all eight reach tier 1. |
+| MCP-eager harnesses | maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It ships dormant: no registered harness needs it while every one of them reaches tier 1. |
 
-Editing a hook registry is surgical everywhere. The writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, updates it in place or appends it, and writes to a temp file before renaming. An unparsable config is never rewritten; the run exits 4. Formatting and comments outside the entry survive byte for byte.
+Editing a hook registry is surgical everywhere: the writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, and updates it in place or appends it.
+
+- **The write is a temp file, then a rename.**
+- **An unparsable config is never rewritten:** the run exits 4.
+- **Formatting and comments outside the entry survive byte for byte.**
