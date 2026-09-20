@@ -38,9 +38,9 @@ export type ApplyResult = {
   applied: number;
 };
 
-// `unlink` and `symlink` refuse a real file or directory at the path: the only thing maxims may
-// replace without an explicit `delete` in the plan is a link it could have written itself. A
-// repointed link is created beside the old one and renamed over it, so no reader sees it absent.
+// A real file or directory where `unlink` or `symlink` expects a link is the user's work: it leaves
+// only through an explicit `delete` in the plan, never by an implicit replacement. A repointed link
+// is created beside the old one and renamed over it, so no reader sees it absent.
 export async function applyChanges(plan: Plan, options: ApplyOptions): Promise<ApplyResult> {
   if (options.dryRun) return { applied: 0 };
   let applied = 0;
