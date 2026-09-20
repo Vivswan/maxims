@@ -5,7 +5,7 @@ group: Reference
 
 # Fetching and refreshing
 
-How a source reaches the store and how often it is refetched: the anonymous default, `--auth`, the cooldown, the cap, and the `config.json` defaults every run reads. Where the store lives is on the [state page](state-and-store.md#the-canonical-home); what a failed fetch keeps is on the [recovery page](state-and-store.md#failure-paths).
+How a source reaches the store and how often it is refetched: the anonymous default, `--auth`, the cooldown, the cap, and the `config.json` defaults every run reads. Where the store lives is on the [state page](state.md#the-canonical-home); what a failed fetch keeps is on the [recovery page](recovery.md#failure-paths).
 
 ## How a source is fetched
 
@@ -16,14 +16,14 @@ Fetching is anonymous by default. No `gh` login and no token is read unless you 
 | `git` on PATH | a sparse, shallow clone of the memories folder named by `--from`, or of the whole tree under `--full-depth`; never the repository's history |
 | `git` missing, GitHub source | one whole-repository tarball download over HTTPS |
 | `git` missing, any other git URL | the source is unresolvable, exit 2; a git URL has no tarball fallback |
-| the fetch exceeds `MAXIMS_FETCH_TIMEOUT` | treated as a network failure; the [failure paths](state-and-store.md#failure-paths) own what that keeps |
+| the fetch exceeds `MAXIMS_FETCH_TIMEOUT` | treated as a network failure; the [failure paths](recovery.md#failure-paths) own what that keeps |
 | `sync --no-fetch` | no network at all, whatever the cooldown says, for a guaranteed-offline run |
 
-A non-GitHub git URL is stored as you typed it and cloned as you typed it, with no host-specific resolution. The [canonical home](state-and-store.md#the-canonical-home) owns where its store entry lands.
+A non-GitHub git URL is stored as you typed it and cloned as you typed it, with no host-specific resolution. The [canonical home](state.md#the-canonical-home) owns where its store entry lands.
 
 | variable | effect |
 | --- | --- |
-| `MAXIMS_HOME` | moves the [canonical home](state-and-store.md#the-canonical-home), state, store, and `config.json` with it |
+| `MAXIMS_HOME` | moves the [canonical home](state.md#the-canonical-home), state, store, and `config.json` with it |
 | `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and the host whose URLs count as GitHub sources. A `github.com` URL stays `github.com` whatever the shell exports, so one pasted command installs the same source on every machine. Unset, or set to `github.com`, means `github.com` and records no host |
 | `MAXIMS_FETCH_TIMEOUT` | seconds one fetch may take before it counts as failed |
 | `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](memory-files.md#the-contract) |
@@ -41,7 +41,7 @@ The cap is a count, and it is a hard gate. The token estimate printed beside eve
 
 ## User defaults in config.json
 
-`<MAXIMS_HOME>/config.json`, `~/.agents/maxims/config.json` by default, holds the defaults you would otherwise repeat on every command. It is a file beside state, never a part of it; the [canonical home](state-and-store.md#the-canonical-home) shows where it sits.
+`<MAXIMS_HOME>/config.json`, `~/.agents/maxims/config.json` by default, holds the defaults you would otherwise repeat on every command. It is a file beside state, never a part of it; the [canonical home](state.md#the-canonical-home) shows where it sits.
 
 ```bash
 npx -y @vivswan/maxims config set rule true

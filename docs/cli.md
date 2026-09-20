@@ -18,7 +18,7 @@ The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Comman
 | `update` | `check`, `upgrade` | refetch every source into the store, ignoring the cooldown, then sync | always |
 | `remove <source or name>` | `rm`, `r` | take a source or one memory out of state, then sync | no |
 | `list` | `ls` | what state holds, per source and per harness, with everything past intent re-derived on the spot | no |
-| `install` | `i` | replay the [project lock](state-and-store.md#the-project-manifest): add every source it names at project scope, then sync | yes |
+| `install` | `i` | replay the [project lock](project-lock.md#the-project-manifest): add every source it names at project scope, then sync | yes |
 | `share <source>`, `unshare <source>` | | put a project-scope source into the project lock, or take it out, without touching what is installed | no |
 | `link <source> -a <harness>` | | add a harness to a source's recorded list without a refetch, then sync | no |
 | `unlink <source> -a <harness>` | | drop a harness from a source's recorded list, then sync | no |
@@ -35,7 +35,7 @@ Status: `share`, `unshare`, and `config` are specified, not yet built.
 - **No source argument.** `sync`, `update`, `install`, and `doctor` read state or the lock instead.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
 - **`link` and `unlink` change one field,** the source's harness list, and never refetch. `add -a` on an installed source still replaces the whole list, as it replaces the selection.
-- **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state-and-store.md#the-schema) owns where the list is kept.
+- **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state.md#the-schema) owns where the list is kept.
 
 ## Sources
 
@@ -73,7 +73,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--all` | add, remove | off | every memory, every harness, no prompt; [what gets installed](installing.md#what-gets-installed) |
 | `--rule` | add | off | publish one-liners into the rule file; [two separate choices](installing.md#two-separate-choices) |
 | `--add-hook` | add | off | register the harness's sync hook; [two separate choices](installing.md#two-separate-choices) |
-| `--share` | add | off | record the source in the [project lock](state-and-store.md#the-project-manifest) as well as in state |
+| `--share` | add | off | record the source in the [project lock](project-lock.md#the-project-manifest) as well as in state |
 | `--copy` | add | off | copy bodies instead of linking them; [bodies](installing.md#bodies) |
 | `--link` | add | off, on for `.` | local sources: link the store to the directory; [bodies](installing.md#bodies) |
 | `--from <path>` | add | `memories/` | the folder in the source holding memories; [source layout](memory-files.md#layout-in-a-source) |

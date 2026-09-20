@@ -88,7 +88,7 @@ An install from `.` registers no hook, so an unpushed edit is never clobbered by
 
 | flag | where the body lives | for |
 | --- | --- | --- |
-| none | the [canonical home](state-and-store.md#the-canonical-home), linked from the destination | every setup where a symlink works |
+| none | the [canonical home](state.md#the-canonical-home), linked from the destination | every setup where a symlink works |
 | `--copy` | a copy at the destination | symlink-hostile setups, as `skills --copy` |
 | `--link` | the store entry is a symlink to the source directory, so edits are live | local sources only; on by default for `.`, and it has no representation for a fetched source |
 

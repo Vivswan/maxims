@@ -82,7 +82,7 @@ maxims: @Vivswan/skills refreshed, +1 -1 rule (renamed: no-sleep-* -> no-polling
 maxims: @Vivswan/skills offline, kept last-good from 2026-08-26 (4 rules)
 ```
 
-`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](fetching.md#the-cap-and-the-cooldown) sets the window; the [failure paths](state-and-store.md#failure-paths) own what each failure does.
+`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](fetching.md#the-cap-and-the-cooldown) sets the window; the [failure paths](recovery.md#failure-paths) own what each failure does.
 
 ## Refresh now: update
 
@@ -145,7 +145,7 @@ Add `--dry-run` to any verb to see the plan without writing anything; the [flag 
 npx -y @vivswan/maxims install
 ```
 
-A project that committed `.agents/maxims.lock` carries its own source list. `install` in a fresh clone adds every source the [manifest](state-and-store.md#the-project-manifest) names at project scope, then syncs, so the first session start already holds the team's rules.
+A project that committed `.agents/maxims.lock` carries its own source list. `install` in a fresh clone adds every source the [project lock](project-lock.md) names at project scope, then syncs, so the first session start already holds the team's rules.
 
 ## Check what a harness loads: doctor
 

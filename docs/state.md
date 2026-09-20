@@ -3,9 +3,11 @@ order: 70
 group: Reference
 ---
 
-# State and store
+# State
 
 Everything maxims owns lives under one directory, and one file in it, `state.json`, records what should be installed. `sync` reads that file and makes the machine match; nothing else on disk is ever read back as a record of what maxims did.
+
+This page owns the layout, the schema, and migrations. The [recovery page](recovery.md) owns what happens when a run fails, and the [project lock page](project-lock.md) owns the file a project commits.
 
 ## The canonical home
 
@@ -27,14 +29,14 @@ Everything maxims owns lives under one directory, and one file in it, `state.jso
 
 <project>/.agents/
 |-- memories/                           # bodies linked in by a project install
-`-- maxims.lock                         # the project manifest, committed; replayed by `maxims install`
+`-- maxims.lock                         # the project lock, committed; replayed by `maxims install`
 ```
 
 The home sits inside `.agents`, the directory `npx skills` already owns, so no new dotfolder appears and the layout is the same whether or not Claude Code is installed. Project memory directories link into it and rule lines point into it; the store is the only place a body lives, so a stale body cannot exist.
 
 A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
 
-Two files are not state. `config.json`, beside it, holds the [user defaults](fetching.md#user-defaults-in-configjson), which are preferences about future commands. The project manifest, in the project's `.agents/`, is the committed record a fresh clone replays.
+Two files are not state. `config.json`, beside it, holds the [user defaults](fetching.md#user-defaults-in-configjson), which are preferences about future commands. The [project lock](project-lock.md), in the project's `.agents/`, is the committed record a fresh clone replays.
 
 ## State holds intent, never actuality
 
@@ -56,24 +58,9 @@ Each fact has exactly one owner. State records only what nothing else on the mac
 | retired memories | the log; a retired memory drops out of the regenerated block on its own |
 | `updatedAt` | the state file's mtime, plus the log |
 | user defaults: which harnesses, `--yes`, `--rule`, `--add-hook`, the cooldown, the cap | `config.json`, beside state; `sync` reads the cooldown and the cap from it, and every other key fills in a flag on `add`, whose result is ordinary intent |
-| the project's source list for a fresh clone | `.agents/maxims.lock` in the project, below; state is per machine and the manifest is per repository |
+| the project's source list for a fresh clone | the [project lock](project-lock.md) in the project; state is per machine and the lock is per repository |
 
 Storing "it is installed" beside "it should be installed" creates two fields that can disagree the moment a user hand-edits a settings file. With no actuality fields there is nothing to reconcile, and recovery from any crash is `maxims sync` again.
-
-## The project manifest
-
-`.agents/maxims.lock` is the file maxims writes to be committed. A project-scope `add`, `remove`, `link`, `unlink`, `disable`, or `enable` rewrites it from state as a projection of the sources whose destination is this project. `maxims install` in a fresh clone reads it, adds each source at project scope, then syncs.
-
-Strategy B rule files also land in the repo, but as the harness's target, never as a record maxims reads.
-
-| property | reason |
-| --- | --- |
-| keys sorted, no timestamps, no fetch facts | two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else |
-| holds a projection of intent only: every `intent` field `add` recorded for the source, so `from` with its ref, selection, renames, rule flag, harnesses, memory folder, full depth, copy, and paths, plus the project-scope disabled list | a sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder |
-| written whole, temp plus rename, like state | a half-written manifest has no representation |
-| absent means no project sources | `install` with no manifest exits 0 and prints "no manifest" |
-
-The manifest never replaces state on the machine that wrote it, and `sync` never reads it. `install` is an `add` per entry plus a `disable` per disabled name, so the result is ordinary state that `sync` drives; the manifest is only how a clone learns what to add.
 
 ## The schema
 
@@ -138,7 +125,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 | `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
-| `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project manifest](#the-project-manifest) carries a copy of its own root's list |
+| `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project lock](project-lock.md#the-project-manifest) carries a copy of its own root's list |
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
@@ -148,60 +135,6 @@ Each source is keyed by what identifies it, never by a memory name, which is wha
 | any other git remote | the URL as you typed it | never rewritten |
 | local directory | its absolute path | |
 | any pinned source | the key above plus `#<ref>` | `@acme/rules` and `@acme/rules#v2` are two sources and may both be installed |
-
-## Idempotency
-
-Running the same `add` twice against an unchanged source, or `sync` any number of times, produces byte-identical files and makes zero writes after the first.
-
-| property | guarantee |
-| --- | --- |
-| store | the recorded sha is compared to the remote's before any download; equal means the fetch is skipped entirely. A live local source has no sha, so sync reads its tree and lets the output comparison decide. |
-| bodies | written only when the file's content differs from the recorded content hash |
-| rule file | regenerated from intent plus store, then compared; identical output means no write, so mtime does not churn |
-| state | `addedAt` is set once and intent changes only when the user changes it; a sync writes state only to record a refresh it performed |
-| hook | keyed by harness, not by source; the registry is rewritten only when the constructed entry differs |
-| ordering | rule lines sort by memory name, so the "nothing changed" fast path fires across machines |
-
-There is one durable commit point, the state write, done as temp file plus rename. Every artifact after it is derived, so an interruption anywhere past that write is repaired by the next sync, which is what the next session start runs anyway.
-
-## Failure paths
-
-| failure | behavior |
-| --- | --- |
-| fetch fails before any write | keep the last good store, exit 2 (0 with `--quiet`) |
-| fetch succeeds, some files fail the contract | install the valid ones, warn per bad file |
-| fetch succeeds, every file fails the contract | treat as an empty source; the existing block survives, exit 3 |
-| write fails partway through linking bodies | intent is already correct, nothing is stranded, exit 4 |
-| write fails on the rule file | bodies stay, block unchanged, exit 4; temp plus rename means a partial file has no representation |
-| process killed between store swap and rule write | the next sync re-derives everything from intent |
-| hook fires while a manual add holds the lock | the hook exits 0 immediately without waiting |
-| two manual adds at once | the second polls, then exits 5 |
-| source repo deleted upstream | keep the last good copy, warn at every start, never auto-remove |
-| store copy missing on a new machine | sync refetches on the spot, cooldown or not |
-| a live source's directory moved or deleted | the symlink dangles and there is no copy: keep the existing block, report the error, never wipe |
-| a live edit breaks a wikilink or crosses the cap | that source's block keeps its previous content; other sources are unaffected |
-
-Never auto-removing on a fetch failure is deliberate. A rate limit and a deleted repo look alike from the client, and dropping a commit-review rule because GitHub returned 403 is the failure class maxims exists to prevent.
-
-## Moving state to a new machine
-
-State carries the intent, so moving an install is three steps:
-
-1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses; without that file a source naming one in `intent.harnesses` restores nothing for it, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns what you see instead.
-2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, and each project root under `disabled.project`.
-3. Run `npx -y @vivswan/maxims sync`; the [failure paths](#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
-
-## Concurrency
-
-The store is single-writer. A writer creates `state.json.lock` atomically, holding its pid, host, start time, and command line. Reads never take the lock, and every write is temp plus rename, so a session starting mid-sync sees the old rule file or the new one, never a partial one.
-
-| situation | behavior |
-| --- | --- |
-| two adds, different sources | the second polls for up to 5 seconds, then exits 5 with the holder's command line |
-| a hook fires during a manual add | the hook does not wait: exit 0 at once, logged as "skipped, lock held" |
-| two syncs at once | one wins, the other exits 0; both would compute the same output |
-| the holder crashed and left the lock | a lock older than 60 seconds is stolen, and the theft is logged with whether the holder's pid was still alive |
-| NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
 
 ## Migrations
 
@@ -220,4 +153,6 @@ State migrates forward only.
 | steps are deleted once a hard break makes them unreachable | the migration directory is not allowed to accumulate compatibility baggage |
 | downgrading past a migration is unsupported | recovery is the same as corruption: quarantine and re-add |
 
-A corrupt state file is moved aside to `state.json.corrupt-<timestamp>` and the user is told to re-add. It is not rebuilt from the rule files, because no reading of a managed block reveals which memories the user selected or whether they asked for rule lines. Only intent-shape changes ever need a migration; everything derived is regenerated by the next sync at the current spec.
+A corrupt state file is moved aside to `state.json.corrupt-<timestamp>` and the user is told to re-add; a dry run or a read-only verb never moves it. It is not rebuilt from the rule files, because no reading of a managed block reveals which memories the user selected or whether they asked for rule lines.
+
+Only intent-shape changes ever need a migration; everything derived is regenerated by the next sync at the current spec.

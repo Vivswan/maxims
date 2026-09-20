@@ -10,7 +10,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 ## Shape
 
 - **The rules file is the carrier, not hook stdout.** Stdout is conversation content that cannot be inspected between sessions; the file on disk is what a harness re-reads after a compaction. Stdout is for notices only.
-- **One canonical home, `~/.agents/maxims/`, with links everywhere else.** The only arrangement in which a stale body cannot exist; `--copy` is the escape hatch. Details on the [state and store page](state-and-store.md#the-canonical-home).
+- **One canonical home, `~/.agents/maxims/`, with links everywhere else.** The only arrangement in which a stale body cannot exist; `--copy` is the escape hatch. Details on the [state and store page](state.md#the-canonical-home).
 - **State drives everything.** `state.json` is the instruction `sync` executes, not a receipt of what `add` did; `sync` and `update` are real verbs because state, not a command line, is the source of truth.
 - **State holds intent only.** A cached copy of the filesystem or a hook registry can disagree with reality the moment a user hand-edits a file, so nothing of the kind is stored; recovery from any crash is `sync` again.
 - **Hooks are one per harness, not one per source.** The hook carries no source and no filter, so the tenth source adds no latency and the selection cannot drift from what `add` recorded.
@@ -20,7 +20,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 - **No backwards compatibility.** Internal shapes change freely; a forward-only migration named for the version it leaves, plus a golden fixture, carries every installation forward, so nothing is kept for an older version.
 - **Two scopes only, project and user; `-o` is an escape hatch, not a third scope.** Every harness has a project target and most have a user target, so two scopes cover the matrix; `-o` exists for the one rule file no harness owns. The [installing page](installing.md#where-it-lands) owns the shapes.
 - **User defaults live in `config.json` beside state, never in state.** A default is a preference about future commands, not intent about installed sources; keeping it out of `state.json` means the intent-only rule needs no exception. This replaces the earlier `state.config` shape. The [defaults section](fetching.md#user-defaults-in-configjson) owns the keys.
-- **A project commits `.agents/maxims.lock` and `install` replays it.** State is per machine, so a fresh clone would otherwise start with no rules; the manifest is what a teammate's `install` reads. Sorted keys and no timestamps keep its diff to what changed. The [manifest section](state-and-store.md#the-project-manifest) owns the file.
+- **A project commits `.agents/maxims.lock` and `install` replays it.** State is per machine, so a fresh clone would otherwise start with no rules; the lock is what a teammate's `install` reads. Sorted keys and no timestamps keep its diff to what changed. The [project lock page](project-lock.md) owns the file.
 - **`disable` withholds one memory at one scope and `enable` restores it, without touching a source's intent.** Removing the memory would lose the selection and the rename; a per-scope disabled list in state keeps both and makes the withholding visible in `list`. The [verb table](cli.md#verbs) owns the verbs.
 
 ## Identity and refusal
@@ -46,7 +46,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 - **`--paths` scoping is opt-in, never a default.** A scoped rule loads only when matching files are touched, which breaks "every session"; it is stored per source, in the target harness's own syntax.
 - **`--cooldown` and `--cap` write `config.json`, not state.** They are machine-wide defaults, so they follow the [user defaults decision](#shape) above rather than living beside intent or on a hook command line; unlike the other flags, typing one persists it.
 - **Fetching is anonymous by default; `--auth` opts a source in and is recorded as `intent.auth`.** Reading a `gh` token nobody asked to use turns a public-repo install into an authenticated request, and a token read is a side effect the plan never showed. The [fetch section](fetching.md#how-a-source-is-fetched) owns the order of attempts and the environment variables.
-- **Any git URL is a source, stored verbatim, cloned as typed, with no tarball fallback.** Host-specific resolution would need a resolver per forge; a clone works on all of them. The [canonical home](state-and-store.md#the-canonical-home) owns its store path.
+- **Any git URL is a source, stored verbatim, cloned as typed, with no tarball fallback.** Host-specific resolution would need a resolver per forge; a clone works on all of them. The [canonical home](state.md#the-canonical-home) owns its store path.
 - **The default fetch is a sparse, shallow clone of the memories folder; a whole-repo tarball only when `git` is missing.** The memories folder is a fraction of most repos, and a clone needs no per-host API. `MAXIMS_FETCH_TIMEOUT` bounds a fetch so a hung remote cannot block a session start.
 - **`.agents/memories/` holds project bodies on every harness.** One convention for every harness, mirroring where `npx skills` puts project skills.
 

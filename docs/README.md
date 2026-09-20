@@ -24,7 +24,9 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 | compare the flags and verbs with `npx skills` | [Parity with npx skills](parity.md) |
 | know which agents are supported and what each one gets | [Harnesses](harnesses.md) |
 | declare a harness as data, built in or in `harnesses.json` | [Adding a harness](adding-a-harness.md) |
-| know what state records and how a sync recovers | [State and store](state-and-store.md) |
+| know what state records, where it lives, and how it migrates | [State](state.md) |
+| commit a source list a fresh clone replays | [The project lock](project-lock.md) |
+| know what a failure keeps, and how to move or uninstall | [Recovery](recovery.md) |
 | fix what a session start or a sync reports | [Troubleshooting](troubleshooting.md) |
 | read the threat model | [Security](security.md) |
 | know why a behavior is the way it is | [Design decisions](design-decisions.md) |

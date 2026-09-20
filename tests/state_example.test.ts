@@ -1,4 +1,4 @@
-// Fails if the state example on docs/state-and-store.md stops parsing against the state schema: a
+// Fails if the state example on docs/state.md stops parsing against the state schema: a
 // field renamed or a brand tightened in src/state/schema.ts would otherwise leave the page showing
 // a file maxims itself would quarantine.
 import { expect, test } from "bun:test";
@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseState } from "../src/state/schema.ts";
 
-const STATE_PAGE = "docs/state-and-store.md";
+const STATE_PAGE = "docs/state.md";
 const SCHEMA_HEADING = "## The schema";
 
 test("the state example under the schema heading parses as current state", () => {
