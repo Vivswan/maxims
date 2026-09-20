@@ -1,8 +1,10 @@
 // Fails if the docs probe stops counting a `<placeholder>` inside a code span as a word: the
 // inline-HTML strip would then eat it, a 71-word paragraph would pass the 70-word cap, and the
 // docs:check gate would stay green on a page that is over it. Also fails if the locator stops
-// placing a table's rows on consecutive lines under its header, or starts searching for a cell's
-// text: a cell, or the paragraph after the table, would then be reported on the wrong line.
+// placing a table's rows on consecutive lines under its header, starts searching for a cell's
+// text, or lets a code block, an HTML block, or a generated region sit under the cursor when the
+// next table is located: a cell, or the paragraph after the table, would then be reported on the
+// wrong line.
 import { expect, test } from "bun:test";
 import { DEFAULT_MAX_CELL_WORDS, DEFAULT_MAX_WORDS, probePage } from "../scripts/docs_probe.mts";
 
@@ -107,8 +109,47 @@ const tableCases: [name: string, body: string, findings: ReturnType<typeof cell>
     ),
     [cell(5, 16), cell(6, 16)],
   ],
+  [
+    "a header no probe matches is reported on its own line, not on a body row that repeats its words",
+    `| [GitHub](https://github.com)-hosted ${words(15)} | |\n| --- | --- |\n| GitHub-hosted ${words(5)} | |`,
+    [cell(3, 16)],
+  ],
+  [
+    "the cursor steps past the last row, so a paragraph repeating that row's opening words keeps its line",
+    `${table([`same words ${words(13)}`, "x"])}\n\nsame words ${words(69)}`,
+    [paragraph(7, 71)],
+  ],
 ];
 
 test.each(tableCases)("%s", (_name, body, expected) => {
   expect(probePage(page(body), "page.md", options)).toEqual(expected);
 });
+
+// A block the stream omits still occupies source lines; a table it quotes must not be where the
+// next real table's header is found.
+const quoted = "| demo | sample |\n| --- | --- |";
+const skippedCases: [name: string, skipped: string, bodyLine: number][] = [
+  ["a fenced code block", `\`\`\`md\n${quoted}\n\`\`\``, 10],
+  ["an HTML block", `<div>\n${quoted}\n</div>`, 10],
+  ["an indented code block", quoted.replace(/^/gm, "    "), 8],
+  [
+    "a generated region",
+    `<!-- BEGIN GENERATED: x -->\n\n${quoted}\n\n<!-- END GENERATED: x -->`,
+    12,
+  ],
+  ["a fenced code block whose lines have no letters", "```md\n| | |\n| --- | --- |\n```", 10],
+  [
+    "a fenced code block whose info string repeats a line",
+    "```md\n| | |\n| --- | --- |\nmd\n```",
+    11,
+  ],
+  ["a code block opening a list item", `-     | demo | sample |\n      | --- | --- |`, 8],
+];
+
+test.each(skippedCases)(
+  "a table after %s quoting a table lands on its own lines",
+  (_name, skipped, bodyLine) => {
+    const body = `${skipped}\n\n${table([words(16), "ok"])}`;
+    expect(probePage(page(body), "page.md", options)).toEqual([cell(bodyLine, 16)]);
+  },
+);

@@ -27,7 +27,7 @@ In a terminal it lists "Memories to remove:" and asks "Are you sure you want to 
 
 ## Back up or move to a new machine
 
-State carries the intent, so a backup is a copy of the files in step 1, and moving an install is three steps.
+State carries the intent, so a backup of your intent and configuration is a copy of the files in step 1, and moving an install is three steps; rule files and memory bodies are not in that copy, since `sync` writes them again from the sources.
 
 1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses. Without that file a source naming one in `intent.harnesses` restores nothing for it, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns what you see instead.
 2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project`.

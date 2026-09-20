@@ -54,12 +54,13 @@ export interface Scan {
 
 // Marker bytes the renderer callbacks emit; blocks nest, inlines do not. P and L are prose
 // (paragraph, list item), D a table cell; N is a block whose paths and links are checked but whose
-// words are not counted; T is a table and R one of its rows, which only steer the line locator.
+// words are not counted; T is a table and R one of its rows, which only steer the line locator; S is
+// a skipped block (code, raw HTML) carrying its source text, which the locator steps over.
 const OPEN = "";
 const INLINE_END = "";
 const BLOCK_END = "";
 const isBlockKind = (ch: string | undefined) =>
-  ch === "P" || ch === "L" || ch === "D" || ch === "N" || ch === "T" || ch === "R";
+  ["P", "L", "D", "N", "T", "R", "S"].includes(ch ?? "");
 
 /** The page with front matter blanked, line for line, so line numbers still match the file. */
 function blankFrontMatter(text: string): string[] {
@@ -75,6 +76,22 @@ function blankFrontMatter(text: string): string[] {
 
 // A blank line, or one that is only a blockquote prefix, such as the lines before a table.
 const isBlank = (line: string) => /^\s*(>\s*)*$/.test(line);
+
+/**
+ * A source line and a raw content line reduced to one form: indentation and container prefixes
+ * (blockquote, list marker) removed from both, so they compare equal wherever the renderer
+ * stripped them.
+ */
+const bare = (line: string) => line.replace(/^\s*(?:>\s*|[-*+]\s+|\d{1,9}[.)]\s+)*/, "").trim();
+
+// The separator under a table's header. A lone --- (a thematic break or a setext underline) is
+// not one, hence the pipe.
+const isSeparatorRow = (line: string) => {
+  const body = bare(line);
+  if (!body.includes("|")) return false;
+  const cells = body.replace(/^\|/, "").replace(/\|$/, "").split("|");
+  return cells.every((cell) => /^\s*:?-+:?\s*$/.test(cell));
+};
 
 const ENTITIES: Record<string, string> = {
   "&amp;": "&",
@@ -175,18 +192,21 @@ export function scanPage(text: string): Scan {
     blockquote: same,
     list: same,
     heading: (c: string) => `${OPEN}N${c}${BLOCK_END}`,
-    code: nothing,
+    code: (c: string) => `${OPEN}S${c}${BLOCK_END}`,
     table: (c: string) => `${OPEN}T${c}${BLOCK_END}`,
     tr: (c: string) => `${OPEN}R${c}${BLOCK_END}`,
     th: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
     td: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
     html: (c: string) => {
-      // Only the documented marker comment, with its name, opens or closes a region.
+      // Only the documented marker comment, with its name, opens or closes a region. The skipped
+      // block after a marker outlives the region cut when the marker closes one, so the cursor
+      // passes the END line and the rows the region hid.
       const begin = /^\s*<!-- BEGIN GENERATED: (\S+)/.exec(c);
       const end = /^\s*<!-- END GENERATED: (\S+)/.exec(c);
-      if (begin) return `${OPEN}G${begin[1]}${BLOCK_END}`;
-      if (end) return `${OPEN}g${end[1]}${BLOCK_END}`;
-      return "";
+      const skipped = `${OPEN}S${c}${BLOCK_END}`;
+      if (begin) return `${OPEN}G${begin[1]}${BLOCK_END}${skipped}`;
+      if (end) return `${OPEN}g${end[1]}${BLOCK_END}${skipped}`;
+      return skipped;
     },
     hr: nothing,
     image: nothing,
@@ -220,21 +240,27 @@ export function scanPage(text: string): Scan {
     return found === -1 ? cursor : found;
   };
   const KINDS: Record<string, Unit["kind"] | undefined> = { P: "paragraph", L: "item", D: "cell" };
-  const firstLineOf = (block: string) =>
-    visibleText(ownText(block.slice(2, -1)))
-      .split("\n")
-      .find((l) => l.trim() !== "") ?? "";
+  // A skipped block's source lines pass under the cursor, or a fence quoting a table example would
+  // be where the next table's header is looked for. Its content is verbatim source, so its first
+  // non-blank line is matched whole: a line may have no letters at all, and a fence's info string
+  // may repeat one. Fenced content excludes its fences, so the cursor lands on the closer.
+  const skipRaw = (raw: string) => {
+    const rawLines = raw.replace(/\n$/, "").split("\n");
+    const start = rawLines.findIndex((l) => bare(l) !== "");
+    if (start === -1) return;
+    const needle = bare(rawLines[start] ?? "");
+    const found = lines.findIndex((line, i) => i >= cursor && bare(line) === needle);
+    if (found !== -1) cursor = found - start + rawLines.length;
+  };
   // A table's rows are consecutive source lines: the header, its separator, then one line per body
-  // row. Only the header is searched for, by whichever of its cells a probe can match; a header no
-  // cell anchors (empty cells, a first word that is a link with a suffix) sits on the first
-  // non-blank line at the cursor. Every other row's line follows from the header's.
+  // row. No cell's text is searched for: a body row may repeat the header's words while the header
+  // itself (a link with a suffix, an empty cell) matches nothing, so the separator anchors it.
   const visitTable = (inner: string) => {
-    while (cursor < lines.length && isBlank(lines[cursor] ?? "")) cursor += 1;
     const rows = nestedBlocks(inner);
-    const anchors = nestedBlocks(rows[0]?.slice(2, -1) ?? "")
-      .map((cellBlock) => search(firstLineOf(cellBlock)))
-      .filter((line) => line !== -1);
-    const header = anchors.length === 0 ? cursor : Math.min(...anchors);
+    const found = lines.findIndex(
+      (line, i) => i >= cursor && !isBlank(line) && isSeparatorRow(lines[i + 1] ?? ""),
+    );
+    const header = found === -1 ? cursor : found;
     rows.forEach((row, index) => {
       rowLine = index === 0 ? header : header + 1 + index;
       visit(row);
@@ -244,6 +270,10 @@ export function scanPage(text: string): Scan {
   };
   const visit = (block: string) => {
     const inner = block.slice(2, -1);
+    if (block[1] === "S") {
+      skipRaw(inner);
+      return;
+    }
     if (block[1] === "T") {
       visitTable(inner);
       return;
