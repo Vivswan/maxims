@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import {
   createScanner,
@@ -76,7 +76,7 @@ async function planHookOnly(def: HarnessDefinition, intent: HookIntent): Promise
   }
   if (hasHook(def, "file")) {
     const path = hookPath(def, def.hook, intent);
-    return planFileHookWrite({ def, ...intent, currentText: await readConfigText(path) });
+    return planFileHookWrite({ def, ...intent, current: await readFileState(path) });
   }
   if (hasHook(def, "custom")) {
     const spec = hookSpecFor(def);
@@ -328,22 +328,44 @@ function onlyChild(node: Node): Node {
   return child;
 }
 
+// The bytes and the permission bits of the artifact at the hook path; the mode travels with the
+// text because a hook the harness cannot execute is as absent as one with the wrong content.
+export type FileState = { text: string; mode: number };
+
 export type FileHookWriteInput = HookIntent & {
   def: HarnessWithHook<"file">;
-  currentText: string | null;
+  current: FileState | null;
 };
+
+async function readFileState(path: string): Promise<FileState | null> {
+  const text = await readConfigText(path);
+  if (text === null) return null;
+  try {
+    return { text, mode: (await stat(path)).mode & 0o7777 };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot inspect ${path}: ${detail}`, {
+      cause,
+    });
+  }
+}
 
 export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
   const path = hookPath(input.def, input.def.hook, input);
-  if (!input.wanted) {
-    return { changes: input.currentText === null ? [] : [{ kind: "delete", path }] };
-  }
+  const current = input.current;
+  if (!input.wanted) return { changes: current === null ? [] : [{ kind: "delete", path }] };
   const content = input.def.hook.render(hookSpecFor(input.def));
-  if (content === input.currentText) return { changes: [] };
-  const change: Change = input.def.hook.executable
-    ? { kind: "write", path, content, mode: 0o755 }
-    : { kind: "write", path, content };
-  return { changes: [change], notice: `wrote the maxims hook to ${path}` };
+  const mode = input.def.hook.executable ? 0o755 : undefined;
+  const sameText = current !== null && current.text === content;
+  if (sameText && (mode === undefined || current.mode === mode)) return { changes: [] };
+  const change: Change =
+    mode === undefined ? { kind: "write", path, content } : { kind: "write", path, content, mode };
+  return {
+    changes: [change],
+    notice: sameText
+      ? `made the maxims hook at ${path} executable again`
+      : `wrote the maxims hook to ${path}`,
+  };
 }
 
 // The tier a harness reaches on this machine: a definition's own probe wins, then a declared

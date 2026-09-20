@@ -2,7 +2,7 @@
 // behind, an orphan matcher group after removal, or a rewrite of a file we cannot parse would each
 // pass a shape check and still wreck the user's settings.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
@@ -442,38 +442,78 @@ describe("planFileHookWrite", () => {
   };
   const path = rooted(`${projectRoot}/.clinerules/hooks/TaskStart`);
   const rendered = `#!/bin/sh\n${HOOK_COMMAND}\n`;
-  const cases: { name: string; wanted: boolean; current: string | null; changes: Change[] }[] = [
+  const executable: Change = { kind: "write", path, content: rendered, mode: 0o755 };
+  const cases: {
+    name: string;
+    wanted: boolean;
+    current: { text: string; mode: number } | null;
+    changes: Change[];
+  }[] = [
     {
       name: "written executable when wanted and absent",
       wanted: true,
       current: null,
-      changes: [{ kind: "write", path, content: rendered, mode: 0o755 }],
+      changes: [executable],
     },
     {
       name: "rewritten when the artifact drifted",
       wanted: true,
-      current: "#!/bin/sh\nold\n",
-      changes: [{ kind: "write", path, content: rendered, mode: 0o755 }],
+      current: { text: "#!/bin/sh\nold\n", mode: 0o755 },
+      changes: [executable],
     },
-    { name: "left alone when identical", wanted: true, current: rendered, changes: [] },
+    {
+      name: "made executable again when only the mode drifted",
+      wanted: true,
+      current: { text: rendered, mode: 0o644 },
+      changes: [executable],
+    },
+    {
+      name: "left alone when identical",
+      wanted: true,
+      current: { text: rendered, mode: 0o755 },
+      changes: [],
+    },
     {
       name: "deleted when unwanted",
       wanted: false,
-      current: rendered,
+      current: { text: rendered, mode: 0o755 },
       changes: [{ kind: "delete", path }],
     },
     { name: "nothing to delete when absent", wanted: false, current: null, changes: [] },
   ];
   test.each(cases)("$name", ({ wanted, current, changes }) => {
-    const result = planFileHookWrite({
-      def: fileDef,
-      scope: "project",
-      ctx,
-      wanted,
-      currentText: current,
-    });
+    const result = planFileHookWrite({ def: fileDef, scope: "project", ctx, wanted, current });
     expect(result.changes).toEqual(changes);
   });
+
+  test.skipIf(process.platform === "win32")(
+    "a hook whose execute bit was stripped is repaired through applyChanges (mode bits are POSIX)",
+    async () => {
+      await withTempDir(async (root) => {
+        const local: HarnessContext = { ...ctx, projectRoot: root };
+        const file = join(root, ".clinerules", "hooks", "TaskStart");
+        mkdirSync(join(root, ".clinerules", "hooks"), { recursive: true });
+        writeFileSync(file, rendered, { mode: 0o644 });
+        const repair = await planHookWrite({
+          def: fileDef,
+          scope: "project",
+          ctx: local,
+          wanted: true,
+        });
+        expect(repair.changes).toHaveLength(1);
+        await applyChanges({ changes: repair.changes, notices: [] }, { dryRun: false });
+        expect(statSync(file).mode & 0o7777).toBe(0o755);
+        expect(readFileSync(file, "utf8")).toBe(rendered);
+        const again = await planHookWrite({
+          def: fileDef,
+          scope: "project",
+          ctx: local,
+          wanted: true,
+        });
+        expect(again.changes).toEqual([]);
+      });
+    },
+  );
 });
 
 describe("planHookWrite against a real directory", () => {

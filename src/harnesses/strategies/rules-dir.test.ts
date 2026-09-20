@@ -117,18 +117,22 @@ describe("planRulesDirWrite", () => {
     ]);
   });
 
+  const escaping = (sourceSlug: string) =>
+    planRulesDirWrite({ def: scoped, target: plain, scope: "project", ctx, sourceSlug, block });
   const refusals: { name: string; run: () => unknown; code: ExitCode }[] = [
     {
-      name: "a slug that escapes the rules directory",
-      run: () =>
-        planRulesDirWrite({
-          def: scoped,
-          target: plain,
-          scope: "project",
-          ctx,
-          sourceSlug: "x/../../../../etc/evil",
-          block,
-        }),
+      name: "a slug that escapes the scope root",
+      run: () => escaping("x/../../../../etc/evil"),
+      code: ExitCode.DestinationWriteFailed,
+    },
+    {
+      name: "a slug that climbs out of the rules directory but stays under the scope root",
+      run: () => escaping("x/../../../escape"),
+      code: ExitCode.DestinationWriteFailed,
+    },
+    {
+      name: "a slug that nests a directory inside the rules directory",
+      run: () => escaping("../sibling"),
       code: ExitCode.DestinationWriteFailed,
     },
     {
@@ -168,6 +172,32 @@ describe("planRulesDirWrite", () => {
     }
     expect(caught).toBeInstanceOf(MaximsError);
     if (caught instanceof MaximsError) expect(caught.code).toBe(code);
+  });
+
+  test("a rules directory symlinked outside the project is refused, not followed", async () => {
+    await withTempDir(async (dir) => {
+      const project = join(dir, "project");
+      const outside = join(dir, "outside");
+      mkdirSync(join(project, ".claude"), { recursive: true });
+      mkdirSync(outside);
+      symlinkSync(outside, join(project, ".claude", "rules"));
+      const local: HarnessContext = { ...ctx, projectRoot: project };
+      let caught: unknown;
+      try {
+        planRulesDirWrite({
+          def: scoped,
+          target: plain,
+          scope: "project",
+          ctx: local,
+          sourceSlug: "a-b",
+          block,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(MaximsError);
+      if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+    });
   });
 
   test("applying the write over a symlink at the target leaves a regular file", async () => {

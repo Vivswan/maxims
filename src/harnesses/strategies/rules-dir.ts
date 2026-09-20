@@ -38,12 +38,22 @@ export function planRulesDirRemove(input: RulesDirLocation): Change[] {
   return [{ kind: "delete", path: rulesDirPath(input) }];
 }
 
+// The file name is one path segment or nothing: a segment check is what keeps the file inside the
+// rules directory (`maxims-../sibling.md` is inside it lexically and would still plant a
+// directory there), and the containment check is judged against the SCOPE root, not the rules
+// directory, because a rules directory symlinked out of the project would pass as its own root.
 export function rulesDirPath(input: RulesDirLocation): RootedPath {
   const root = scopeRoot(input.def, input.scope, input.ctx);
-  return assertInsideRoot(
-    root,
-    join(root, input.target.dir, input.target.fileName(input.sourceSlug)),
-  );
+  const dir = join(root, input.target.dir);
+  const name = input.target.fileName(input.sourceSlug);
+  if (name === "" || name === "." || name === ".." || /[\\/]/.test(name)) {
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `refusing to write ${JSON.stringify(name)} inside ${dir}: a rule file name is one path segment`,
+      { hint: "the source slug must not contain a path separator" },
+    );
+  }
+  return assertInsideRoot(root, join(dir, name));
 }
 
 // A target that declares its own frontmatter owns the whole preamble, path filter included; the

@@ -177,13 +177,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
 
   test.each(scopes)("%s file-shaped hook is written when wanted and deleted when not", (scope) => {
     if (!hasHook(def, "file")) return;
-    const [written] = planFileHookWrite({
-      def,
-      scope,
-      ctx,
-      wanted: true,
-      currentText: null,
-    }).changes;
+    const [written] = planFileHookWrite({ def, scope, ctx, wanted: true, current: null }).changes;
     if (written?.kind !== "write") throw new Error("expected a write");
     expect(written.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
     expect(written.mode).toBe(def.hook.executable ? 0o755 : undefined);
@@ -192,7 +186,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
       scope,
       ctx,
       wanted: false,
-      currentText: written.content,
+      current: { text: written.content, mode: written.mode ?? 0o644 },
     });
     expect(gone.changes).toEqual([{ kind: "delete", path: written.path }]);
   });
