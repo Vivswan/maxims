@@ -8,11 +8,13 @@ An agent can hold a rule in its memory and still not act on it, because memory b
 npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 ```
 
-What that writes for Claude Code, one line per memory:
+What maxims writes for Claude Code, one line per memory, with the detail path, the body's short hash, and the two comment lines Claude Code strips before injection:
 
 ```markdown
 <!-- maxims:begin @Vivswan/skills sha=fc67557 -->
-- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
+<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
+<!-- update: npx maxims add @Vivswan/skills | remove: npx maxims remove @Vivswan/skills -->
+- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
 

@@ -30,7 +30,7 @@ Two of `-g`, `-p`, and `-o` together is exit 1, "two destinations given".
 | --- | --- |
 | none | every memory in the source (`*`) |
 | `-m, --memory <names>` | a comma list, repeatable; `*` means all. A name the source lacks is exit 3 with nothing written |
-| `--all` | shorthand for `--memory '*' --agent '*' -y` |
+| `--all` | shorthand for `--memory '*' --agent '*' -y`; on `remove`, every installed source, with `-y` spelled out, so it is the one `remove` that needs no separate `-y` |
 | `-l, --list` | a read-only preview: the same "Found N memories" and item blocks, then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning |
 
 Re-running `add` with a different `--memory` list replaces the recorded one, shown in the plan first. It never unions.
@@ -66,8 +66,6 @@ o  Available Memories
 |
 o  Run without --list to install
 ```
-
-On `remove`, `--all` means every installed source and spells out `-y`, so it is the one `remove` that needs no separate `-y`.
 
 ## Two separate choices
 
@@ -135,7 +133,7 @@ Detection mirrors `skills`, which prints "Agent detected - installing non-intera
 | yes | no | yes | no prompts, full output |
 | yes | yes | either | no prompts, full output, "Agent detected" banner |
 | no | either | either | no prompts, plain output with no spinner and no color; `--yes` implied on `add` and `sync` only |
-| any | any | any, with `--quiet` | one line or nothing; a needed prompt takes the branch below |
+| any | any | any, with `--quiet` | only the lines a session must hear, or nothing, as the [quiet section](troubleshooting.md#--quiet-printed-nothing) shows; a needed prompt takes the branch below |
 
 Without a prompt, `add` and `sync` proceed as if `--yes` were given. `remove` without an explicit `-y` aborts with exit 1, and `--all` spells `-y` out, so it is the one form that passes.
 

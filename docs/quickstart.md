@@ -55,12 +55,14 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 | hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
 | state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
 
-Two of the four lines in the rule file for that install:
+The rule file for that install, cut to two of its four rule lines. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
 
 ```markdown
 <!-- maxims:begin @Vivswan/skills sha=fc67557 -->
-- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: ~/.agents/maxims/store/vivswan/skills/gate-exit-conditions-the-merge.md)
-- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
+<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
+<!-- update: npx maxims add @Vivswan/skills | remove: npx maxims remove @Vivswan/skills -->
+- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: /home/user/.agents/maxims/store/vivswan/skills/gate-exit-conditions-the-merge.md, 0f0f0f0)
+- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
 
@@ -74,12 +76,11 @@ The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run 
 npx -y @vivswan/maxims sync
 ```
 
-In quiet mode the whole output is one line, or nothing when nothing changed:
+In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 
 ```text
-maxims: synced 3 sources, 11 rules (no fetch, within cooldown)
-maxims: @Vivswan/skills refreshed, +1 -1 rule (renamed: no-sleep-* -> no-polling-*)
-maxims: @Vivswan/skills offline, kept last-good from 2026-08-26 (4 rules)
+maxims: @Vivswan/skills has not refreshed since 2026-08-26 (network unreachable); rules may be out of date
+maxims: rules refreshed (1 file updated)
 ```
 
 `sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](fetching.md#the-cap-and-the-cooldown) sets the window; the [failure paths](recovery.md#failure-paths) own what each failure does.
@@ -90,7 +91,7 @@ maxims: @Vivswan/skills offline, kept last-good from 2026-08-26 (4 rules)
 npx -y @vivswan/maxims update
 ```
 
-`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` line above; in a terminal it follows the `npx skills update` frame, which the specification leaves to be mirrored:
+`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` lines above; in a terminal it follows the `npx skills update` frame, which the specification leaves to be mirrored:
 
 ```text
 |
@@ -128,7 +129,7 @@ npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by n
 
 `remove` takes the source or memory out of state and syncs; there is no separate uninstall path, because the regenerated output no longer contains those lines.
 
-In a terminal it lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Successfully removed 2 memory(s)". The [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY.
+In a terminal it lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Removed 2 memories". The [non-interactive rules](installing.md#non-interactive-behavior) own what happens without a TTY.
 
 | after `remove` | result |
 | --- | --- |

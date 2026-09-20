@@ -30,7 +30,12 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 ## Exit 5: store locked
 
-**What you see:** a command waits up to 5 seconds, then exits 5 and prints the command line of the process holding the lock.
+**What you see:** a command waits up to 5 seconds, then exits 5 with this message and hint, `<who>` being the holder's command line, pid, host, and start time, or `an unidentified process` when the lock file carries no record:
+
+```text
+store is locked by <who>
+wait for it to finish, or remove <path to state.json.lock> if that process is gone
+```
 
 **What it means:** another maxims process holds `state.json.lock`: a second manual command, or a hook that took the lock first. A hook that meets a held lock exits 0 without waiting, so the hook itself never reports this; the [concurrency section](recovery.md#concurrency) owns the rules.
 
@@ -40,7 +45,7 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 **What you see:** exit 4 naming a file, for example a harness config such as `settings.json`, `hooks.json`, or `opencode.json` that did not parse.
 
-**What it means:** maxims edits only the parsed tree of a config file and never rewrites one it cannot parse. Your intent is already recorded, so nothing is stranded; the [failure paths](recovery.md#failure-paths) own the other exit 4 causes, permissions, a read-only filesystem, and a full disk.
+**What it means:** maxims edits only the parsed tree of a config file and never rewrites one it cannot parse. Your intent is already recorded, so nothing is stranded. The [exit code table](cli.md#exit-codes) lists the other exit 4 causes.
 
 **What to do:** fix the file by hand, a trailing comma or a comment where the format forbids one, then run `sync`.
 
@@ -60,7 +65,11 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 ## state.json was quarantined
 
-**What you see:** a message that `state.json` was moved to `state.json.corrupt-<timestamp>` and that you should re-add your sources.
+**What you see:** `sync` prints this line, `<path>` being the quarantined file beside `state.json`, named `state.json.corrupt-<timestamp>`:
+
+```text
+maxims: state.json was corrupt and moved to <path>; re-add your sources
+```
 
 **What it means:** the file did not parse against the schema, after a hand edit or a downgrade of maxims past a migration. A state file is never partly obeyed. A dry run or a read-only verb never quarantines; the [migrations section](state.md#migrations) owns the rule.
 
@@ -78,7 +87,16 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 **What you see:** the hook ran, but nothing from maxims appears in the agent's context, or `sync --quiet` in a terminal prints no line.
 
-**What it means:** quiet mode prints one line, or nothing when nothing changed, and a second run within 60 seconds of the last exits as soon as it reads the stamp. On a harness whose `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-`, nothing of sync's output reaches the agent; on a `json:` harness the line appears in the named JSON field, not as text.
+**What it means:** quiet mode prints only what a session must hear, and a second run within 60 seconds of the last exits as soon as it reads the stamp.
+
+| after a quiet run | on stdout |
+| --- | --- |
+| a source has failed to refresh for seven days, its repository is gone, or its content is invalid | one `maxims: <key> ...` line per such source, the last good copy kept |
+| a write failed | one `maxims: <message>` line per failure |
+| a file a harness reads changed | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)` |
+| none of those | nothing |
+| the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-` | nothing reaches the agent, whatever sync printed |
+| the column is `json:` | the same lines inside one JSON document, in the named field |
 
 **What to do:** run `sync` without `--quiet` in a terminal to see the full report. `log/refresh.log` in the [canonical home](state.md#the-canonical-home) records what each run changed.
 
@@ -100,8 +118,12 @@ The [Cline catch](harnesses.md#per-harness-catches) names the hook's other prere
 
 ## A sync notice names a harness you defined yourself
 
-**What you see:** `sync` prints a notice naming a harness id from `<MAXIMS_HOME>/harnesses.json` and skips that harness, at every run; the [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
+**What you see:** a terminal `sync` prints this line at every run, `<key>` being the source and `<id>` the harness id from `<MAXIMS_HOME>/harnesses.json`, and skips that harness; the [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
 
-**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. The file loader and the state field exist; the notice is `sync`'s to print, and `sync` is specified, not yet built.
+```text
+maxims: <key>: skipped <id> (<reason>)
+```
+
+**What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](state.md#the-canonical-home) records it.
 
 **What to do:** Restore the definition in `harnesses.json`, or take the id out of intent with `unlink <source> -a <id>` for each source the notice names; the [verb table](cli.md#verbs) owns `unlink`.
