@@ -1,6 +1,7 @@
 // Guards the dsh bridge pair: a hand-formatted cordis.patch.yml must come back byte-identical
-// once our row leaves (dsh's own guide warns the file carries unrelated user patches), and a
-// sibling plugin the user merged into our insert operation must survive both mount and unmount.
+// once our row leaves (dsh's own guide warns the file carries unrelated user patches), a sibling
+// plugin the user merged into our insert operation must survive both mount and unmount, and a row
+// the user duplicated by hand must converge to one on mount and to none on unmount.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -78,12 +79,14 @@ test("mounting then unmounting the bridge leaves the patch file byte-identical",
 
 const [head, tail] = fixture.split("# Shrink");
 const staleRow = `- id: ${BRIDGE_ROW_ID}\n  name: x\n  config: { configPath: ./old/hooks.json, projectDir: . }\n`;
+const staleItem = staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "");
+const otherItem = "    - id: other\n      name: other-plugin\n";
 
 // [label, patch file before, after mounting, after unmounting]
 const layouts: [string, string, (dshHome: string) => string, string][] = [
   [
     "a stale row alone in its operation, mid-file",
-    `${head}- insert:\n${staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "")}# Shrink${tail}`,
+    `${head}- insert:\n${staleItem}# Shrink${tail}`,
     (dshHome) => `${head}${ourOperation(dshHome)}# Shrink${tail}`,
     `${head}# Shrink${tail}`,
   ],
@@ -95,43 +98,67 @@ const layouts: [string, string, (dshHome: string) => string, string][] = [
   ],
   [
     "a file that is nothing but our operation, which unmounting turns into the disabled layer",
-    `- insert:\n${staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "")}`,
+    `- insert:\n${staleItem}`,
     (dshHome) => ourOperation(dshHome),
     "[]\n",
   ],
   [
     "a stale row with a trailing comment, followed by a flow-style sibling that keeps its indent",
-    `${head}- insert:\n${staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "")}      # note\n    - { id: other, name: other-plugin }\n# Shrink${tail}`,
+    `${head}- insert:\n${staleItem}      # note\n    - { id: other, name: other-plugin }\n# Shrink${tail}`,
     (dshHome) =>
       `${head}- insert:\n${ourRow(dshHome, "    ")}    - { id: other, name: other-plugin }\n# Shrink${tail}`,
     `${head}- insert:\n    - { id: other, name: other-plugin }\n# Shrink${tail}`,
   ],
   [
     "a stale row in an operation aimed at a group by id, whose id must survive",
-    `${head}- id: my-group\n  insert:\n${staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "")}# Shrink${tail}`,
+    `${head}- id: my-group\n  insert:\n${staleItem}# Shrink${tail}`,
     (dshHome) => `${head}- id: my-group\n  insert:\n${ourRow(dshHome, "    ")}# Shrink${tail}`,
     `${head}- id: my-group\n  insert:\n# Shrink${tail}`,
   ],
   [
     "a stale row the user merged into an operation with another plugin",
-    `${head}- insert:\n    - id: other\n      name: other-plugin\n${staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "")}# Shrink${tail}`,
-    (dshHome) =>
-      `${head}- insert:\n    - id: other\n      name: other-plugin\n${ourRow(dshHome, "    ")}# Shrink${tail}`,
-    `${head}- insert:\n    - id: other\n      name: other-plugin\n# Shrink${tail}`,
+    `${head}- insert:\n${otherItem}${staleItem}# Shrink${tail}`,
+    (dshHome) => `${head}- insert:\n${otherItem}${ourRow(dshHome, "    ")}# Shrink${tail}`,
+    `${head}- insert:\n${otherItem}# Shrink${tail}`,
+  ],
+  [
+    "two copies of our row duplicated by hand inside one operation",
+    `${head}- insert:\n${staleItem}${staleItem}# Shrink${tail}`,
+    (dshHome) => `${head}${ourOperation(dshHome)}# Shrink${tail}`,
+    `${head}# Shrink${tail}`,
+  ],
+  [
+    "our row repeated in two operations",
+    `${head}- insert:\n${staleItem}- insert:\n${staleItem}# Shrink${tail}`,
+    (dshHome) => `${head}${ourOperation(dshHome)}# Shrink${tail}`,
+    `${head}# Shrink${tail}`,
+  ],
+  [
+    "our row beside another plugin and again in an operation of its own",
+    `${head}- insert:\n${otherItem}${staleItem}- insert:\n${staleItem}# Shrink${tail}`,
+    (dshHome) => `${head}- insert:\n${otherItem}${ourRow(dshHome, "    ")}# Shrink${tail}`,
+    `${head}- insert:\n${otherItem}# Shrink${tail}`,
   ],
 ];
 
+// An unmount straight from the "before" layout takes the same path as one after a mount, so a
+// file that already holds a stale or duplicated row is cleaned without a mount in between.
 test.each(layouts)(
   "%s is rewritten in place and removed alone",
   async (_, before, mounted, unmounted) => {
     await withTempDir(async (home) => {
       const dshHome = join(home, "dsh-home");
+      const patch = join(dshHome, "cordis.patch.yml");
       mkdirSync(dshHome);
-      writeFileSync(join(dshHome, "cordis.patch.yml"), before);
+      writeFileSync(patch, before);
       await apply(home, true);
-      expect(readFileSync(join(dshHome, "cordis.patch.yml"), "utf8")).toBe(mounted(dshHome));
+      expect(readFileSync(patch, "utf8")).toBe(mounted(dshHome));
       await apply(home, false);
-      expect(readFileSync(join(dshHome, "cordis.patch.yml"), "utf8")).toBe(unmounted);
+      expect(readFileSync(patch, "utf8")).toBe(unmounted);
+      if (!before.includes(BRIDGE_ROW_ID)) return;
+      writeFileSync(patch, before);
+      await apply(home, false);
+      expect(readFileSync(patch, "utf8")).toBe(unmounted);
     });
   },
 );

@@ -64,18 +64,23 @@ export async function reconcileBridge(
 
 type Span = { start: number; end: number; indent: string };
 
-// The document API is used to FIND our row; the edit itself is a text splice of exactly the bytes
+// One splice target: a lone row, or a whole operation carrying `rows` of ours.
+type OurRow = { span: Span; wholeOperation: boolean; rows: number };
+
+// The document API is used to FIND our rows; the edit itself is a text splice of exactly the bytes
 // our own renderer produces, because re-serializing the document would reflow the user's flow
-// sequences, comment spacing, and quoting everywhere else in the file. A row that shares its
-// `insert` operation with other rows, or whose operation carries other keys (an `id` aiming the
-// insert at a group), is replaced or removed alone; a row that is the whole operation takes the
-// operation with it. dsh refuses an empty or comments-only patch file and documents `[]` as the
-// disabled layer, so that is what an emptied file becomes, and what an append replaces.
+// sequences, comment spacing, and quoting everywhere else in the file. The first row carrying our
+// id becomes the one canonical row (or leaves), and every later copy the user duplicated by hand
+// leaves with it. A row that shares its `insert` operation with other rows, or whose operation
+// carries other keys (an `id` aiming the insert at a group), is replaced or removed alone; an
+// operation holding nothing but our rows goes whole, so no empty `insert:` stays behind. dsh
+// refuses an empty or comments-only patch file and documents `[]` as the disabled layer, so that
+// is what an emptied file becomes, and what an append replaces.
 function editPatch(text: string, path: string, row: Record<string, unknown> | null): string {
   const doc = parseBlockList(text, path);
-  const found = doc === null ? null : findOurRow(text, doc, path);
+  const [first, ...duplicates] = doc === null ? [] : findOurRows(text, doc, path);
   let next: string;
-  if (found === null) {
+  if (first === undefined) {
     if (row === null) return text;
     const rendered = stringify([{ insert: [row] }]);
     const emptyList = doc === null ? null : emptyListSpan(text, doc);
@@ -83,29 +88,39 @@ function editPatch(text: string, path: string, row: Record<string, unknown> | nu
       const separator = text === "" || text.endsWith("\n") ? "" : "\n";
       next = `${text}${separator}${rendered}`;
     } else {
-      next = `${text.slice(0, emptyList.start)}${rendered}${text.slice(emptyList.end)}`;
+      next = splice(text, emptyList, rendered);
     }
   } else {
-    const { span, wholeOperation } = found;
     const rendered =
       row === null
         ? ""
-        : indentBlock(stringify(wholeOperation ? [{ insert: [row] }] : [row]), span.indent);
-    next = `${text.slice(0, span.start)}${rendered}${text.slice(span.end)}`;
+        : indentBlock(
+            stringify(first.wholeOperation ? [{ insert: [row] }] : [row]),
+            first.span.indent,
+          );
+    next = text;
+    for (const duplicate of duplicates.reverse()) next = splice(next, duplicate.span, "");
+    next = splice(next, first.span, rendered);
     if (row === null && parseDocument(next).contents === null) {
       const separator = next === "" || next.endsWith("\n") ? "" : "\n";
       next = `${next}${separator}[]\n`;
     }
   }
   const check = parseBlockList(next, path);
-  const present = check !== null && findOurRow(next, check, path) !== null;
-  if (present !== (row !== null)) {
+  const remaining =
+    check === null ? 0 : findOurRows(next, check, path).reduce((sum, our) => sum + our.rows, 0);
+  if (remaining !== (row === null ? 0 : 1)) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
       `refusing to write ${path}: the edited patch file would not carry the expected row`,
     );
   }
   return next;
+}
+
+// Spans never overlap, so splicing from the last one back keeps every earlier offset valid.
+function splice(text: string, span: Span, content: string): string {
+  return `${text.slice(0, span.start)}${content}${text.slice(span.end)}`;
 }
 
 // A patch file is empty, the empty list `[]`, or a block sequence at column zero; the splice
@@ -136,29 +151,31 @@ function emptyListSpan(text: string, doc: Document): Span | null {
   return { start, end: lineEnd(text, nodeEnd), indent: "" };
 }
 
-function findOurRow(
-  text: string,
-  doc: Document,
-  path: string,
-): { span: Span; wholeOperation: boolean } | null {
-  if (!isSeq(doc.contents)) return null;
+// Every splice target holding a row with our id, in document order.
+function findOurRows(text: string, doc: Document, path: string): OurRow[] {
+  if (!isSeq(doc.contents)) return [];
+  const rows: OurRow[] = [];
   for (const item of doc.contents.items) {
     if (!isMap(item)) continue;
     const inserted = item.get("insert");
     if (!isSeq(inserted)) continue;
-    const ours = inserted.items.find((entry) => isMap(entry) && entry.get("id") === BRIDGE_ROW_ID);
-    if (ours === undefined) continue;
-    const wholeOperation = inserted.items.length === 1 && item.items.length === 1;
-    const span = spanOf(text, wholeOperation ? item : ours);
-    if (span === null) {
-      throw new MaximsError(
-        ExitCode.DestinationWriteFailed,
-        `cannot locate the maxims row in ${path}; left untouched`,
-      );
+    const ours = inserted.items.filter(
+      (entry) => isMap(entry) && entry.get("id") === BRIDGE_ROW_ID,
+    );
+    if (ours.length === 0) continue;
+    const wholeOperation = ours.length === inserted.items.length && item.items.length === 1;
+    for (const node of wholeOperation ? [item] : ours) {
+      const span = spanOf(text, node);
+      if (span === null) {
+        throw new MaximsError(
+          ExitCode.DestinationWriteFailed,
+          `cannot locate the maxims row in ${path}; left untouched`,
+        );
+      }
+      rows.push({ span, wholeOperation, rows: wholeOperation ? ours.length : 1 });
     }
-    return { span, wholeOperation };
   }
-  return null;
+  return rows;
 }
 
 // The span of a block sequence item from its `- ` indicator through its trailing newline; null
