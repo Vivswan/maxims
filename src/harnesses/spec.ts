@@ -227,12 +227,14 @@ const RegistryHook = z
   .check((ctx) => {
     const { handlerTemplate, commandKey } = ctx.value;
     const command = handlerTemplate[commandKey];
-    if (typeof command !== "string" || !command.includes("{{command}}")) {
+    // The writer finds and prunes its own handlers by the command's prefix, so a template that
+    // puts a shell word before the placeholder would register a handler it can never see again.
+    if (typeof command !== "string" || !command.startsWith("{{command}}")) {
       ctx.issues.push({
         code: "custom",
         input: command,
         path: ["handlerTemplate", commandKey],
-        message: "the command key must hold a string containing {{command}}",
+        message: "the command key must hold a string starting with {{command}}",
       });
     }
     for (const text of stringsIn(handlerTemplate)) {

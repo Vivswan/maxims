@@ -115,7 +115,12 @@ const refusals: [string, Mutation, string][] = [
   [
     "a handler whose command key never runs the hook",
     at(["hook", "handlerTemplate", "command"], "maxims sync"),
-    "hook.handlerTemplate.command: the command key must hold a string containing {{command}}",
+    "hook.handlerTemplate.command: the command key must hold a string starting with {{command}}",
+  ],
+  [
+    "a handler whose command key wraps the hook in a shell word",
+    at(["hook", "handlerTemplate", "command"], "exec {{command}}"),
+    "hook.handlerTemplate.command: the command key must hold a string starting with {{command}}",
   ],
   [
     "a handler with an unknown placeholder",

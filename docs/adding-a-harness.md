@@ -46,8 +46,8 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `eventPath` | the key path to the event's handler list, such as `["hooks", "SessionStart"]` |
 | `grouped` | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups |
 | `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
-| `handlerTemplate` | the handler object, with placeholders |
-| `commandKey` | the handler key whose value starts with the maxims command; the writer finds its own entry by it |
+| `handlerTemplate` | the handler object, with placeholders; the value under `commandKey` starts with `{{command}}` |
+| `commandKey` | the handler key whose value starts with the maxims command; the writer finds and prunes its own entries by that prefix |
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
