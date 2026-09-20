@@ -57,13 +57,42 @@ function whereBytesLand(path: string): string {
   return join(realpathSync(existing), ...missing);
 }
 
+// Every checkout of one repository shares its history, so a commit from any of them publishes
+// what lands there; git's own worktree list is the set of them. A bare entry has no working tree.
+// A primary set up with --separate-git-dir is out of reach: git keeps no path back to it and lists
+// its git dir in its place. No git answer, no known roots: refuse.
+function repositoryRoots(): Set<string> {
+  const roots = new Set([realpathSync(repoRoot)]);
+  const git = Bun.spawnSync(["git", "-C", repoRoot, "worktree", "list", "--porcelain"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (git.exitCode !== 0) {
+    process.stderr.write(git.stderr.toString());
+    fail(`cannot list the repository's checkouts: git worktree list exited with ${git.exitCode}`);
+  }
+  for (const entry of git.stdout.toString().split("\n\n")) {
+    const lines = entry.split("\n");
+    const path = lines[0]?.startsWith("worktree ") ? lines[0].slice("worktree ".length) : undefined;
+    if (path === undefined || lines.includes("bare")) continue;
+    roots.add(existsSync(path) ? realpathSync(path) : path);
+  }
+  return roots;
+}
+
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
 // Timings measured on a real machine describe that machine; refusing to write them inside the
 // repository is what keeps them out of a commit, since .gitignore is not consulted by `git add -f`.
 function measuredDataPath(value: string): string {
   const out = whereBytesLand(value);
-  const rel = relative(realpathSync(repoRoot), out);
-  const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
-  if (!outside) fail(`refusing to write measured data inside the repository: ${out}`);
+  for (const root of repositoryRoots()) {
+    if (isInside(root, out)) fail(`refusing to write measured data inside the repository: ${out}`);
+  }
   return out;
 }
 

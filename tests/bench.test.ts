@@ -3,11 +3,14 @@
 // mean, a NaN, or a child that ran fewer times than --runs would flow through unnoticed. Also
 // fails if a run leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if
 // measured timings can be written inside the repository, where a commit would publish them,
-// including through a symlink or a /proc alias whose lexical path lies outside the checkout.
+// including through a symlink or a /proc alias whose lexical path lies outside the checkout, or
+// into any other checkout of a repository the bench runs from a linked worktree of.
 import { expect, test } from "bun:test";
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -234,3 +237,84 @@ test("a failing command's stderr and exit code are reported with status 1, and i
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+interface Fixture {
+  primary: string;
+  linked: string;
+  other: string;
+  bench: string;
+}
+
+// The bench derives the repository from its own location, so a copy of the script inside a
+// fixture's linked worktree measures that fixture. Git's default-branch hint goes to stderr and
+// is not an error; only the exit code says whether a step succeeded.
+function fixtureWorktree(dir: string): Fixture {
+  const primary = join(dir, "primary");
+  const linked = join(dir, "linked");
+  const other = join(dir, "other");
+  mkdirSync(primary);
+  const steps = [
+    ["git", "-C", primary, "init", "--quiet"],
+    ["git", "-C", primary, "commit", "--quiet", "--allow-empty", "-m", "root"],
+    ["git", "-C", primary, "worktree", "add", "--quiet", linked],
+    ["git", "-C", primary, "worktree", "add", "--quiet", other],
+  ];
+  for (const step of steps) {
+    const ran = Bun.spawnSync(step, { stdout: "pipe", stderr: "pipe" });
+    if (ran.exitCode !== 0) throw new Error(`${step.join(" ")}: ${ran.stderr.toString()}`);
+  }
+  mkdirSync(join(linked, "scripts"));
+  const bench = join(linked, "scripts", "bench.ts");
+  copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
+  return { primary, linked, other, bench };
+}
+
+const worktreeTargets: [string, (fixture: Fixture) => string, boolean][] = [
+  ["the linked worktree itself", ({ linked }) => join(linked, "bench.json"), true],
+  ["the primary checkout", ({ primary }) => join(primary, "bench.json"), true],
+  ["another linked worktree", ({ other }) => join(other, "bench.json"), true],
+  ["a sibling of every checkout", ({ primary }) => join(dirname(primary), "bench.json"), false],
+];
+
+test.each(worktreeTargets)(
+  "--json into %s, from a linked worktree, is refused when it lands in any checkout",
+  (_name, target, refused) => {
+    const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
+    try {
+      const fixture = fixtureWorktree(dir);
+      const out = target(fixture);
+      const log = join(dir, "runs.log");
+      const command = [
+        "node",
+        "-e",
+        "require('node:fs').appendFileSync(process.argv[1], 'x')",
+        log,
+      ];
+      const bench = Bun.spawnSync(
+        ["bun", fixture.bench, "--runs", "1", "--json", out, "--", ...command],
+        {
+          cwd: fixture.linked,
+          env: { ...process.env, TMPDIR: dir },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      if (refused) {
+        expect(bench.exitCode).toBe(2);
+        expect(bench.stdout.toString()).toBe("");
+        expect(bench.stderr.toString()).toContain(
+          `inside the repository: ${realpathSync(dirname(out))}`,
+        );
+        expect(existsSync(log)).toBe(false);
+        expect(existsSync(out)).toBe(false);
+      } else {
+        expect(bench.stderr.toString()).toBe("");
+        expect(bench.exitCode).toBe(0);
+        expect(readFileSync(log, "utf8")).toBe("x");
+        expect(JSON.parse(readFileSync(out, "utf8")).runs).toBe(1);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
