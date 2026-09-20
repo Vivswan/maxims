@@ -1,7 +1,7 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
+import { type HarnessDefinition, scopeRoot } from "../contract.ts";
 
 // Cursor ignores a plain `.md` in `.cursor/rules` and loads an `.mdc` only when its frontmatter
 // says so: without `alwaysApply: true` the rule is offered to the agent by description instead
@@ -14,14 +14,6 @@ function frontmatter(paths?: string[]): string {
   return `---\n${stringify(fields)}---\n`;
 }
 
-function scopeRoot(scope: Scope, ctx: HarnessContext): string {
-  if (scope === "global") return ctx.home;
-  if (ctx.projectRoot === null) {
-    throw new MaximsError(ExitCode.Usage, "a project-scoped Cursor hook needs a project root");
-  }
-  return ctx.projectRoot;
-}
-
 export const cursor: HarnessDefinition = {
   id: "cursor",
   displayName: "Cursor",
@@ -29,19 +21,20 @@ export const cursor: HarnessDefinition = {
   targets: {
     project: {
       kind: "rules-dir",
-      dir: ".cursor/rules",
+      dir: join(".cursor", "rules"),
       fileName: (sourceSlug) => `maxims-${sourceSlug}.mdc`,
       frontmatter: ({ paths }) => frontmatter(paths),
     },
     // User rules live in Cursor's settings UI, not in a file.
     global: null,
   },
-  bodiesDir: (scope) => (scope === "project" ? ".agents/memories" : null),
+  bodiesDir: (scope, ctx) =>
+    scope === "project" ? join(scopeRoot({}, scope, ctx), ".agents", "memories") : null,
   // `sessionStart` is fire-and-forget on Cursor's side, so the harness never waits on the sync;
   // `debounceMs` keeps a burst of new conversations from paying the npx cost each time.
   hook: {
     kind: "registry",
-    path: (scope, ctx) => join(scopeRoot(scope, ctx), ".cursor", "hooks.json"),
+    path: (scope, ctx) => join(scopeRoot({}, scope, ctx), ".cursor", "hooks.json"),
     format: "json",
     eventPath: ["hooks", "sessionStart"],
     grouped: false,
@@ -60,7 +53,7 @@ export const cursor: HarnessDefinition = {
   // `@file` attaches a file to the rule's context and its literal-escaping is undocumented.
   expands: ["at-import"],
   scopeFrontmatter: (globs) => frontmatter(globs),
-  detect: (ctx) => Boolean(ctx.env.CURSOR_TRACE_ID) || Boolean(ctx.env.CURSOR_AGENT),
+  detect: (ctx) => existsSync(join(ctx.home, ".cursor")),
   verifiedAgainst: { url: "https://cursor.com/docs/context/rules", date: "2026-09-20" },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },
 };

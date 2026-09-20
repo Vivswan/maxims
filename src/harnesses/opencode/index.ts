@@ -1,23 +1,24 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
+import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
+import { reconcileInstructions } from "./instructions.ts";
 import { renderPlugin } from "./plugin.ts";
 
 // OpenCode resolves its global directory through the XDG base directories, so an override of
-// `XDG_CONFIG_HOME` moves the plugins directory with it.
-function scopeRoot(scope: Scope, ctx: HarnessContext): string {
-  if (scope === "global") {
-    const xdg = ctx.env.XDG_CONFIG_HOME;
-    return join(xdg === undefined || xdg === "" ? join(ctx.home, ".config") : xdg, "opencode");
-  }
-  if (ctx.projectRoot === null) {
-    throw new MaximsError(ExitCode.Usage, "a project-scoped OpenCode plugin needs a project root");
-  }
-  return join(ctx.projectRoot, ".opencode");
+// `XDG_CONFIG_HOME` moves the config file, the plugins directory and AGENTS.md with it.
+function globalRoot(ctx: HarnessContext): string {
+  const xdg = ctx.env.XDG_CONFIG_HOME;
+  return join(xdg === undefined || xdg === "" ? join(ctx.home, ".config") : xdg, "opencode");
 }
 
-// The project target is a rules directory that OpenCode does not read on its own: sync also
-// lists it in `opencode.json` through `reconcileInstructions` in ./instructions.ts.
+function pluginsDir(scope: Scope, ctx: HarnessContext): string {
+  const root = scopeRoot({ globalRoot }, scope, ctx);
+  return scope === "global" ? join(root, "plugins") : join(root, ".opencode", "plugins");
+}
+
+// The project target is a rules directory that OpenCode does not read on its own: `configEdit`
+// lists it in `opencode.json` through ./instructions.ts. The global scope is a block in the one
+// file OpenCode always reads, so it needs no such entry.
 export const opencode: HarnessDefinition = {
   id: "opencode",
   displayName: "OpenCode",
@@ -25,22 +26,31 @@ export const opencode: HarnessDefinition = {
   targets: {
     project: {
       kind: "rules-dir",
-      dir: ".opencode/memories",
+      dir: join(".opencode", "memories"),
       fileName: (sourceSlug) => `maxims-${sourceSlug}.md`,
     },
-    global: { kind: "shared-block", file: ".config/opencode/AGENTS.md" },
+    global: { kind: "shared-block", file: "AGENTS.md" },
   },
-  bodiesDir: (scope) => (scope === "project" ? ".agents/memories" : null),
+  bodiesDir: (scope, ctx) =>
+    scope === "project" ? join(scopeRoot({ globalRoot }, scope, ctx), ".agents", "memories") : null,
+  // The plugin's own shell call is `.quiet()`, and OpenCode reads nothing back from a plugin, so
+  // there is no stdout channel for the staleness notice to use.
   hook: {
     kind: "file",
-    path: (scope, ctx) => join(scopeRoot(scope, ctx), "plugins", "maxims.ts"),
+    path: (scope, ctx) => join(pluginsDir(scope, ctx), "maxims.ts"),
     render: renderPlugin,
     executable: false,
+    stdout: "none",
   },
   markers: "counted",
   // Documented: "opencode doesn't automatically parse file references in AGENTS.md".
   expands: ["none"],
-  detect: (ctx) => Boolean(ctx.env.OPENCODE_CLIENT),
+  detect: (ctx) => existsSync(globalRoot(ctx)),
   verifiedAgainst: { url: "https://opencode.ai/docs/plugins/", date: "2026-09-20" },
   fixtures: { config: "config.jsonc" },
+  globalRoot,
+  configEdit: (scope, ctx, wanted) =>
+    scope === "project"
+      ? reconcileInstructions(scopeRoot({ globalRoot }, scope, ctx), wanted)
+      : Promise.resolve([]),
 };

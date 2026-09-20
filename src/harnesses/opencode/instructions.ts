@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import {
   appendChild,
   assertParses,
@@ -22,7 +22,7 @@ export const INSTRUCTIONS_GLOB = ".opencode/memories/maxims-*.md";
 // from every file that does.
 const CONFIG_NAMES = ["opencode.jsonc", "opencode.json"] as const;
 
-type ConfigFile = { path: string; text: string | null };
+type ConfigFile = { path: RootedPath; text: string | null };
 
 export async function reconcileInstructions(
   projectRoot: string,

@@ -6,11 +6,12 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import { reconcileMcpServer } from "./register.ts";
 
 const fixture = readFileSync(join(import.meta.dir, "fixtures", "config.jsonc"), "utf8");
 const ENTRY =
-  '"maxims": {\n      "command": "npx",\n      "args": [\n        "-y",\n        "maxims",\n        "mcp-serve"\n      ]\n    }';
+  '"maxims": {\n      "command": "npx",\n      "args": [\n        "-y",\n        "@vivswan/maxims",\n        "mcp-serve"\n      ]\n    }';
 
 async function roundTrip(
   dir: string,
@@ -48,7 +49,7 @@ test("a stale entry is rewritten in place and an emptied map stays as {}", async
       '{\n  "mcpServers": {\n    "maxims": { "command": "npx", "args": ["-y", "maxims@0.1.0", "mcp-serve"] }\n  },\n  "theme": "dark"\n}\n';
     const { added, removed } = await roundTrip(dir, stale);
     expect(added).toBe(
-      '{\n  "mcpServers": {\n    "maxims": {"command":"npx","args":["-y","maxims","mcp-serve"]}\n  },\n  "theme": "dark"\n}\n',
+      '{\n  "mcpServers": {\n    "maxims": {"command":"npx","args":["-y","@vivswan/maxims","mcp-serve"]}\n  },\n  "theme": "dark"\n}\n',
     );
     expect(removed).toBe('{\n  "mcpServers": {},\n  "theme": "dark"\n}\n');
   });
@@ -58,12 +59,12 @@ const creations: [string, string | null, string][] = [
   [
     "a missing file",
     null,
-    '{\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
+    '{\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
   ],
   [
     "a file missing the servers key",
     '{\n  "theme": "dark"\n}\n',
-    '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
+    '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
   ],
 ];
 
@@ -72,7 +73,7 @@ test.each(creations)("%s gains exactly one nested entry", async (_, existing, ex
     const registry = { root: dir, path: join(dir, "new.json"), serversPath: ["mcp", "servers"] };
     if (existing !== null) writeFileSync(registry.path, existing);
     expect(await reconcileMcpServer(registry, true)).toEqual([
-      { kind: "write", path: registry.path, content: expected },
+      { kind: "write", path: assertInsideRoot(dir, registry.path), content: expected },
     ]);
     expect(await reconcileMcpServer(registry, false)).toEqual([]);
   });

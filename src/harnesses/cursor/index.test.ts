@@ -18,7 +18,7 @@ function frontmatterOf(text: string): Record<string, unknown> {
 test("the project rule is an .mdc whose frontmatter applies it to every session", () => {
   const target = cursor.targets.project;
   if (target?.kind !== "rules-dir") throw new Error("Cursor writes a rules directory");
-  expect(target.fileName("vivswan-skills")).toBe("maxims-vivswan-skills.mdc");
+  expect(target.fileName("example-skills")).toBe("maxims-example-skills.mdc");
   expect(frontmatterOf(target.frontmatter?.({}) ?? "")).toMatchObject({ alwaysApply: true });
   expect(frontmatterOf(target.frontmatter?.({ paths: ["src/**/*.ts"] }) ?? "")).toMatchObject({
     alwaysApply: false,
@@ -32,7 +32,7 @@ test("the hook handler is one command entry in seconds under the scope's hooks.j
   expect(cursor.hook.path("global", ctx)).toBe("/home/user/.cursor/hooks.json");
   expect(cursor.hook.handler(hookSpecFor(cursor))).toEqual({
     type: "command",
-    command: "npx -y maxims sync --quiet",
+    command: "npx -y @vivswan/maxims sync --quiet",
     timeout: 20,
   });
   let caught: unknown;

@@ -14,7 +14,7 @@ import {
 } from "./jsonc-edit.ts";
 
 export const MCP_SERVER_KEY = "maxims";
-export const MCP_SERVER_ENTRY = { command: "npx", args: ["-y", "maxims", "mcp-serve"] };
+export const MCP_SERVER_ENTRY = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
 
 // Where a harness keeps its MCP servers: the config file and the key path of the servers map
 // inside it (`["mcpServers"]` for the Claude Code family). `root` is the scope directory the

@@ -9,12 +9,14 @@ import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { applyChanges } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import { hookSpecFor } from "../contract.ts";
 import { BRIDGE_ROW_ID, reconcileBridge } from "./bridge.ts";
 import { checkBudget, DSH_FILE_BUDGET, dsh } from "./index.ts";
 
 const fixture = readFileSync(join(import.meta.dir, "fixtures", "config.yml"), "utf8");
 const spec = hookSpecFor(dsh);
+const rooted = (root: string, ...parts: string[]) => assertInsideRoot(root, join(root, ...parts));
 
 function contextFor(home: string) {
   return { home, projectRoot: join(home, "project"), env: { DSH_HOME: join(home, "dsh-home") } };
@@ -37,7 +39,7 @@ function ourOperation(dshHome: string): string {
 }
 
 async function apply(home: string, wanted: boolean): Promise<void> {
-  const changes = await reconcileBridge(contextFor(home), spec, wanted);
+  const changes = await reconcileBridge("global", contextFor(home), spec, wanted);
   await applyChanges({ changes, notices: [] }, { dryRun: false });
 }
 
@@ -54,14 +56,18 @@ test("mounting then unmounting the bridge leaves the patch file byte-identical",
     expect(JSON.parse(readFileSync(join(dshHome, "maxims-hooks.json"), "utf8"))).toEqual({
       hooks: {
         SessionStart: [
-          { hooks: [{ type: "command", command: "npx -y maxims sync --quiet", timeout: 20 }] },
+          {
+            hooks: [
+              { type: "command", command: "npx -y @vivswan/maxims sync --quiet", timeout: 20 },
+            ],
+          },
         ],
       },
     });
-    expect(await reconcileBridge(contextFor(home), spec, true)).toEqual([
+    expect(await reconcileBridge("global", contextFor(home), spec, true)).toEqual([
       {
         kind: "write",
-        path: join(dshHome, "maxims-hooks.json"),
+        path: rooted(dshHome, "maxims-hooks.json"),
         content: readFileSync(join(dshHome, "maxims-hooks.json"), "utf8"),
       },
     ]);
@@ -132,19 +138,33 @@ test.each(layouts)(
   },
 );
 
-test("a missing DSH_HOME defaults to ~/.dsh and a missing patch file is created", async () => {
+test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, and a project install mounts the same machine-wide row", async () => {
   await withTempDir(async (home) => {
-    const changes = await reconcileBridge({ home, projectRoot: null, env: {} }, spec, true);
+    const changes = await reconcileBridge(
+      "global",
+      { home, projectRoot: null, env: {} },
+      spec,
+      true,
+    );
+    expect(
+      await reconcileBridge("project", { home, projectRoot: join(home, "p"), env: {} }, spec, true),
+    ).toEqual(changes);
     expect(changes).toEqual([
       {
         kind: "write",
-        path: join(home, ".dsh", "maxims-hooks.json"),
+        path: rooted(join(home, ".dsh"), "maxims-hooks.json"),
         content: `${JSON.stringify(
           {
             hooks: {
               SessionStart: [
                 {
-                  hooks: [{ type: "command", command: "npx -y maxims sync --quiet", timeout: 20 }],
+                  hooks: [
+                    {
+                      type: "command",
+                      command: "npx -y @vivswan/maxims sync --quiet",
+                      timeout: 20,
+                    },
+                  ],
                 },
               ],
             },
@@ -155,13 +175,13 @@ test("a missing DSH_HOME defaults to ~/.dsh and a missing patch file is created"
       },
       {
         kind: "write",
-        path: join(home, ".dsh", "cordis.patch.yml"),
+        path: rooted(join(home, ".dsh"), "cordis.patch.yml"),
         content: ourOperation(join(home, ".dsh")),
       },
     ]);
-    expect(await reconcileBridge({ home, projectRoot: null, env: {} }, spec, false)).toEqual([
-      { kind: "delete", path: join(home, ".dsh", "maxims-hooks.json") },
-    ]);
+    expect(
+      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+    ).toEqual([{ kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") }]);
   });
 });
 
@@ -180,7 +200,7 @@ test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
     writeFileSync(join(dshHome, "cordis.patch.yml"), text);
     let caught: unknown;
     try {
-      await reconcileBridge(contextFor(home), spec, true);
+      await reconcileBridge("global", contextFor(home), spec, true);
     } catch (error) {
       caught = error;
     }

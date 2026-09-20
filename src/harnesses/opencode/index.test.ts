@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
 import { hookSpecFor } from "../contract.ts";
 import { opencode } from "./index.ts";
 import { INSTRUCTIONS_GLOB, reconcileInstructions } from "./instructions.ts";
@@ -18,7 +19,7 @@ test("the plugin renders byte-identically twice and calls the hook command on se
   const first = opencode.hook.render(hookSpecFor(opencode));
   expect(opencode.hook.render(hookSpecFor(opencode))).toBe(first);
   expect(first).toContain(
-    'if (event.type === "session.created") await $`npx -y maxims sync --quiet`.nothrow().quiet();',
+    'if (event.type === "session.created") await $`npx -y @vivswan/maxims sync --quiet`.nothrow().quiet();',
   );
   expect(opencode.hook.path("project", ctx)).toBe("/home/user/project/.opencode/plugins/maxims.ts");
   expect(opencode.hook.path("global", ctx)).toBe("/home/user/.config/opencode/plugins/maxims.ts");
@@ -29,10 +30,13 @@ test("the plugin renders byte-identically twice and calls the hook command on se
 
 test("adding then removing the instructions entry returns a hand-formatted opencode.json", async () => {
   await withTempDir(async (dir) => {
-    const path = join(dir, "opencode.json");
+    const path = assertInsideRoot(dir, join(dir, "opencode.json"));
     writeFileSync(path, fixture);
+    const inProject = { ...ctx, projectRoot: dir };
+    const configEdit = opencode.configEdit;
+    if (configEdit === undefined) throw new Error("OpenCode lists its rules dir in opencode.json");
 
-    const added = await reconcileInstructions(dir, true);
+    const added = await configEdit("project", inProject, true);
     expect(added).toEqual([
       {
         kind: "write",
@@ -44,12 +48,13 @@ test("adding then removing the instructions entry returns a hand-formatted openc
       },
     ]);
     writeFileSync(path, added[0]?.kind === "write" ? added[0].content : "");
-    expect(await reconcileInstructions(dir, true)).toEqual([]);
+    expect(await configEdit("project", inProject, true)).toEqual([]);
+    expect(await configEdit("global", inProject, true)).toEqual([]);
 
-    const removed = await reconcileInstructions(dir, false);
+    const removed = await configEdit("project", inProject, false);
     expect(removed).toEqual([{ kind: "write", path, content: fixture }]);
     writeFileSync(path, fixture);
-    expect(await reconcileInstructions(dir, false)).toEqual([]);
+    expect(await configEdit("project", inProject, false)).toEqual([]);
   });
 });
 
@@ -77,14 +82,14 @@ test.each(creations)("writes the entry into %s", async (label, existing, expecte
     const name = label.startsWith("an opencode.jsonc") ? "opencode.jsonc" : "opencode.json";
     if (existing !== null) writeFileSync(join(dir, name), existing);
     expect(await reconcileInstructions(dir, true)).toEqual([
-      { kind: "write", path: join(dir, name), content: expected },
+      { kind: "write", path: assertInsideRoot(dir, join(dir, name)), content: expected },
     ]);
   });
 });
 
 test("both config names count: no second entry is added and removal clears every copy", async () => {
   await withTempDir(async (dir) => {
-    const json = join(dir, "opencode.json");
+    const json = assertInsideRoot(dir, join(dir, "opencode.json"));
     const jsonc = join(dir, "opencode.jsonc");
     writeFileSync(
       json,

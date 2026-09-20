@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessDefinition } from "../contract.ts";
-import { reconcileBridge } from "./bridge.ts";
+import { type HarnessDefinition, scopeRoot } from "../contract.ts";
+import { dshHome, reconcileBridge } from "./bridge.ts";
 
 // dsh renders every instruction file it discovers into ONE 65,536-byte block and truncates the
 // most specific file when the total exceeds it, so a block that pushes AGENTS.md over the line
@@ -37,19 +39,22 @@ export const dsh: HarnessDefinition = {
   tier: 1,
   targets: {
     project: { kind: "shared-block", file: "AGENTS.md" },
-    global: { kind: "shared-block", file: ".dsh/AGENTS.md" },
+    global: { kind: "shared-block", file: "AGENTS.md" },
   },
-  bodiesDir: (scope) => (scope === "project" ? ".agents/memories" : null),
+  bodiesDir: (scope, ctx) =>
+    scope === "project"
+      ? join(scopeRoot({ globalRoot: dshHome }, scope, ctx), ".agents", "memories")
+      : null,
   hook: { kind: "custom", reconcile: reconcileBridge },
   markers: "counted",
   // Documented: "`.claude/rules/`, and `@path` imports are not interpreted".
   expands: ["none"],
   byteBudget: DSH_FILE_BUDGET,
-  // dsh documents no session marker of its own; `DSH_HOME` is what its shell-env plugin exports.
-  detect: (ctx) => Boolean(ctx.env.DSH_HOME),
+  detect: (ctx) => existsSync(dshHome(ctx)),
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
     date: "2026-09-20",
   },
   fixtures: { config: "config.yml", hookStdin: "hook-stdin.json" },
+  globalRoot: dshHome,
 };

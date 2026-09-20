@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { type Document, isMap, isNode, isSeq, parseDocument, stringify } from "yaml";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
-import type { HarnessContext, HookSpec } from "../contract.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import type { HarnessContext, HookSpec, Scope } from "../contract.ts";
 import { readConfigText } from "../mcp-stub/jsonc-edit.ts";
 
 // dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
@@ -20,8 +20,8 @@ export function dshHome(ctx: HarnessContext): string {
 }
 
 export type BridgeFiles = {
-  patch: string;
-  hooks: string;
+  patch: RootedPath;
+  hooks: RootedPath;
 };
 
 export function bridgeFiles(home: string): BridgeFiles {
@@ -44,7 +44,10 @@ function bridgeRow(hooksPath: string): Record<string, unknown> {
   return { id: BRIDGE_ROW_ID, name: BRIDGE_PLUGIN, config: { configPath: hooksPath } };
 }
 
+// The scope is part of the hook contract but never changes where the bridge lands: dsh reads one
+// machine-wide patch layer, so a project install mounts the same row a global one does.
 export async function reconcileBridge(
+  _scope: Scope,
   ctx: HarnessContext,
   spec: HookSpec,
   wanted: boolean,
