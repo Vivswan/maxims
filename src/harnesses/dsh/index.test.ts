@@ -1,7 +1,9 @@
 // Guards the dsh bridge pair: a hand-formatted cordis.patch.yml must come back byte-identical
 // once our row leaves (dsh's own guide warns the file carries unrelated user patches), a sibling
 // plugin the user merged into our insert operation must survive both mount and unmount, and a row
-// the user duplicated by hand must converge to one on mount and to none on unmount.
+// the user duplicated by hand must converge to one on mount and to none on unmount. Also pins the
+// AGENTS.md dsh reads per scope under $DSH_HOME, the byte line past which dsh truncates it, and
+// that only a directory at the dsh home counts as an install.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,12 +11,15 @@ import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { applyChanges } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
-import { hookSpecFor } from "../contract.ts";
-import { BRIDGE_ROW_ID, reconcileBridge } from "./bridge.ts";
+import { type HarnessContext, hookSpecFor, type Scope } from "../contract.ts";
+import { planSharedBlockWrite } from "../strategies/shared-block.ts";
 import { dsh } from "./index.ts";
+import { BRIDGE_ROW_ID } from "./quirks.ts";
 
 const fixture = readFileSync(join(import.meta.dir, "fixtures", "config.yml"), "utf8");
 const spec = hookSpecFor(dsh);
+if (dsh.hook.kind !== "custom") throw new Error("dsh mounts a bridge through a custom hook");
+const reconcileBridge = dsh.hook.reconcile;
 const rooted = (root: string, ...parts: string[]) => assertInsideRoot(root, join(root, ...parts));
 
 function contextFor(home: string) {
@@ -232,5 +237,90 @@ test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
     expect(caught).toBeInstanceOf(MaximsError);
     expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
     expect(readFileSync(join(dshHome, "cordis.patch.yml"), "utf8")).toBe(text);
+  });
+});
+
+const ctx: HarnessContext = {
+  home: "/home/user",
+  projectRoot: "/home/user/project",
+  env: { DSH_HOME: "/home/user/dsh-home" },
+};
+const block =
+  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
+
+function sharedBlock(scope: Scope) {
+  const target = dsh.targets[scope];
+  if (target?.kind !== "shared-block") throw new Error("dsh reads an AGENTS.md block");
+  return target;
+}
+
+const blocks: [Scope, string, string][] = [
+  ["project", "/home/user/project", "/home/user/project/AGENTS.md"],
+  ["global", "/home/user/dsh-home", "/home/user/dsh-home/AGENTS.md"],
+];
+
+test.each(blocks)(
+  "the %s block is written to the AGENTS.md dsh reads, under $DSH_HOME for the user",
+  (scope, root, path) => {
+    expect(
+      planSharedBlockWrite({
+        def: dsh,
+        target: sharedBlock(scope),
+        scope,
+        ctx,
+        source: "@example-user/doctrine",
+        currentText: null,
+        block,
+      }),
+    ).toEqual([{ kind: "write", path: assertInsideRoot(root, path), content: block }]);
+  },
+);
+
+// dsh renders every instruction file into one 65,536-byte block and truncates the most specific
+// file past it; the frame it adds around a file is allowed for, so a rule file may reach 64,512
+// bytes and no further.
+test("a block at the dsh line is written and one byte past it is refused", () => {
+  const frame =
+    "<!-- maxims:begin @example-user/doctrine sha=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
+  const atLine = frame.replace("\n\n", `\n${"x".repeat(64_512 - frame.length)}\n`);
+  const write = (content: string) =>
+    planSharedBlockWrite({
+      def: dsh,
+      target: sharedBlock("project"),
+      scope: "project",
+      ctx,
+      source: "@example-user/doctrine",
+      currentText: null,
+      block: content,
+    });
+  expect(
+    write(atLine).map((change) => change.kind === "write" && Buffer.byteLength(change.content)),
+  ).toEqual([64_512]);
+  let caught: unknown;
+  try {
+    write(atLine.replace("xx", "xxx"));
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(MaximsError);
+  expect(caught).toMatchObject({ code: ExitCode.RuleCapExceeded });
+  expect(String((caught as MaximsError).message)).toContain(
+    "64512-byte limit DeepSeek Harness loads",
+  );
+});
+
+test("detection reads a directory at ~/.dsh or $DSH_HOME, never a stray file there", async () => {
+  await withTempDir((dir) => {
+    const home = join(dir, "home");
+    mkdirSync(home);
+    const bare: HarnessContext = { home, projectRoot: null, env: {} };
+    expect(dsh.detect(bare)).toBe(false);
+    writeFileSync(join(dir, "elsewhere"), "");
+    expect(dsh.detect({ ...bare, env: { DSH_HOME: join(dir, "elsewhere") } })).toBe(false);
+    mkdirSync(join(dir, "dsh-home"));
+    expect(dsh.detect({ ...bare, env: { DSH_HOME: join(dir, "dsh-home") } })).toBe(true);
+    expect(dsh.detect(bare)).toBe(false);
+    mkdirSync(join(home, ".dsh"));
+    expect(dsh.detect(bare)).toBe(true);
   });
 });

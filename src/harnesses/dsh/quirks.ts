@@ -4,7 +4,13 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { readConfigText } from "../../util/jsonc.ts";
-import type { HarnessContext, HookSpec, Scope } from "../contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type HookShape,
+  type HookSpec,
+  scopeRoot,
+} from "../contract.ts";
 
 // dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
 // profile is `$DSH_HOME/cordis.patch.yml`; it has no per-project config discovery. The bridge
@@ -14,24 +20,19 @@ import type { HarnessContext, HookSpec, Scope } from "../contract.ts";
 export const BRIDGE_PLUGIN = "@deepseek-ai/dsh-hooks-claude-code";
 export const BRIDGE_ROW_ID = "maxims-hooks";
 
-export function dshHome(ctx: HarnessContext): string {
-  const override = ctx.env.DSH_HOME;
-  return override === undefined || override === "" ? join(ctx.home, ".dsh") : override;
-}
-
-export type BridgeFiles = {
+type BridgeFiles = {
   patch: RootedPath;
   hooks: RootedPath;
 };
 
-export function bridgeFiles(home: string): BridgeFiles {
+function bridgeFiles(home: string): BridgeFiles {
   return {
     patch: assertInsideRoot(home, join(home, "cordis.patch.yml")),
     hooks: assertInsideRoot(home, join(home, "maxims-hooks.json")),
   };
 }
 
-export function renderHooksFile(spec: HookSpec): string {
+function renderHooksFile(spec: HookSpec): string {
   const handler = {
     type: "command",
     command: [spec.command, ...spec.args].join(" "),
@@ -45,21 +46,21 @@ function bridgeRow(hooksPath: string): Record<string, unknown> {
 }
 
 // The scope is part of the hook contract but never changes where the bridge lands: dsh reads one
-// machine-wide patch layer, so a project install mounts the same row a global one does.
-export async function reconcileBridge(
-  _scope: Scope,
-  ctx: HarnessContext,
-  spec: HookSpec,
-  wanted: boolean,
-): Promise<Change[]> {
-  const files = bridgeFiles(dshHome(ctx));
-  const text = (await readConfigText(files.patch)) ?? "";
-  const next = editPatch(text, files.patch, wanted ? bridgeRow(files.hooks) : null);
-  const changes: Change[] = wanted
-    ? [{ kind: "write", path: files.hooks, content: renderHooksFile(spec) }]
-    : [{ kind: "delete", path: files.hooks }];
-  if (next !== text) changes.push({ kind: "write", path: files.patch, content: next });
-  return changes;
+// machine-wide patch layer under the global root the spec resolves, so a project install mounts
+// the same row a global one does.
+export function bridgeReconciler(
+  roots: Pick<HarnessDefinition, "globalRoot">,
+): Extract<HookShape, { kind: "custom" }>["reconcile"] {
+  return async (_scope, ctx: HarnessContext, spec, wanted) => {
+    const files = bridgeFiles(scopeRoot(roots, "global", ctx));
+    const text = (await readConfigText(files.patch)) ?? "";
+    const next = editPatch(text, files.patch, wanted ? bridgeRow(files.hooks) : null);
+    const changes: Change[] = wanted
+      ? [{ kind: "write", path: files.hooks, content: renderHooksFile(spec) }]
+      : [{ kind: "delete", path: files.hooks }];
+    if (next !== text) changes.push({ kind: "write", path: files.patch, content: next });
+    return changes;
+  };
 }
 
 type Span = { start: number; end: number; indent: string };
