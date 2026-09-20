@@ -82,7 +82,6 @@ The manifest never replaces state on the machine that wrote it, and `sync` never
   "version": 1,
   "writtenBy": "maxims@0.4.1",
   "hooks": ["claude-code", "codex"],
-  "disabled": { "global": ["gate-exit-conditions-the-merge-dotfiles"], "project": [] },
   "sources": {
     "@Vivswan/skills": {
       "intent": {
@@ -119,7 +118,6 @@ The sha and hash values above are shortened for display; state stores full diges
 | `version` | integer schema version, bumped on any breaking shape change |
 | `writtenBy` | which maxims wrote this, so a bug report is reproducible without asking |
 | `hooks` | the harnesses where the user wants a sync hook kept: a list, not records |
-| `disabled` | the memories `disable` withheld, by local name, one list per scope, so a memory disabled at project scope stays live for `-g`; the [project manifest](#the-project-manifest) copies the project list so `install` can replay it |
 | `intent.from` | `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
 | `intent.auth` | whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own |
 | `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
@@ -132,6 +130,8 @@ The sha and hash values above are shortened for display; state stores full diges
 | `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
+
+Specified, not yet in the schema: `disable` records the memories it withheld, by local name, in one list per scope, so a memory disabled at project scope stays live for `-g`. The [project manifest](#the-project-manifest) copies the project-scope list so `install` can replay it.
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
@@ -185,7 +185,7 @@ The store is single-writer. A writer creates `state.json.lock` atomically, holdi
 | two adds, different sources | the second polls for up to 5 seconds, then exits 5 with the holder's command line |
 | a hook fires during a manual add | the hook does not wait: exit 0 at once, logged as "skipped, lock held" |
 | two syncs at once | one wins, the other exits 0; both would compute the same output |
-| the holder crashed and left the lock | a lock older than 60 seconds with a dead pid is stolen, and the theft is logged |
+| the holder crashed and left the lock | a lock older than 60 seconds is stolen, and the theft is logged with whether the holder's pid was still alive |
 | NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
 
 ## Migrations

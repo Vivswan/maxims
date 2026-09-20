@@ -135,6 +135,24 @@ function dropGeneratedRegions(stream: string): string {
   return out.replace(new RegExp(`${OPEN}g[^${BLOCK_END}]*${BLOCK_END}`, "g"), "");
 }
 
+// Inline markers with the code text or the href captured.
+const CODESPAN = `${OPEN}C([^${INLINE_END}]*)${INLINE_END}`;
+const LINK = `${OPEN}A([^${INLINE_END}]*)${INLINE_END}`;
+
+/**
+ * The prose as the reader sees it. Inline HTML is invisible (a comment says nothing, a tag is at
+ * most a break) and is dropped; a code span shows every character, so `<name>` inside one is a word.
+ */
+function visibleText(own: string): string {
+  return own
+    .replace(new RegExp(LINK, "g"), "")
+    .split(new RegExp(`(${OPEN}C[^${INLINE_END}]*${INLINE_END})`))
+    .map((part, index) =>
+      index % 2 === 1 ? part.slice(2, -1) : stripComments(part.replace(/<\/?[a-zA-Z][^>]*>/g, " ")),
+    )
+    .join("");
+}
+
 export function scanPage(text: string): Scan {
   const lines = blankFrontMatter(text);
   const nothing = () => "";
@@ -186,22 +204,17 @@ export function scanPage(text: string): Scan {
     const kind = block[1] === "L" ? "item" : "paragraph";
     const inner = block.slice(2, -1);
     const own = ownText(inner);
-    // Inline HTML is invisible to the reader: a comment says nothing, a tag is at most a break.
-    const withoutTags = own
-      .replace(new RegExp(`${OPEN}A[^${INLINE_END}]*${INLINE_END}`, "g"), "")
-      .replace(new RegExp(`${OPEN}C([^${INLINE_END}]*)${INLINE_END}`, "g"), "$1")
-      .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
-    const plain = stripComments(withoutTags);
+    const plain = visibleText(own);
     const firstLine = plain.split("\n").find((l) => l.trim() !== "") ?? "";
     const line = locate(firstLine);
     if (prose && plain.trim() !== "") {
       scan.units.push({ kind, line: line + 1, text: unescapeEntities(plain) });
     }
-    for (const m of own.matchAll(new RegExp(`${OPEN}C([^${INLINE_END}]*)${INLINE_END}`, "g"))) {
+    for (const m of own.matchAll(new RegExp(CODESPAN, "g"))) {
       const code = unescapeEntities(m[1] ?? "");
       scan.codespans.push({ text: code, line: locate(`\`${code}\``) + 1 });
     }
-    for (const m of own.matchAll(new RegExp(`${OPEN}A([^${INLINE_END}]*)${INLINE_END}`, "g"))) {
+    for (const m of own.matchAll(new RegExp(LINK, "g"))) {
       const href = unescapeEntities(m[1] ?? "");
       scan.links.push({ href, line: locate(href) + 1 });
     }

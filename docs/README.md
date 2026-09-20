@@ -21,12 +21,3 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 | know what state records and how a sync recovers | [State and store](state-and-store.md) |
 | read the threat model | [Security](security.md) |
 | know why a behavior is the way it is | [Design decisions](design-decisions.md) |
-
-1. [Why maxims](why.md)
-2. [Quickstart](quickstart.md)
-3. [Memory files](memory-files.md)
-4. [CLI reference](cli.md)
-5. [Harnesses](harnesses.md)
-6. [State and store](state-and-store.md)
-7. [Security](security.md)
-8. [Design decisions](design-decisions.md)

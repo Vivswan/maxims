@@ -50,7 +50,8 @@ A memory carrying a character the reader cannot see fails the whole install, bec
 | refused | why |
 | --- | --- |
 | zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`) | invisible in a terminal, so a one-liner can differ from what the plan showed |
-| bidi control characters (`U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree |
+| bidi control characters (`U+061C`, `U+200E`, `U+200F`, `U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree |
+| control characters (`U+0000` to `U+001F` except tab, `U+007F` to `U+009F`) | a terminal prints nothing for them, or moves the cursor, so the file and its display disagree |
 | ANSI escape sequences | a terminal executes them while printing the plan |
 | HTML comments | invisible in a rendered rule file, and the block markers are HTML comments |
 

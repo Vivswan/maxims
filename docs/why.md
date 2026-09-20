@@ -19,7 +19,7 @@ Before, the rule lived in a memory directory the agent searched only when it jud
    result:  a session that never looked committed unreviewed
 ```
 
-After, the same rule's one-liner sits in the rules layer the harness reads at launch, and the body stays where it was:
+After, the same rule's one-liner sits in the rules layer the harness reads at launch, and the body lives in the store:
 
 ```text
 ~/.claude/rules/maxims-vivswan-skills.md
@@ -29,7 +29,7 @@ After, the same rule's one-liner sits in the rules layer the harness reads at la
    result:  every session opens already holding the rule
 ```
 
-The body did not move and was not shortened. Only the one line that must always be present changed layers.
+The body's content is unchanged; its home is now the store. Only the one line that must always be present changed layers.
 
 ## Two layers, one source
 
