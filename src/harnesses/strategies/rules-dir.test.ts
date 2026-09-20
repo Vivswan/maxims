@@ -144,6 +144,24 @@ describe("planRulesDirWrite", () => {
       code: ExitCode.DestinationWriteFailed,
     },
     {
+      name: "a backslash in the slug, which Windows reads as a separator",
+      run: () => escaping("evil\\sibling"),
+      code: ExitCode.DestinationWriteFailed,
+    },
+    {
+      name: "a file name that renders empty",
+      run: () =>
+        planRulesDirWrite({
+          def: scoped,
+          target: { ...plain, fileName: (slug) => slug },
+          scope: "project",
+          ctx,
+          sourceSlug: "",
+          block,
+        }),
+      code: ExitCode.DestinationWriteFailed,
+    },
+    {
       name: "a project install with no project root",
       run: () =>
         planRulesDirWrite({
