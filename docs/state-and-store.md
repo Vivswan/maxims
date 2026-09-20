@@ -134,7 +134,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 | `intent.destination` | `global`, `project`, or `out` with a path; `-g` with `-o` has no representation |
 | `intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths` | `--copy`, `--from`, `--full-depth`, `--paths`, recorded per source |
 | `intent.harnesses` | which harnesses this source writes to |
-| `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, versus `ref`, which is what was asked for. For a GitHub or git source it is the 40-hex commit sha the remote reported; for a copied local source it is a `sha256:<64 hex>` hash of the directory contents, the same spelling as a memory hash. A live local source has no `fetched` block at all, because the tree is the record. |
+| `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for: the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record. |
 | `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
@@ -185,9 +185,9 @@ Never auto-removing on a fetch failure is deliberate. A rate limit and a deleted
 
 ## Moving state to a new machine
 
-State is the only record maxims needs, so carrying an install over is three steps:
+State carries the intent, so moving an install is three steps:
 
-1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, and `config.json` beside it if you want the same defaults.
+1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses; without that file a source naming one in `intent.harnesses` restores nothing for it, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns what you see instead.
 2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, and each project root under `disabled.project`.
 3. Run `npx -y @vivswan/maxims sync`; the [failure paths](#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
 
