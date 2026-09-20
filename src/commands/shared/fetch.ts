@@ -1,0 +1,213 @@
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { MemoryName } from "../../memory/contract.ts";
+import { pruneRenames } from "../../rulefile/dedupe.ts";
+import { needsFetch } from "../../sources/github/index.ts";
+import { FetchFailure } from "../../sources/github/ladder.ts";
+import type { TreeFile } from "../../sources/tree.ts";
+import type { Fetched, LastError, SourceEntry } from "../../state/schema.ts";
+import type { Change } from "../../util/change.ts";
+import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { assertInsideRoot } from "../../util/fs.ts";
+import { homePaths, storePathFor } from "../../util/home.ts";
+import type { EngineIo } from "../types.ts";
+import type { EngineContext } from "./context.ts";
+import { contentHash, type SourceTree, validateMemoryFiles } from "./memories.ts";
+import type { Notices } from "./notices.ts";
+import { inSelect } from "./select.ts";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last
+// SUCCESS and would otherwise ask the network at every session start while a source is down.
+export const FAILED_FETCH_RETRY_MS = 60 * 60 * 1000;
+
+export type FetchedEntry = Extract<SourceEntry, { fetched?: Fetched }>;
+
+// A fresh fetch carries its content: the store swap is only planned at this point, so the rest of
+// the run reads the memories from `tree`, not from disk. Every outcome returns the entry to keep,
+// with the fetch facts a failure or a confirmed-unchanged remote updated.
+export type RefreshResult =
+  | { outcome: "skipped" | "not-due"; entry: FetchedEntry }
+  | { outcome: "unchanged"; entry: FetchedEntry }
+  | {
+      outcome: "fresh";
+      entry: FetchedEntry;
+      tree: SourceTree;
+      storeChanges: Change[];
+      newUpstream: MemoryName[];
+    }
+  | { outcome: "failed" | "no-valid"; entry: FetchedEntry; error: LastError };
+
+export type RefreshOptions = {
+  force: boolean;
+  noFetch: boolean;
+};
+
+export function storeEntryPath(home: string, entry: SourceEntry): string {
+  return storePathFor(home, entry.intent.from);
+}
+
+// Only "nothing is there" reads as absent; an entry that cannot be inspected is treated as present
+// so the read that follows reports the real error instead of a needless fetch hiding it.
+export async function storeEntryPresent(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
+// Due: never fetched, store copy missing, cooldown elapsed since the last success, or a failure
+// old enough to retry (and past any Retry-After). `force` is `update`.
+export function isDue(
+  fetched: Fetched | undefined,
+  now: Date,
+  cooldownDays: number,
+  storePresent: boolean,
+  force: boolean,
+): boolean {
+  if (force || fetched === undefined || !storePresent) return true;
+  const time = now.getTime();
+  if (fetched.lastError === null) return time - Date.parse(fetched.at) >= cooldownDays * DAY_MS;
+  const { retryAfter, at } = fetched.lastError;
+  if (retryAfter !== undefined && time < Date.parse(retryAfter)) return false;
+  return time - Date.parse(at) >= FAILED_FETCH_RETRY_MS;
+}
+
+// One source's step 2. A failure at any rung keeps the last-good record and store copy and writes
+// only `lastError`; a fetch with zero valid memories is the same, classified `invalid`.
+export async function refreshSource(
+  key: string,
+  entry: FetchedEntry,
+  ctx: EngineContext,
+  io: EngineIo,
+  notices: Notices,
+  options: RefreshOptions,
+): Promise<RefreshResult> {
+  if (options.noFetch) return { outcome: "skipped", entry };
+  const entryPath = storeEntryPath(ctx.home, entry);
+  const storePresent = await storeEntryPresent(entryPath);
+  if (!isDue(entry.fetched, ctx.now, ctx.cooldownDays, storePresent, options.force)) {
+    return { outcome: "not-due", entry };
+  }
+  const { from } = entry.intent;
+  const resolver = io.resolvers(from);
+  const auth = entry.intent.auth;
+  const tempDir = await mkdtemp(join(tmpdir(), "maxims-fetch-"));
+  const now = ctx.now.toISOString();
+  try {
+    if (resolver.resolveRef !== undefined && storePresent && entry.fetched !== undefined) {
+      const remoteSha = await resolver.resolveRef(from, undefined, { auth });
+      if (!needsFetch(from, entry.fetched.sha, remoteSha)) {
+        return {
+          outcome: "unchanged",
+          entry: { ...entry, fetched: { ...entry.fetched, at: now, lastError: null } },
+        };
+      }
+    }
+    const result = await resolver.fetch(from, {
+      memoryPath: entry.intent.memoryPath,
+      fullDepth: entry.intent.fullDepth,
+      tempDir,
+      auth,
+    });
+    if (storePresent && entry.fetched !== undefined && result.sha === entry.fetched.sha) {
+      return {
+        outcome: "unchanged",
+        entry: { ...entry, fetched: { ...entry.fetched, at: now, lastError: null } },
+      };
+    }
+    const { memories, invalid } = validateMemoryFiles(result.files);
+    for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
+    if (memories.length === 0) {
+      const message = `no valid memories at ${result.memoryPath}`;
+      return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
+    }
+    const names = memories.map((memory) => memory.memory.name);
+    const fetched: Fetched = {
+      at: now,
+      sha: result.sha,
+      memoryPath: result.memoryPath,
+      memories: Object.fromEntries(
+        memories.map((memory) => [
+          memory.memory.name,
+          {
+            content: contentHash(memory.text),
+            description: contentHash(memory.memory.description),
+          },
+        ]),
+      ),
+      lastError: null,
+    };
+    const rename = pruneRenames(entry.intent.rename, names);
+    const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
+    const newUpstream =
+      entry.intent.select === "*"
+        ? []
+        : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
+    return {
+      outcome: "fresh",
+      entry: { ...entry, intent: { ...entry.intent, rename }, fetched },
+      tree: { sha: result.sha, memories, invalid },
+      storeChanges: swapStoreEntry(
+        ctx.home,
+        entryPath,
+        memories.map((memory) => ({ relPath: memory.relPath, text: memory.text })),
+      ),
+      newUpstream,
+    };
+  } catch (error) {
+    const classified = classifyFetchError(error, now);
+    if (classified === null) throw error;
+    return failed(entry, classified, "failed");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function failed(
+  entry: FetchedEntry,
+  error: LastError,
+  outcome: "failed" | "no-valid",
+): RefreshResult {
+  if (entry.fetched === undefined) return { outcome, entry, error };
+  return { outcome, entry: { ...entry, fetched: { ...entry.fetched, lastError: error } }, error };
+}
+
+// A ladder failure carries its own class; a local directory that is gone reads as `missing`,
+// the same permanent condition a deleted repository is. Anything else is a defect and propagates.
+function classifyFetchError(error: unknown, at: string): LastError | null {
+  if (error instanceof FetchFailure) {
+    const retryAfter =
+      error.retryAfterSeconds === undefined
+        ? {}
+        : { retryAfter: new Date(Date.parse(at) + error.retryAfterSeconds * 1000).toISOString() };
+    return { kind: error.kind, message: error.message, at, ...retryAfter };
+  }
+  if (error instanceof MaximsError && error.code === ExitCode.SourceUnresolvable) {
+    return { kind: "missing", message: error.message, at };
+  }
+  return null;
+}
+
+// The entry is replaced wholesale, laid out like the source (`relPath` from the source root), so
+// `fetched.memoryPath` finds the files there and a memory deleted upstream leaves nothing behind.
+export function swapStoreEntry(home: string, entryPath: string, files: TreeFile[]): Change[] {
+  const store = homePaths(home).store;
+  const entry = assertInsideRoot(store, entryPath);
+  const changes: Change[] = [
+    { kind: "delete", path: entry },
+    { kind: "mkdir", path: entry },
+  ];
+  for (const file of files) {
+    changes.push({
+      kind: "write",
+      path: assertInsideRoot(entry, join(entry, ...file.relPath.split("/"))),
+      content: file.text,
+    });
+  }
+  return changes;
+}

@@ -9,9 +9,8 @@
   ],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"],
   "ignoreExportsUsedInFile": true,
-  // Contract-only modules and pinned dependencies whose first importer has not landed yet. Knip
-  // reports each entry below as a configuration hint once it is genuinely used; drop it then.
-  "ignore": ["src/commands/types.ts", "src/sources/contract.ts"],
+  // Pinned dependencies whose first importer has not landed yet. Knip reports each entry below as
+  // a configuration hint once it is genuinely used; drop it then.
   "ignoreDependencies": [
     "@clack/prompts",
     "@vercel/detect-agent",

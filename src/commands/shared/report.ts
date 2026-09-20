@@ -1,0 +1,172 @@
+import { isAbsolute, relative } from "node:path";
+import type { LoadedState } from "../../state/store.ts";
+import { applyChanges, planToJson, renderPlan } from "../../util/change.ts";
+import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { appendRefreshLog } from "../../util/log.ts";
+import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
+import type { EngineContext } from "./context.ts";
+import type { SyncFailure, SyncOutcome } from "./engine.ts";
+import { renderHookStdout } from "./stdin.ts";
+
+export const EMPTY_REPORT: SyncReport = {
+  sources: 0,
+  memories: 0,
+  rules: 0,
+  tokens: 0,
+  fetched: [],
+  changed: [],
+  notices: [],
+  plan: { changes: [], notices: [] },
+};
+
+export type FinishOptions = CommonOptions & { verb: "sync" | "remove" };
+
+// A failure the run has already printed (as the `--json` document or the interactive lines), so
+// the caller maps it to an exit code without printing it a second time.
+export class ReportedMaximsError extends MaximsError {}
+
+// Step 6: apply the plan in order, log what happened, and speak in the channel the run was
+// started from. A write failure under `--quiet` stops the run at that change and reports the
+// path; every earlier change stays applied, and the next run converges from there.
+export async function finishSync(
+  outcome: SyncOutcome,
+  ctx: EngineContext,
+  io: EngineIo,
+  options: FinishOptions,
+): Promise<SyncReport> {
+  const { notices } = outcome;
+  let applied = true;
+  try {
+    await applyChanges(outcome.plan, { dryRun: options.dryRun });
+  } catch (error) {
+    if (!options.quiet || !(error instanceof MaximsError)) throw error;
+    notices.loud(`maxims: ${error.message}`);
+    outcome.failures.push({ code: error.code, message: error.message, hint: error.hint });
+    applied = false;
+  }
+  if (!options.dryRun) await writeLog(outcome, ctx, options);
+  printOutcome(outcome, ctx, io, { ...options, applied });
+  const [failure] = outcome.failures;
+  if (failure !== undefined && !options.quiet) {
+    throw new ReportedMaximsError(failure.code, failure.message, { hint: failure.hint });
+  }
+  return outcome.report;
+}
+
+async function writeLog(
+  outcome: SyncOutcome,
+  ctx: EngineContext,
+  options: FinishOptions,
+): Promise<void> {
+  const stamp = ctx.now.toISOString();
+  const lines = [
+    ...outcome.report.fetched.map((key) => `refreshed ${key}`),
+    ...outcome.plan.changes.map((change) => `${change.kind} ${change.path}`),
+    ...outcome.notices.log,
+  ];
+  if (lines.length === 0) return;
+  const mode = options.quiet ? `${options.verb} --quiet` : options.verb;
+  try {
+    for (const line of lines) await appendRefreshLog(ctx.home, `${stamp} ${mode}: ${line}`);
+  } catch (error) {
+    if (!options.quiet) throw error;
+  }
+}
+
+// `--json` is one value; `--dry-run` is the rendered plan; a hook run speaks its harness's
+// protocol and only the lines a session should hear; an interactive run prints the notices and a
+// summary when something changed.
+function printOutcome(
+  outcome: SyncOutcome,
+  ctx: EngineContext,
+  io: EngineIo,
+  options: FinishOptions & { applied: boolean },
+): void {
+  const { report } = outcome;
+  // The store and state live under the maxims home; only a file a harness reads counts as a
+  // refresh worth a line.
+  const visible = report.changed.filter((path) => !isInside(ctx.home, path));
+  const changed = options.applied && visible.length > 0;
+  if (options.json) {
+    io.stdout(jsonDocument(report, outcome.failures));
+    return;
+  }
+  if (options.quiet) {
+    const lines = [...outcome.notices.quietStdout];
+    if (changed) {
+      lines.push(`maxims: rules refreshed (${countOf(visible.length, "file")} updated)`);
+    }
+    io.stdout(renderHookStdout(ctx.stdoutVariant, lines));
+    return;
+  }
+  if (options.dryRun) {
+    io.stdout(renderPlan(outcome.plan));
+    return;
+  }
+  for (const line of outcome.notices.user) io.stdout(`${line}\n`);
+  if (changed) io.stdout(`${summaryLine(report)}\n`);
+}
+
+export function summaryLine(report: SyncReport): string {
+  const tokens = report.tokens > 0 ? ` (~${report.tokens} tokens)` : "";
+  return `o  Installed ${countOf(report.memories, "memory", "memories")}, ${countOf(report.rules, "rule line")}${tokens}`;
+}
+
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+export function countOf(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
+  const { plan, ...rest } = report;
+  const [failure] = failures;
+  if (failure !== undefined) {
+    return `${JSON.stringify(
+      {
+        ok: false,
+        code: failure.code,
+        message: failure.message,
+        hint: failure.hint ?? null,
+        report: rest,
+        plan,
+      },
+      null,
+      2,
+    )}\n`;
+  }
+  return `${JSON.stringify({ ok: true, report: rest, plan: JSON.parse(planToJson(plan)) }, null, 2)}\n`;
+}
+
+// The `--json` document of a run that changed nothing and planned nothing.
+export function emptyDocument(notices: readonly string[]): string {
+  const { plan, ...report } = EMPTY_REPORT;
+  return `${JSON.stringify({ ok: true, report: { ...report, notices }, plan }, null, 2)}\n`;
+}
+
+// A defect with no exit code of its own is reported as the usage code, the one every unmapped
+// failure maps to.
+export function errorDocument(error: unknown): string {
+  const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
+  const hint = error instanceof MaximsError ? (error.hint ?? null) : null;
+  const message = error instanceof Error ? error.message : String(error);
+  return `${JSON.stringify({ ok: false, code, message, hint }, null, 2)}\n`;
+}
+
+export type UnusableState = Exclude<LoadedState, { kind: "loaded" }>;
+
+export function unusableStateLine(loaded: UnusableState): string {
+  switch (loaded.kind) {
+    case "absent":
+      return "maxims: nothing installed";
+    case "newer":
+      return `maxims: state written by a newer maxims (v${loaded.version}), skipping; upgrade maxims to use it`;
+    case "quarantined":
+      return `maxims: state.json was corrupt and moved to ${loaded.movedTo}; re-add your sources`;
+    case "corrupt":
+      return `maxims: state.json is corrupt (${loaded.issues[0] ?? "unreadable"}) and ${loaded.lockedBy}; nothing synced`;
+  }
+}

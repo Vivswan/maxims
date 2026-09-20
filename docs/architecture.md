@@ -298,6 +298,10 @@ graph TD
   version["src/version.ts<br>package.json"]
   cli --> version
   commands --> harnesses
+  commands --> memory
+  commands --> rulefile
+  commands --> sources
+  commands --> state
   commands --> util
   harnesses --> memory
   harnesses --> rulefile

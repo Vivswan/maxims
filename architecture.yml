@@ -16,7 +16,7 @@ exclude:
 # from -> the layers it may import; a layer absent here imports nothing outside itself.
 edges:
   cli: [version]
-  commands: [harnesses, util]
+  commands: [harnesses, memory, rulefile, sources, state, util]
   harnesses: [memory, rulefile, util, version]
   rulefile: [memory, state, util]
   sources: [memory, state, util]
