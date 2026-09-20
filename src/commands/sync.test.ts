@@ -383,6 +383,24 @@ describe("shared files and dedupe", () => {
     });
   });
 
+  // A live source's store entry is a link its rule lines and bodies resolve through; a source the
+  // cap refuses lands nothing, the link included, so the store stays as the last run left it.
+  test("a live source refused by the cap leaves the store untouched", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const many = Object.fromEntries(
+        Array.from({ length: 26 }, (_, index) => [
+          `rule-${index}`,
+          { description: `Rule ${index}.` },
+        ]),
+      );
+      const live = writeSource(join(dir, "live"), many);
+      writeState(home, stateWith({ [live]: entryFor(localFrom(live, true)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
+      expect(existsSync(homePaths(home).store)).toBe(false);
+    });
+  });
+
   test("internal memories hide under `*`, install when named or under MAXIMS_INSTALL_INTERNAL", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), {
@@ -1605,7 +1623,9 @@ describe("plan surfaces", () => {
       fake.set(from, { kind: "fail", failure: "network" });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
       const report = await runSync({ ...SYNC, force: true }, io);
-      expect(report.failed).toEqual([{ key: "@acme/rules", message: "scripted network" }]);
+      expect(report.failed).toEqual([
+        { key: "@acme/rules", message: "scripted network", kind: "network" },
+      ]);
       const text = readFileSync(globalRulesFile(userHome, "acme-rules"), "utf8");
       expect(text).toContain("Never merge red.");
       expect(fetchedOf(home, "@acme/rules")?.lastError?.kind).toBe("network");

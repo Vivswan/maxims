@@ -19,16 +19,17 @@ export type SyncOptions = CommonOptions & {
   force: boolean;
 };
 
-// `failed` lists the sources whose refresh failed in THIS run with the message the fetch left,
-// in key order, so a caller learns of a failure from the report rather than from state, which a
-// dry run leaves unchanged.
+// `failed` lists the sources this run could not bring current, in key order: a refresh that
+// failed, or a live source whose directory could not be read (its read is its refresh). Each
+// carries the failure's class so a caller tells an unreachable source from one with nothing valid
+// to install, from the report rather than from state, which a dry run leaves unchanged.
 export type SyncReport = {
   sources: number;
   memories: number;
   rules: number;
   tokens: number;
   fetched: string[];
-  failed: { key: string; message: string }[];
+  failed: { key: string; message: string; kind: LastError["kind"] }[];
   changed: string[];
   notices: string[];
   plan: Plan;

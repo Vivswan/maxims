@@ -16,8 +16,8 @@ import {
   shortHash,
 } from "../../rulefile/dedupe.ts";
 import type { RuleLine, Staleness } from "../../rulefile/types.ts";
-import { materializeLocal } from "../../sources/local.ts";
-import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
+import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
+import type { Fetched, LastError, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
 import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
@@ -81,6 +81,8 @@ export type SourceWork = {
   sha: string;
   stale: Staleness | undefined;
   ownedUpstreamNames: MemoryName[];
+  // The store swap or link this source lands with, planned only once admission has passed.
+  storeChanges: Change[];
 };
 
 const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -150,6 +152,9 @@ export async function planSync(
       if (built.deferred.length > 0) {
         notices.trace(`deferred ${built.deferred.length} deletion(s) until an interactive sync`);
       }
+      const failed = [...refreshed.failed, ...attempt.failed].sort((a, b) =>
+        a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+      );
       return {
         plan: built.plan,
         deferred: built.deferred,
@@ -159,7 +164,7 @@ export async function planSync(
           rules: attempt.rules,
           tokens: attempt.tokens,
           fetched: refreshed.fetchedKeys,
-          failed: refreshed.failed,
+          failed,
           changed: [...new Set(built.plan.changes.map((change) => change.path))],
           notices: notices.user,
           plan: built.plan,
@@ -193,6 +198,8 @@ type Attempt = {
   refusals: Refusal[];
   refusedFresh: string[];
   refusedKept: string[];
+  // Live sources whose directory could not be read this run.
+  failed: SyncReport["failed"];
   hookRun: boolean;
   sources: number;
   memories: number;
@@ -223,14 +230,7 @@ async function planInstall(
     if (refreshed.freshTrees.has(key)) refusedFresh.push(key);
     else refusedKept.push(key);
   };
-  const read = await readTrees(
-    refreshed.sources,
-    refreshed.freshTrees,
-    held,
-    ctx,
-    notices,
-    builder,
-  );
+  const read = await readTrees(refreshed, held, ctx, notices);
   const { works } = read;
   // Blocks that must survive in a file even though this run renders none for their source: an
   // unreadable or refused source keeps its last-good block, but only where its intent still puts
@@ -372,7 +372,7 @@ async function planInstall(
       bodiesWanted.set(dir.id, wanted);
       for (const selected of selection.selected) wanted.wanted.add(selected.localName);
     }
-    builder.add("store", refreshed.storeChanges.get(key) ?? [], key);
+    builder.add("store", work.storeChanges, key);
     for (const dir of bodiesDirsFor(work, ctx, io, options.agents)) {
       const bodies = planBodies({
         dir: dir.dir,
@@ -591,6 +591,7 @@ async function planInstall(
     refusals,
     refusedFresh,
     refusedKept,
+    failed: read.failed,
     hookRun,
     sources: works.length,
     memories,
@@ -715,7 +716,7 @@ async function refreshAll(
       case "failed":
       case "no-valid":
         notices.trace(`${key}: fetch failed (${result.error.kind}): ${result.error.message}`);
-        failed.push({ key, message: result.error.message });
+        failed.push({ key, message: result.error.message, kind: result.error.kind });
         break;
       case "skipped":
       case "not-due":
@@ -761,45 +762,45 @@ function diffLines(before: Fetched["memories"], after: Fetched["memories"]): str
   return lines;
 }
 
-type ReadTrees = { works: SourceWork[]; unreadable: { key: string; entry: SourceEntry }[] };
+type ReadTrees = {
+  works: SourceWork[];
+  unreadable: { key: string; entry: SourceEntry }[];
+  failed: SyncReport["failed"];
+};
 
 // The memories every source installs from: a fresh fetch's own files, a live source's directory,
-// or the store copy. A source with nothing readable keeps whatever blocks it has on disk.
+// or the store copy. A source with nothing readable keeps whatever blocks it has on disk; a live
+// source's read is its refresh, so one that fails is reported like a failed fetch.
 async function readTrees(
-  sources: State["sources"],
-  freshTrees: Map<string, SourceTree>,
+  refreshed: Refreshed,
   held: ReadonlySet<string>,
   ctx: EngineContext,
   notices: Notices,
-  builder: PlanBuilder,
 ): Promise<ReadTrees> {
   const works: SourceWork[] = [];
   const unreadable: ReadTrees["unreadable"] = [];
+  const failed: ReadTrees["failed"] = [];
   const installInternal = ctx.env.MAXIMS_INSTALL_INTERNAL === "1";
-  for (const key of Object.keys(sources).sort()) {
-    const entry = sources[key];
+  for (const key of Object.keys(refreshed.sources).sort()) {
+    const entry = refreshed.sources[key];
     if (entry === undefined) continue;
     const { intent } = entry;
+    const { from } = intent;
     const scopeKind = intent.destination.scope;
     if (scopeKind === "project" && ctx.projectRoot === null) {
       notices.trace(`${key}: project-scoped, but no project root was found; skipped`);
       continue;
     }
-    const storeEntry = storePathFor(ctx.home, intent.from);
-    const live = intent.from.type === "local" && intent.from.live === true;
-    if (
-      live &&
-      intent.from.type === "local" &&
-      currentLinkTarget(storeEntry) !== resolve(intent.from.path)
-    ) {
-      builder.add("store", materializeLocal(intent.from, ctx.home, []));
+    if (held.has(key)) {
+      unreadable.push({ key, entry });
+      continue;
     }
-    const read: TreeRead = held.has(key)
-      ? { kind: "unreadable", reason: "refused this run" }
-      : await treeFor(key, entry, storeEntry, freshTrees, notices);
+    const storeEntry = storePathFor(ctx.home, from);
+    const live = from.type === "local" && from.live === true;
+    const read = await treeFor(key, entry, storeEntry, refreshed.freshTrees, notices);
     if (read.kind === "unreadable") {
-      if (!held.has(key))
-        notices.notice(`maxims: ${key}: ${read.reason}; kept whatever is installed`);
+      notices.notice(`maxims: ${key}: ${read.reason}; kept whatever is installed`);
+      if (live) failed.push({ key, message: read.reason, kind: read.cause });
       unreadable.push({ key, entry });
       continue;
     }
@@ -820,12 +821,25 @@ async function readTrees(
         disabled: new Set(),
         detailPath: () => "",
       }).ownedUpstreamNames,
+      storeChanges:
+        from.type === "local" && from.live === true
+          ? liveStoreChanges(from, storeEntry, ctx.home)
+          : (refreshed.storeChanges.get(key) ?? []),
     });
   }
-  return { works, unreadable };
+  return { works, unreadable, failed };
 }
 
-export type TreeRead = { kind: "tree"; tree: SourceTree } | { kind: "unreadable"; reason: string };
+function liveStoreChanges(from: LocalSourceFrom, storeEntry: string, home: string): Change[] {
+  if (currentLinkTarget(storeEntry) === resolve(from.path)) return [];
+  return materializeLocal(from, home, []);
+}
+
+// `cause` classifies an unreadable source the way a failed fetch is classified, so the report
+// tells a directory that is gone from one that holds nothing valid to install.
+export type TreeRead =
+  | { kind: "tree"; tree: SourceTree }
+  | { kind: "unreadable"; reason: string; cause: LastError["kind"] };
 
 async function treeFor(
   key: string,
@@ -851,19 +865,29 @@ export async function readInstalledTree(
   const root = live && intent.from.type === "local" ? intent.from.path : storeEntry;
   if (!live && !(await storeEntryPresent(storeEntry))) {
     const lastError = isFetchedEntry(entry) ? entry.fetched?.lastError : undefined;
-    return { kind: "unreadable", reason: lastError?.message ?? "not fetched yet" };
+    return {
+      kind: "unreadable",
+      reason: lastError?.message ?? "not fetched yet",
+      cause: lastError?.kind ?? "missing",
+    };
   }
   try {
     const tree = await readSourceMemories(root, intent, warn);
-    // A tree whose every file fails the contract is the "layout changed" case, not an empty
-    // source: what is installed stays until a valid memory is back.
-    if (tree.memories.length === 0 && tree.invalid.length > 0) {
+    // A tree holding no valid memory is a layout that changed or a folder emptied by hand, never
+    // an empty source to install: what is installed stays until a valid memory is back. The
+    // fetch path refuses the same tree before it reaches the store.
+    if (tree.memories.length === 0) {
       const reasons = tree.invalid.map((file) => `${file.relPath}: ${file.reason}`).join("; ");
-      return { kind: "unreadable", reason: `no valid memories (${reasons})` };
+      const reason = tree.invalid.length === 0 ? "no memories" : `no valid memories (${reasons})`;
+      return { kind: "unreadable", reason, cause: "invalid" };
     }
     return { kind: "tree", tree };
   } catch (cause) {
-    return { kind: "unreadable", reason: cause instanceof Error ? cause.message : String(cause) };
+    return {
+      kind: "unreadable",
+      reason: cause instanceof Error ? cause.message : String(cause),
+      cause: "missing",
+    };
   }
 }
 

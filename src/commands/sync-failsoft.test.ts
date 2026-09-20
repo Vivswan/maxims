@@ -39,6 +39,7 @@ import { withStateLock } from "../state/store.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
 import { runList } from "./list.ts";
+import { sourceSlug } from "./shared/slug.ts";
 import { classifyInvoker, renderHookStdout } from "./shared/stdin.ts";
 import { runSync } from "./sync.ts";
 import type { SyncOptions } from "./types.ts";
@@ -465,7 +466,9 @@ describe("hook runs", () => {
       const { fake, io } = await lastGood(w, 9);
       fake.set(FROM, { kind: "fail", failure: "ratelimit", retryAfterSeconds: 60 });
       const report = await runSync(QUIET, io);
-      expect(report.failed).toEqual([{ key: KEY, message: "scripted ratelimit" }]);
+      expect(report.failed).toEqual([
+        { key: KEY, message: "scripted ratelimit", kind: "ratelimit" },
+      ]);
       expect(await runSync({ ...SYNC, noFetch: true }, io)).toMatchObject({ failed: [] });
     });
   });
@@ -557,6 +560,43 @@ describe("live sources whose files all fail the contract", () => {
       const report = await runSync(SYNC, io);
       expect(readFileSync(rules, "utf8")).toBe(before);
       expect(report.notices.some((line) => line.includes("no valid memories"))).toBe(true);
+      expect(report.failed).toEqual([
+        {
+          key: live,
+          message: "no valid memories (memories/alpha.md: missing frontmatter)",
+          kind: "invalid",
+        },
+      ]);
+    });
+  });
+
+  // A memories folder emptied by hand is the same last-good case as one whose files all fail: a
+  // hook run past the debounce must not rewrite the rule file with zero lines, and the next
+  // interactive run must not sweep the copied body the retained lines point at.
+  test("a live source emptied of memories keeps its block and copied body, reported as invalid", async () => {
+    await world(async (w) => {
+      const live = writeSource(join(w.dir, "live"), { alpha: { description: "Alpha." } });
+      const entry = entryFor(localFrom(live, true), {
+        destination: { scope: "project" },
+        copy: true,
+      });
+      writeState(w.home, stateWith({ [live]: entry }));
+      const io = fakeIo({ ...w, cwd: w.project });
+      await runSync(SYNC, io);
+      const slug = sourceSlug(localFrom(live, true));
+      const rules = join(w.project, ".fixture", "rules", `maxims-${slug}.md`);
+      const body = join(w.project, ".agents", "memories", "alpha.md");
+      const before = readFileSync(rules, "utf8");
+      expect(before).toContain("Alpha.");
+      rmSync(join(live, "memories", "alpha.md"));
+      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+      const quiet = await runSync(QUIET, io);
+      expect(readFileSync(rules, "utf8")).toBe(before);
+      expect(quiet.notices).toContain(`maxims: ${live}: no memories; kept whatever is installed`);
+      const manual = await runSync(SYNC, io);
+      expect(readFileSync(rules, "utf8")).toBe(before);
+      expect(readFileSync(body, "utf8")).toContain("Alpha.");
+      expect(manual.failed).toEqual([{ key: live, message: "no memories", kind: "invalid" }]);
     });
   });
 });
