@@ -8,7 +8,7 @@
 #
 # Until the owner's one-time npm trusted-publisher setup for Vivswan/maxims exists, publish-next fails on npm publish;
 # a rerun converges once it does, and a version the registry already holds is never republished. npm validates the
-# CALLING workflow's filename for a workflow_call publish, so the trusted publisher for the package maxims names
+# CALLING workflow's filename for a workflow_call publish, so the trusted publisher for the package @vivswan/maxims names
 # ci.yml, not this file.
 
 name: Post Green

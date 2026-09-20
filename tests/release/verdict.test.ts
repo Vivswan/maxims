@@ -171,7 +171,7 @@ describe("parsePackument", () => {
 
   test("reads the two records out of a full registry answer", () => {
     const body = {
-      name: "maxims",
+      name: "@vivswan/maxims",
       versions: { "1.0.0": { dist: {} } },
       "dist-tags": { latest: "1.0.0" },
       time: {},
@@ -194,7 +194,7 @@ describe("confirmPublish", () => {
     let read = 0;
     return confirmPublish({
       channel,
-      name: "maxims",
+      name: "@vivswan/maxims",
       version,
       sourceSha: SOURCE,
       ancestry: linear,
