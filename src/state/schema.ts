@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
-import { HARNESS_IDS } from "../harnesses/contract.ts";
+import { type HarnessId, isBuiltInHarnessId, parseUserHarnessId } from "../harnesses/contract.ts";
 import {
   type ContentHash,
   type MemoryName,
@@ -135,7 +135,13 @@ export const RenameMapSchema = z.record(MemoryNameSchema, MemoryNameSchema);
 /** @public */
 export type RenameMap = z.infer<typeof RenameMapSchema>;
 
-export const HarnessIdSchema = z.enum(HARNESS_IDS);
+// A user-defined id stays valid state after harnesses.json stops defining it: intent is never
+// dropped on a read, and sync is what notices the gap and skips that harness.
+export const HarnessIdSchema = z.custom<HarnessId>(
+  (value) =>
+    typeof value === "string" && (isBuiltInHarnessId(value) || parseUserHarnessId(value) !== null),
+  { error: "expected a built-in harness id or a kebab-case user-defined one" },
+);
 
 // Names the user has switched off. Sorted and unique so the same intent always serializes to the
 // same bytes; the writer sorts, and a hand edit that does not is refused whole like any other

@@ -113,7 +113,7 @@ Every spec is parsed strictly. An unknown key, a path that is absolute or climbs
 /home/user/.agents/maxims/harnesses.json: harnesses[0] (id "acme"): targets.project.file: expected a path relative to the scope root
 ```
 
-A harness loaded from the file carries `userDefined: true`, the mark for labelling it in output so a path you declared is never mistaken for one maxims verified.
+A harness loaded from the file carries `userDefined: true`, the mark for labelling it in output so a path you declared is never mistaken for one maxims verified. State keeps a user-defined id you installed even after the file stops defining it: `sync` prints a notice and skips that harness rather than dropping your intent.
 
 ## Adding a built-in folder
 

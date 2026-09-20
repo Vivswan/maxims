@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import { HARNESS_IDS, type HarnessDefinition } from "./contract.ts";
+import { type HarnessDefinition, isBuiltInHarnessId } from "./contract.ts";
 import { toDefinition } from "./from-spec.ts";
 import { parseHarnessSpec, UserHarnessSpecSchema } from "./spec.ts";
 
@@ -41,7 +41,7 @@ export async function loadUserDefinedHarnesses(home: string): Promise<UserDefine
     const parsed = parseHarnessSpec(entry, UserHarnessSpecSchema);
     if (!parsed.ok) throw refuse(path, `${where}: ${parsed.issues.join("; ")}`);
     const id = parsed.spec.id;
-    if (HARNESS_IDS.some((builtIn) => builtIn === id)) {
+    if (isBuiltInHarnessId(id)) {
       throw refuse(path, `${where}: "${id}" is a built-in harness id`, {
         hint: "pick another id; built-in harnesses cannot be redefined",
       });

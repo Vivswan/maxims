@@ -24,13 +24,25 @@ export const HARNESS_IDS = [
 
 export type BuiltInHarnessId = (typeof HARNESS_IDS)[number];
 
+export const HARNESS_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+export function isBuiltInHarnessId(value: string): value is BuiltInHarnessId {
+  return HARNESS_IDS.some((id) => id === value);
+}
+
 declare const userHarnessIdBrand: unique symbol;
 
-// An id outside the built-in list: one declared in `$MAXIMS_HOME/harnesses.json`. A parsed spec's
-// id is typed as the union below; user-defined.ts refuses a built-in id before compiling one.
+// An id outside the built-in list: one declared in `$MAXIMS_HOME/harnesses.json`. State keeps
+// such an id as intent even after the file stops defining it; sync notices and skips it rather
+// than dropping it. `parseUserHarnessId` is the one place the brand is minted.
 export type UserHarnessId = string & { readonly [userHarnessIdBrand]: true };
 
 export type HarnessId = BuiltInHarnessId | UserHarnessId;
+
+export function parseUserHarnessId(value: string): UserHarnessId | null {
+  if (!HARNESS_ID_PATTERN.test(value) || isBuiltInHarnessId(value)) return null;
+  return value as UserHarnessId;
+}
 
 export type Scope = "project" | "global";
 

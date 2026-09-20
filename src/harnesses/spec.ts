@@ -2,7 +2,12 @@ import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ConfigFormat, HarnessId, HookStdout } from "./contract.ts";
+import {
+  type ConfigFormat,
+  HARNESS_ID_PATTERN,
+  type HarnessId,
+  type HookStdout,
+} from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -10,7 +15,6 @@ import type { ConfigFormat, HarnessId, HookStdout } from "./contract.ts";
 // path is resolved. Every object is strict, so a misspelled key is refused with its path rather
 // than silently ignored.
 
-const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 
 // Values a template may splice in. A string value that is exactly one placeholder takes the
@@ -88,7 +92,7 @@ const FixtureName = z
   .regex(/^[A-Za-z0-9._-]+$/, { error: "expected a file name inside fixtures/" });
 
 const HarnessIdField = z.custom<HarnessId>(
-  (value) => typeof value === "string" && KEBAB.test(value),
+  (value) => typeof value === "string" && HARNESS_ID_PATTERN.test(value),
   { error: "expected a kebab-case harness id" },
 );
 
