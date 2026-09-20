@@ -3,7 +3,7 @@
 // re-add that unions instead of replacing the selection, a `.` source that registers a hook, or
 // a sync that stops receiving `noFetch: true` and the chosen harnesses.
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { STRINGS } from "../../src/console/strings.ts";
 import { homePaths } from "../../src/util/home.ts";
@@ -683,4 +683,73 @@ test("the harnesses chosen at the prompt are remembered, pre-selected, and reuse
       expect(readFileSync(config, "utf8")).toBe(before);
     },
   );
+});
+
+// The manifest carries the memory folder, depth and copy flags only when `add` was told them,
+// and `install` on a fresh machine records the same intent `add` did, so a replay reads the
+// folder the author named instead of the default one.
+test("--from, --full-depth and --copy round-trip through the manifest into a fresh install", async () => {
+  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    mkdirSync(join(scenario.cwd, "src", "rules"), { recursive: true });
+    writeFileSync(
+      join(scenario.cwd, "src", "rules", "own-rule.md"),
+      "---\nname: own-rule\ndescription: Ours\n---\n",
+    );
+    const flagged = await runCli(scenario, [
+      "add",
+      "./src",
+      "-p",
+      "-a",
+      "codex",
+      "--from",
+      "rules",
+      "--full-depth",
+      "--copy",
+    ]);
+    expect(flagged.code).toBe(0);
+    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex"])).code).toBe(0);
+    const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
+    const written = readFileSync(lockPath, "utf8");
+    const lock = JSON.parse(written) as { sources: Record<string, unknown> };
+    expect(Object.keys(lock.sources)).toEqual(["@a/b", "src"]);
+    expect(lock.sources.src).toEqual({
+      from: { type: "local", path: "src" },
+      select: "*",
+      rule: false,
+      harnesses: ["codex"],
+      memoryPath: "rules",
+      fullDepth: true,
+      copy: true,
+    });
+    expect(lock.sources["@a/b"]).toEqual({
+      from: { type: "github", repo: "a/b" },
+      select: "*",
+      rule: false,
+      harnesses: ["codex"],
+    });
+    rmSync(homePaths(scenario.home).state);
+    const replayed = await runCli(scenario, ["install"]);
+    expect(replayed.code).toBe(0);
+    const state = readState(scenario) as {
+      sources: Record<
+        string,
+        {
+          intent: {
+            memoryPath: string;
+            fullDepth: boolean;
+            copy: boolean;
+            from: { path?: string };
+          };
+        }
+      >;
+    };
+    const own = Object.values(state.sources).find((entry) => entry.intent.from.path !== undefined);
+    expect(own?.intent).toMatchObject({ memoryPath: "rules", fullDepth: true, copy: true });
+    expect(state.sources["@a/b"]?.intent).toMatchObject({
+      memoryPath: "memories",
+      fullDepth: false,
+      copy: false,
+    });
+    expect(readFileSync(lockPath, "utf8")).toBe(written);
+  });
 });

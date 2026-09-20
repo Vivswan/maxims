@@ -115,6 +115,10 @@ export const FLAGS = {
   },
 } as const satisfies Record<string, FlagSpec>;
 
+// What `add` records for a source when no flag says otherwise; the project manifest omits an
+// intent field that equals its default, and `install` fills it back in.
+export const INTENT_DEFAULTS = { memoryPath: "memories", fullDepth: false, copy: false } as const;
+
 export type Args = {
   positionals: string[];
   flag(spec: FlagSpec): boolean;

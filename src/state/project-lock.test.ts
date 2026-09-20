@@ -29,6 +29,9 @@ const LOCK: ProjectLock = {
       select: [memoryName("short-rule")],
       rule: true,
       harnesses: ["claude-code"],
+      memoryPath: "rules",
+      fullDepth: true,
+      copy: true,
       paths: ["src/**"],
     },
     "@example-user/rules": {
@@ -63,6 +66,9 @@ const SERIALIZED = [
   '      "harnesses": [',
   '        "claude-code"',
   "      ],",
+  '      "memoryPath": "rules",',
+  '      "fullDepth": true,',
+  '      "copy": true,',
   '      "paths": [',
   '        "src/**"',
   "      ]",
@@ -179,6 +185,11 @@ describe("project lock", () => {
         '        "live": true\n      },\n      "pin": "v1",\n',
       ),
       issue: /pin/,
+    },
+    {
+      title: "an empty memory folder",
+      text: SERIALIZED.replace('"memoryPath": "rules"', '"memoryPath": ""'),
+      issue: /memoryPath/,
     },
     {
       title: "a fetch timestamp",

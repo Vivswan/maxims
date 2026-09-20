@@ -20,6 +20,7 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import { realpathOfExistingPrefix } from "./fs-probe.ts";
+import { INTENT_DEFAULTS } from "./options.ts";
 
 export type LoadedProjectLock =
   | { kind: "absent" }
@@ -156,6 +157,9 @@ function lockSource(intent: SourceIntent, projectRoot: string): LockSource | nul
     ...(Object.keys(intent.rename).length === 0 ? {} : { rename: intent.rename }),
     rule: intent.rule,
     harnesses: intent.harnesses,
+    ...(intent.memoryPath === INTENT_DEFAULTS.memoryPath ? {} : { memoryPath: intent.memoryPath }),
+    ...(intent.fullDepth === INTENT_DEFAULTS.fullDepth ? {} : { fullDepth: intent.fullDepth }),
+    ...(intent.copy === INTENT_DEFAULTS.copy ? {} : { copy: intent.copy }),
     ...(intent.paths === undefined ? {} : { paths: intent.paths }),
     ...(intent.auth ? { auth: true } : {}),
     ...(intent.allowHidden === undefined ? {} : { allowHidden: intent.allowHidden }),

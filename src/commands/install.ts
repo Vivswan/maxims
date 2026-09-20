@@ -28,6 +28,7 @@ import {
   type CommandContext,
   FLAGS,
   type FlagSpec,
+  INTENT_DEFAULTS,
   parseAgents,
   usage,
 } from "./shared/options.ts";
@@ -171,8 +172,8 @@ function assertBatchConsistent(prepared: readonly PreparedAdd[], ctx: CommandCon
   }
 }
 
-// The lock carries intent only, so the fields it lacks (memory folder, depth, copy) take the
-// defaults `add` would, and the entry's `pin` is the ref state records.
+// The lock carries intent only: a field it omits is one `add` recorded at its default, and the
+// entry's `pin` is the ref state records.
 function requestFrom(
   source: LockSource,
   agentFilter: ReturnType<typeof parseAgents>,
@@ -192,9 +193,9 @@ function requestFrom(
     rename: source.rename ?? {},
     rule: source.rule,
     addHook: hookWanted(from, ctx.config.addHook === true),
-    copy: false,
-    memoryPath: "memories",
-    fullDepth: false,
+    copy: source.copy ?? INTENT_DEFAULTS.copy,
+    memoryPath: source.memoryPath ?? INTENT_DEFAULTS.memoryPath,
+    fullDepth: source.fullDepth ?? INTENT_DEFAULTS.fullDepth,
     paths: source.paths,
     auth: source.auth === true,
     agents: { kind: "ids", ids: harnesses },

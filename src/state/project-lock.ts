@@ -51,12 +51,17 @@ const LockLocalFrom = z.strictObject({
 });
 
 // Intent only, and only what a project shares: no destination (always the project), no fetch
-// facts and no timestamps, which belong to the machine that fetched.
+// facts and no timestamps, which belong to the machine that fetched. `memoryPath`, `fullDepth`
+// and `copy` are written only when they differ from what `add` records without a flag, so an
+// entry says what its author typed and a default install keeps its short form.
 const LockIntentFields = {
   select: SelectSchema,
   rename: RenameMapSchema.optional(),
   rule: z.boolean(),
   harnesses: z.array(HarnessIdSchema),
+  memoryPath: z.string().min(1).optional(),
+  fullDepth: z.boolean().optional(),
+  copy: z.boolean().optional(),
   paths: z.array(z.string().min(1)).optional(),
   auth: z.boolean().optional(),
   allowHidden: z.boolean().optional(),
@@ -145,6 +150,9 @@ function canonicalSource(source: LockSource): Record<string, unknown> {
   if (source.rename !== undefined) out.rename = sortedRecord(source.rename);
   out.rule = source.rule;
   out.harnesses = source.harnesses;
+  if (source.memoryPath !== undefined) out.memoryPath = source.memoryPath;
+  if (source.fullDepth !== undefined) out.fullDepth = source.fullDepth;
+  if (source.copy !== undefined) out.copy = source.copy;
   if (source.paths !== undefined) out.paths = source.paths;
   if (source.auth !== undefined) out.auth = source.auth;
   if (source.allowHidden !== undefined) out.allowHidden = source.allowHidden;
