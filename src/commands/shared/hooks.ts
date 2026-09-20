@@ -68,6 +68,7 @@ export async function planHooks(input: {
   const failures: HooksPlan["failures"] = [];
   for (const def of input.harnesses) {
     if (!agentsAllowed(input.agents, def.id)) continue;
+    const answers: ScopeAnswer[] = [];
     for (const scope of scopes) {
       const wants = input.wants(def.id, scope);
       if (wants.unreachable) continue;
@@ -86,9 +87,34 @@ export async function planHooks(input: {
         continue;
       }
       if (hook.notice !== undefined) notices.push(hook.notice);
-      (wants.hook ? changes : removals).push(...hook.changes);
-      (wants.rules ? changes : removals).push(...config);
+      answers.push({ artifact: hook.changes, wanted: wants.hook });
+      answers.push({ artifact: config, wanted: wants.rules });
     }
+    const reconciled = reconcileScopes(answers);
+    changes.push(...reconciled.changes);
+    removals.push(...reconciled.removals);
   }
   return { changes, removals, notices, failures };
+}
+
+type ScopeAnswer = { artifact: Change[]; wanted: boolean };
+
+// One artifact can be reached from both scopes: dsh mounts its bridge under the global root
+// whatever the install scope, so a project-only install would write the bridge for the project
+// scope and delete it again for the global scope, the deletion applied last. A removal touching
+// any file a wanted answer writes is dropped whole, its companion edits (the patch row) included.
+function reconcileScopes(answers: readonly ScopeAnswer[]): Pick<HooksPlan, "changes" | "removals"> {
+  const changes: Change[] = [];
+  const removals: Change[] = [];
+  const kept = new Set(
+    answers
+      .filter((answer) => answer.wanted)
+      .flatMap((answer) => answer.artifact.map((c) => c.path)),
+  );
+  for (const answer of answers) {
+    if (answer.wanted) changes.push(...answer.artifact);
+    else if (!answer.artifact.some((change) => kept.has(change.path)))
+      removals.push(...answer.artifact);
+  }
+  return { changes, removals };
 }
