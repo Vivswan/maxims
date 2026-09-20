@@ -61,7 +61,10 @@ async function applyOne(change: Change): Promise<boolean> {
         writeFileAtomic(change.path, change.content, { mode: change.mode });
         return true;
       }
+      // Windows reports every writable file as 0666 and cannot hold a requested mode, so a mode
+      // comparison there would count a change on every run.
       if (
+        process.platform !== "win32" &&
         change.mode !== undefined &&
         existing !== null &&
         (existing.mode & 0o7777) !== change.mode

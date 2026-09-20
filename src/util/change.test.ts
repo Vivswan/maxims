@@ -14,7 +14,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { WINDOWS } from "../../tests/shared/platform.ts";
 import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { applyChanges, type Plan, planToJson, renderPlan } from "./change.ts";
 import { ExitCode, type MaximsError } from "./exit-codes.ts";
@@ -69,19 +70,39 @@ describe("applyChanges", () => {
     });
   });
 
-  test("identical content with a different requested mode is a mode change, counted once", async () => {
-    await withTempDir(async (dir) => {
-      const path = assertInsideRoot(dir, join(dir, "hook.sh"));
-      writeFileSync(path, "#!/bin/sh\n", { mode: 0o644 });
-      const plan: Plan = {
-        changes: [{ kind: "write", path, content: "#!/bin/sh\n", mode: 0o755 }],
-        notices: [],
-      };
-      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(1);
-      expect(statSync(path).mode & 0o777).toBe(0o755);
-      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
-    });
-  });
+  // Windows has no mode bits.
+  test.skipIf(WINDOWS)(
+    "identical content with a different requested mode is a mode change, counted once",
+    async () => {
+      await withTempDir(async (dir) => {
+        const path = assertInsideRoot(dir, join(dir, "hook.sh"));
+        writeFileSync(path, "#!/bin/sh\n", { mode: 0o644 });
+        const plan: Plan = {
+          changes: [{ kind: "write", path, content: "#!/bin/sh\n", mode: 0o755 }],
+          notices: [],
+        };
+        expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(1);
+        expect(statSync(path).mode & 0o777).toBe(0o755);
+        expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
+      });
+    },
+  );
+
+  test.skipIf(!WINDOWS)(
+    "on windows a requested mode never makes an identical file a change",
+    async () => {
+      await withTempDir(async (dir) => {
+        const path = assertInsideRoot(dir, join(dir, "hook.sh"));
+        writeFileSync(path, "#!/bin/sh\n");
+        const plan: Plan = {
+          changes: [{ kind: "write", path, content: "#!/bin/sh\n", mode: 0o755 }],
+          notices: [],
+        };
+        expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
+        expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
+      });
+    },
+  );
 
   test("a write over a symlink with identical bytes still replaces it with a real file", async () => {
     await withTempDir(async (dir) => {
@@ -160,7 +181,8 @@ describe("applyChanges", () => {
     });
   });
 
-  test.skipIf(process.getuid?.() === 0)(
+  // Root reads through a 0000 mode, and Windows has no mode to deny with.
+  test.skipIf(process.getuid?.() === 0 || WINDOWS)(
     "a path that cannot be inspected is exit 4, never a silent no-op",
     async () => {
       await withTempDir(async (dir) => {
@@ -196,14 +218,16 @@ describe("applyChanges", () => {
 });
 
 test("renderPlan and planToJson describe the same plan for humans and for --json", () => {
-  const plan = planFor("/home/user/project");
+  const project = resolve("/home/user/project");
+  const at = (...parts: string[]) => join(project, ...parts);
+  const plan = planFor(project);
   expect(renderPlan(plan)).toBe(
     [
-      "mkdir   /home/user/project/rules",
-      "write   /home/user/project/rules/maxims-a.md (7 bytes)",
-      "symlink /home/user/project/memories/a.md -> /home/user/project/store/a.md",
-      "unlink  /home/user/project/old-link.md",
-      "delete  /home/user/project/old-rule.md",
+      `mkdir   ${at("rules")}`,
+      `write   ${at("rules", "maxims-a.md")} (7 bytes)`,
+      `symlink ${at("memories", "a.md")} -> ${at("store", "a.md")}`,
+      `unlink  ${at("old-link.md")}`,
+      `delete  ${at("old-rule.md")}`,
       "note: one notice",
       "",
     ].join("\n"),
