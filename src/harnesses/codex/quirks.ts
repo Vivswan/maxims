@@ -14,7 +14,7 @@ const ConfigWithFeatures = z.looseObject({
   features: z.looseObject({ hooks: z.boolean().optional() }).optional(),
 });
 
-export function readHooksFeatureFlag(tomlText: string): HooksFeatureFlag {
+function readHooksFeatureFlag(tomlText: string): HooksFeatureFlag {
   const hooks = ConfigWithFeatures.parse(parse(tomlText)).features?.hooks;
   if (hooks === undefined) return "unset";
   return hooks ? "enabled" : "disabled";

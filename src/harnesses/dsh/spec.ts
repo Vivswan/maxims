@@ -1,18 +1,15 @@
 import type { HarnessSpec } from "../spec.ts";
 
-// dsh renders every instruction file it discovers into ONE 65,536-byte block and truncates the
-// most specific file when the total exceeds it, so a block that pushes AGENTS.md over the line
-// would load cut in half. The block carries framing that counts against the same budget: a
-// `<system-reminder>` frame, an intro sentence, and an `Instructions from: <path>` heading per
-// file. The 1,024-byte allowance covers that framing for this file with a long path; the other
-// files dsh loads alongside it share the budget too and are outside what maxims can see.
-// Documented: "`.claude/rules/`, and `@path` imports are not interpreted".
+// dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
+// specific file when the total exceeds it, so a block that pushes AGENTS.md over the line would
+// load cut in half. Framing counts against the same budget (a `<system-reminder>` frame, an intro
+// sentence, an `Instructions from: <path>` heading per file); the 1,024-byte allowance covers it
+// for this file with a long path, while the other files dsh loads share the budget unseen by
+// maxims. Documented: "`.claude/rules/`, and `@path` imports are not interpreted".
 //
-// Tier 1 through the `dsh-hooks-claude-code` bridge in quirks.ts, with its caveats in force: the
-// bridge reads its hooks file once at process start (a change needs a dsh restart), dsh has no
-// per-project config discovery (the bridge is mounted machine-wide whatever the install scope),
-// and dsh's own docs steer new integrations toward native Cordis plugins, which would make this
-// the same plugin-file shape OpenCode uses.
+// Tier 1 rides the `dsh-hooks-claude-code` bridge in quirks.ts, with its caveats in force: it is
+// mounted machine-wide in `$DSH_HOME/cordis.patch.yml` whatever the install scope, and it reads
+// its hooks file once at process start, so a changed hook needs a dsh restart.
 export const spec = {
   id: "dsh",
   displayName: "DeepSeek Harness",

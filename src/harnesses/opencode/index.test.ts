@@ -144,7 +144,7 @@ test("adding then removing the instructions entry returns a hand-formatted openc
         path,
         content: fixture.replace(
           '"docs/guidelines.md"]',
-          `"docs/guidelines.md", "${INSTRUCTIONS_GLOB}"]`,
+          '"docs/guidelines.md", ".opencode/memories/maxims-*.md"]',
         ),
       },
     ]);
