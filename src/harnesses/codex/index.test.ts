@@ -1,11 +1,13 @@
 // Guards the tier Codex actually reaches: hooks are on by default and only `[features] hooks =
 // false` in the project or user config.toml disables them, with the project layer deciding when it
 // sets the key at all. Reporting tier 1 on a disabled machine would promise a refresh that never
-// fires, and so would passing an unreadable config off as an absent one.
+// fires, and so would passing an unreadable config off as an absent one. Also guards that every
+// user-level file follows $CODEX_HOME and that the variable alone never counts as an install.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
+import { scopeRoot } from "../contract.ts";
 import { codex } from "./index.ts";
 
 const fixture = (name: string): string =>
@@ -47,7 +49,7 @@ test("achievedTier surfaces a config.toml it cannot read instead of counting it 
   });
 });
 
-test("$CODEX_HOME moves the user config and the hook registry, even when relative", async () => {
+test("$CODEX_HOME moves the user AGENTS.md, config and hook registry, even when relative", async () => {
   await withTempDir(async (dir) => {
     const codexHome = join(dir, "elsewhere");
     mkdirSync(codexHome, { recursive: true });
@@ -55,10 +57,35 @@ test("$CODEX_HOME moves the user config and the hook registry, even when relativ
     const ctx = { home: join(dir, "home"), projectRoot: null, env: { CODEX_HOME: codexHome } };
     expect(await codex.achievedTier(ctx)).toBe(2);
     expect(codex.hook.path("global", ctx)).toBe(join(codexHome, "hooks.json"));
+    expect(join(scopeRoot(codex, "global", ctx), codex.targets.global.file)).toBe(
+      join(codexHome, "AGENTS.md"),
+    );
 
     const relative = { ...ctx, env: { CODEX_HOME: "custom-codex" } };
     expect(codex.hook.path("global", relative)).toBe(
       join(process.cwd(), "custom-codex/hooks.json"),
     );
+  });
+});
+
+// A shell that exports $CODEX_HOME on every machine, Codex installed or not, must not make maxims
+// report Codex present: the directory is the evidence, the variable only says where to look, and
+// a stray file at that path is no config directory either.
+test("detection follows the config directory, not the exported variable", async () => {
+  await withTempDir(async (dir) => {
+    const home = join(dir, "home");
+    const present = join(dir, "present");
+    mkdirSync(present, { recursive: true });
+    writeFileSync(join(dir, "a-file"), "");
+    expect(codex.detect({ home, projectRoot: null, env: { CODEX_HOME: present } })).toBe(true);
+    expect(
+      codex.detect({ home, projectRoot: null, env: { CODEX_HOME: join(dir, "missing") } }),
+    ).toBe(false);
+    expect(
+      codex.detect({ home, projectRoot: null, env: { CODEX_HOME: join(dir, "a-file") } }),
+    ).toBe(false);
+    expect(codex.detect({ home, projectRoot: null, env: {} })).toBe(false);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    expect(codex.detect({ home, projectRoot: null, env: {} })).toBe(true);
   });
 });

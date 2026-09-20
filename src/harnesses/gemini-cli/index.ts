@@ -1,18 +1,8 @@
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessContext, HarnessDefinition, Scope } from "../contract.ts";
+import { type HarnessDefinition, scopeRoot } from "../contract.ts";
 
-function projectRoot(ctx: HarnessContext): string {
-  if (ctx.projectRoot === null) {
-    throw new MaximsError(ExitCode.Usage, "a project-scope Gemini CLI path needs a project root");
-  }
-  return ctx.projectRoot;
-}
-
-function configDir(scope: Scope, ctx: HarnessContext): string {
-  return join(scope === "global" ? ctx.home : projectRoot(ctx), ".gemini");
-}
+const roots = {};
 
 export const geminiCli = {
   id: "gemini-cli",
@@ -20,15 +10,17 @@ export const geminiCli = {
   tier: 1,
   targets: {
     project: { kind: "shared-block", file: "GEMINI.md" },
-    global: { kind: "shared-block", file: ".gemini/GEMINI.md" },
+    global: { kind: "shared-block", file: join(".gemini", "GEMINI.md") },
   },
   bodiesDir: (scope, ctx) =>
-    scope === "project" ? join(projectRoot(ctx), ".agents", "memories") : null,
+    scope === "project" ? join(scopeRoot(roots, scope, ctx), ".agents", "memories") : null,
   // Gemini reads `timeout` in milliseconds and runs every hook synchronously; there is no async
-  // field to set, so the session waits for sync and a seconds value would kill it at 20ms.
+  // field to set, so the session waits for sync and a seconds value would kill it at 20ms. The
+  // matcher group stays matcher-less: Gemini compares a lifecycle matcher with `===` against the
+  // source, so `startup|resume|clear` would match nothing and no matcher matches every start.
   hook: {
     kind: "registry",
-    path: (scope, ctx) => join(configDir(scope, ctx), "settings.json"),
+    path: (scope, ctx) => join(scopeRoot(roots, scope, ctx), ".gemini", "settings.json"),
     format: "json",
     eventPath: ["hooks", "SessionStart"],
     grouped: true,
@@ -44,7 +36,8 @@ export const geminiCli = {
   },
   markers: "counted",
   expands: ["at-import"],
-  detect: (ctx) => existsSync(join(ctx.home, ".gemini")),
+  detect: (ctx) =>
+    statSync(join(ctx.home, ".gemini"), { throwIfNoEntry: false })?.isDirectory() ?? false,
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
     date: "2026-09-20",

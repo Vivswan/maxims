@@ -7,6 +7,6 @@ import { geminiCli } from "./index.ts";
 
 test("the handler carries the shared timeout as milliseconds and no async field", () => {
   expect(JSON.stringify(geminiCli.hook.handler(hookSpecFor(geminiCli)))).toBe(
-    '{"name":"maxims-sync","type":"command","command":"npx -y maxims sync --quiet","timeout":20000}',
+    '{"name":"maxims-sync","type":"command","command":"npx -y @vivswan/maxims sync --quiet","timeout":20000}',
   );
 });

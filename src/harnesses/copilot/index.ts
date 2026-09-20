@@ -1,26 +1,26 @@
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify } from "yaml";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessContext, HarnessDefinition, Scope, Target } from "../contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type Scope,
+  scopeRoot,
+  type Target,
+} from "../contract.ts";
 
-// Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot.
+// Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
+// instructions directory and the hooks directory both move with it.
 function copilotHome(ctx: HarnessContext): string {
   const override = ctx.env.COPILOT_HOME;
   return override !== undefined && override !== "" ? resolve(override) : join(ctx.home, ".copilot");
 }
 
-function projectRoot(ctx: HarnessContext): string {
-  if (ctx.projectRoot === null) {
-    throw new MaximsError(ExitCode.Usage, "a project-scope Copilot path needs a project root");
-  }
-  return ctx.projectRoot;
-}
+const roots = { globalRoot: copilotHome };
 
 function hooksDir(scope: Scope, ctx: HarnessContext): string {
-  return scope === "global"
-    ? join(copilotHome(ctx), "hooks")
-    : join(projectRoot(ctx), ".github", "hooks");
+  const root = scopeRoot(roots, scope, ctx);
+  return scope === "global" ? join(root, "hooks") : join(root, ".github", "hooks");
 }
 
 // Without `applyTo` an instructions file is path-scoped by Copilot's own matching and silently
@@ -40,11 +40,11 @@ export const copilot = {
   displayName: "GitHub Copilot",
   tier: 1,
   targets: {
-    project: instructionsTarget(".github/instructions"),
-    global: instructionsTarget(".copilot/instructions"),
+    project: instructionsTarget(join(".github", "instructions")),
+    global: instructionsTarget("instructions"),
   },
   bodiesDir: (scope, ctx) =>
-    scope === "project" ? join(projectRoot(ctx), ".agents", "memories") : null,
+    scope === "project" ? join(scopeRoot(roots, scope, ctx), ".agents", "memories") : null,
   // Copilot picks `bash` on POSIX and `powershell` on Windows and never falls back between them,
   // so both carry the same command or the hook is silently inert on one platform.
   hook: {
@@ -71,10 +71,12 @@ export const copilot = {
       )}\n`;
     },
     executable: false,
+    stdout: "json:additionalContext",
   },
   markers: "counted",
   expands: [],
-  detect: (ctx) => ctx.env.COPILOT_HOME !== undefined || existsSync(join(ctx.home, ".copilot")),
+  detect: (ctx) => statSync(copilotHome(ctx), { throwIfNoEntry: false })?.isDirectory() ?? false,
+  globalRoot: copilotHome,
   verifiedAgainst: {
     url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
     date: "2026-09-20",

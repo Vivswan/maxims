@@ -1,21 +1,20 @@
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { HarnessContext, HarnessDefinition, HookSpec, Scope, Target } from "../contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type HookSpec,
+  type Scope,
+  scopeRoot,
+  type Target,
+} from "../contract.ts";
 
-function projectRoot(ctx: HarnessContext): string {
-  if (ctx.projectRoot === null) {
-    throw new MaximsError(ExitCode.Usage, "a project-scope Cline path needs a project root");
-  }
-  return ctx.projectRoot;
-}
-
+const roots = {};
 const GLOBAL_DIR = join("Documents", "Cline");
 
 function hooksDir(scope: Scope, ctx: HarnessContext): string {
-  return scope === "global"
-    ? join(ctx.home, GLOBAL_DIR, "Hooks")
-    : join(projectRoot(ctx), ".clinerules", "hooks");
+  const root = scopeRoot(roots, scope, ctx);
+  return scope === "global" ? join(root, GLOBAL_DIR, "Hooks") : join(root, ".clinerules", "hooks");
 }
 
 // Cline rules without frontmatter are always active, so the file is the block and nothing more.
@@ -46,7 +45,7 @@ export const cline = {
     global: rulesTarget(join(GLOBAL_DIR, "Rules")),
   },
   bodiesDir: (scope, ctx) =>
-    scope === "project" ? join(projectRoot(ctx), ".agents", "memories") : null,
+    scope === "project" ? join(scopeRoot(roots, scope, ctx), ".agents", "memories") : null,
   // The hook only runs once the user turns on "Enable Hooks" in Cline's feature settings, which
   // live in the editor's own storage: no file on disk reveals the switch, so the tier stays 1.
   hook: {
@@ -54,10 +53,14 @@ export const cline = {
     path: (scope, ctx) => join(hooksDir(scope, ctx), "TaskStart"),
     render: renderTaskStart,
     executable: true,
+    stdout: "none",
   },
   markers: "counted",
   expands: [],
-  detect: (ctx) => existsSync(join(ctx.home, GLOBAL_DIR)) || existsSync(join(ctx.home, ".cline")),
+  detect: (ctx) =>
+    [join(ctx.home, GLOBAL_DIR), join(ctx.home, ".cline")].some(
+      (dir) => statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false,
+    ),
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
     date: "2026-09-20",
