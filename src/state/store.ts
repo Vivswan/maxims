@@ -182,15 +182,16 @@ async function quarantine(paths: StatePaths, issues: string[]): Promise<LoadedSt
   return { kind: "quarantined", movedTo, issues };
 }
 
+// The exact bytes the store writes, so a caller that folds the state write into its own
+// `applyChanges` plan produces a file byte-identical to one the store wrote itself.
+export function serializeState(state: State): string {
+  return `${JSON.stringify(state, null, 2)}\n`;
+}
+
 async function writeStateFile(paths: StatePaths, state: State): Promise<WriteResult> {
   const plan: Plan = {
     changes: [
-      {
-        kind: "write",
-        path: paths.state,
-        content: `${JSON.stringify(state, null, 2)}\n`,
-        mode: STATE_FILE_MODE,
-      },
+      { kind: "write", path: paths.state, content: serializeState(state), mode: STATE_FILE_MODE },
     ],
     notices: [],
   };

@@ -16,8 +16,8 @@ import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { legacyHooksStep } from "./fixtures/migration-step-v0.ts";
-import { emptyState, type State } from "./schema.ts";
-import { readState, WRITTEN_BY, withStateLock, writeState } from "./store.ts";
+import { emptyState, parseState, type State } from "./schema.ts";
+import { readState, serializeState, WRITTEN_BY, withStateLock, writeState } from "./store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
@@ -70,10 +70,6 @@ function seed(home: string, fixture: string): string {
   const path = homePaths(home).state;
   copyFileSync(join(FIXTURES, fixture), path);
   return path;
-}
-
-function serialized(state: State): string {
-  return `${JSON.stringify(state, null, 2)}\n`;
 }
 
 function holdLock(home: string, holder: Record<string, unknown>): string {
@@ -175,7 +171,7 @@ describe("readState", () => {
       const migrated: State = { ...VALID_STATE, writtenBy: WRITTEN_BY };
       const result = await readState(home, { migrations: [legacyHooksStep] });
       expect(result).toEqual({ kind: "loaded", state: migrated, migrated: true });
-      expect(readFileSync(path, "utf8")).toBe(serialized(migrated));
+      expect(readFileSync(path, "utf8")).toBe(serializeState(migrated));
       expect(await readState(home)).toEqual({ kind: "loaded", state: migrated, migrated: false });
       expect(readdirSync(home)).toEqual(["state.json"]);
     });
@@ -192,7 +188,7 @@ describe("readState", () => {
         const inside = await lock.read({ migrations: [legacyHooksStep] });
         expect(inside).toEqual(outside);
         expect(readFileSync(path, "utf8")).toBe(
-          serialized({ ...VALID_STATE, writtenBy: WRITTEN_BY }),
+          serializeState({ ...VALID_STATE, writtenBy: WRITTEN_BY }),
         );
       });
     });
@@ -205,7 +201,9 @@ describe("writeState", () => {
       const state = emptyState("maxims@0.3.0");
       expect(await writeState(home, state, "maxims@0.4.1")).toEqual({ written: true });
       const path = homePaths(home).state;
-      expect(readFileSync(path, "utf8")).toBe(serialized({ ...state, writtenBy: "maxims@0.4.1" }));
+      expect(readFileSync(path, "utf8")).toBe(
+        serializeState({ ...state, writtenBy: "maxims@0.4.1" }),
+      );
       expect(statSync(path).mode & 0o777).toBe(0o600);
       expect(statSync(home).mode & 0o777).toBe(0o700);
       expect(readdirSync(home)).toEqual(["state.json"]);
@@ -218,6 +216,17 @@ describe("writeState", () => {
         state: { ...state, writtenBy: "maxims@0.4.1" },
         migrated: false,
       });
+    });
+  });
+
+  test("serializeState is the file the store writes, human-readable, and parses back unchanged", async () => {
+    await withTempHome(async (home) => {
+      await writeState(home, VALID_STATE, VALID_STATE.writtenBy);
+      const bytes = readFileSync(homePaths(home).state, "utf8");
+      expect(bytes).toBe(serializeState(VALID_STATE));
+      expect(bytes.startsWith('{\n  "version": 1,\n  "writtenBy": "maxims@0.4.1",\n')).toBe(true);
+      expect(bytes.endsWith("}\n")).toBe(true);
+      expect(parseState(JSON.parse(bytes))).toEqual({ ok: "parsed", state: VALID_STATE });
     });
   });
 });
@@ -296,7 +305,7 @@ describe("withStateLock", () => {
         lock.write(state, "maxims@0.4.1"),
       );
       expect(outcome).toEqual({ kind: "ran", value: { written: true } });
-      expect(readFileSync(homePaths(home).state, "utf8")).toBe(serialized(state));
+      expect(readFileSync(homePaths(home).state, "utf8")).toBe(serializeState(state));
       expect(existsSync(homePaths(home).lock)).toBe(false);
     });
   });
