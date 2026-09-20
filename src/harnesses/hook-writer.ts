@@ -169,7 +169,7 @@ class JsonRegistry {
     return handlers.filter((handler) => {
       const command = findNodeAtLocation(handler, [this.hook.commandKey]);
       const value: unknown = command?.type === "string" ? command.value : undefined;
-      return typeof value === "string" && value.startsWith(HOOK_COMMAND_PREFIX);
+      return typeof value === "string" && isOurCommand(value);
     });
   }
 
@@ -249,12 +249,15 @@ class JsonRegistry {
     }
   }
 
-  // A file left holding nothing but its wrapper and empty containers is deleted.
+  // A file left holding nothing but its wrapper and empty containers becomes an empty object with
+  // its own line ending, never a deletion: nothing records whether the file existed before the
+  // hook was registered, and an empty object is harmless to every harness.
   finish(): Change {
     const root = this.root();
     const remaining = withoutEmptyContainers(getNodeValue(root), this.hook.eventPath.slice(0, -1));
     if (this.commentFree(root) && sameJson(remaining, this.hook.wrapper ?? {})) {
-      return { kind: "delete", path: this.path };
+      const eol = this.text.endsWith("\r\n") ? "\r\n" : this.text.endsWith("\n") ? "\n" : "";
+      return { kind: "write", path: this.path, content: `{}${eol}` };
     }
     return this.write();
   }
@@ -420,6 +423,14 @@ function hookPath(
 ): RootedPath {
   const root = scopeRoot(def, intent.scope, intent.ctx);
   return assertInsideRoot(root, hook.path(intent.scope, intent.ctx));
+}
+
+// The prefix is matched as whole words: `npx -y @vivswan/maxims syncthing` is somebody else's
+// command, `npx -y @vivswan/maxims sync --quiet --agent x` is an older flag set of ours.
+function isOurCommand(command: string): boolean {
+  if (!command.startsWith(HOOK_COMMAND_PREFIX)) return false;
+  const next = command.charAt(HOOK_COMMAND_PREFIX.length);
+  return next === "" || /\s/.test(next);
 }
 
 // jsonc-parser builds objects with a null prototype and smol-toml returns its own date type; a

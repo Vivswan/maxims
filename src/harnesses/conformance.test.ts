@@ -170,8 +170,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     expect(added.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
     expect(add(added.content).changes).toEqual([]);
     const [removed] = remove(added.content).changes;
-    if (original === null) expect(removed).toEqual({ kind: "delete", path: added.path });
-    else expect(removed).toEqual({ kind: "write", path: added.path, content: original });
+    expect(removed).toEqual({ kind: "write", path: added.path, content: original ?? "{}\n" });
     expect(remove(original).changes).toEqual([]);
   });
 

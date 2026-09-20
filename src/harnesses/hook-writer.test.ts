@@ -224,20 +224,37 @@ describe("planHookRegistryWrite on JSON registries", () => {
       before: `{"model":"opus","hooks":{"SessionStart":[{"hooks":[${oursJson}]}]}}`,
       after: { model: "opus", hooks: {} },
     },
-    {
-      name: "a file that held nothing but our entry is deleted",
-      before: `{"hooks":{"SessionStart":[{"hooks":[${oursJson}]}]}}`,
-      after: null,
-    },
   ];
 
   test.each(pruning)("removal: $name", ({ before, after }) => {
-    const result = plan(grouped, false, before);
-    if (after === null) {
-      expect(result.changes).toEqual([{ kind: "delete", path: settingsPath }]);
-      return;
-    }
-    expect(parse(textOf(result))).toEqual(after);
+    expect(parse(textOf(plan(grouped, false, before)))).toEqual(after);
+  });
+
+  const emptied: { name: string; before: string; after: string }[] = [
+    {
+      name: "a file that held nothing but our entry keeps an empty object, never deleted",
+      before: `{"hooks":{"SessionStart":[{"hooks":[${oursJson}]}]}}`,
+      after: "{}",
+    },
+    {
+      name: "a pre-existing empty object comes back with its line ending",
+      before: "{}\n",
+      after: "{}\n",
+    },
+    { name: "a pre-existing CRLF empty object keeps CRLF", before: "{}\r\n", after: "{}\r\n" },
+    {
+      name: "a pre-existing empty event list collapses to an empty object",
+      before: `{"hooks":{"SessionStart":[]}}\n`,
+      after: "{}\n",
+    },
+  ];
+
+  test.each(emptied)("add then remove: $name", ({ before, after }) => {
+    const added = before.includes(HOOK_COMMAND) ? before : textOf(plan(grouped, true, before));
+    expect(plan(grouped, false, added)).toEqual({
+      changes: [{ kind: "write", path: settingsPath, content: after }],
+      notice: `removed the maxims hook from ${settingsPath}`,
+    });
   });
 
   test("an ungrouped registry finds, keeps and prunes the handler directly in the event list", () => {
@@ -249,9 +266,29 @@ describe("planHookRegistryWrite on JSON registries", () => {
     });
     const alone = `{"version":1,"hooks":{"sessionStart":[${flatOurs}]}}`;
     expect(plan(flat, false, alone).changes).toEqual([
-      { kind: "delete", path: rooted(`${projectRoot}/.github/hooks/maxims.json`) },
+      { kind: "write", path: rooted(`${projectRoot}/.github/hooks/maxims.json`), content: "{}" },
     ]);
   });
+
+  const commands: { command: string; ours: boolean }[] = [
+    { command: "npx -y @vivswan/maxims sync --quiet", ours: true },
+    { command: "npx -y @vivswan/maxims sync", ours: true },
+    { command: "npx -y @vivswan/maxims sync\t--quiet --agent x", ours: true },
+    { command: "npx -y @vivswan/maxims syncthing", ours: false },
+    { command: "npx -y @vivswan/maxims sync-all", ours: false },
+    { command: "echo npx -y @vivswan/maxims sync", ours: false },
+  ];
+
+  test.each(commands)(
+    "the prefix match on $command is $ours: only ours is pruned",
+    ({ command, ours }) => {
+      const entry = `{ "type": "command", "command": ${JSON.stringify(command)} }`;
+      const before = `{"model":"opus","hooks":{"SessionStart":[{"hooks":[${entry}]}]}}`;
+      const result = plan(grouped, false, before);
+      if (ours) expect(parse(textOf(result))).toEqual({ model: "opus", hooks: {} });
+      else expect(result).toEqual({ changes: [] });
+    },
+  );
 
   const flatOurs = `{ "type": "command", "bash": "${HOOK_COMMAND}", "timeoutSec": 20 }`;
   const comments: { name: string; before: string; after: string }[] = [
