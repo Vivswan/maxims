@@ -114,6 +114,30 @@ describe("appendChild", () => {
       value: [1],
       after: '{\r\n  "a": 1,\r\n  "b": [\r\n    1\r\n  ]\r\n}\r\n',
     },
+    {
+      name: "an element after the last one in a one-line list stays on that line",
+      text: '{"l": ["a"]}',
+      container: ["l"],
+      key: null,
+      value: "b",
+      after: '{"l": ["a", "b"]}',
+    },
+    {
+      name: "a property after the last one in a one-line object stays on that line",
+      text: '{"o": {"k": 1}}',
+      container: ["o"],
+      key: "j",
+      value: 2,
+      after: '{"o": {"k": 1, "j": 2}}',
+    },
+    {
+      name: "a one-line list with the user's bracket padding keeps the padding",
+      text: '{"l": [ "a" ]}',
+      container: ["l"],
+      key: null,
+      value: "b",
+      after: '{"l": [ "a", "b" ]}',
+    },
   ];
 
   test.each(cases)("$name", ({ text, container, key, value, after }) => {
@@ -224,14 +248,17 @@ describe("appendChild then removeChild", () => {
     "[\n// keep \n]",
     "[\n  // keep\n  ]",
     "{/* keep */}",
+    '["a"]',
+    '{"k": 1}',
+    '[ "a" ]',
   ];
 
   test.each(shapes)("%j comes back byte for byte", (shape) => {
     const before = `{"c": ${shape}}`;
-    const key = shape.startsWith("{") ? "k" : null;
+    const key = shape.startsWith("{") ? "k2" : null;
     const added = appendChild(before, at(before, ["c"]), key, 1);
     const container = at(added, ["c"]);
-    const child = container.children?.[0];
+    const child = container.children?.at(-1);
     if (child === undefined) throw new Error("append left no child");
     expect(removeChild(added, container, child)).toBe(before);
   });

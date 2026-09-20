@@ -43,9 +43,10 @@ function refuse(path: string, reason: string): MaximsError {
 // Appends a `key: value` property to an object, or (with `key` null) an element to an array. An
 // empty container's member goes in before the closing bracket's own whitespace (the trailing space
 // of a `//` comment is the comment's, not the bracket's), so a comment already inside stays and a
-// later removal restores the file byte for byte. A container on one line opens onto lines with a
-// break before the bracket; one already on several lines keeps the bracket's whitespace exactly,
-// so `[\n/* keep */]` stays glued: a break added there would read as the user's on removal.
+// later removal restores the file byte for byte. An empty container on one line opens onto lines
+// with a break before the bracket; one already on several lines keeps the bracket's whitespace
+// exactly, so `[\n/* keep */]` stays glued: a break added there would read as the user's on
+// removal.
 export function appendChild(
   text: string,
   container: Node,
@@ -58,22 +59,20 @@ export function appendChild(
   const style = detectStyle(text, container);
   const prefix = key === null ? "" : `${JSON.stringify(key)}: `;
   const render = (indent: string) => `${prefix}${pretty(value, indent, style)}`;
+  const oneLine = !text.slice(container.offset, closingOf(container)).includes("\n");
   const last = container.children?.[container.children.length - 1];
   if (last === undefined) {
     const indent = lineIndent(text, container.offset);
     const closing = closingOf(container);
     const start = whitespaceStart(text, closing);
     const at = lineCommentEnd(text, start) ?? start;
-    const tail = text.slice(container.offset + 1, closing).includes("\n")
-      ? ""
-      : at === closing
-        ? `${style.eol}${indent}`
-        : style.eol;
+    const tail = oneLine ? (at === closing ? `${style.eol}${indent}` : style.eol) : "";
     const inner = `${indent}${style.unit}`;
     return splice(text, at, 0, `${style.eol}${inner}${render(inner)}${tail}`);
   }
   const indent = lineIndent(text, last.offset);
-  return splice(text, last.offset + last.length, 0, `,${style.eol}${indent}${render(indent)}`);
+  const separator = oneLine ? ", " : `,${style.eol}${indent}`;
+  return splice(text, last.offset + last.length, 0, `${separator}${render(indent)}`);
 }
 
 export function replaceValue(text: string, node: Node, value: unknown): string {
