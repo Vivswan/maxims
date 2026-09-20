@@ -1,0 +1,14 @@
+{
+  "clineVersion": "3.40.0",
+  "hookName": "TaskStart",
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "taskId": "1767225600000",
+  "workspaceRoots": ["/home/user/projects/example"],
+  "userId": "example-user",
+  "taskStart": {
+    "taskMetadata": {
+      "initialPrompt": "Add a retry to the upload client",
+      "mode": "act"
+    }
+  }
+}

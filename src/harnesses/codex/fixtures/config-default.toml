@@ -1,0 +1,6 @@
+model = "gpt-5-codex"
+approval_policy = "on-request"
+project_doc_max_bytes = 65536
+
+[sandbox_workspace_write]
+network_access = false

@@ -1,0 +1,29 @@
+{
+  "theme": "Default",
+  "selectedAuthType": "oauth-personal",
+  "context": {
+    "fileName": ["GEMINI.md", "AGENTS.md"]
+  },
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "inject-ticket",
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.gemini/hooks/inject_ticket.sh",
+            "timeout": 5000,
+            "description": "Adds the current ticket number to the prompt"
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "docs": {
+      "command": "npx",
+      "args": ["-y", "example-docs-server"]
+    }
+  }
+}

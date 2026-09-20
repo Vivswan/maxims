@@ -13,7 +13,6 @@
     "picocolors",
     "picomatch",
     "simple-git",
-    "smol-toml",
     "tar",
     "@types/picomatch"
   ]
