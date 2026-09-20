@@ -1292,3 +1292,25 @@ test("a project source added through an alias symlink is recorded by its real pa
     expect((await runCli(scenario, ["update", alias])).code).toBe(0);
   });
 });
+
+// `--cap` and `--cooldown` persist, so a request that fails to parse after them must not have
+// written config.json on its way to the usage error.
+const persistingInvocations: [string, string[]][] = [
+  ["sync", ["sync", "--cap", "40", "--agent", "codx"]],
+  ["update", ["update", "--cooldown", "2", "--agent", "codx"]],
+  ["update --rename", ["update", "--cap", "40", "--rename", "skip-unfit-skills=skip-unfit"]],
+];
+
+test.each(persistingInvocations)(
+  "%s validates the whole request before persisting --cap and --cooldown",
+  async (_name, argv) => {
+    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+      await installSkills(scenario);
+      const before = await snapshot(scenario.root);
+      const run = await runCli(scenario, argv);
+      expect(run.code).toBe(1);
+      expect(existsSync(homePaths(scenario.home).config)).toBe(false);
+      expect(await snapshot(scenario.root)).toBe(before);
+    });
+  },
+);

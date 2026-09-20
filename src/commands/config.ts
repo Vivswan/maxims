@@ -67,7 +67,7 @@ export const config: Command = {
   flags: [],
   async run(args, ctx) {
     const [action, rawKey, rawValue] = args.positionals;
-    const expectedWords = action === "set" ? 3 : action === "unset" ? 2 : 2;
+    const expectedWords = action === "set" ? 3 : 2;
     const extra = args.positionals[action === "get" && rawKey === undefined ? 1 : expectedWords];
     if (extra !== undefined) throw usage(`unexpected argument: ${extra}`);
     const console = await ctx.openConsole(true);

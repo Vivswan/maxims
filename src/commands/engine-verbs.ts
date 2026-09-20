@@ -43,6 +43,8 @@ export const sync: Command = {
   flags: SYNC_FLAGS,
   async run(args, ctx) {
     const console = await ctx.openConsole(true);
+    const noFetch = args.flag(FLAGS.noFetch);
+    const agents = agentIds(args, ctx.io);
     const persisted = await persistCooldownCap(args, ctx);
     const preview =
       ctx.global.dryRun && persisted.changes.length > 0
@@ -55,8 +57,8 @@ export const sync: Command = {
     const report = await ctx.engine.runSync(
       {
         ...commonOptions(ctx.global),
-        noFetch: args.flag(FLAGS.noFetch),
-        agents: agentIds(args, ctx.io),
+        noFetch,
+        agents,
         force: false,
         ...(preview === undefined ? {} : { preview }),
       },

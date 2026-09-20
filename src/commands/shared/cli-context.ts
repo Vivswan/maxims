@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
-import { emptyState, type State } from "../../state/schema.ts";
+import { emptyState, parseState, type State } from "../../state/schema.ts";
 import {
   type LoadedState,
   readState,
@@ -145,28 +145,40 @@ export async function updateIntent(
   fn: (intent: Intent) => Promise<IntentUpdate>,
   apply: (plan: Plan) => Promise<unknown>,
 ): Promise<IntentUpdate> {
+  const path = assertInsideRoot(home, homePaths(home).state);
   const withStateWrite = (update: IntentUpdate): IntentUpdate => ({
     ...update,
     changes: [
       ...update.changes,
-      {
-        kind: "write",
-        path: assertInsideRoot(home, homePaths(home).state),
-        content: serializeState({ ...update.state, writtenBy: WRITTEN_BY }),
-        mode: 0o600,
-      },
+      { kind: "write", path, content: writableState(update.state, path), mode: 0o600 },
     ],
   });
   if (dryRun) {
     const update = await fn(await loadIntent(home));
+    const planned = withStateWrite(update);
     await apply({ changes: update.changes, notices: update.notices });
-    return withStateWrite(update);
+    return planned;
   }
   return withStateLock(home, "manual", async (lock) => {
-    const intent = intentFrom(await lock.read(), homePaths(home).state);
+    const intent = intentFrom(await lock.read(), path);
     const update = await fn(intent);
+    const planned = withStateWrite(update);
     await apply({ changes: update.changes, notices: update.notices });
     await lock.write(update.state, WRITTEN_BY);
-    return withStateWrite(update);
+    return planned;
   });
+}
+
+// The bytes about to be written are read back through the state parser first: a value that
+// reached the state type without passing its schema (a ref carrying `-->`) would otherwise land
+// on disk and quarantine the whole file on the next read.
+function writableState(state: State, path: string): string {
+  const content = serializeState({ ...state, writtenBy: WRITTEN_BY });
+  const parsed = parseState(JSON.parse(content));
+  if (parsed.ok === "parsed") return content;
+  const issues = parsed.ok === "corrupt" ? parsed.issues : [`version ${parsed.version}`];
+  throw new MaximsError(
+    ExitCode.Usage,
+    `refusing to write ${path}: the state would not read back (${issues.join("; ")})`,
+  );
 }

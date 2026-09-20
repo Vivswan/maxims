@@ -34,6 +34,7 @@ import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
   type Destination,
+  GitRefSchema,
   parseGitSha,
   parseSourceSelector,
   type RenameMap,
@@ -45,6 +46,7 @@ import {
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
+import { flattenIssues } from "../util/zod-issues.ts";
 import { configWrite, cooldownCapConfig, loadIntent, updateIntent } from "./shared/cli-context.ts";
 import {
   type AgentSelection,
@@ -223,7 +225,7 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
       link || sourceArg === "." ? { type: "local", path, live: true } : { type: "local", path };
   } else {
     if (link) throw usage("--link applies to a local directory");
-    if (pin !== undefined) from = { ...from, ref: pin };
+    if (pin !== undefined) from = { ...from, ref: gitRefOrUsage(pin) };
   }
   const explicitDestination = parseDestination(args, io.cwd);
   const destination: Destination =
@@ -266,6 +268,14 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
     verbose: ctx.global.verbose,
     configChanges,
   };
+}
+
+// The ref lands in a source key and from there in a rule-file marker, so the state schema's
+// marker rules judge it here, where the refusal can name the flag.
+function gitRefOrUsage(candidate: string): string {
+  const parsed = GitRefSchema.safeParse(candidate);
+  if (parsed.success) return parsed.data;
+  throw usage(`--pin "${candidate}": ${flattenIssues(parsed.error.issues).join("; ")}`);
 }
 
 type FetchedFiles = { sha: string; memoryPath: string; files: TreeFile[] };

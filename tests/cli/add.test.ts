@@ -632,3 +632,23 @@ test("a long pinned ref still yields a rules-file stem a filesystem accepts", as
     expect(path.length).toBeLessThan(100);
   });
 });
+
+test("a --pin the state schema refuses is a usage error naming the flag, and nothing is written", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    const before = await snapshot(scenario.root);
+    const run = await runCli(scenario, [
+      "add",
+      "@a/b",
+      "-g",
+      "-a",
+      "codex",
+      "--pin",
+      "release-->v1",
+      "-y",
+    ]);
+    expect(run.code).toBe(1);
+    expect(run.stderr).toBe(' ERROR  --pin "release-->v1": a ref cannot contain -->\n');
+    expect(scenario.fetches).toEqual([]);
+    expect(await snapshot(scenario.root)).toBe(before);
+  });
+});

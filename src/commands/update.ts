@@ -50,13 +50,16 @@ export const update: Command = {
   async run(args, ctx) {
     const { io } = ctx;
     const console = await ctx.openConsole(true);
-    const persisted = await persistCooldownCap(args, ctx);
     const renames = parseRenames(args);
+    const selection = parseAgents(args, knownHarnessIds(ctx.io));
     const only = await onlySource(args.positionals[0], ctx);
+    if (Object.keys(renames).length > 0 && only === undefined) {
+      throw usage("--rename on update needs the source it applies to");
+    }
+    const persisted = await persistCooldownCap(args, ctx);
     let preview: SyncPreview | undefined;
     if (Object.keys(renames).length > 0) {
-      if (only === undefined) throw usage("--rename on update needs the source it applies to");
-      preview = await recordRenames(only[0] ?? "", renames, ctx, persisted.config);
+      preview = await recordRenames(only?.[0] ?? "", renames, ctx, persisted.config);
       preview = { ...preview, changes: [...persisted.changes, ...preview.changes] };
     } else if (persisted.changes.length > 0) {
       const { state } = await loadIntent(io.home);
@@ -74,7 +77,6 @@ export const update: Command = {
       )
       .map(([key]) => key);
     for (const key of liveKeys) console.step(isLive(key));
-    const selection = parseAgents(args, knownHarnessIds(ctx.io));
     const report = await ctx.engine.runSync(
       {
         ...commonOptions(ctx.global),
