@@ -144,6 +144,11 @@ const refusals: [string, Mutation, string][] = [
     "hook.contentTemplate: the file must run the hook: use {{command}} or {{argv}}",
   ],
   [
+    "a content hash that is not a sha256 digest",
+    at(["verifiedAgainst", "contentHash"], "abc123"),
+    "verifiedAgainst.contentHash: expected a sha256:<64 hex digits> digest",
+  ],
+  [
     "a fixture name with a path",
     at(["fixtures", "config"], "../hooks.json"),
     "fixtures.config: expected a file name inside fixtures/",

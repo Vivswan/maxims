@@ -48,7 +48,7 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
 | `handlerTemplate` | the handler object, with placeholders |
 | `commandKey` | the handler key whose value starts with the maxims command; the writer finds its own entry by it |
-| `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
+| `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
 | `tierCheck` | `{ path, format, key, demotesWhen }`: a config value whose presence demotes the harness to tier 2 |
@@ -92,7 +92,7 @@ The built-in Devin Local spec from `src/harnesses/devin/spec.ts`, serialised as 
     "grouped": true,
     "handlerTemplate": { "type": "command", "command": "{{command}}", "timeout": "{{timeoutSeconds}}" },
     "commandKey": "command",
-    "stdout": "json:additionalContext",
+    "stdout": "json:hookSpecificOutput.additionalContext",
     "async": false
   },
   "mcp": { "path": { "project": ".devin/mcp_config.json", "global": "mcp_config.json" }, "serversPath": ["mcpServers"] }

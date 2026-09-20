@@ -30,7 +30,7 @@ export const spec = {
     grouped: true,
     handlerTemplate: { type: "command", command: "{{command}}", timeout: "{{timeoutSeconds}}" },
     commandKey: "command",
-    stdout: "json:additionalContext",
+    stdout: "json:hookSpecificOutput.additionalContext",
     async: false,
   },
   mcp: {

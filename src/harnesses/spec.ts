@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import {
@@ -30,16 +31,27 @@ export const HOOK_PLACEHOLDERS = [
 export type HookPlaceholder = (typeof HOOK_PLACEHOLDERS)[number];
 const SLUG_PLACEHOLDER = "{{slug}}";
 
-const MARKERS = ["stripped", "counted"] as const satisfies readonly Markers[];
-const EXPANSIONS = ["at-import", "none"] as const satisfies readonly ExpansionSyntax[];
-const CONFIG_FORMATS = ["json", "toml"] as const satisfies readonly ConfigFormat[];
-const HOOK_STDOUTS = [
+// `satisfies readonly T[]` refuses a stranger in the list but not a variant missing from it, and
+// a missing variant makes the schema refuse a value the contract accepts. The rest parameter has
+// a member only while a variant is missing, so the call then fails to compile.
+function completeEnum<T extends string>() {
+  return <const L extends readonly [T, ...T[]]>(
+    list: L,
+    ..._missing: [Exclude<T, L[number]>] extends [never] ? [] : [Exclude<T, L[number]>]
+  ) => z.enum(list);
+}
+
+const MarkersEnum = completeEnum<Markers>()(["stripped", "counted"]);
+const ExpansionEnum = completeEnum<ExpansionSyntax>()(["at-import", "none"]);
+const ConfigFormatEnum = completeEnum<ConfigFormat>()(["json", "toml"]);
+const HookStdoutEnum = completeEnum<HookStdout>()([
   "plain",
   "json:additionalContext",
+  "json:hookSpecificOutput.additionalContext",
   "json:contextModification",
   "json:additional_context",
   "none",
-] as const satisfies readonly HookStdout[];
+]);
 
 // Anything between double braces is a placeholder, so a misspelling like `{{timeout_ms}}` is
 // refused as unknown rather than passed through into the written hook.
@@ -177,7 +189,7 @@ const Detect = z
 
 const TierCheck = z.strictObject({
   path: perScope(RelPath),
-  format: z.enum(CONFIG_FORMATS),
+  format: ConfigFormatEnum,
   key: z.string().min(1),
   demotesWhen: z.json(),
 });
@@ -201,13 +213,13 @@ const RegistryHook = z
   .strictObject({
     kind: z.literal("registry"),
     path: perScope(RelPath),
-    format: z.enum(CONFIG_FORMATS),
+    format: ConfigFormatEnum,
     eventPath: z.array(z.string().min(1)).min(1),
     grouped: z.boolean(),
     wrapper: Fields.optional(),
     handlerTemplate: Fields,
     commandKey: z.string().min(1),
-    stdout: z.enum(HOOK_STDOUTS),
+    stdout: HookStdoutEnum,
     async: z.boolean(),
     debounceMs: z.number().int().positive().optional(),
     tierCheck: TierCheck.optional(),
@@ -234,7 +246,7 @@ const FileHook = z
     path: perScope(RelPath),
     contentTemplate: z.string().min(1),
     executable: z.boolean(),
-    stdout: z.enum(HOOK_STDOUTS),
+    stdout: HookStdoutEnum,
   })
   .check((ctx) => {
     const text = ctx.value.contentTemplate;
@@ -268,13 +280,18 @@ const SPEC_SHAPE = {
   verifiedAgainst: z.strictObject({
     url: z.url(),
     date: z.iso.date(),
-    contentHash: z.string().min(1).optional(),
+    contentHash: z
+      .custom<ContentHash>(
+        (value) => typeof value === "string" && parseContentHash(value) !== null,
+        { error: "expected a sha256:<64 hex digits> digest" },
+      )
+      .optional(),
   }),
   globalRoot: GlobalRoot.optional(),
   targets: perScope(Target.nullable()),
   bodiesDir: perScope(RelPath.nullable()),
-  markers: z.enum(MARKERS),
-  expands: z.array(z.enum(EXPANSIONS)),
+  markers: MarkersEnum,
+  expands: z.array(ExpansionEnum),
   byteBudget: z.number().int().positive().optional(),
   detect: Detect,
   hook: Hook,

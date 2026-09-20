@@ -95,7 +95,7 @@ const geminiSpec: HarnessSpec = {
       timeout: "{{timeoutMs}}",
     },
     commandKey: "command",
-    stdout: "json:additionalContext",
+    stdout: "json:hookSpecificOutput.additionalContext",
     async: false,
   },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
@@ -332,6 +332,7 @@ function portrait(def: HarnessDefinition, ctxs: HarnessContext[]): Record<string
 const landed: [string, HarnessDefinition, HarnessSpec, HarnessQuirks][] = [
   ["codex", codex, codexSpec, { achievedTier: codex.achievedTier }],
   ["gemini-cli", geminiCli, geminiSpec, {}],
+  ["copilot", copilot, copilotSpec, {}],
   ["cline", cline, clineSpec, {}],
 ];
 
@@ -345,38 +346,6 @@ test.each(landed)(
     });
   },
 );
-
-// Copilot loads an instructions file's frontmatter only between `---` fences; the hand-written
-// definition emits the fields bare, so the compiled form is compared as the fenced version of it
-// and every other member is compared as-is.
-test("copilot compiled from its spec matches the hand-written definition, fenced frontmatter aside", async () => {
-  await withFixture(({ ctxs }) => {
-    const compiled = toDefinition(copilotSpec);
-    const expected = portrait(copilot, ctxs);
-    const actual = portrait(compiled, ctxs);
-    for (const scope of scopes) {
-      const handTarget = copilot.targets[scope];
-      const compiledTarget = compiled.targets[scope];
-      if (compiledTarget?.kind !== "rules-dir" || compiledTarget.frontmatter === undefined) {
-        throw new Error("copilot targets are rules directories with frontmatter");
-      }
-      for (const paths of [undefined, [], globs]) {
-        expect(compiledTarget.frontmatter({ paths })).toBe(
-          `---\n${handTarget.frontmatter({ paths })}---\n`,
-        );
-      }
-      const strip = (side: Record<string, unknown>) => {
-        const targets = side.targets;
-        if (typeof targets !== "object" || targets === null) throw new Error("targets missing");
-        const target = (targets as Record<Scope, Record<string, unknown>>)[scope];
-        delete target.frontmatter;
-      };
-      strip(expected);
-      strip(actual);
-    }
-    expect(actual).toEqual(expected);
-  });
-});
 
 // A spec with a user-defined id reaches the compiler only through the parser, which is where such
 // an id is minted.
