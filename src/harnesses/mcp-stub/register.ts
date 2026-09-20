@@ -9,9 +9,11 @@ import {
   removeChild,
   replaceValue,
 } from "../../util/jsonc.ts";
+import { PACKAGE_ARGV } from "../../util/package.ts";
 
 export const MCP_SERVER_KEY = "maxims";
-export const MCP_SERVER_ENTRY = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
+const [command, ...packageArgs] = PACKAGE_ARGV;
+export const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
 
 // Where a harness keeps its MCP servers: the config file and the key path of the servers map
 // inside it (`["mcpServers"]` for the Claude Code family). `root` is the scope directory the
