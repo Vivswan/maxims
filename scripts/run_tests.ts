@@ -1,9 +1,11 @@
 // Hermetic test launcher: every `bun test` run goes through here so a test can never touch the
-// developer's real home, harness configs, or git identity. W1 extends it; this is the floor.
+// developer's real home, harness configs, or git identity. tests/shared/preload.ts is the other
+// half: it refuses to run without the MAXIMS_TEST_LAUNCHER marker set below.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
+const repoRoot = resolve(import.meta.dir, "..");
 const home = mkdtempSync(join(tmpdir(), "maxims-test-home-"));
 const env: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
@@ -26,7 +28,7 @@ Object.assign(env, {
 });
 
 const proc = Bun.spawnSync(["bun", "test", ...process.argv.slice(2)], {
-  cwd: process.cwd(),
+  cwd: repoRoot,
   env,
   stdio: ["inherit", "inherit", "inherit"],
 });
