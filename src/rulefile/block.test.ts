@@ -556,6 +556,11 @@ describe("replaceBlock and stripBlock", () => {
       ["- a\n  ```\n  x\n  ```\n\n", BLOCK].join(""),
     ],
     [
+      "a CRLF file ending inside a list item's fence, closer in the file's own ending",
+      "- a\r\n  ```\r\n  x\r\n",
+      ["- a\r\n  ```\r\n  x\r\n  ```\r\n\r\n", BLOCK].join(""),
+    ],
+    [
       "a file ending inside a nested item's fence, closed at the inner item's column",
       "- a\n  - b\n    ~~~\n    x\n",
       ["- a\n  - b\n    ~~~\n    x\n    ~~~\n\n", BLOCK].join(""),

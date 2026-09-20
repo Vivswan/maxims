@@ -73,16 +73,13 @@ function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
 }
 
 // A reference token is wrapped in a code span, which every documented import parser skips. Every
-// whitespace-split token holding `@` (or `#name:`) anywhere is one: an import walker matches a
-// bare `@` at the start of a lexed text token, and which inline constructs (emphasis, a link label,
-// an escape, an email autolink, an inline tag) start a fresh one differs by parser, so the rule
-// models none of them. So that every parser agrees where each span is, a line carrying such a
-// token first loses everything that could pair with, escape or swallow one of its fences: existing
-// backticks, backslashes, `<`, `[` and any `~~~` run become entities (a leading `~~~` would
-// otherwise turn the whole rule into a fence's info string). The fences are then the only
-// backticks in the line, each glued to its token with no escape or link syntax left to reach
-// across them, so a construct that steals an opener swallows the token with it and none can leave
-// it exposed.
+// whitespace-split token holding `@` (or `#name:`) anywhere counts: a walker matches a bare `@` at
+// the start of a lexed text token, and parsers differ on which inline constructs (emphasis, a link
+// label, an escape, an autolink, an inline tag) start a fresh one, so the rule models none of them.
+// Entities come first so every parser agrees where each span is: existing backticks, backslashes,
+// `<`, `[` and any `~~~` run could pair with, escape or swallow a fence (a leading `~~~` would turn
+// the whole rule into a fence's info string). The fences are then the only backticks in the line,
+// each glued to its token, so a construct that steals an opener swallows the token with it.
 const AT_REFERENCE = /@/;
 const HASH_REFERENCE = /#[A-Za-z]+:/;
 
@@ -690,16 +687,16 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
     return fileText.slice(0, block.start) + rendered + fileText.slice(block.end);
   if (fileText === "") return rendered;
   const { open } = scanLines(fileText);
-  const closer = open === null ? "" : closerFor(open);
-  const ending = LAST_LINE_ENDING.exec(fileText)?.[1];
-  const terminated = ending === undefined ? `${fileText}\n` : fileText;
-  return `${terminated}${closer}${ending ?? "\n"}${rendered}`;
+  const ending = LAST_LINE_ENDING.exec(fileText)?.[1] ?? "\n";
+  const terminated = fileText.endsWith(ending) ? fileText : `${fileText}${ending}`;
+  const closer = open === null ? "" : closerFor(open, ending);
+  return `${terminated}${closer}${ending}${rendered}`;
 }
 
-function closerFor({ block, column }: OpenLeaf): string {
-  if (block.kind === "fence") return `${" ".repeat(column + block.indent)}${block.opener}\n`;
+function closerFor({ block, column }: OpenLeaf, ending: string): string {
+  if (block.kind === "fence") return `${" ".repeat(column + block.indent)}${block.opener}${ending}`;
   const closer = block.kind === "comment" ? "-->" : block.closer;
-  return closer === "" ? "" : `${" ".repeat(column)}${closer}\n`;
+  return closer === "" ? "" : `${" ".repeat(column)}${closer}${ending}`;
 }
 
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
