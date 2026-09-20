@@ -249,6 +249,7 @@ describe("hiddenCharacters", () => {
     ["bidi", "ok \u202eevil", [{ kind: "bidi", codePoint: 0x202e, index: 3 }]],
     ["bidi mark", "a\u200fb", [{ kind: "bidi", codePoint: 0x200f, index: 1 }]],
     ["control", "a\u0000b\tc", [{ kind: "control", codePoint: 0, index: 1 }]],
+    ["line breaks are text, not hiding", "line one\nline two\r\nline three\n", []],
     ["ansi", "x\u001b[31mred", [{ kind: "ansi", codePoint: 0x1b, index: 1 }]],
     ["html-comment", "rule <!-- hidden -->", [{ kind: "html-comment", index: 5 }]],
     [

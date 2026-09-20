@@ -201,7 +201,8 @@ const BIDI_MARKS = new Set([0x061c, 0x200e, 0x200f]);
 
 // A description reaches the always-loaded layer of every session, so text that renders as nothing
 // (or reorders what renders) is where an injected instruction would hide. This only REPORTS; the
-// caller decides whether to refuse, since the contract is a parser, not a policy.
+// caller decides whether to refuse, since the contract is a parser, not a policy. It runs over
+// whole files too, so the three whitespace controls a file is made of (tab, LF, CR) are text.
 export function hiddenCharacters(text: string): HiddenCharacter[] {
   const found: HiddenCharacter[] = [];
   let index = 0;
@@ -225,7 +226,7 @@ function classify(codePoint: number): HiddenCodePointKind | null {
     return "bidi";
   }
   if (codePoint === 0x1b) return "ansi";
-  if (codePoint === 0x09) return null;
+  if (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d) return null;
   if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)) return "control";
   return null;
 }
