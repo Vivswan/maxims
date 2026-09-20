@@ -87,7 +87,7 @@ The manifest never replaces state on the machine that wrote it, and `sync` never
       "intent": {
         "from": { "type": "github", "repo": "Vivswan/skills", "ref": "HEAD" },
         "auth": false,
-        "select": ["rubber-duck-before-every-commit"],
+        "select": ["gate-exit-conditions-the-merge", "rubber-duck-before-every-commit"],
         "rename": { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
         "rule": true,
         "destination": { "scope": "global" },
@@ -98,26 +98,34 @@ The manifest never replaces state on the machine that wrote it, and `sync` never
       },
       "fetched": {
         "at": "2026-08-27T04:12:09.113Z",
-        "sha": "fc675572711b0a1c9e...",
+        "sha": "fc675572711b0a1c9e00000000000000000000aa",
         "memoryPath": "memories",
         "memories": {
-          "rubber-duck-before-every-commit": { "content": "sha256:9f2a...", "description": "sha256:11cd..." }
+          "rubber-duck-before-every-commit": {
+            "content": "sha256:9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a",
+            "description": "sha256:11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd"
+          }
         },
         "lastError": null
       },
       "addedAt": "2026-08-20T08:38:04.471Z"
     }
+  },
+  "disabled": {
+    "global": ["gate-exit-conditions-the-merge-dotfiles"],
+    "project": { "/home/user/project": ["rubber-duck-before-every-commit"] }
   }
 }
 ```
 
-The sha and hash values above are shortened for display; state stores full digests.
+The example is hand-written and parses against the current schema; a test keeps it that way.
 
 | field | why it exists |
 | --- | --- |
 | `version` | integer schema version, bumped on any breaking shape change |
 | `writtenBy` | which maxims wrote this, so a bug report is reproducible without asking |
 | `hooks` | the harnesses where the user wants a sync hook kept: a list, not records |
+| `overrides` | reserved for the one hook fact that is intent, a config path the user chose over the harness definition; accepted as an open record, and nothing writes or reads it yet |
 | `intent.from` | `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down. `HEAD` means the default branch's head; the branch name is never stored because a repo can rename it. |
 | `intent.auth` | whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own |
 | `intent.select` | `*` or an explicit list; applied every sync, so a refresh can never widen the selection |
@@ -126,12 +134,11 @@ The sha and hash values above are shortened for display; state stores full diges
 | `intent.destination` | `global`, `project`, or `out` with a path; `-g` with `-o` has no representation |
 | `intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths` | `--copy`, `--from`, `--full-depth`, `--paths`, recorded per source |
 | `intent.harnesses` | which harnesses this source writes to |
-| `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, versus `ref`, which is what was asked for. A copied local source hashes its directory contents here. A live local source has no `fetched` block at all, because the tree is the record. |
+| `fetched.at`, `fetched.sha` | drive the cooldown and staleness; the sha is what was fetched, versus `ref`, which is what was asked for. For a GitHub or git source it is the 40-hex commit sha the remote reported; for a copied local source it is a `sha256:<64 hex>` hash of the directory contents, the same spelling as a memory hash. A live local source has no `fetched` block at all, because the tree is the record. |
 | `fetched.memories` | a content hash and a description hash per memory, so a body-only edit skips the rule rewrite |
 | `fetched.lastError` | why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which |
 | `addedAt` | provenance; there is no `updatedAt` |
-
-Specified, not yet in the schema: `disable` records the memories it withheld, by local name, in one list per scope, so a memory disabled at project scope stays live for `-g`. The [project manifest](#the-project-manifest) copies the project-scope list so `install` can replay it.
+| `disabled` | the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else; the [project manifest](#the-project-manifest) carries a copy of its own root's list |
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
