@@ -144,6 +144,10 @@ describe("withLock", () => {
         writeFileSync(lockPath, newer);
       });
       expect(readFileSync(lockPath, "utf8")).toBe(newer);
+      await withLock(lockPath, { staleMs: 0 }, async () => {
+        writeFileSync(lockPath, "");
+      });
+      expect(readFileSync(lockPath, "utf8")).toBe("");
     });
   });
 

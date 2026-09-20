@@ -63,10 +63,10 @@ export async function withLock<T>(
 }
 
 // A holder that outlived staleMs may have been displaced by a stealer; releasing then must not
-// remove the stealer's lock, so the file is unlinked only while it still records this holder.
+// remove the stealer's lock, so the file is unlinked only while it provably records this holder.
+// An unreadable file is a replacement whose record is not written yet, and is left alone.
 async function releaseOwn(lockPath: string, ours: LockHolder): Promise<void> {
-  const current = await readHolder(lockPath);
-  if (current !== null && !sameHolder(current, ours)) return;
+  if (!sameHolder(await readHolder(lockPath), ours)) return;
   await unlink(lockPath).catch(() => undefined);
 }
 
