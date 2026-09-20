@@ -40,18 +40,41 @@ export type HookSpec = {
   timeoutSeconds: number;
 };
 
+// How a session-start hook may speak back to its harness; the `json:` variants name the key the
+// harness reads. Plain stdout becomes context on Claude Code and Codex; Gemini and Copilot accept
+// only one JSON object; Cline and Cursor read their own keys. Sync renders the staleness notice
+// per this field, so a harness that requires silence never sees stray text.
+export type HookStdout =
+  | "plain"
+  | "json:additionalContext"
+  | "json:contextModification"
+  | "json:additional_context"
+  | "none";
+
+export type ConfigFormat = "json" | "toml";
+
+// A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
+// and `commandKey` carry every difference between the harnesses' registry files, so the one hook
+// writer needs no per-harness branch. `tierCheck` is read-only detection: a config value whose
+// presence demotes the harness to tier 2; nothing ever writes it.
+export type RegistryHook = {
+  kind: "registry";
+  path: (scope: Scope, ctx: HarnessContext) => string;
+  format: ConfigFormat;
+  eventPath: string[];
+  grouped: boolean;
+  wrapper?: Record<string, unknown>;
+  handler: (spec: HookSpec) => Record<string, unknown>;
+  commandKey: string;
+  stdout: HookStdout;
+  async: boolean;
+  debounceMs?: number;
+  tierCheck?: { path: string; format: ConfigFormat; key: string; expectedValue: unknown };
+};
+
 export type HookShape =
   | { kind: "none" }
-  | {
-      kind: "registry";
-      path: (scope: Scope, ctx: HarnessContext) => string;
-      format: "json" | "toml";
-      event: string;
-      matcherless: boolean;
-      async: boolean;
-      debounceMs?: number;
-      extraConfig?: { path: string; format: "json" | "toml"; key: string; value: unknown };
-    }
+  | RegistryHook
   | {
       kind: "file";
       path: (scope: Scope, ctx: HarnessContext) => string;

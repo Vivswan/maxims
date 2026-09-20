@@ -27,10 +27,27 @@ Object.assign(env, {
   NO_COLOR: "1",
 });
 
-const proc = Bun.spawnSync(["bun", "test", ...process.argv.slice(2)], {
+const removeHome = (): void => rmSync(home, { recursive: true, force: true });
+
+// The test process is spawned asynchronously so a SIGINT or SIGTERM aimed at the launcher still
+// reaches the handlers below and removes the temp HOME; a synchronous spawn would block them.
+const proc = Bun.spawn(["bun", "test", ...process.argv.slice(2)], {
   cwd: repoRoot,
   env,
   stdio: ["inherit", "inherit", "inherit"],
 });
-rmSync(home, { recursive: true, force: true });
-process.exit(proc.exitCode ?? 1);
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(signal, () => {
+    proc.kill(signal);
+    removeHome();
+    process.exit(130);
+  });
+}
+
+let exitCode = 1;
+try {
+  exitCode = await proc.exited;
+} finally {
+  removeHome();
+}
+process.exit(exitCode);
