@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { notDefinedHere } from "../console/strings.ts";
 import type { HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
@@ -57,6 +58,8 @@ export const doctor: Command = {
     const { io } = ctx;
     const { state, notices } = await loadIntent(io.home);
     const findings: Finding[] = notices.map((text) => ({ level: "warn", text }));
+    const unresolved = unresolvedHarnessIds(state, io.harnesses);
+    for (const id of unresolved) findings.push({ level: "warn", text: notDefinedHere(id) });
     const reports: HarnessReport[] = [];
     for (const def of io.harnesses) {
       for (const scope of scopesFor(def.id, state, io.projectRoot)) {
@@ -83,6 +86,7 @@ export const doctor: Command = {
       const body = {
         ok: !failed,
         harnesses: reports,
+        unresolved,
         expect: expects,
         lastSync,
         defaults: ctx.config,
@@ -96,6 +100,17 @@ export const doctor: Command = {
     return failed ? ExitCode.Usage : ExitCode.Ok;
   },
 };
+
+// A harness id intent names but no definition answers to: a user-declared harness whose entry
+// left harnesses.json. Nothing checks it, so the report says so instead of staying silent.
+function unresolvedHarnessIds(state: State, defs: readonly HarnessDefinition[]): HarnessId[] {
+  const known = new Set(defs.map((def) => def.id));
+  const named = new Set<HarnessId>(state.hooks);
+  for (const entry of Object.values(state.sources)) {
+    for (const id of entry.intent.harnesses) named.add(id);
+  }
+  return [...named].filter((id) => !known.has(id)).sort();
+}
 
 function symbol(level: Finding["level"]): string {
   return level === "ok" ? "ok" : level === "warn" ? "! " : "x ";
@@ -136,7 +151,7 @@ async function checkHarness(
     ruleFiles.push({
       source: key,
       path,
-      present: blocks !== null && blocks.some((block) => block.source === key),
+      present: (blocks ?? []).some((block) => block.source === key),
       frontmatter: frontmatterOk(def, scope, entry, readTextIfPresent(path)),
     });
   }
@@ -157,9 +172,10 @@ function ruleBlocks(path: string, ctx: CommandContext): RuleBlock[] | null {
   return text === null ? null : ctx.engine.parseRuleFile(text);
 }
 
-// The target declares the frontmatter BODY (`applyTo: "**"`); the file opens with that body inside
-// `---` fences. A rules-dir harness that requires `alwaysApply: true` and does not find it loads
-// the file only on demand, which is the failure `doctor` exists to name.
+// The target's frontmatter is the whole preamble the rules-dir strategy writes, fences included,
+// and the file must open with exactly it: a rules-dir harness that requires `alwaysApply: true`
+// and does not find it loads the file only on demand, which is the failure `doctor` exists to
+// name. Null when the target declares no frontmatter to check.
 function frontmatterOk(
   def: HarnessDefinition,
   scope: Scope,
@@ -170,11 +186,12 @@ function frontmatterOk(
   if (target === null || target.kind !== "rules-dir" || target.frontmatter === undefined) {
     return null;
   }
-  if (text === null) return false;
-  const body = target.frontmatter(
+  const declared = target.frontmatter(
     entry.intent.paths === undefined ? {} : { paths: entry.intent.paths },
   );
-  return text.startsWith(`---\n${body}---\n`);
+  if (declared === "") return null;
+  if (text === null) return false;
+  return text.startsWith(declared.endsWith("\n") ? declared : `${declared}\n`);
 }
 
 function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
@@ -230,9 +247,14 @@ function checkExpect(raw: string, state: State, ctx: CommandContext): ExpectRepo
   const missing: string[] = [];
   let checked = 0;
   for (const [key, entry] of owners) {
+    if (entry.intent.destination.scope === "out") continue;
     for (const id of entry.intent.harnesses) {
       const def = io.harnesses.find((candidate) => candidate.id === id);
-      if (def === undefined || entry.intent.destination.scope === "out") continue;
+      if (def === undefined) {
+        checked += 1;
+        missing.push(`${id} (not defined on this machine)`);
+        continue;
+      }
       const path = targetPath(def, entry.intent.destination, harnessCtx, sourceSlug(key));
       if (path === null) continue;
       checked += 1;
@@ -243,7 +265,7 @@ function checkExpect(raw: string, state: State, ctx: CommandContext): ExpectRepo
 }
 
 function hasRuleLine(blocks: RuleBlock[] | null, source: string, name: MemoryName): boolean {
-  return blocks !== null && blocks.some((b) => b.source === source && b.names.includes(name));
+  return (blocks ?? []).some((b) => b.source === source && b.names.includes(name));
 }
 
 function expectFinding(report: ExpectReport): Finding {

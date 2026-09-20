@@ -14,7 +14,7 @@ import type {
   SyncOptions,
   SyncReport,
 } from "../../src/commands/types.ts";
-import type { HarnessId } from "../../src/harnesses/contract.ts";
+import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
 import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
 import type { Change } from "../../src/util/change.ts";
@@ -48,6 +48,8 @@ export type ScenarioOptions = {
   env?: Record<string, string>;
   project?: boolean;
   github?: Record<string, string>;
+  // The registry the CLI runs against; the three fixture shapes unless a test names real ones.
+  harnesses?: readonly HarnessDefinition[];
   syncReport?: Partial<
     Pick<SyncReport, "rules" | "tokens" | "fetched" | "failed" | "changed" | "notices">
   >;
@@ -300,7 +302,7 @@ export async function runCli(scenario: Scenario, argv: string[]): Promise<RunRes
   let stderr = "";
   const bundle: EngineBundle = {
     engine: scenario.engine,
-    harnesses: FIXTURE_HARNESSES,
+    harnesses: scenario.options.harnesses ?? FIXTURE_HARNESSES,
     resolvers: fixtureResolvers(() => scenario),
   };
   const deps: CliDeps = {

@@ -15,6 +15,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { cursor } from "../../src/harnesses/cursor/index.ts";
+import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
@@ -1336,4 +1338,62 @@ test("sync names each source whose refresh failed and exits 2, except under --qu
       expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
     },
   );
+});
+
+// The fixture harnesses mirror the real definitions' shapes, so the real cursor and zed run here
+// once: cursor's frontmatter arrives fenced from the definition, and zed reads `.rules` before
+// `AGENTS.md`, two facts a fixture cannot vouch for.
+test("doctor judges the frontmatter and the precedence file the real definitions write", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS }, harnesses: [cursor, zed] },
+    async (scenario) => {
+      writeFileSync(join(scenario.cwd, ".rules"), "# zed\n");
+      const add = await runCli(scenario, ["add", "@a/b", "-p", "-a", "cursor,zed", "--rule"]);
+      expect(add.code).toBe(0);
+      const block = "<!-- maxims:@a/b -->\n- skip-unfit-skills\n<!-- /maxims -->\n";
+      const target = cursor.targets.project;
+      if (target === null || target.kind !== "rules-dir" || target.frontmatter === undefined) {
+        throw new Error("the cursor definition no longer declares a rules-dir frontmatter");
+      }
+      mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
+      const mdc = join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc");
+      writeFileSync(mdc, `${target.frontmatter({})}${block}`);
+      const rules = join(scenario.cwd, ".rules");
+      writeFileSync(rules, `# zed\n\n${block}`);
+      const healthy = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
+      expect(healthy.code).toBe(0);
+      expect(healthy.stdout).toContain(`ok  cursor: ${mdc}\n`);
+      expect(healthy.stdout).toContain(`ok  zed: ${rules}\n`);
+      expect(healthy.stdout).toContain("ok  expect skip-unfit-skills: rule line in place\n");
+      writeFileSync(mdc, block);
+      const bare = await runCli(scenario, ["doctor"]);
+      expect(bare.code).toBe(1);
+      expect(bare.stdout).toContain(
+        `x   cursor: ${mdc} lacks the frontmatter Cursor needs to load it every session\n`,
+      );
+    },
+  );
+});
+
+test("doctor names a harness id no definition answers to and fails an --expect that needs it", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await installSkills(scenario);
+    const state = readState(scenario) as {
+      sources: Record<string, { intent: { harnesses: string[] } }>;
+    };
+    const entry = state.sources["@a/b"];
+    if (entry === undefined) throw new Error("@a/b was not recorded");
+    entry.intent.harnesses = ["team-agent"];
+    writeState(scenario, state);
+    const run = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
+    expect(run.code).toBe(1);
+    expect(run.stdout).toContain(
+      "!   team-agent is not defined on this machine; kept in intent, skipped until it is\n",
+    );
+    expect(run.stdout).toContain(
+      "x   expect skip-unfit-skills: no rule line in team-agent (not defined on this machine)\n",
+    );
+    const json = await runCli(scenario, ["doctor", "--json"]);
+    expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, unresolved: ["team-agent"] });
+  });
 });

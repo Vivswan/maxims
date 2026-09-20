@@ -6,6 +6,7 @@ import {
   type HarnessId,
   type Scope,
   scopeRoot,
+  sharedBlockFile,
 } from "../../harnesses/contract.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../memory/contract.ts";
 import {
@@ -49,7 +50,8 @@ export function detectedHarnesses(io: EngineIo): HarnessId[] {
 }
 
 // Where a harness reads this source's rules at this destination, for the plan screen and for
-// `doctor`; null when the harness has no target at that scope.
+// `doctor`; null when the harness has no target at that scope. A shared-block file follows the
+// harness's precedence list, so the path is the file the harness will read, not the default.
 export function targetPath(
   def: HarnessDefinition,
   destination: Destination,
@@ -60,7 +62,7 @@ export function targetPath(
   const target = def.targets[destination.scope];
   if (target === null) return null;
   const root = scopeRoot(def, destination.scope, ctx);
-  if (target.kind === "shared-block") return join(root, target.file);
+  if (target.kind === "shared-block") return join(root, sharedBlockFile(target, root));
   return join(root, target.dir, target.fileName(sourceSlug));
 }
 

@@ -77,9 +77,8 @@ export const fixtureCodex: HarnessDefinition = {
   verifiedAgainst,
 };
 
-// The body a target declares; the rules-dir writer fences it, as the check in `doctor` expects.
-export const CURSOR_FRONTMATTER_BODY = "alwaysApply: true\n";
-export const CURSOR_FRONTMATTER = `---\n${CURSOR_FRONTMATTER_BODY}---\n`;
+// The whole preamble the target declares, fences included, as the real definitions return it.
+export const CURSOR_FRONTMATTER = "---\nalwaysApply: true\n---\n";
 
 export const fixtureCursor: HarnessDefinition = {
   id: "cursor",
@@ -91,7 +90,7 @@ export const fixtureCursor: HarnessDefinition = {
       kind: "rules-dir",
       dir: ".cursor/rules",
       fileName: (slug) => `maxims-${slug}.mdc`,
-      frontmatter: () => CURSOR_FRONTMATTER_BODY,
+      frontmatter: () => CURSOR_FRONTMATTER,
     },
   },
   bodiesDir: (scope, ctx) =>
