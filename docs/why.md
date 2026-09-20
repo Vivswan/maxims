@@ -20,7 +20,7 @@ flowchart LR
     hook["session-start hook<br/>npx -y @vivswan/maxims sync --quiet"] -.->|every session| sync
 ```
 
-`state.json` is the only record `sync` trusts. A rule file on disk is compared to what it should be, never read back as a record, so the next sync repairs a crash or a hand edit.
+`state.json` is the only record `sync` trusts. A rule file on disk is compared to what it should be, never read back as a record, so the next sync repairs a crash or a hand edit. The [architecture page](architecture.md) shows the same flow as code.
 
 ## The rule the agent held but did not act on
 
