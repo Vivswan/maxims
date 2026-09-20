@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import { join } from "node:path";
 import {
   type HarnessContext,
@@ -8,6 +7,7 @@ import {
   scopeRoot,
   type Target,
 } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 
 const roots = {};
 const GLOBAL_DIR = join("Documents", "Cline");
@@ -57,10 +57,7 @@ export const cline = {
   },
   markers: "counted",
   expands: [],
-  detect: (ctx) =>
-    [join(ctx.home, GLOBAL_DIR), join(ctx.home, ".cline")].some(
-      (dir) => statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false,
-    ),
+  detect: (ctx) => [join(ctx.home, GLOBAL_DIR), join(ctx.home, ".cline")].some(configDirExists),
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
     date: "2026-09-20",

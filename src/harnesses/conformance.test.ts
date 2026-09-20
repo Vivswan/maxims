@@ -4,8 +4,9 @@
 // the prefix search cannot see, or a declared fixture that is missing would each ship a file the
 // harness loads wrongly or not at all.
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
+import { withTempDir } from "../../tests/shared/temp_dir.ts";
 import { parseMemoryName } from "../memory/contract.ts";
 import type { BlockInput } from "../rulefile/types.ts";
 import {
@@ -204,4 +205,33 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     const parsed: unknown = JSON.parse(readFileSync(fixturePath(def, stdin), "utf8"));
     expect(typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)).toBe(true);
   });
+
+  // A home that is a regular file puts every config directory under a file, the lookup Bun
+  // answers with ENOTDIR rather than "missing"; a probe that lets it through crashes detection.
+  test("detection reads not installed when the home is a regular file", async () => {
+    await withTempDir(async (dir) => {
+      const file = join(dir, "home");
+      writeFileSync(file, "");
+      expect(def.detect({ home: file, projectRoot: null, env: {} })).toBe(false);
+    });
+  });
+
+  // A probe that answers "not installed" for a lookup it was not allowed to make would hide a
+  // locked home behind a quiet skip. Mode bits do not stop root, so the row skips under a root
+  // runner.
+  test.skipIf(process.getuid?.() === 0)(
+    "detection surfaces a home it may not read instead of reading not installed",
+    async () => {
+      await withTempDir(async (dir) => {
+        const locked = join(dir, "home");
+        mkdirSync(locked);
+        chmodSync(locked, 0o000);
+        try {
+          expect(() => def.detect({ home: locked, projectRoot: null, env: {} })).toThrow(/EACCES/);
+        } finally {
+          chmodSync(locked, 0o700);
+        }
+      });
+    },
+  );
 });

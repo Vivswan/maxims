@@ -1,6 +1,6 @@
-import { statSync } from "node:fs";
 import { join } from "node:path";
 import { type HarnessDefinition, scopeRoot } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 
 const roots = {};
 
@@ -36,8 +36,7 @@ export const geminiCli = {
   },
   markers: "counted",
   expands: ["at-import"],
-  detect: (ctx) =>
-    statSync(join(ctx.home, ".gemini"), { throwIfNoEntry: false })?.isDirectory() ?? false,
+  detect: (ctx) => configDirExists(join(ctx.home, ".gemini")),
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
     date: "2026-09-20",

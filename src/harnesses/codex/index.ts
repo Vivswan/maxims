@@ -1,7 +1,7 @@
-import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 import { readHooksFeatureFlag } from "./features-flag.ts";
 
 // Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
@@ -88,7 +88,7 @@ export const codex = {
   },
   markers: "counted",
   expands: [],
-  detect: (ctx) => statSync(codexHome(ctx), { throwIfNoEntry: false })?.isDirectory() ?? false,
+  detect: (ctx) => configDirExists(codexHome(ctx)),
   achievedTier,
   globalRoot: codexHome,
   verifiedAgainst: { url: "https://learn.chatgpt.com/docs/hooks", date: "2026-09-20" },

@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify } from "yaml";
 import {
@@ -8,6 +7,7 @@ import {
   scopeRoot,
   type Target,
 } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 
 // Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
 // instructions directory and the hooks directory both move with it.
@@ -78,7 +78,7 @@ export const copilot = {
   },
   markers: "counted",
   expands: [],
-  detect: (ctx) => statSync(copilotHome(ctx), { throwIfNoEntry: false })?.isDirectory() ?? false,
+  detect: (ctx) => configDirExists(copilotHome(ctx)),
   globalRoot: copilotHome,
   verifiedAgainst: {
     url: "https://docs.github.com/en/copilot/reference/hooks-configuration",

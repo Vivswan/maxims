@@ -2,7 +2,7 @@
 // the `paths:` frontmatter of a path-scoped rule file, and the two detection signals. Claude Code
 // enforces none of these for us, so a drift here would install silently and load nothing.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
@@ -95,11 +95,14 @@ describe("claude-code", () => {
     });
   });
 
-  test("detection sees the session variable or a ~/.claude directory, and nothing else", async () => {
+  test("detection sees the session variable or a ~/.claude directory, never a stray file there", async () => {
     await withTempDir((home) => {
       const bare: HarnessContext = { home, projectRoot: null, env: {} };
       expect(claudeCode.detect(bare)).toBe(false);
       expect(claudeCode.detect({ ...bare, env: { CLAUDECODE: "1" } })).toBe(true);
+      writeFileSync(join(home, ".claude"), "");
+      expect(claudeCode.detect(bare)).toBe(false);
+      rmSync(join(home, ".claude"));
       mkdirSync(join(home, ".claude"));
       expect(claudeCode.detect(bare)).toBe(true);
     });

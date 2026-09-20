@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import {
@@ -9,6 +8,7 @@ import {
   scopeRoot,
   type Target,
 } from "../contract.ts";
+import { configDirExists } from "../detect.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
 // only a path-scoped install adds the `paths:` preamble.
@@ -63,7 +63,7 @@ export const claudeCode: HarnessDefinition = {
   detect: (ctx) =>
     ctx.env.CLAUDECODE !== undefined ||
     ctx.env.CLAUDE_CODE_ENTRYPOINT !== undefined ||
-    existsSync(join(ctx.home, ".claude")),
+    configDirExists(join(ctx.home, ".claude")),
   scopeFrontmatter: (globs) =>
     globs.length === 0 ? null : `---\n${stringify({ paths: globs })}---\n`,
   verifiedAgainst: { url: "https://code.claude.com/docs/en/memory", date: "2026-09-20" },
