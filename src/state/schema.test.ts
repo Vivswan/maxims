@@ -195,6 +195,50 @@ describe("parseState", () => {
       issue: /absolute path/,
     },
     {
+      title: "two github keys that differ only in case",
+      mutate: (j) => ({
+        ...j,
+        sources: {
+          ...j.sources,
+          "@Example-User/Rules": {
+            ...j.sources["@example-user/rules"],
+            intent: {
+              ...j.sources["@example-user/rules"].intent,
+              from: { type: "github", repo: "Example-User/Rules", ref: "HEAD" },
+            },
+          },
+        },
+      }),
+      issue: /sources\.@Example-User\/Rules: .*same GitHub repository as @example-user\/rules/,
+    },
+    {
+      title: "a local source path carrying NUL",
+      mutate: (j) => {
+        const from = { type: "local", path: "/home/user/a\u0000b", live: true };
+        return {
+          ...j,
+          sources: {
+            [from.path]: {
+              ...j.sources["/home/user/dotfiles/memories"],
+              intent: { ...j.sources["/home/user/dotfiles/memories"].intent, from },
+            },
+          },
+        };
+      },
+      issue: /intent\.from\.path: .*NUL/,
+    },
+    {
+      title: "an out destination path carrying NUL",
+      mutate: (j) => {
+        j.sources["/home/user/dotfiles/memories"].intent.destination = {
+          scope: "out",
+          path: "/home/user/team\u0000rules",
+        };
+        return j;
+      },
+      issue: /destination\.path: .*NUL/,
+    },
+    {
       title: "an unknown key in intent",
       mutate: (j) => {
         (j.sources["@example-user/rules"].intent as Record<string, unknown>).installedPath = "/x";
@@ -321,19 +365,37 @@ describe("parseSourceArgument", () => {
     }
   });
 
-  test("GH_HOST moves the github host and is recorded; github.com then becomes a plain git remote", () => {
+  // GH_HOST is an ambient environment variable: a github.com URL pasted from a browser must keep
+  // meaning github.com whatever the shell happens to export, or the same command line would
+  // install a different source on a differently configured machine.
+  test("GH_HOST names the host for shorthands and its own URLs; a github.com URL is always github.com", () => {
     const ghHost = "github.example.com";
     const hosted: SourceFrom = { type: "github", repo: "team/rules", ref: "HEAD", host: ghHost };
-    expect(parseSourceArgument("https://github.example.com/team/rules", cwd, { ghHost })).toEqual(
-      hosted,
-    );
-    expect(parseSourceArgument("@team/rules", cwd, { ghHost })).toEqual(hosted);
+    const cases: [string, SourceFrom][] = [
+      ["https://github.example.com/team/rules", hosted],
+      ["git@github.example.com:team/rules.git", hosted],
+      ["@team/rules", hosted],
+      ["team/rules", hosted],
+      ["https://github.com/team/rules", github("team/rules")],
+      ["git@github.com:team/rules.git", github("team/rules")],
+      [
+        "https://github.com/team/rules/tree/main",
+        { type: "github", repo: "team/rules", ref: "main" },
+      ],
+      ["https://gitlab.example.com/team/rules", git("https://gitlab.example.com/team/rules")],
+    ];
+    for (const [arg, expected] of cases) {
+      expect(parseSourceArgument(arg, cwd, { ghHost })).toEqual(expected);
+    }
     expect(parseSourceArgument("@team/rules", cwd, { ghHost: "github.com" })).toEqual(
       github("team/rules"),
     );
-    expect(parseSourceArgument("https://github.com/team/rules", cwd, { ghHost })).toEqual(
-      git("https://github.com/team/rules"),
+    expect(parseSourceArgument("@team/rules", cwd, { ghHost: "GitHub.Example.com" })).toEqual(
+      hosted,
     );
+    expect(
+      parseSourceArgument("https://gitlab.example.com/team/rules", cwd, { ghHost: "" }),
+    ).toEqual(git("https://gitlab.example.com/team/rules"));
   });
 
   const rejected = [

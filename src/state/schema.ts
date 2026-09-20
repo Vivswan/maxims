@@ -20,9 +20,12 @@ export const MemoryNameSchema = z.custom<MemoryName>(
   { error: "expected a kebab-case memory name" },
 );
 
-const AbsolutePath = z.string().refine((value) => isAbsolute(value), {
-  message: "expected an absolute path",
-});
+// A NUL would reach the filesystem calls as ERR_INVALID_ARG_VALUE long after parsing, so the state
+// boundary refuses it here with the other shape errors.
+const AbsolutePath = z
+  .string()
+  .refine((value) => isAbsolute(value), { message: "expected an absolute path" })
+  .refine((value) => !value.includes("\0"), { message: "a path cannot contain NUL" });
 
 const IsoTimestamp = z.iso.datetime();
 
@@ -136,9 +139,14 @@ export const StateSchema = z
     overrides: z.record(z.string(), z.unknown()).optional(),
     sources: z.record(z.string(), SourceEntrySchema),
   })
+  // GitHub owner and repo names are case-insensitive and the store folds them, so two keys that
+  // differ only in case would be one repository fetched twice into one directory; the key keeps
+  // the case as typed, and the second spelling is refused like a mismatched key.
   .check((ctx) => {
+    const seenFolded = new Map<string, string>();
     for (const [key, entry] of Object.entries(ctx.value.sources)) {
-      const expected = canonicalSourceKey(entry.intent.from);
+      const from = entry.intent.from;
+      const expected = canonicalSourceKey(from);
       if (key !== expected) {
         ctx.issues.push({
           code: "custom",
@@ -147,6 +155,18 @@ export const StateSchema = z
           message: `source key must be ${expected}`,
         });
       }
+      if (from.type !== "github") continue;
+      const folded = canonicalSourceKey({ ...from, repo: from.repo.toLowerCase() });
+      const twin = seenFolded.get(folded);
+      if (twin !== undefined) {
+        ctx.issues.push({
+          code: "custom",
+          input: key,
+          path: ["sources", key],
+          message: `names the same GitHub repository as ${twin}`,
+        });
+      }
+      seenFolded.set(folded, key);
     }
   });
 export type State = z.infer<typeof StateSchema>;
@@ -226,10 +246,12 @@ export type SourceSelector = {
 
 // `owner/repo` with exactly one slash and no path prefix is a GitHub source, mirroring `skills`; a
 // relative directory that happens to look like one is spelled `./owner/repo`. A URL is GitHub
-// only when its HOST is github.com (or `GH_HOST`): a mirror carrying "github.com" in its path
-// stays a plain git source, stored verbatim. A `/tree/<ref>` GitHub URL pins that ref; a longer
-// tail is refused rather than guessed, because `/tree/release/1.0` cannot be told from a branch
-// `release` at path `1.0`.
+// only when its HOST is github.com or `GH_HOST`: a mirror carrying "github.com" in its path
+// stays a plain git source, stored verbatim. `GH_HOST` names the host for the shorthands and for
+// URLs on that host; a github.com URL stays github.com whatever the shell exports, or one pasted
+// command line would install a different source per machine. A `/tree/<ref>` GitHub URL pins
+// that ref; a longer tail is refused rather than guessed, because `/tree/release/1.0` cannot be
+// told from a branch `release` at path `1.0`.
 export function parseSourceArgument(
   arg: string,
   cwd: string,
@@ -265,11 +287,11 @@ export function parseSourceSelector(
     if (suffix !== undefined && memory === null) {
       throw usage(`${arg}: "${suffix}" is not a kebab-case memory name`);
     }
-    return { from: github(repo, arg, options), memory };
+    return { from: github(repo, arg, enterpriseHost(options)), memory };
   }
   const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(arg);
   if (!looksLocal && GITHUB_REPO_PATTERN.test(arg)) {
-    return { from: github(arg, arg, options), memory: null };
+    return { from: github(arg, arg, enterpriseHost(options)), memory: null };
   }
   if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
   const path = resolve(cwd, arg);
@@ -284,11 +306,12 @@ const GITHUB_TREE_SEGMENT = 2;
 // A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
 // a directory, so the store-path usability check does not apply to it.
 function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
-  const ghHost = (options.ghHost ?? "github.com").toLowerCase();
-  if (remote.host !== ghHost) {
+  const isGithubCom = remote.host === "github.com";
+  if (!isGithubCom && remote.host !== options.ghHost?.toLowerCase()) {
     if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
     return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
   }
+  const host = isGithubCom ? undefined : enterpriseHost(options);
   const [owner, repoName, tree, ...rest] = remote.segments;
   const repo = `${owner ?? ""}/${stripGitSuffix(repoName ?? "")}`;
   const isTreeUrl = tree === "tree" && rest.length >= 1;
@@ -304,23 +327,26 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
     );
   }
   const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
-  return github(repo, arg, options, ref);
+  return github(repo, arg, host, ref);
+}
+
+// github.com is the default and carries no host field, so `GH_HOST=github.com` is the same as
+// leaving it unset and a source recorded on one machine reads the same on another.
+function enterpriseHost(options: SourceArgumentOptions): string | undefined {
+  const ghHost = options.ghHost?.toLowerCase();
+  if (ghHost === undefined || ghHost === "github.com") return undefined;
+  if (!HOSTNAME.test(ghHost)) throw usage(`GH_HOST "${ghHost}" is not a hostname`);
+  return ghHost;
 }
 
 function github(
   repo: string,
   original: string,
-  options: SourceArgumentOptions,
+  host: string | undefined,
   ref: string = DEFAULT_GIT_REF,
 ): SourceFrom {
   if (!GITHUB_REPO_PATTERN.test(repo)) throw usage(`${original} is not a valid @owner/repo source`);
-  const ghHost = options.ghHost?.toLowerCase();
-  const from: SourceFrom = { type: "github", repo, ref };
-  if (ghHost !== undefined && ghHost !== "github.com") {
-    if (!HOSTNAME.test(ghHost)) throw usage(`GH_HOST "${ghHost}" is not a hostname`);
-    from.host = ghHost;
-  }
-  return from;
+  return host === undefined ? { type: "github", repo, ref } : { type: "github", repo, ref, host };
 }
 
 export type GitRemote = {
