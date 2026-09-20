@@ -131,6 +131,24 @@ export type RenameMap = z.infer<typeof RenameMapSchema>;
 
 export const HarnessIdSchema = z.enum(HARNESS_IDS);
 
+// Names the user has switched off at one scope. Sorted and unique so the same intent always
+// serializes to the same bytes; the writer sorts, and a hand edit that does not is refused whole
+// like any other shape error.
+export const DisabledNamesSchema = z.array(MemoryNameSchema).check((ctx) => {
+  const names = ctx.value;
+  for (let index = 1; index < names.length; index += 1) {
+    const previous = names[index - 1] ?? "";
+    const current = names[index] ?? "";
+    if (current > previous) continue;
+    ctx.issues.push({
+      code: "custom",
+      input: current,
+      path: [index],
+      message: current === previous ? "listed twice" : `must be sorted after ${previous}`,
+    });
+  }
+});
+
 const IntentFields = {
   select: SelectSchema,
   rename: RenameMapSchema,
@@ -207,6 +225,7 @@ export const StateSchema = z
     hooks: z.array(HarnessIdSchema),
     overrides: z.record(z.string(), z.unknown()).optional(),
     sources: z.record(z.string(), SourceEntrySchema),
+    disabled: DisabledNamesSchema.optional(),
   })
   // GitHub owner and repo names are case-insensitive and the store folds them, so two keys that
   // differ only in case would be one repository fetched twice into one directory; the key keeps

@@ -148,6 +148,23 @@ describe("parseState", () => {
     expect(parseState(json).ok).toBe("corrupt");
   });
 
+  // `disable <name>` at user scope records the name here; the list is kept sorted and unique so
+  // two syncs that disable the same names write the same bytes and a diff of the file is readable.
+  const disabledLists: [string, string[], "parsed" | "corrupt"][] = [
+    ["a sorted unique list", ["alpha", "beta"], "parsed"],
+    ["an empty list", [], "parsed"],
+    ["an unsorted list", ["beta", "alpha"], "corrupt"],
+    ["a duplicate", ["alpha", "alpha"], "corrupt"],
+    ["a name that is not kebab-case", ["Alpha"], "corrupt"],
+  ];
+  test.each(disabledLists)("disabled: %s %p is %s", (_title, disabled, outcome) => {
+    const result = parseState({ ...clone(VALID), disabled });
+    expect(result.ok).toBe(outcome);
+    if (result.ok === "parsed")
+      expect<string[] | undefined>(result.state.disabled).toEqual(disabled);
+    if (result.ok === "corrupt") expect(result.issues.some((l) => /^disabled/.test(l))).toBe(true);
+  });
+
   test("a newer version is reported as such, never parsed", () => {
     expect(parseState({ version: CURRENT_STATE_VERSION + 1, anything: true })).toEqual({
       ok: "newer",
