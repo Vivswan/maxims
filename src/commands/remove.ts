@@ -1,4 +1,4 @@
-import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
+import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import {
   canonicalSourceKey,
   parseSourceArgument,
@@ -12,7 +12,8 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { type EngineContext, loadContext } from "./shared/context.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
-import { contentHash, type SourceTree } from "./shared/memories.ts";
+import { isRemoteEntry } from "./shared/fetch.ts";
+import type { SourceTree } from "./shared/memories.ts";
 import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
   countOf,
@@ -92,12 +93,12 @@ type Removal = {
   notices: string[];
   projectTouched: boolean;
   removed: SourceEntry[];
-  removedCopies: Set<string>;
+  removedCopies: Set<ContentHash>;
 };
 
 // One installed memory as `remove` sees it: the upstream name the source ships and the local name
 // it is installed under. From the tree when the source is readable, else from its recorded names.
-type Pair = { upstreamName: MemoryName; localName: MemoryName; text: string | null };
+type Pair = { upstreamName: MemoryName; localName: MemoryName; hash: ContentHash | null };
 
 type Installed = { key: string; entry: SourceEntry; tree: SourceTree | null; pairs: Pair[] };
 
@@ -115,7 +116,7 @@ async function resolveRemoval(
   const labels: string[] = [];
   const notices: string[] = [];
   const removed: SourceEntry[] = [];
-  const removedCopies = new Set<string>();
+  const removedCopies = new Set<ContentHash>();
   const takeOut = (item: Installed): void => {
     const { key, entry } = item;
     if (options.agents !== undefined) {
@@ -136,7 +137,7 @@ async function resolveRemoval(
     delete sources[key];
     removed.push(entry);
     installed.splice(installed.indexOf(item), 1);
-    for (const memory of item.tree?.memories ?? []) removedCopies.add(contentHash(memory.text));
+    for (const memory of item.tree?.memories ?? []) removedCopies.add(memory.memory.contentHash);
     const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
     for (const facts of Object.values(fetched?.memories ?? {})) removedCopies.add(facts.content);
     if (options.agents === undefined) {
@@ -201,7 +202,7 @@ async function resolveRemoval(
     sources[owner.key] = next.entry;
     owner.entry = next.entry;
     owner.pairs = owner.pairs.filter((pair) => pair.localName !== name);
-    if (next.text !== null) removedCopies.add(contentHash(next.text));
+    if (next.hash !== null) removedCopies.add(next.hash);
     labels.push(name);
   }
   const nextState: State = {
@@ -243,7 +244,7 @@ async function readInstalled(
         ? (await retainedNames(key, entry, ctx, io)).map((localName) => ({
             upstreamName: localName,
             localName,
-            text: null,
+            hash: null,
           }))
         : selectMemories({
             memories: tree.memories,
@@ -254,7 +255,7 @@ async function readInstalled(
           }).selected.map((selected) => ({
             upstreamName: selected.upstreamName,
             localName: selected.localName,
-            text: selected.memory.text,
+            hash: selected.memory.memory.contentHash,
           }));
     installed.push({ key, entry, tree, pairs });
   }
@@ -294,7 +295,7 @@ function sameSource(key: string, argument: string, ctx: EngineContext): boolean 
 function withoutMemory(
   owner: Installed,
   local: MemoryName,
-): { entry: SourceEntry; text: string | null } | null {
+): { entry: SourceEntry; hash: ContentHash | null } | null {
   const { entry } = owner;
   const removedMemory = owner.pairs.find((pair) => pair.localName === local);
   if (removedMemory === undefined) return null;
@@ -306,15 +307,16 @@ function withoutMemory(
   const rename = Object.fromEntries(
     Object.entries(entry.intent.rename).filter(([from, to]) => from !== upstream && to !== local),
   );
-  return { entry: withIntent(entry, { select: remaining, rename }), text: removedMemory.text };
+  return { entry: withIntent(entry, { select: remaining, rename }), hash: removedMemory.hash };
 }
 
-// The entry keeps its variant (fetched or live) through the intent edit; a spread over the union
-// would let the type checker pair a live `from` with a fetched record.
+// The entry keeps its variant (remote, copied local or live) through the intent edit; a spread
+// over the union would let the type checker pair a live `from` with a fetched record.
 function withIntent(
   entry: SourceEntry,
   patch: Partial<Pick<SourceIntent, "select" | "rename" | "harnesses">>,
 ): SourceEntry {
-  if (isFetchedEntry(entry)) return { ...entry, intent: { ...entry.intent, ...patch } };
+  if (!isFetchedEntry(entry)) return { ...entry, intent: { ...entry.intent, ...patch } };
+  if (isRemoteEntry(entry)) return { ...entry, intent: { ...entry.intent, ...patch } };
   return { ...entry, intent: { ...entry.intent, ...patch } };
 }

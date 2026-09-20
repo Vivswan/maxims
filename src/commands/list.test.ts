@@ -3,9 +3,10 @@
 // after the collision it resolved is gone, a lock entry this machine never installed), and a
 // `--json` document that hides any of those behind pre-rendered strings.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  configEditHarness,
   daysAgo,
   entryFor,
   fakeIo,
@@ -139,6 +140,22 @@ describe("list", () => {
       expect(text.endsWith("Defaults: agents=detected rule=true cooldownDays=3 ruleCap=25\n")).toBe(
         true,
       );
+    });
+  });
+
+  test("a hook is reported present when only its harness's config entry is pending", async () => {
+    await world(async (w) => {
+      const source = writeSource(join(w.dir, "src"), TWO_MEMORIES);
+      writeState(
+        w.home,
+        stateWith({ [source]: entryFor(localFrom(source), { rule: false }) }, ["claude-code"]),
+      );
+      const io = fakeIo({ ...w, cwd: w.dir, harnesses: [configEditHarness] });
+      await runSync(SYNC, io);
+      expect(existsSync(join(w.userHome, ".fixture", "settings.json"))).toBe(true);
+      expect(existsSync(join(w.userHome, ".fixture", "config.json"))).toBe(false);
+      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+      expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["ok"]);
     });
   });
 

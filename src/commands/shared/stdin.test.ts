@@ -3,8 +3,9 @@
 // value, and a source slug two sources can share.
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
+import type { HookStdout } from "../../harnesses/contract.ts";
 import { sourceSlug } from "./slug.ts";
-import { classifyInvoker, readHookStdin, renderHookStdout, type StdoutVariant } from "./stdin.ts";
+import { classifyInvoker, readHookStdin, renderHookStdout } from "./stdin.ts";
 
 describe("readHookStdin", () => {
   test("a terminal is never read: no listener is attached and the answer is immediate", async () => {
@@ -66,7 +67,7 @@ describe("readHookStdin", () => {
 
 describe("renderHookStdout", () => {
   const line = "maxims: @acme/rules offline";
-  const cases: [StdoutVariant | null, string][] = [
+  const cases: [HookStdout | null, string][] = [
     ["plain", `${line}\n`],
     ["json:additionalContext", `{"additionalContext":"${line}"}\n`],
     [

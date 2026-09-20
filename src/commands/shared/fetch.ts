@@ -1,19 +1,26 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MemoryName } from "../../memory/contract.ts";
+import { contentHashOf, type MemoryName, parseContentHash } from "../../memory/contract.ts";
 import { pruneRenames } from "../../rulefile/dedupe.ts";
 import { needsFetch } from "../../sources/github/index.ts";
 import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
-import type { Fetched, LastError, SourceEntry } from "../../state/schema.ts";
+import {
+  type Fetched,
+  type LastError,
+  parseGitSha,
+  type RenameMap,
+  type SourceEntry,
+} from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
-import { homePaths, storePathFor } from "../../util/home.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import { storePathFor } from "../../util/home.ts";
 import type { EngineIo } from "../types.ts";
 import type { EngineContext } from "./context.ts";
-import { contentHash, type SourceTree, validateMemoryFiles } from "./memories.ts";
+import type { SourceTree } from "./memories.ts";
+import { validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { inSelect } from "./select.ts";
 
@@ -23,6 +30,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const FAILED_FETCH_RETRY_MS = 60 * 60 * 1000;
 
 export type FetchedEntry = Extract<SourceEntry, { fetched?: Fetched }>;
+// The two fetched variants record different sha types (a commit id, a content hash), so every
+// edit of a fetch record narrows to one of them first.
+export type RemoteEntry = Extract<FetchedEntry, { intent: { from: { ref: string } } }>;
+
+export function isRemoteEntry(entry: FetchedEntry): entry is RemoteEntry {
+  return entry.intent.from.type !== "local";
+}
 
 // A fresh fetch carries its content: the store swap is only planned at this point, so the rest of
 // the run reads the memories from `tree`, not from disk. Every outcome returns the entry to keep,
@@ -44,7 +58,7 @@ export type RefreshOptions = {
   noFetch: boolean;
 };
 
-export function storeEntryPath(home: string, entry: SourceEntry): string {
+export function storeEntryPath(home: string, entry: SourceEntry): RootedPath {
   return storePathFor(home, entry.intent.from);
 }
 
@@ -102,10 +116,7 @@ export async function refreshSource(
     if (resolver.resolveRef !== undefined && storePresent && entry.fetched !== undefined) {
       const remoteSha = await resolver.resolveRef(from, undefined, { auth });
       if (!needsFetch(from, entry.fetched.sha, remoteSha)) {
-        return {
-          outcome: "unchanged",
-          entry: { ...entry, fetched: { ...entry.fetched, at: now, lastError: null } },
-        };
+        return { outcome: "unchanged", entry: touched(entry, now) };
       }
     }
     const result = await resolver.fetch(from, {
@@ -115,34 +126,35 @@ export async function refreshSource(
       auth,
     });
     if (storePresent && entry.fetched !== undefined && result.sha === entry.fetched.sha) {
-      return {
-        outcome: "unchanged",
-        entry: { ...entry, fetched: { ...entry.fetched, at: now, lastError: null } },
-      };
+      return { outcome: "unchanged", entry: touched(entry, now) };
     }
     const { memories, invalid } = validateMemoryFiles(result.files);
     for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
     if (memories.length === 0) {
-      const message = `no valid memories at ${result.memoryPath}`;
+      const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
       return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
     }
     const names = memories.map((memory) => memory.memory.name);
-    const fetched: Fetched = {
+    const facts: Omit<Fetched, "sha"> = {
       at: now,
-      sha: result.sha,
       memoryPath: result.memoryPath,
       memories: Object.fromEntries(
         memories.map((memory) => [
           memory.memory.name,
           {
-            content: contentHash(memory.text),
-            description: contentHash(memory.memory.description),
+            content: memory.memory.contentHash,
+            description: contentHashOf(memory.memory.description),
           },
         ]),
       ),
       lastError: null,
     };
     const rename = pruneRenames(entry.intent.rename, names);
+    const next = fresh(entry, rename, facts, result.sha);
+    if (next === null) {
+      const message = `the source reported an unusable commit id ${JSON.stringify(result.sha)}`;
+      return failed(entry, { kind: "invalid", message, at: now }, "failed");
+    }
     const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
     const newUpstream =
       entry.intent.select === "*"
@@ -150,10 +162,9 @@ export async function refreshSource(
         : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
     return {
       outcome: "fresh",
-      entry: { ...entry, intent: { ...entry.intent, rename }, fetched },
+      entry: next,
       tree: { sha: result.sha, memories, invalid },
       storeChanges: swapStoreEntry(
-        ctx.home,
         entryPath,
         memories.map((memory) => ({ relPath: memory.relPath, text: memory.text })),
       ),
@@ -168,13 +179,47 @@ export async function refreshSource(
   }
 }
 
+// A remote confirmed unchanged: the success clock restarts and a past failure is forgotten.
+function touched(entry: FetchedEntry, at: string): FetchedEntry {
+  return withFetched(entry, { at, lastError: null });
+}
+
 function failed(
   entry: FetchedEntry,
   error: LastError,
   outcome: "failed" | "no-valid",
 ): RefreshResult {
-  if (entry.fetched === undefined) return { outcome, entry, error };
-  return { outcome, entry: { ...entry, fetched: { ...entry.fetched, lastError: error } }, error };
+  return { outcome, entry: withFetched(entry, { lastError: error }), error };
+}
+
+// An entry with no record yet has nothing to patch: a failure before the first success is
+// reported to the run but leaves the entry as it was.
+function withFetched(
+  entry: FetchedEntry,
+  patch: Partial<Pick<Fetched, "at" | "lastError">>,
+): FetchedEntry {
+  if (entry.fetched === undefined) return entry;
+  if (isRemoteEntry(entry)) return { ...entry, fetched: { ...entry.fetched, ...patch } };
+  return { ...entry, fetched: { ...entry.fetched, ...patch } };
+}
+
+// The sha a resolver reports is parsed into the variant's own type here, once: a remote names a
+// commit, a copied directory the hash of its tree. A remote whose id does not parse (a sha256
+// repository, a proxy answering with something else) is a fetch that failed, not a crash.
+function fresh(
+  entry: FetchedEntry,
+  rename: RenameMap,
+  facts: Omit<Fetched, "sha">,
+  sha: string,
+): FetchedEntry | null {
+  if (isRemoteEntry(entry)) {
+    const parsed = parseGitSha(sha);
+    if (parsed === null) return null;
+    return { ...entry, intent: { ...entry.intent, rename }, fetched: { ...facts, sha: parsed } };
+  }
+  const parsed = parseContentHash(sha);
+  if (parsed === null) return null;
+  return { ...entry, intent: { ...entry.intent, rename }, fetched: { ...facts, sha: parsed } };
 }
 
 // A ladder failure carries its own class; a local directory that is gone reads as `missing`,
@@ -195,9 +240,8 @@ function classifyFetchError(error: unknown, at: string): LastError | null {
 
 // The entry is replaced wholesale, laid out like the source (`relPath` from the source root), so
 // `fetched.memoryPath` finds the files there and a memory deleted upstream leaves nothing behind.
-export function swapStoreEntry(home: string, entryPath: string, files: TreeFile[]): Change[] {
-  const store = homePaths(home).store;
-  const entry = assertInsideRoot(store, entryPath);
+// A file's path is asserted against the entry because `relPath` comes from the source tree.
+export function swapStoreEntry(entry: RootedPath, files: TreeFile[]): Change[] {
   const changes: Change[] = [
     { kind: "delete", path: entry },
     { kind: "mkdir", path: entry },

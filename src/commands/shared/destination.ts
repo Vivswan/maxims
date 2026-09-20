@@ -3,10 +3,12 @@ import { basename, dirname, join } from "node:path";
 import {
   type HarnessDefinition,
   type HarnessId,
+  isBuiltInHarnessId,
   type Scope,
   scopeRoot,
   type Target,
 } from "../../harnesses/contract.ts";
+import { configDirExists } from "../../harnesses/detect.ts";
 import { rulesDirPath } from "../../harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../harnesses/strategies/shared-block.ts";
 import type { SourceIntent } from "../../state/schema.ts";
@@ -60,7 +62,7 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
     const explicit = request.agents !== undefined;
     const def = request.harnesses.find((candidate) => candidate.id === id);
     if (def === undefined) {
-      skipped.push({ id, reason: "no definition in this build", kind: "no-definition" });
+      skipped.push({ id, reason: noDefinitionReason(id), kind: "no-definition" });
       continue;
     }
     const target = def.targets[scope];
@@ -84,6 +86,15 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
   return { targets, skipped };
 }
 
+// A built-in id always has a definition, so a missing one names a harness the user declared in
+// `harnesses.json` and has since taken out of the file; intent keeps the id until the user drops
+// it, and every sync says so.
+export function noDefinitionReason(id: HarnessId): string {
+  return isBuiltInHarnessId(id)
+    ? "no definition in this build"
+    : "not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it";
+}
+
 // A rules directory lives inside the harness's own config folder (`.claude`, `.github`,
 // `.clinerules`); a project that has none of it is not using that harness here. A regular file
 // at the folder's path (the single-file `.clinerules` of older Cline) is a conflict, never a
@@ -98,14 +109,11 @@ function destinationConflict(
   const [configFolder] = target.dir.split(/[\\/]/);
   if (configFolder === undefined || configFolder === "") return null;
   const folder = join(root, configFolder);
-  const entry = statSync(folder, { throwIfNoEntry: false });
-  if (entry === undefined) {
+  if (configDirExists(folder)) return null;
+  if (statSync(folder, { throwIfNoEntry: false }) === undefined) {
     return scope === "project" ? `${def.displayName}: ${folder} does not exist` : null;
   }
-  if (!entry.isDirectory()) {
-    return `${def.displayName}: ${folder} is a file, not the directory ${target.dir} needs`;
-  }
-  return null;
+  return `${def.displayName}: ${folder} is a file, not the directory ${target.dir} needs`;
 }
 
 // The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,

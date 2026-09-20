@@ -9,7 +9,8 @@ import {
 import { achievedTier } from "../../harnesses/hook-writer.ts";
 import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-target.ts";
 import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
-import { parseBlocks, renderBlock, replaceBlock, stripBlock } from "../../rulefile/block.ts";
+import { planSharedBlockRemove } from "../../harnesses/strategies/shared-block.ts";
+import { parseBlocks, renderBlock, replaceBlock } from "../../rulefile/block.ts";
 import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
@@ -117,12 +118,15 @@ export async function planRuleFile(
   if (primary === undefined || primary.target.kind !== "shared-block") {
     return { writes, removals, notices, tokens };
   }
-  // The marker grammar's own splicers: `replaceBlock` closes a fence or comment the user left
-  // open at the end of the file before appending, so the markers stay where the parser finds
-  // them, and `stripBlock` takes the blank line an append added back out with the block.
+  // One shared file carries a block per source. The strategy writes one block and judges the
+  // byte budget on the result, which for the second of two blocks is the text with the first
+  // already replaced: a source that grew while a later one shrank would be refused on that
+  // intermediate text even when the finished file fits. So the blocks are spliced here with the
+  // grammar's own splicer (which closes a construct the user left open, as the strategy does) and
+  // the budget is judged once, on the finished text.
   let text = current ?? "";
   for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
-  if (rendered.length > 0) assertWithinBudget(primary.def, file.path, text);
+  if (rendered.length > 0) assertWithinBudget(primary.def, primary.scope, file.path, text);
   if (text !== (current ?? "")) {
     writes.push({ kind: "write", path: file.path, content: text });
     tokens.push({ path: file.path, tokens: estimateTokens(text, rendering.markers) });
@@ -131,10 +135,17 @@ export async function planRuleFile(
   let stripped = text;
   let emptied = false;
   for (const span of parseBlocks(text).blocks) {
-    if (wanted.has(span.source)) continue;
-    const result = stripBlock(stripped, span.source);
-    stripped = result.text;
-    emptied = result.emptied;
+    if (wanted.has(span.source) || emptied) continue;
+    const [change] = planSharedBlockRemove({
+      def: primary.def,
+      target: primary.target,
+      scope: primary.scope,
+      ctx: harnessContext(options.ctx),
+      source: span.source,
+      currentText: stripped,
+    });
+    if (change?.kind === "delete") emptied = true;
+    else if (change?.kind === "write") stripped = change.content;
   }
   if (emptied && current !== null) removals.push({ kind: "delete", path: file.path });
   else if (stripped !== text) removals.push({ kind: "write", path: file.path, content: stripped });

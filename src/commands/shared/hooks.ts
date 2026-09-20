@@ -1,6 +1,11 @@
 import { isDeepStrictEqual } from "node:util";
-import type { HarnessDefinition, HarnessId, Scope } from "../../harnesses/contract.ts";
-import { planHookWrite } from "../../harnesses/hook-writer.ts";
+import type {
+  HarnessContext,
+  HarnessDefinition,
+  HarnessId,
+  Scope,
+} from "../../harnesses/contract.ts";
+import { type HookPlan, planHookWrite } from "../../harnesses/hook-writer.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
@@ -22,6 +27,26 @@ export type HooksPlan = {
   // should be); each is a write failure to report, never a reason to stop the other harnesses.
   failures: { message: string; hint: string | undefined }[];
 };
+
+// The hook writer plans a definition's config edit together with the hook, under the hook's
+// `wanted`. Here the hook is planned alone: the bundled edit is taken back out, so the registry
+// entry and the config entry each follow their own answer (the hook list, the rules).
+export async function planHookAlone(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+): Promise<HookPlan> {
+  const hook = await planHookWrite({ def, scope, ctx, wanted });
+  if (def.configEdit === undefined) return hook;
+  const bundled = await def.configEdit(scope, ctx, wanted);
+  return {
+    ...hook,
+    changes: hook.changes.filter(
+      (change) => !bundled.some((other) => isDeepStrictEqual(other, change)),
+    ),
+  };
+}
 
 // Reconciles every definition's hook and config edit at every scope this run can reach. The
 // hook follows `state.hooks` and the scopes where the harness has sources; the config edit a
@@ -45,9 +70,11 @@ export async function planHooks(input: {
     for (const scope of scopes) {
       const wants = input.wants(def.id, scope);
       if (wants.unreachable) continue;
-      let hook: Awaited<ReturnType<typeof planHookWrite>>;
+      let hook: HookPlan;
+      let config: Change[];
       try {
-        hook = await planHookWrite({ def, scope, ctx: harnessCtx, wanted: wants.hook });
+        hook = await planHookAlone(def, scope, harnessCtx, wants.hook);
+        config = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
       } catch (error) {
         if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
           throw error;
@@ -58,24 +85,8 @@ export async function planHooks(input: {
         continue;
       }
       if (hook.notice !== undefined) notices.push(hook.notice);
-      if (wants.hook) {
-        changes.push(...hook.changes);
-        continue;
-      }
-      if (def.configEdit === undefined) {
-        removals.push(...hook.changes);
-        continue;
-      }
-      // The hook writer bundles the config edit with the hook under one `wanted`; with the hook
-      // unwanted its removal changes are dropped here and the rules' own answer is asked instead.
-      const removal = await def.configEdit(scope, harnessCtx, false);
-      removals.push(
-        ...hook.changes.filter(
-          (change) => !removal.some((other) => isDeepStrictEqual(other, change)),
-        ),
-      );
-      if (wants.rules) changes.push(...(await def.configEdit(scope, harnessCtx, true)));
-      else removals.push(...removal);
+      (wants.hook ? changes : removals).push(...hook.changes);
+      (wants.rules ? changes : removals).push(...config);
     }
   }
   return { changes, removals, notices, failures };

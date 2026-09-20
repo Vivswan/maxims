@@ -1,70 +1,22 @@
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { z } from "zod";
-import { HARNESS_IDS } from "../../harnesses/contract.ts";
+import { join, relative, resolve, sep } from "node:path";
+import {
+  type LockSource,
+  PROJECT_LOCK_RELATIVE_PATH,
+  PROJECT_LOCK_VERSION,
+  type ProjectLock,
+  parseProjectLock,
+  serializeProjectLock,
+} from "../../state/project-lock.ts";
 import {
   canonicalSourceKey,
   DEFAULT_GIT_REF,
-  MemoryNameSchema,
-  RenameMapSchema,
-  SelectSchema,
   type SourceFrom,
   type SourceIntent,
   type State,
 } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
-
-export const PROJECT_LOCK_VERSION = 1;
-export const PROJECT_LOCK_RELATIVE_PATH = join(".agents", "maxims.lock");
-
-// The committed projection of a project's intent: the repository identity without a ref (the ref
-// is `pin`, absent when tracking the default branch), the selection, renames, rule flag,
-// harnesses and paths, and never a destination, a timestamp or a fetch fact. A local source is
-// named relative to the project root because the file is read on every machine that clones it.
-const LockGithubFrom = z.strictObject({
-  type: z.literal("github"),
-  repo: z.string().min(1),
-  host: z.string().min(1).optional(),
-});
-const LockGitFrom = z.strictObject({ type: z.literal("git"), url: z.string().min(1) });
-const LockLocalFrom = z.strictObject({
-  type: z.literal("local"),
-  path: z
-    .string()
-    .min(1)
-    .refine((value) => !isAbsolute(value), {
-      message: "expected a path relative to the project",
-    }),
-  live: z.literal(true).optional(),
-});
-const LockIntentFields = {
-  select: SelectSchema,
-  rename: RenameMapSchema.optional(),
-  rule: z.boolean(),
-  harnesses: z.array(z.enum(HARNESS_IDS)),
-  paths: z.array(z.string().min(1)).optional(),
-  auth: z.boolean().optional(),
-  memoryPath: z.string().min(1).optional(),
-  fullDepth: z.boolean().optional(),
-  copy: z.boolean().optional(),
-};
-const LockSourceSchema = z.union([
-  z.strictObject({
-    from: z.union([LockGithubFrom, LockGitFrom]),
-    pin: z.string().min(1).optional(),
-    ...LockIntentFields,
-  }),
-  z.strictObject({ from: LockLocalFrom, pin: z.never().optional(), ...LockIntentFields }),
-]);
-export type LockSource = z.infer<typeof LockSourceSchema>;
-
-export const ProjectLockSchema = z.strictObject({
-  version: z.literal(PROJECT_LOCK_VERSION),
-  sources: z.record(z.string(), LockSourceSchema),
-  disabled: z.array(MemoryNameSchema).optional(),
-});
-export type ProjectLock = z.infer<typeof ProjectLockSchema>;
 
 export type LoadedProjectLock =
   | { kind: "absent" }
@@ -87,25 +39,12 @@ export async function readProjectLock(projectRoot: string): Promise<LoadedProjec
       return { kind: "absent" };
     throw error;
   }
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return { kind: "corrupt", path, issues: [`not valid JSON: ${detail}`] };
-  }
-  const result = ProjectLockSchema.safeParse(json);
-  if (!result.success) {
-    return {
-      kind: "corrupt",
-      path,
-      issues: result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
-    };
-  }
-  const keys = Object.values(result.data.sources).map((source) =>
+  const parsed = parseProjectLock(text);
+  if (parsed.ok === "corrupt") return { kind: "corrupt", path, issues: parsed.issues };
+  const keys = Object.values(parsed.lock.sources).map((source) =>
     canonicalSourceKey(stateFrom(source, projectRoot)),
   );
-  return { kind: "parsed", lock: result.data, keys };
+  return { kind: "parsed", lock: parsed.lock, keys };
 }
 
 function stateFrom(source: LockSource, projectRoot: string): SourceFrom {
@@ -118,9 +57,9 @@ function stateFrom(source: LockSource, projectRoot: string): SourceFrom {
   return { ...source.from, ref: source.pin ?? DEFAULT_GIT_REF };
 }
 
-// The projection of every project-scope source in state, or a deletion when none remains. A
-// local source is keyed by its project-relative path, like its `from`, so two checkouts of the
-// project write the same bytes.
+// The projection of this project's intent: every project-scope source in state and the project's
+// disabled names, or a deletion when there is nothing to project. A local source is keyed by its
+// project-relative path, like its `from`, so two checkouts of the project write the same bytes.
 export function projectLockChange(projectRoot: string, state: State): Change {
   const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
   const sources: Record<string, LockSource> = {};
@@ -131,25 +70,22 @@ export function projectLockChange(projectRoot: string, state: State): Change {
     const lockKey = source.from.type === "local" ? source.from.path : key;
     sources[lockKey] = source;
   }
-  if (Object.keys(sources).length === 0) return { kind: "delete", path };
-  return {
-    kind: "write",
-    path,
-    content: serializeProjectLock({ version: PROJECT_LOCK_VERSION, sources }),
-  };
+  const disabled = state.disabled?.project?.[projectRoot] ?? [];
+  if (Object.keys(sources).length === 0 && disabled.length === 0) return { kind: "delete", path };
+  const lock: ProjectLock = { version: PROJECT_LOCK_VERSION, sources };
+  if (disabled.length > 0) lock.disabled = disabled;
+  return { kind: "write", path, content: serializeProjectLock(lock) };
 }
 
 function lockSource(intent: SourceIntent, projectRoot: string): LockSource {
   const fields = {
     select: intent.select,
-    ...(Object.keys(intent.rename).length === 0 ? {} : { rename: sortedRecord(intent.rename) }),
+    ...(Object.keys(intent.rename).length === 0 ? {} : { rename: intent.rename }),
     rule: intent.rule,
     harnesses: intent.harnesses,
     ...(intent.paths === undefined ? {} : { paths: intent.paths }),
     ...(intent.auth ? { auth: true } : {}),
-    ...(intent.memoryPath === "memories" ? {} : { memoryPath: intent.memoryPath }),
-    ...(intent.fullDepth ? { fullDepth: true } : {}),
-    ...(intent.copy ? { copy: true } : {}),
+    ...(intent.allowHidden === undefined ? {} : { allowHidden: intent.allowHidden }),
   };
   const from = intent.from;
   if (from.type === "local") {
@@ -181,20 +117,4 @@ function relativeToProject(projectRoot: string, path: string): string {
   const rel = relative(projectRoot, resolve(path)).split(sep).join("/");
   if (rel === "") return ".";
   return rel.startsWith("../") || rel === ".." ? rel : `./${rel}`;
-}
-
-function sortedRecord<T>(record: Record<string, T>): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-  );
-}
-
-// Fixed field order and sorted keys, so two machines writing the same intent diff empty.
-export function serializeProjectLock(lock: ProjectLock): string {
-  const canonical: Record<string, unknown> = {
-    version: lock.version,
-    sources: sortedRecord(lock.sources),
-  };
-  if (lock.disabled !== undefined) canonical.disabled = lock.disabled;
-  return `${JSON.stringify(canonical, null, 2)}\n`;
 }

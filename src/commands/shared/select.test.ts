@@ -1,7 +1,6 @@
-// What would drift silently: a memory checked out with CRLF hashing differently from its LF twin
-// (a rewrite of every rule file on Windows), a disabled or internal memory reaching a rule line,
-// a lock projection whose bytes depend on the machine that wrote it, and a lock entry whose
-// relative local path does not resolve back to the state key.
+// What would drift silently: a disabled or internal memory reaching a rule line, a lock
+// projection whose bytes depend on the machine that wrote it or that drops the project's disabled
+// names, and a lock entry whose relative local path does not resolve back to the state key.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
@@ -13,7 +12,7 @@ import {
 } from "../../../tests/engine/harness.ts";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
 import { parseMemory } from "../../memory/contract.ts";
-import { contentHash, type SourceMemory } from "./memories.ts";
+import type { SourceMemory } from "./memories.ts";
 import { projectLockChange, readProjectLock } from "./project-lock-io.ts";
 import { disabledNames, selectMemories } from "./select.ts";
 
@@ -25,11 +24,6 @@ function sourceMemory(name: string, description: string, internal = false): Sour
 }
 
 describe("selection", () => {
-  test("CRLF and LF spellings of one memory hash alike", () => {
-    const lf = memoryFile("crlf-rule", { description: "Same rule." });
-    expect(contentHash(lf.replaceAll("\n", "\r\n"))).toBe(contentHash(lf));
-  });
-
   test("disabled names leave the scope's selection by local name and stay owned for the index", () => {
     const memories = [
       sourceMemory("alpha", "A."),
@@ -62,18 +56,27 @@ describe("project lock projection", () => {
     await withTempDir(async (dir) => {
       const project = join(dir, "project");
       const local = join(dir, "memories");
-      const state = stateWith({
-        "@acme/rules#v2": entryFor(
-          { type: "github", repo: "acme/rules", ref: "v2" },
-          { destination: { scope: "project" }, select: [memoryName("one")], harnesses: ["codex"] },
-        ),
-        [local]: entryFor(localFrom(local, true), {
-          destination: { scope: "project" },
-          rename: { [memoryName("b")]: memoryName("b2"), [memoryName("a")]: memoryName("a2") },
-          copy: true,
-        }),
-        "@acme/global": entryFor({ type: "github", repo: "acme/global", ref: "HEAD" }),
-      });
+      const state = stateWith(
+        {
+          "@acme/rules#v2": entryFor(
+            { type: "github", repo: "acme/rules", ref: "v2" },
+            {
+              destination: { scope: "project" },
+              select: [memoryName("one")],
+              harnesses: ["codex"],
+              allowHidden: true,
+            },
+          ),
+          [local]: entryFor(localFrom(local, true), {
+            destination: { scope: "project" },
+            rename: { [memoryName("b")]: memoryName("b2"), [memoryName("a")]: memoryName("a2") },
+            paths: ["src/**"],
+          }),
+          "@acme/global": entryFor({ type: "github", repo: "acme/global", ref: "HEAD" }),
+        },
+        [],
+        { global: [memoryName("one")], project: { [project]: [memoryName("a2")] } },
+      );
       const change = projectLockChange(project, state);
       if (change.kind !== "write") throw new Error("expected a write");
       expect(change.content).toBe(
@@ -87,7 +90,7 @@ describe("project lock projection", () => {
                 rename: { a: "a2", b: "b2" },
                 rule: true,
                 harnesses: ["claude-code"],
-                copy: true,
+                paths: ["src/**"],
               },
               "@acme/rules#v2": {
                 from: { type: "github", repo: "acme/rules" },
@@ -95,8 +98,10 @@ describe("project lock projection", () => {
                 select: ["one"],
                 rule: true,
                 harnesses: ["codex"],
+                allowHidden: true,
               },
             },
+            disabled: ["a2"],
           },
           null,
           2,
@@ -110,6 +115,17 @@ describe("project lock projection", () => {
       if (read.kind === "parsed")
         expect(read.keys.sort()).toEqual([local, "@acme/rules#v2"].sort());
       expect(projectLockChange(project, stateWith({})).kind).toBe("delete");
+      // A project with nothing installed but names switched off still projects those names.
+      const onlyDisabled = projectLockChange(
+        project,
+        stateWith({}, [], { project: { [project]: [memoryName("one")] } }),
+      );
+      if (onlyDisabled.kind !== "write") throw new Error("expected a write");
+      expect(JSON.parse(onlyDisabled.content)).toEqual({
+        version: 1,
+        sources: {},
+        disabled: ["one"],
+      });
       // A local directory named like a GitHub key keeps its own entry beside the real one.
       const lookalike = join(project, "@acme", "rules");
       const twins = projectLockChange(

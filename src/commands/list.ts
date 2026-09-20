@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import type { Scope } from "../harnesses/contract.ts";
-import { achievedTier, hasHook, planHookWrite } from "../harnesses/hook-writer.ts";
+import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex } from "../rulefile/dedupe.ts";
@@ -13,7 +13,7 @@ import {
   harnessContext,
   loadContext,
 } from "./shared/context.ts";
-import { resolveTargets } from "./shared/destination.ts";
+import { noDefinitionReason, resolveTargets } from "./shared/destination.ts";
 import {
   isFetchedEntry,
   readInstalledTree,
@@ -21,6 +21,7 @@ import {
   shortSha,
   staleness,
 } from "./shared/engine.ts";
+import { planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { unusableStateLine } from "./shared/report.ts";
 import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
@@ -76,7 +77,6 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       report.notices.push(`maxims: ${key}: ${line}`),
     );
-    const _fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
     const upstream: MemoryName[] =
       tree.kind === "tree"
         ? selectMemories({
@@ -201,7 +201,7 @@ async function listHarnesses(
     };
     const scope = entry.intent.destination.scope;
     if (def === undefined) {
-      out.push({ ...base, skipped: "no definition in this build" });
+      out.push({ ...base, skipped: noDefinitionReason(id) });
       continue;
     }
     if (scope === "out") {
@@ -232,7 +232,7 @@ async function listHarnesses(
     // A harness with no home at this scope (its config folder absent or a file) has no registry
     // to probe; sync does not touch it either.
     if (state.hooks.includes(id) && skipped?.kind !== "unreachable") {
-      const hook = await planHookWrite({ def, scope, ctx: harnessCtx, wanted: true });
+      const hook = await planHookAlone(def, scope, harnessCtx, true);
       listed.hook = hook.changes.length === 0 ? "ok" : "absent";
     }
     out.push(listed);

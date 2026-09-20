@@ -1,7 +1,12 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import type { HarnessId, Scope } from "../../harnesses/contract.ts";
-import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
+import {
+  type ContentHash,
+  contentHashOf,
+  type MemoryName,
+  parseMemoryName,
+} from "../../memory/contract.ts";
 import { parseBlocks } from "../../rulefile/block.ts";
 import {
   buildNameIndex,
@@ -16,7 +21,7 @@ import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/sche
 import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { EngineIo, SyncOptions, SyncReport } from "../types.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
@@ -24,7 +29,7 @@ import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts"
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
 import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { planHooks } from "./hooks.ts";
-import { contentHash, readSourceMemories, type SourceMemory, type SourceTree } from "./memories.ts";
+import { readSourceMemories, type SourceMemory, type SourceTree } from "./memories.ts";
 import { Notices } from "./notices.ts";
 import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
@@ -54,7 +59,7 @@ export type SyncExtras = {
   // reaches them), and the content hashes of their bodies let a copied body under a project be
   // told from the user's own file with the same name.
   removed: readonly SourceEntry[];
-  removedCopies: ReadonlySet<string>;
+  removedCopies: ReadonlySet<ContentHash>;
 };
 
 export type SyncOutcome = {
@@ -71,7 +76,7 @@ export type SourceWork = {
   entry: SourceEntry;
   intent: SourceIntent;
   scopeKind: ScopeKind;
-  storeEntry: string;
+  storeEntry: RootedPath;
   tree: SourceTree;
   sha: string;
   stale: Staleness | undefined;
@@ -247,11 +252,11 @@ async function planInstall(
   // it. Ambiguity and ownership read the same snapshot: every source's installed tree as the
   // state as read left it, held and unreadable sources included.
   const installedTrees = new Map<string, SourceTree | null>();
-  const hashOwners = new Map<string, number>();
+  const hashOwners = new Map<ContentHash, number>();
   for (const [key, entry] of Object.entries(extras.previousState.sources)) {
     const tree = await installedTree(installedRoot(entry, ctx), entry.intent);
     installedTrees.set(key, tree);
-    for (const hash of new Set((tree?.memories ?? []).map((memory) => contentHash(memory.text)))) {
+    for (const hash of new Set((tree?.memories ?? []).map((memory) => memory.memory.contentHash))) {
       hashOwners.set(hash, (hashOwners.get(hash) ?? 0) + 1);
     }
   }
@@ -291,7 +296,7 @@ async function planInstall(
   // A regular file in a bodies directory is ours when its bytes match a memory this run knows:
   // the trees read now, the previous fetch facts (a copy written before upstream changed), and
   // what the caller just removed.
-  const knownCopies = new Set<string>(extras.removedCopies);
+  const knownCopies = new Set<ContentHash>(extras.removedCopies);
   for (const entry of Object.values(extras.previousState.sources)) {
     const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
     for (const facts of Object.values(fetched?.memories ?? {})) knownCopies.add(facts.content);
@@ -316,7 +321,7 @@ async function planInstall(
     if (selection.hiddenInternal > 0) {
       notices.notice(`maxims: ${key}: ${selection.hiddenInternal} internal, hidden`);
     }
-    for (const memory of work.tree.memories) knownCopies.add(contentHash(memory.text));
+    for (const memory of work.tree.memories) knownCopies.add(memory.memory.contentHash);
     staleNotices(work, selection.selected.length, notices);
     const slug = sourceSlug(intent.from);
     const targets =
@@ -827,7 +832,7 @@ export type TreeRead = { kind: "tree"; tree: SourceTree } | { kind: "unreadable"
 async function treeFor(
   key: string,
   entry: SourceEntry,
-  storeEntry: string,
+  storeEntry: RootedPath,
   freshTrees: Map<string, SourceTree>,
   notices: Notices,
 ): Promise<TreeRead> {
@@ -890,9 +895,7 @@ function staleNotices(work: SourceWork, ruleCount: number, notices: Notices): vo
       `maxims: ${work.key} offline, kept last-good from ${since} (${ruleCount} rules); source repository gone or unreadable`,
     );
   } else if (kind === "invalid") {
-    notices.loud(
-      `maxims: ${work.key} has no valid memories at ${fetched.memoryPath}; kept last-good (layout probably changed upstream)`,
-    );
+    notices.loud(`maxims: ${work.key}: ${fetched.lastError.message}; kept last-good`);
   } else if (work.stale !== undefined) {
     notices.loud(
       `maxims: ${work.key} has not refreshed since ${since} (${STALE_REASON[kind]}); rules may be out of date`,
@@ -978,7 +981,7 @@ export async function retainedNames(
   entry: SourceEntry,
   ctx: EngineContext,
   io: EngineIo,
-  ambiguous: ReadonlySet<string> = new Set(),
+  ambiguous: ReadonlySet<ContentHash> = new Set(),
   installedSnapshot?: SourceTree | null,
 ): Promise<MemoryName[]> {
   const names = new Set<MemoryName>();
@@ -1022,7 +1025,7 @@ export async function retainedNames(
   const entryReal = join(realDirOf(ctx.paths.store), relative(ctx.paths.store, storeEntry));
   const own = new Set(
     (installed?.memories ?? [])
-      .map((memory) => contentHash(memory.text))
+      .map((memory) => memory.memory.contentHash)
       .filter((hash) => !ambiguous.has(hash)),
   );
   for (const dir of bodiesDirsFor(entry, ctx, io, undefined)) {
@@ -1051,7 +1054,11 @@ async function installedTree(root: string, intent: SourceIntent): Promise<Source
 // store entry, and copies whose bytes are one of its memories (`own` holds their content hashes).
 // A directory that exists but cannot be listed stops the run: read as empty, it would hand every
 // installed name to whichever source is older and let a write repoint another source's body.
-function installedBodies(dir: string, entryReal: string, own: ReadonlySet<string>): MemoryName[] {
+function installedBodies(
+  dir: string,
+  entryReal: string,
+  own: ReadonlySet<ContentHash>,
+): MemoryName[] {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -1073,7 +1080,7 @@ function installedBodies(dir: string, entryReal: string, own: ReadonlySet<string
     if (stat.isSymbolicLink()) {
       const target = resolve(realDirOf(dir), readlinkSync(path));
       if (target === entryReal || target.startsWith(`${entryReal}${sep}`)) names.push(parsed);
-    } else if (stat.isFile() && own.has(contentHash(readFileSync(path, "utf8")))) {
+    } else if (stat.isFile() && own.has(contentHashOf(readFileSync(path, "utf8")))) {
       names.push(parsed);
     }
   }

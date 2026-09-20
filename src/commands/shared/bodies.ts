@@ -1,12 +1,11 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { parseMemory } from "../../memory/contract.ts";
+import { type ContentHash, contentHashOf, parseMemory } from "../../memory/contract.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import type { SymlinkSupport } from "../types.ts";
 import { realDirOf } from "./destination.ts";
-import { contentHash } from "./memories.ts";
 import { isAbsent } from "./rules.ts";
 
 export type BodyFile = {
@@ -30,7 +29,7 @@ export type BodiesInput = {
   replaceCopies: boolean;
   // Content hashes of every memory text maxims has written or recorded; a regular file whose
   // hash is one of them is a copy of ours, whatever upstream has since become.
-  knownCopies: ReadonlySet<string>;
+  knownCopies: ReadonlySet<ContentHash>;
 };
 
 export type BodiesPlan = {
@@ -92,7 +91,7 @@ export function planBodySweep(input: {
   root: string;
   store: string;
   wanted: ReadonlySet<string>;
-  knownCopies: ReadonlySet<string>;
+  knownCopies: ReadonlySet<ContentHash>;
   warn: (line: string) => void;
 }): Change[] {
   let entries: string[];
@@ -133,9 +132,9 @@ function inStore(store: string, storeFile: string): string {
 // contract (a copy of an upstream version no record holds any more). The contract ties the
 // frontmatter `name` to the file stem; a copy installed under a renamed local name keeps its
 // upstream `name`, so the check reads that name from the frontmatter instead of the stem.
-function isOurCopy(path: string, known: ReadonlySet<string>): boolean {
+function isOurCopy(path: string, known: ReadonlySet<ContentHash>): boolean {
   const text = readFileSync(path, "utf8");
-  if (known.has(contentHash(text))) return true;
+  if (known.has(contentHashOf(text))) return true;
   const declared = declaredName(text);
   return declared !== null && parseMemory(`${declared}.md`, text).ok;
 }

@@ -1,10 +1,6 @@
 import { StringDecoder } from "node:string_decoder";
 import type { HarnessDefinition, HarnessId, HookStdout } from "../../harnesses/contract.ts";
 
-// The nested Gemini envelope; a definition may declare it under this name once the contract
-// carries it, so the renderer accepts both spellings.
-export type StdoutVariant = HookStdout | "json:hookSpecificOutput.additionalContext";
-
 export type InvokerClassification =
   | { kind: "harness"; id: HarnessId; startDir: string | null }
   | { kind: "unknown-json" }
@@ -74,6 +70,21 @@ const INVOKER_RULES: readonly InvokerRule[] = [
     matches: (payload) => payload.hook_event_name === "sessionStart",
     startDir: (payload) => firstOf(payload, "workspace_roots"),
   },
+  // Windsurf has no session start; the hook rides the prompt action, which names no directory.
+  {
+    id: "windsurf",
+    matches: (payload) =>
+      payload.agent_action_name === "pre_user_prompt" && isString(payload.trajectory_id),
+    startDir: (payload) => stringAt(payload, "cwd"),
+  },
+  // Devin names no event and no directory: a session id and the start reason are all it sends,
+  // so it is judged last, once every payload that names its event has had its turn.
+  {
+    id: "devin",
+    matches: (payload) =>
+      !("hook_event_name" in payload) && isString(payload.session_id) && isString(payload.source),
+    startDir: (payload) => stringAt(payload, "cwd"),
+  },
 ];
 
 // Null text means a terminal or an empty pipe: a human ran the command. A JSON object no rule
@@ -102,7 +113,7 @@ function isPayload(value: unknown): value is Payload {
 export function stdoutVariantFor(
   classification: InvokerClassification,
   harnesses: readonly HarnessDefinition[],
-): StdoutVariant | null {
+): HookStdout | null {
   if (classification.kind === "none") return "plain";
   if (classification.kind === "unknown-json") return null;
   const def = harnesses.find((candidate) => candidate.id === classification.id);
@@ -110,10 +121,14 @@ export function stdoutVariantFor(
   return def.hook.stdout;
 }
 
-export function renderHookStdout(variant: StdoutVariant | null, lines: readonly string[]): string {
-  if (variant === null || variant === "none" || lines.length === 0) return "";
+// Nothing to say prints nothing, whatever the envelope: a harness that reads JSON only (Gemini)
+// must never see an empty object where silence was meant.
+export function renderHookStdout(variant: HookStdout | null, lines: readonly string[]): string {
+  if (variant === null || lines.length === 0) return "";
   const text = lines.join("\n");
   switch (variant) {
+    case "none":
+      return "";
     case "plain":
       return `${text}\n`;
     case "json:additionalContext":
@@ -126,6 +141,10 @@ export function renderHookStdout(variant: StdoutVariant | null, lines: readonly 
       return `${JSON.stringify({ cancel: false, contextModification: text })}\n`;
     case "json:additional_context":
       return `${JSON.stringify({ additional_context: text })}\n`;
+    default: {
+      const unhandled: never = variant;
+      throw new Error(`unhandled hook stdout variant ${String(unhandled)}`);
+    }
   }
 }
 

@@ -6,7 +6,6 @@ import {
   type TreeScope,
   type WarnSink,
 } from "../../sources/tree.ts";
-import { sha256 } from "../../util/fs.ts";
 
 export type SourceMemory = {
   memory: Memory;
@@ -43,10 +42,4 @@ export function validateMemoryFiles(
     else invalid.push({ relPath: file.relPath, reason: parsed.reason });
   }
   return { memories, invalid };
-}
-
-// Hashes are over text with CRLF folded to LF, so the same memory checked out on two platforms
-// records one content hash; the bytes written to the store are the file's own.
-export function contentHash(text: string): string {
-  return sha256(text.replaceAll("\r\n", "\n"));
 }

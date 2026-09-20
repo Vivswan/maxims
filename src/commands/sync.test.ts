@@ -26,6 +26,7 @@ import {
   fetchedEntry,
   fetchedFacts,
   githubFrom,
+  gitSha,
   localFrom,
   memoryFile,
   memoryName,
@@ -523,7 +524,7 @@ describe("what a refused or departed source leaves behind", () => {
       const report = await runSync(SYNC, io);
       expect(fake.calls).toEqual([]);
       expect(report.fetched).toEqual([]);
-      expect(fetchedOf(home, "@acme/rules")?.sha).toBe("a".repeat(40));
+      expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
     });
   });
 
@@ -601,7 +602,7 @@ describe("what a refused or departed source leaves behind", () => {
       expect(
         existsSync(join(project, ".fixture", "rules", `maxims-${sourceSlug(localFrom(rival))}.md`)),
       ).toBe(false);
-      expect(fetchedOf(home, "@acme/rules")?.sha).toBe("a".repeat(40));
+      expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
     });
   });
 
@@ -643,7 +644,7 @@ describe("what a refused or departed source leaves behind", () => {
       const report = await runSync({ ...SYNC, agents: ["claude-code"] }, io);
       expect(fake.calls).toEqual([]);
       expect(report.fetched).toEqual([]);
-      expect(fetchedOf(home, "@acme/rules")?.sha).toBe("a".repeat(40));
+      expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
     });
   });
 
@@ -1476,7 +1477,7 @@ describe("what a refused or departed source leaves behind", () => {
       await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
       expect(existsSync(join(storePathFor(home, from), "memories", "alpha.md"))).toBe(true);
       expect(existsSync(join(storePathFor(home, from), "memories", "rule-0.md"))).toBe(false);
-      expect(fetchedOf(home, "@acme/rules")?.sha).toBe("a".repeat(40));
+      expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
     });
   });
 
@@ -1607,6 +1608,52 @@ describe("plan surfaces", () => {
       const text = readFileSync(globalRulesFile(userHome, "acme-rules"), "utf8");
       expect(text).toContain("Never merge red.");
       expect(fetchedOf(home, "@acme/rules")?.lastError?.kind).toBe("network");
+    });
+  });
+});
+
+describe("shared file byte budget", () => {
+  test("the budget is judged on the finished file, not on the text between two block replacements", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const rule = (prefix: string, count: number) =>
+        Object.fromEntries(
+          Array.from({ length: count }, (_, index) => [
+            `${prefix}-rule-${index}`,
+            { description: `Rule ${index} of ${prefix}.` },
+          ]),
+        );
+      // Names of one length on both sides, so the finished file is as long as the first one.
+      const first = join(dir, "alpha");
+      const second = join(dir, "bravo");
+      writeSource(first, rule("alpha", 2));
+      writeSource(second, rule("bravo", 6));
+      const codexOnly = { harnesses: ["codex" as const] };
+      writeState(
+        home,
+        stateWith({
+          [first]: entryFor(localFrom(first, true), codexOnly),
+          [second]: entryFor(localFrom(second, true), codexOnly),
+        }),
+      );
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      const unbudgeted = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness] });
+      await runSync({ ...SYNC, noFetch: true }, unbudgeted);
+      const size = statSync(shared).size;
+      // Eight rule lines fit with one line to spare; the first block growing to six before the
+      // second shrinks to two would pass through twelve.
+      const budgeted: HarnessDefinition = { ...sharedBlockHarness, byteBudget: size + 40 };
+      rmSync(join(first, "memories"), { recursive: true });
+      rmSync(join(second, "memories"), { recursive: true });
+      writeSource(first, rule("alpha", 6));
+      writeSource(second, rule("bravo", 2));
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [budgeted] });
+      const report = await runSync({ ...SYNC, noFetch: true }, io);
+      expect(report.rules).toBe(8);
+      expect(statSync(shared).size).toBe(size);
+      const text = readFileSync(shared, "utf8");
+      expect(parseBlocks(text).blocks).toHaveLength(2);
+      expect(text.match(/alpha-rule-\d/g)).toHaveLength(6);
+      expect(text.match(/bravo-rule-\d/g)).toHaveLength(2);
     });
   });
 });

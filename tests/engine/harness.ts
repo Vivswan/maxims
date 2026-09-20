@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { contentHash, validateMemoryFiles } from "../../src/commands/shared/memories.ts";
+import { validateMemoryFiles } from "../../src/commands/shared/memories.ts";
 import type { EngineIo, SymlinkSupport } from "../../src/commands/types.ts";
 import {
   type HarnessContext,
@@ -16,21 +16,23 @@ import {
   type Scope,
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
-import type { MemoryName } from "../../src/memory/contract.ts";
-import { parseMemoryName } from "../../src/memory/contract.ts";
+import { contentHashOf, type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import type { FetchResult, ResolverFor, SourceResolver } from "../../src/sources/contract.ts";
 import { FetchFailure, type FetchFailureKind } from "../../src/sources/github/ladder.ts";
 import { createLocalResolver } from "../../src/sources/local.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import {
   canonicalSourceKey,
+  type Fetched,
+  type GitSha,
+  parseGitSha,
   type SourceEntry,
   type SourceFrom,
   type SourceIntent,
   type State,
 } from "../../src/state/schema.ts";
 import { serializeState } from "../../src/state/store.ts";
-import { sha256 } from "../../src/util/fs.ts";
+import { assertInsideRoot, sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 
 export const FIXTURE_DIR = ".fixture";
@@ -39,6 +41,18 @@ export function memoryName(candidate: string): MemoryName {
   const name = parseMemoryName(candidate);
   if (name === null) throw new Error(`${candidate} is not a memory name`);
   return name;
+}
+
+export function gitSha(candidate: string): GitSha {
+  const sha = parseGitSha(candidate);
+  if (sha === null) throw new Error(`${candidate} is not a git sha`);
+  return sha;
+}
+
+// The commit id a remote fixture reports for a directory: cut from the tree hash, so facts
+// seeded from a directory and an unscripted fake fetch of the same directory agree.
+export function fixtureGitSha(treeSha: string): GitSha {
+  return gitSha(treeSha.slice("sha256:".length, "sha256:".length + 40));
 }
 
 // Two definitions with the two writing strategies, whose files all sit under `.fixture/` in the
@@ -103,6 +117,19 @@ export const sharedBlockHarness: HarnessDefinition = {
   expands: [],
   detect: () => true,
   verifiedAgainst: { url: "https://example.com/fixture", date: "2026-01-01" },
+};
+
+export const FIXTURE_CONFIG_CONTENT = '{"instructions":["rules"]}\n';
+
+// The rules-dir fixture with a config entry its rules directory needs, reconciled like a hook.
+export const configEditHarness: HarnessDefinition = {
+  ...rulesDirHarness,
+  configEdit: async (_scope, ctx, wanted) => {
+    const path = assertInsideRoot(ctx.home, join(ctx.home, FIXTURE_DIR, "config.json"));
+    return wanted
+      ? [{ kind: "write", path, content: FIXTURE_CONFIG_CONTENT }]
+      : [{ kind: "delete", path }];
+  },
 };
 
 export function fixtureRoot(scope: Scope, ctx: HarnessContext): string {
@@ -172,16 +199,20 @@ export function fakeResolvers(): FakeResolvers {
       }
       return run(behaviour.dir, behaviour.sha);
     };
+    // A scripted directory stands for a remote's tree, so it reports a commit id; a local
+    // directory reports its tree hash like the real local resolver.
+    const shaOf = (treeSha: string, scripted: string | undefined): string =>
+      scripted ?? (from.type === "local" ? treeSha : fixtureGitSha(treeSha));
     return {
       resolveRef: async () => {
         calls.push(`resolveRef ${key}`);
-        return act(async (dir, sha) => sha ?? (await treeOf(dir)).sha);
+        return act(async (dir, sha) => shaOf((await treeOf(dir)).sha, sha));
       },
       fetch: async (_target, opts): Promise<FetchResult> => {
         calls.push(`fetch ${key}`);
         return act(async (dir, sha) => {
           const tree = await treeOf(dir, opts.memoryPath, opts.fullDepth);
-          return { sha: sha ?? tree.sha, memoryPath: opts.memoryPath, files: tree.files };
+          return { sha: shaOf(tree.sha, sha), memoryPath: opts.memoryPath, files: tree.files };
         });
       },
     };
@@ -240,33 +271,40 @@ export const ADDED_AT = "2026-08-01T00:00:00.000Z";
 
 export type IntentOverrides = Partial<Omit<SourceIntent, "from">>;
 
-export function intentFor(from: SourceFrom, overrides: IntentOverrides = {}): SourceIntent {
-  const base = {
-    select: "*" as const,
+function baseIntent(overrides: IntentOverrides): Omit<SourceIntent, "from"> {
+  return {
+    select: "*",
     rename: {},
     rule: true,
-    destination: { scope: "global" as const },
+    destination: { scope: "global" },
     copy: false,
     auth: false,
-    harnesses: ["claude-code" as const],
+    harnesses: ["claude-code"],
     memoryPath: "memories",
     fullDepth: false,
     ...overrides,
   };
-  if (from.type === "local" && from.live === true) return { ...base, from };
-  return { ...base, from };
 }
 
+// The entry variant follows `from`: a live directory records no fetch, a copied one or a remote
+// starts with none.
 export function entryFor(from: SourceFrom, overrides: IntentOverrides = {}): SourceEntry {
-  const intent = intentFor(from, overrides);
-  if (intent.from.type === "local" && intent.from.live === true) {
-    return { intent: { ...intent, from: intent.from }, addedAt: ADDED_AT };
+  const base = baseIntent(overrides);
+  if (from.type === "local") {
+    if (from.live === true) return { intent: { ...base, from }, addedAt: ADDED_AT };
+    return { intent: { ...base, from }, addedAt: ADDED_AT };
   }
-  return { intent: { ...intent, from: intent.from }, addedAt: ADDED_AT };
+  return { intent: { ...base, from }, addedAt: ADDED_AT };
 }
 
-export function stateWith(entries: Record<string, SourceEntry>, hooks: State["hooks"] = []): State {
-  return { version: 1, writtenBy: "maxims@0.0.0-fixture", hooks, sources: entries };
+export function stateWith(
+  entries: Record<string, SourceEntry>,
+  hooks: State["hooks"] = [],
+  disabled?: State["disabled"],
+): State {
+  const state: State = { version: 1, writtenBy: "maxims@0.0.0-fixture", hooks, sources: entries };
+  if (disabled !== undefined) state.disabled = disabled;
+  return state;
 }
 
 export function writeState(home: string, state: State): void {
@@ -278,7 +316,9 @@ export function readStateFile(home: string): State {
   return JSON.parse(readFileSync(homePaths(home).state, "utf8"));
 }
 
-export function githubFrom(repo: string, ref = "HEAD"): SourceFrom {
+export type RemoteFrom = Extract<SourceFrom, { ref: string }>;
+
+export function githubFrom(repo: string, ref = "HEAD"): RemoteFrom {
   return { type: "github", repo, ref };
 }
 
@@ -311,7 +351,8 @@ export function daysAgo(now: Date, days: number): string {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-export type FetchedFacts = NonNullable<Extract<SourceEntry, { fetched?: unknown }>["fetched"]>;
+// The record a remote source carries; every fixture that seeds fetch facts is a GitHub source.
+export type FetchedFacts = Extract<Fetched, { sha: GitSha }>;
 
 // The fetch record a real fetch of `dir` would have written at `at`, with an optional failure.
 export async function fetchedFacts(
@@ -324,12 +365,15 @@ export async function fetchedFacts(
   const { memories } = validateMemoryFiles(tree.files);
   return {
     at,
-    sha: sha ?? tree.sha,
+    sha: sha === undefined ? fixtureGitSha(tree.sha) : gitSha(sha),
     memoryPath: "memories",
     memories: Object.fromEntries(
       memories.map((memory) => [
         memory.memory.name,
-        { content: contentHash(memory.text), description: contentHash(memory.memory.description) },
+        {
+          content: memory.memory.contentHash,
+          description: contentHashOf(memory.memory.description),
+        },
       ]),
     ),
     lastError,
@@ -344,11 +388,9 @@ export function seedStore(home: string, from: SourceFrom, dir: string): string {
 }
 
 export function fetchedEntry(
-  from: SourceFrom,
+  from: RemoteFrom,
   fetched: FetchedFacts,
   overrides: IntentOverrides = {},
 ): SourceEntry {
-  const entry = entryFor(from, overrides);
-  if (entry.intent.from.type === "local" && entry.intent.from.live === true) return entry;
-  return { ...entry, intent: { ...entry.intent, from: entry.intent.from }, fetched };
+  return { intent: { ...baseIntent(overrides), from }, addedAt: ADDED_AT, fetched };
 }

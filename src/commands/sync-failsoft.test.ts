@@ -23,6 +23,7 @@ import {
   fetchedFacts,
   githubFrom,
   localFrom,
+  readStateFile,
   rulesDirHarness,
   seedStore,
   stateWith,
@@ -140,11 +141,30 @@ describe("fail-soft rungs under --quiet", () => {
       await runSync(QUIET, io);
       expect(readFileSync(rules, "utf8")).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY} has no valid memories at memories; kept last-good (layout probably changed upstream)\n`,
+        `maxims: ${KEY}: no valid memories at memories (layout probably changed upstream); kept last-good\n`,
       );
       expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
         true,
       );
+    });
+  });
+
+  test("a commit id the state cannot record is a failed fetch that says so, never a crash", async () => {
+    await world(async (w) => {
+      const { fake, io, rules, upstream } = await lastGood(w, 9);
+      await runSync(SYNC, io);
+      const before = readFileSync(rules, "utf8");
+      fake.set(FROM, { kind: "dir", dir: upstream, sha: "sha256:" + "d".repeat(64) });
+      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+      io.out.length = 0;
+      await runSync(QUIET, io);
+      expect(readFileSync(rules, "utf8")).toBe(before);
+      expect(io.out.join("")).toBe(
+        `maxims: ${KEY}: the source reported an unusable commit id "sha256:${"d".repeat(64)}"; kept last-good\n`,
+      );
+      const entry = readStateFile(w.home).sources[KEY];
+      const lastError = entry !== undefined && "fetched" in entry ? entry.fetched?.lastError : null;
+      expect(lastError?.kind).toBe("invalid");
     });
   });
 
@@ -505,6 +525,10 @@ describe("live sources whose files all fail the contract", () => {
   });
 });
 
+// Devin's session start and Windsurf's prompt action carry no working directory, so a hook run
+// from them starts at the process cwd; every other payload names its project.
+const NAMES_NO_DIRECTORY: ReadonlySet<string> = new Set(["devin", "windsurf"]);
+
 describe("hook stdin contract", () => {
   const fixtures = HARNESSES.flatMap((def) =>
     def.fixtures?.hookStdin === undefined
@@ -523,7 +547,8 @@ describe("hook stdin contract", () => {
     expect(fixtures.length).toBeGreaterThan(0);
     for (const { def, text } of fixtures) {
       const classified = classifyInvoker(text);
-      expect(classified).toEqual({ kind: "harness", id: def.id, startDir: expect.any(String) });
+      const startDir = NAMES_NO_DIRECTORY.has(def.id) ? null : expect.any(String);
+      expect(classified).toEqual({ kind: "harness", id: def.id, startDir });
     }
     expect(classifyInvoker(JSON.stringify({ hello: "world" }))).toEqual({ kind: "unknown-json" });
     expect(classifyInvoker("not json")).toEqual({ kind: "unknown-json" });

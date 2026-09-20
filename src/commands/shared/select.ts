@@ -2,7 +2,7 @@ import type { MemoryName } from "../../memory/contract.ts";
 import type { Candidate } from "../../rulefile/dedupe.ts";
 import { shortHash } from "../../rulefile/dedupe.ts";
 import type { RenameMap, Select, SourceIntent, State } from "../../state/schema.ts";
-import { contentHash, type SourceMemory } from "./memories.ts";
+import type { SourceMemory } from "./memories.ts";
 
 export type SelectedMemory = {
   memory: SourceMemory;
@@ -57,7 +57,7 @@ export function selectMemories(input: SelectInput): Selection {
       candidate: {
         name: upstreamName,
         description: memory.memory.description,
-        contentHash: contentHash(memory.text),
+        contentHash: memory.memory.contentHash,
         detailPath: input.detailPath(memory, localName),
       },
     });
@@ -74,17 +74,13 @@ export function renamed(rename: RenameMap, name: MemoryName): MemoryName {
 }
 
 export function shortHashOf(memory: SourceMemory): string {
-  return shortHash(contentHash(memory.text));
+  return shortHash(memory.memory.contentHash);
 }
 
-// The names switched off at one scope. State may carry a `disabled` record once the schema
-// lands it; until then every scope's list is empty, and this is the one reader either way.
-export type DisabledCarrier = Pick<State, "sources"> & {
-  disabled?: { global?: readonly MemoryName[]; project?: Record<string, readonly MemoryName[]> };
-};
-
+// The names switched off at one scope, read from state, which owns both lists; a project's list
+// is keyed by its root, and an `-o` folder has none.
 export function disabledNames(
-  state: DisabledCarrier,
+  state: Pick<State, "disabled">,
   scope: "project" | "global" | "out",
   projectRoot: string | null,
 ): ReadonlySet<string> {
