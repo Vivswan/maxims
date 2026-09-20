@@ -11,4 +11,4 @@
 
 # Shrink the base instruction budget.
 - id: agent-instructions
-  config: { maxBytes: 32768 }
+  config: {maxBytes: 32768}
