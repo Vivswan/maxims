@@ -247,9 +247,21 @@ interface Fixture {
   bench: string;
 }
 
-// The bench derives the repository from its own location, so a copy of the script inside a
-// fixture's linked worktree measures that fixture. Git's default-branch hint goes to stderr and
-// is not an error; only the exit code says whether a step succeeded.
+// The bench derives the repository from its own location, so a copy of the script, with the module
+// it imports beside it, measures the checkout it is copied into.
+function copyBenchInto(root: string): string {
+  mkdirSync(join(root, "scripts", "lib"), { recursive: true });
+  const bench = join(root, "scripts", "bench.ts");
+  copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
+  copyFileSync(
+    join(repoRoot, "scripts", "lib", "paths.ts"),
+    join(root, "scripts", "lib", "paths.ts"),
+  );
+  return bench;
+}
+
+// Git's default-branch hint goes to stderr and is not an error; only the exit code says whether a
+// step succeeded.
 function fixtureWorktree(dir: string): Fixture {
   const primary = join(dir, "primary");
   const linked = join(dir, "linked");
@@ -265,10 +277,7 @@ function fixtureWorktree(dir: string): Fixture {
     const ran = Bun.spawnSync(step, { stdout: "pipe", stderr: "pipe" });
     if (ran.exitCode !== 0) throw new Error(`${step.join(" ")}: ${ran.stderr.toString()}`);
   }
-  mkdirSync(join(linked, "scripts"));
-  const bench = join(linked, "scripts", "bench.ts");
-  copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
-  return { primary, linked, other, bench };
+  return { primary, linked, other, bench: copyBenchInto(linked) };
 }
 
 const worktreeTargets: [string, (fixture: Fixture) => string, boolean][] = [
@@ -328,19 +337,16 @@ interface GitFailure {
   fragments: string[];
 }
 
-// The bench derives the repository from its own location, so a copy of the script in a plain
-// directory asks git about a checkout that is not one. The ceiling keeps git from adopting a
-// repository that happens to enclose the OS tmpdir. With an empty PATH only git goes missing: the
-// bench and its child are named by absolute path.
+// A copy of the bench in a plain directory asks git about a checkout that is not one. The ceiling
+// keeps git from adopting a repository that happens to enclose the OS tmpdir. With an empty PATH
+// only git goes missing: the bench and its child are named by absolute path.
 const gitFailures: [string, (dir: string) => GitFailure][] = [
   [
     "a checkout git does not recognize",
     (dir) => {
-      mkdirSync(join(dir, "fixture", "scripts"), { recursive: true });
-      const bench = join(dir, "fixture", "scripts", "bench.ts");
-      copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
+      mkdirSync(join(dir, "fixture"));
       return {
-        bench,
+        bench: copyBenchInto(join(dir, "fixture")),
         env: { GIT_CEILING_DIRECTORIES: dirname(dir) },
         fragments: ["not a git repository", "git worktree list exited with 128"],
       };

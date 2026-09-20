@@ -1,11 +1,12 @@
 // Fails if whereBytesLand stops answering with the real destination of a write: a symlinked prefix
 // left lexical, a missing tail dropped, a relative spelling resolved against the wrong base, or a
 // dangling link followed instead of refused would each let one of the scripts compare two paths
-// that differ in spelling only, and write where its guard should have said no.
+// that differ in spelling only, and write where its guard should have said no. Also fails if
+// isInside starts judging by string prefix instead of by path segment.
 import { expect, test } from "bun:test";
 import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
-import { basename, join, parse, relative } from "node:path";
-import { whereBytesLand } from "../scripts/lib/paths.ts";
+import { basename, join, parse, relative, resolve } from "node:path";
+import { isInside, whereBytesLand } from "../scripts/lib/paths.ts";
 import { withTempDir } from "./shared/temp_dir.ts";
 
 const refuse = (message: string): never => {
@@ -77,4 +78,24 @@ test.each(landings)("whereBytesLand of %s", async (_name, plan) => {
     if ("path" in expected) expect(whereBytesLand(input, refuse)).toBe(expected.path);
     else expect(() => whereBytesLand(input, refuse)).toThrow(expected.refusal);
   });
+});
+
+const root = resolve("/repo");
+
+const containments: [string, string, boolean][] = [
+  [root, root, true],
+  [root, join(root, "out", "bench.json"), true],
+  [root, `${root}-sibling/bench.json`, false],
+  [root, resolve(root, ".."), false],
+  [join(root, "sub"), join(root, "bench.json"), false],
+  ...(process.platform === "win32"
+    ? ([
+        ["C:\\Repo", "c:/repo/out.json", true],
+        ["C:\\Repo", "D:\\Repo\\out.json", false],
+      ] satisfies [string, string, boolean][])
+    : []),
+];
+
+test.each(containments)("isInside(%p, %p) is %p", (inside, path, expected) => {
+  expect(isInside(inside, path)).toBe(expected);
 });
