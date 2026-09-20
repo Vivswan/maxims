@@ -10,20 +10,22 @@ interface Options {
   sizeJson: string | undefined;
 }
 
+function fail(message: string): never {
+  process.stderr.write(`build: ${message}\n`);
+  process.stderr.write("usage: bun scripts/build.ts [--outfile path] [--size-json path]\n");
+  process.exit(2);
+}
+
 function parseArgs(argv: string[]): Options {
   const options: Options = { outfile: "dist/cli.js", sizeJson: undefined };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag !== "--outfile" && flag !== "--size-json") fail(`unknown argument ${flag}`);
     const value = argv[i + 1];
-    if ((flag === "--outfile" || flag === "--size-json") && value !== undefined) {
-      if (flag === "--outfile") options.outfile = value;
-      else options.sizeJson = value;
-      i++;
-      continue;
-    }
-    process.stderr.write(`build: unknown argument ${flag}\n`);
-    process.stderr.write("usage: bun scripts/build.ts [--outfile path] [--size-json path]\n");
-    process.exit(2);
+    if (value === undefined) fail(`${flag} needs a value`);
+    if (flag === "--outfile") options.outfile = value;
+    else options.sizeJson = value;
+    i++;
   }
   return options;
 }
