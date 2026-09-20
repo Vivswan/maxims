@@ -426,7 +426,7 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
   }
   if (rest.length > 1) {
     throw usage(
-      `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; use @${repo} with --pin and --from`,
+      `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>`,
     );
   }
   const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;

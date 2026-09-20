@@ -648,6 +648,20 @@ describe("parseSourceArgument", () => {
     ).toEqual(git("https://gitlab.example.com/team/rules"));
   });
 
+  // An `@owner/repo` shorthand in the advice would be re-hosted under GH_HOST on an enterprise
+  // shell, so the message must point at the URL the user already has plus the two flags.
+  test("a tree URL with a path is advised without an @owner/repo shorthand", () => {
+    let caught: unknown;
+    try {
+      parseSourceArgument("https://github.com/example-user/rules/tree/release/1.0", cwd);
+    } catch (error) {
+      caught = error;
+    }
+    const message = (caught as MaximsError).message;
+    expect(message.slice(message.indexOf(": ") + 2)).not.toContain("@");
+    expect(message).toContain("--pin <ref> --from <path>");
+  });
+
   const rejected = [
     "",
     "@only-owner",
