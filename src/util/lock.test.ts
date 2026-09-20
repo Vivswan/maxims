@@ -41,7 +41,13 @@ await withLock(process.argv[2], JSON.parse(process.argv[3]), async () => {
 `;
 
 // A holder in another process, so a signal aimed at it leaves exactly what a real interrupt leaves.
-async function holdInChild(lockPath: string, options: LockOptions): Promise<ChildHolder> {
+// The child blocks on stdin until it is killed, so the teardown kills whatever the callback left
+// running: a failed assertion must not leave a holder behind.
+async function withChildHolder<T>(
+  lockPath: string,
+  options: LockOptions,
+  fn: (child: ChildHolder) => Promise<T>,
+): Promise<T> {
   const proc = Bun.spawn(
     [
       process.execPath,
@@ -53,21 +59,26 @@ async function holdInChild(lockPath: string, options: LockOptions): Promise<Chil
     ],
     { stdin: "pipe", stdout: "pipe", stderr: "inherit" },
   );
-  const reader = proc.stdout.getReader();
-  let text = "";
-  while (!text.includes("\n")) {
-    const chunk = await reader.read();
-    if (chunk.done) throw new Error(`child holder exited with ${await proc.exited}`);
-    text += new TextDecoder().decode(chunk.value);
+  try {
+    const reader = proc.stdout.getReader();
+    let text = "";
+    while (!text.includes("\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`child holder exited with ${await proc.exited}`);
+      text += new TextDecoder().decode(chunk.value);
+    }
+    return await fn({
+      pid: Number(text.slice(0, text.indexOf("\n"))),
+      kill: async (signal) => {
+        proc.kill(signal);
+        await proc.exited;
+        return { exitCode: proc.exitCode, signalCode: proc.signalCode };
+      },
+    });
+  } finally {
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+    await proc.exited;
   }
-  return {
-    pid: Number(text.slice(0, text.indexOf("\n"))),
-    kill: async (signal) => {
-      proc.kill(signal);
-      await proc.exited;
-      return { exitCode: proc.exitCode, signalCode: proc.signalCode };
-    },
-  };
 }
 
 describe("withLock", () => {
@@ -229,9 +240,10 @@ describe("withLock", () => {
     async () => {
       await withTempDir(async (dir) => {
         const lockPath = join(dir, "state.json.lock");
-        const child = await holdInChild(lockPath, {});
-        expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(child.pid);
-        expect(await child.kill("SIGTERM")).toEqual({ exitCode: null, signalCode: "SIGTERM" });
+        await withChildHolder(lockPath, {}, async (child) => {
+          expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(child.pid);
+          expect(await child.kill("SIGTERM")).toEqual({ exitCode: null, signalCode: "SIGTERM" });
+        });
         expect(readdirSync(dir)).toEqual([]);
       });
     },
@@ -240,15 +252,16 @@ describe("withLock", () => {
   signalTest("a displaced holder's exit on a signal leaves the newer lock in place", async () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
-      const displaced = await holdInChild(lockPath, { staleMs: 60_000 });
-      const then = new Date(Date.now() - 120_000);
-      utimesSync(lockPath, then, then);
-      const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => {
-        await displaced.kill("SIGTERM");
-        expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
-        return lock;
+      await withChildHolder(lockPath, { staleMs: 60_000 }, async (displaced) => {
+        const then = new Date(Date.now() - 120_000);
+        utimesSync(lockPath, then, then);
+        const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => {
+          await displaced.kill("SIGTERM");
+          expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+          return lock;
+        });
+        expect(seen.stolen?.holder?.pid).toBe(displaced.pid);
       });
-      expect(seen.stolen?.holder?.pid).toBe(displaced.pid);
       expect(readdirSync(dir)).toEqual([]);
     });
   });

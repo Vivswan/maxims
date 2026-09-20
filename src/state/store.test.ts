@@ -172,7 +172,7 @@ function concurrentWriterStep(
 }
 
 // Staleness is the lock file's age, so a stale fixture backdates the file's mtime along with the
-// record; a record alone, however old, is a live holder's lock.
+// record; a record alone, however old, is refused as a live holder's lock.
 function holdLock(home: string, holder: Record<string, unknown>, ageMs = 0): string {
   const lockPath = homePaths(home).lock;
   writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
