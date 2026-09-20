@@ -14,7 +14,7 @@ import {
 import { finish } from "./shared/output.ts";
 import { resolveMemoryName } from "./shared/sources.ts";
 
-const DISABLE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.agent, FLAGS.yes];
+const DISABLE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.agent];
 
 // A disabled memory stays in state and loses its rule line and link at one scope. The list is per
 // scope, so a harness cannot be named: `-a` has no representation there and is refused.

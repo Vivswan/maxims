@@ -25,7 +25,7 @@ import {
   withIntent,
 } from "./shared/sources.ts";
 
-const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes];
+const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent];
 
 type LinkTarget = { key: string; ids: HarnessId[] };
 

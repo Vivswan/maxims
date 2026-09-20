@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { homePaths } from "../../src/util/home.ts";
 import {
   FIXTURES,
+  lastSyncCall,
   readState,
   runCli,
   type Scenario,
@@ -381,6 +382,7 @@ test("harness selection: detected first, then config.agents, then a global-less 
       const none = await runCli(scenario, ["add", "@a/b", "-g", "-a", "cursor"]);
       expect(none.code).toBe(0);
       expect(source(scenario, "@a/b").intent.harnesses).toEqual([]);
+      expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
       writeConfig(scenario, {});
       const star = await runCli(scenario, ["add", "@a/b", "-g", "-a", "*"]);
       expect(star.code).toBe(0);

@@ -30,7 +30,7 @@ export type SyncPreview = {
 };
 
 // The harnesses a run is restricted to. Absent means every harness; the list is never empty, so
-// "restrict to nothing" has no spelling.
+// "restrict to nothing" has no spelling and a verb whose chosen list came out empty syncs all.
 export type HarnessFilter = readonly [HarnessId, ...HarnessId[]];
 
 export type SyncOptions = CommonOptions & {

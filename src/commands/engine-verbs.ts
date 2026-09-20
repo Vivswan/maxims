@@ -6,6 +6,7 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { loadIntent, persistCooldownCap } from "./shared/cli-context.ts";
 import {
   type Args,
+  agentsFilter,
   type Command,
   commonOptions,
   FLAGS,
@@ -24,7 +25,7 @@ import {
   resolveMemoryName,
   tildify,
 } from "./shared/sources.ts";
-import type { EngineIo, RemoveTarget } from "./types.ts";
+import type { EngineIo, HarnessFilter, RemoveTarget } from "./types.ts";
 
 // The three engine verbs as the command line dispatches them: parse, hand the typed options to
 // the engine, print its report through the one output path.
@@ -32,6 +33,11 @@ import type { EngineIo, RemoveTarget } from "./types.ts";
 function agentIds(args: Args, io: EngineIo): HarnessId[] | undefined {
   const selection = parseAgents(args, knownHarnessIds(io));
   return selection.kind === "ids" ? selection.ids : undefined;
+}
+
+// `-a` on `sync` narrows the run; without it every harness is meant, spelled as an absent key.
+function syncAgents(args: Args, io: EngineIo): { agents?: HarnessFilter } {
+  return agentsFilter(agentIds(args, io) ?? []);
 }
 
 const SYNC_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.noFetch, FLAGS.cooldown, FLAGS.cap];
@@ -44,7 +50,7 @@ export const sync: Command = {
   async run(args, ctx) {
     const console = await ctx.openConsole(true);
     const noFetch = args.flag(FLAGS.noFetch);
-    const agents = agentIds(args, ctx.io);
+    const agents = syncAgents(args, ctx.io);
     const persisted = await persistCooldownCap(args, ctx);
     const preview =
       ctx.global.dryRun && persisted.changes.length > 0
@@ -58,7 +64,7 @@ export const sync: Command = {
       {
         ...commonOptions(ctx.global),
         noFetch,
-        agents,
+        ...agents,
         force: false,
         ...(preview === undefined ? {} : { preview }),
       },
@@ -83,6 +89,7 @@ export const sync: Command = {
         );
       }
     }
+    for (const failure of report.failed) console.error(`${failure.key}: ${failure.message}`);
     return finish(ctx, console, {
       plan: { changes: [...persisted.changes, ...report.plan.changes], notices: [] },
       notices: report.notices,
@@ -90,9 +97,11 @@ export const sync: Command = {
         sources: report.sources,
         rules: report.rules,
         fetched: report.fetched,
+        failed: report.failed,
         changed: report.changed,
       },
       lines: [`Synced ${report.sources} sources, ${report.rules} rule lines`],
+      code: report.failed.length === 0 ? ExitCode.Ok : ExitCode.SourceUnresolvable,
     });
   },
 };

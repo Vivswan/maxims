@@ -51,6 +51,7 @@ import { configWrite, cooldownCapConfig, loadIntent, updateIntent } from "./shar
 import {
   type AgentSelection,
   type Args,
+  agentsFilter,
   type Command,
   type CommandContext,
   commonOptions,
@@ -185,12 +186,12 @@ export const add: Command = {
 export function syncAfterCommit(
   ctx: CommandContext,
   preview: SyncPreview,
-  agents: HarnessId[],
+  agents: readonly HarnessId[],
 ): SyncOptions {
   return {
     ...commonOptions(ctx.global),
     noFetch: true,
-    agents,
+    ...agentsFilter(agents),
     force: false,
     ...(ctx.global.dryRun ? { preview } : {}),
   };

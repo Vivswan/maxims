@@ -340,6 +340,14 @@ export async function snapshot(dir: string): Promise<string> {
   return `${await hashDirectory(dir)}|${links.sort().join(",")}`;
 }
 
+// The last sync the fake engine recorded, or a thrown error: an assertion about an absent key on
+// `calls.sync.at(-1)` would otherwise pass on a verb that never called sync at all.
+export function lastSyncCall(scenario: Scenario): SyncOptions {
+  const call = scenario.engine.calls.sync.at(-1);
+  if (call === undefined) throw new Error("no sync call was recorded");
+  return call;
+}
+
 export function writeState(scenario: Scenario, state: unknown): void {
   writeFileSync(homePaths(scenario.home).state, `${JSON.stringify(state, null, 2)}\n`);
 }

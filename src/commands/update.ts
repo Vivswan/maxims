@@ -16,6 +16,7 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
 import { loadIntent, persistCooldownCap, updateIntent } from "./shared/cli-context.ts";
 import {
+  agentsFilter,
   type Command,
   type CommandContext,
   commonOptions,
@@ -82,7 +83,7 @@ export const update: Command = {
         ...commonOptions(ctx.global),
         noFetch: false,
         force: true,
-        agents: selection.kind === "ids" ? selection.ids : undefined,
+        ...agentsFilter(selection.kind === "ids" ? selection.ids : []),
         ...(only === undefined ? {} : { only }),
         ...(ctx.global.dryRun && preview !== undefined ? { preview } : {}),
       },

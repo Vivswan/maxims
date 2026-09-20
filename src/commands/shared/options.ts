@@ -7,7 +7,7 @@ import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
 import type { UserConfig } from "../../state/config.ts";
 import type { Destination, RenameMap, Select } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { CommonOptions, Engine, EngineIo } from "../types.ts";
+import type { CommonOptions, Engine, EngineIo, HarnessFilter } from "../types.ts";
 
 export type FlagSpec = {
   name: string;
@@ -261,6 +261,13 @@ export function parseAgents(args: Args, known: readonly HarnessId[]): AgentSelec
   if (raw.length === 0) return { kind: "auto" };
   if (raw.includes("*")) return { kind: "all" };
   return { kind: "ids", ids: harnessIdsOrUsage(raw, known) };
+}
+
+// The one constructor of a sync restriction: an empty list becomes "no restriction", and the
+// caller spreads the result so an absent filter is an absent key, not `agents: undefined`.
+export function agentsFilter(ids: readonly HarnessId[]): { agents?: HarnessFilter } {
+  const [first, ...rest] = ids;
+  return first === undefined ? {} : { agents: [first, ...rest] };
 }
 
 export function harnessIdsOrUsage<Id extends string>(

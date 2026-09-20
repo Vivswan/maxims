@@ -20,6 +20,7 @@ import { homePaths } from "../../src/util/home.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
+  lastSyncCall,
   readState,
   runCli,
   type Scenario,
@@ -524,6 +525,7 @@ test("disable and enable edit the per-scope list through the engine, then sync",
       { scope: "global", name: mn("skip-unfit-skills"), disabled: true, dryRun: false },
     ]);
     expect(disabled.stdout).toContain("o  Disabled skip-unfit-skills at global scope\n");
+    expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
     scenario.options.disabledChanged = false;
     const enabled = await runCli(scenario, ["enable", "@a/b/skip-unfit-skills"]);
     expect(enabled.code).toBe(0);
@@ -564,6 +566,7 @@ test("sync dispatches to the engine, prints the notices under --quiet, and warns
       );
       const loud = await runCli(scenario, ["sync"]);
       expect(loud.code).toBe(0);
+      expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
       expect(loud.stdout).toContain(
         "lists sources this machine has not installed (@a/b); run maxims install",
       );
@@ -996,7 +999,6 @@ test("an intent edit reports the state write in its dry-run plan", async () => {
       "claude-code",
       "--dry-run",
       "--json",
-      "-y",
     ]);
     expect(run.code).toBe(0);
     const body = JSON.parse(run.stdout) as { plan: { changes: { kind: string; path: string }[] } };
@@ -1018,16 +1020,13 @@ test("a dry run of an intent edit creates nothing, not even the maxims home", as
 test("disable reports the engine's intent write in its plan and remove refuses -m on a memory", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
-    const run = await runCli(scenario, [
-      "disable",
-      "skip-unfit-skills",
-      "--dry-run",
-      "--json",
-      "-y",
-    ]);
+    const run = await runCli(scenario, ["disable", "skip-unfit-skills", "--dry-run", "--json"]);
     expect(run.code).toBe(0);
     const body = JSON.parse(run.stdout) as { plan: { changes: { path: string }[] } };
     expect(body.plan.changes.some((c) => c.path.endsWith("state.json"))).toBe(true);
+    const yes = await runCli(scenario, ["disable", "skip-unfit-skills", "-y"]);
+    expect(yes.code).toBe(1);
+    expect(yes.stderr).toBe(" ERROR  unknown option: -y\n");
     const refused = await runCli(scenario, [
       "remove",
       "skip-unfit-skills",
@@ -1314,3 +1313,27 @@ test.each(persistingInvocations)(
     });
   },
 );
+
+test("sync names each source whose refresh failed and exits 2, except under --quiet", async () => {
+  await withScenario(
+    {
+      github: { "a/b": SKILLS },
+      syncReport: { failed: [{ key: "@a/b", message: "connect timed out" }] },
+    },
+    async (scenario) => {
+      await installSkills(scenario);
+      const run = await runCli(scenario, ["sync"]);
+      expect(run.code).toBe(2);
+      expect(run.stdout).toContain("x  @a/b: connect timed out\n");
+      expect(run.stdout).toContain("o  Synced 1 sources, 0 rule lines\n");
+      const json = await runCli(scenario, ["sync", "--json"]);
+      expect(json.code).toBe(2);
+      expect(JSON.parse(json.stdout)).toMatchObject({
+        ok: false,
+        failed: [{ key: "@a/b", message: "connect timed out" }],
+      });
+      const quiet = await runCli(scenario, ["sync", "--quiet"]);
+      expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
+    },
+  );
+});
