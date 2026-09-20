@@ -127,7 +127,8 @@ jobs:
         run: |
           announced="$(node dist/cli.js --version)"
           if [ "$announced" != "maxims $VERSION" ]; then
-            echo "::error::dist/cli.js --version prints '$announced', not 'maxims $VERSION', the version about to be published; the bundle was built before package.json carried it."
+            echo "::error::dist/cli.js --version prints '$announced', not 'maxims $VERSION', the version about to be published;" \
+              "the bundle was built before package.json carried it."
             exit 1
           fi
       # npm's provenance names the commit in GITHUB_SHA, so the source is passed in.

@@ -12,7 +12,7 @@
 
 name: Bench comment
 
-on: # zizmor: ignore[dangerous-triggers] no checkout and nothing from the triggering run is executed; the token only reads the report artifact and posts it as text
+on: # zizmor: ignore[dangerous-triggers] no checkout, nothing from the triggering run executes; the token only reads the report artifact and posts it
   workflow_run:
     workflows: [CI]
     types: [completed]

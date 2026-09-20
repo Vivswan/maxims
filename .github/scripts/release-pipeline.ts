@@ -431,17 +431,14 @@ export interface ConfirmPublishOptions {
 }
 
 /**
- * After a publish, or on a rerun that found the version present: the record is read until it shows the version, so
- * the job holds the npm-publish lane until the next holder's verdict can see this publish (npm makes a publish
- * readable asynchronously; a verdict read in that gap would move a dist-tag back). Once it shows, the lane's
- * dist-tag is judged:
+ * The record is read until it shows the version: the job holds the npm-publish lane until the next holder's verdict can
+ * see it (npm makes a publish readable asynchronously; a read in that gap would move a tag back). The lane's dist-tag is judged:
  *
  *   next    -> must name this version or a descendant's pre-release, or a stale run moved it back
  *   stable  -> must name this release or a newer one, or an older release's publish moved it back
  *
- * A drift is reported, not repaired: trusted publishing (OIDC) authenticates `npm publish` alone, not `npm dist-tag
- * add` (npm/cli#8547). The next publish on the lane moves the tag forward, or a hand `npm dist-tag add` does; a
- * rerun then confirms and passes.
+ * A drift is reported, not repaired: trusted publishing (OIDC) authenticates `npm publish` alone, not
+ * `npm dist-tag add` (npm/cli#8547).
  */
 export async function confirmPublish(options: ConfirmPublishOptions): Promise<ConfirmVerdict> {
   const { channel, name, version, sourceSha, ancestry, readPackument, attempts, pause } = options;
