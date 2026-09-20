@@ -42,7 +42,8 @@ function refuse(path: string, reason: string): MaximsError {
 
 // Appends a `key: value` property to an object, or (with `key` null) an element to an array. An
 // empty container's member goes in before the closing bracket's own whitespace, so a comment
-// already inside stays and a later removal restores the file byte for byte.
+// already inside stays and a later removal restores the file byte for byte; when that whitespace
+// already breaks the line (a `//` comment ends there), the member ends on that break.
 export function appendChild(
   text: string,
   container: Node,
@@ -60,7 +61,12 @@ export function appendChild(
     const indent = lineIndent(text, container.offset);
     const closing = closingOf(container);
     const at = whitespaceStart(text, closing);
-    const tail = at === closing ? `${style.eol}${indent}` : style.eol;
+    const tail =
+      at === closing
+        ? `${style.eol}${indent}`
+        : text.slice(at, closing).includes("\n")
+          ? ""
+          : style.eol;
     const inner = `${indent}${style.unit}`;
     return splice(text, at, 0, `${style.eol}${inner}${render(inner)}${tail}`);
   }
@@ -79,7 +85,10 @@ export function replaceValue(text: string, node: Node, value: unknown): string {
 
 // Cuts one member and the one comma that joined it. When nothing but whitespace sits between that
 // comma and the member the whole run goes too, which is the exact inverse of an append; a comment
-// in the gap stays, and a line comment keeps the line break that ends it. A container left holding
+// in the gap stays, and a line comment keeps the line break that ends it. A lone member also takes
+// the break that ends its own line, except in a container that was already broken onto lines
+// before it (`[\n/* keep */\n]`), where that break is the user's; `[/* keep */\n  x\n]` and
+// `[/* keep */]` are the same file to us, and the one-line reading wins. A container left holding
 // only whitespace collapses to `{}` or `[]`; one still holding a comment keeps it. The container
 // itself always stays: nothing tells a `hooks: {}` the user wrote from one maxims added.
 export function removeChild(text: string, container: Node, child: Node): string {
@@ -112,8 +121,12 @@ export function removeChild(text: string, container: Node, child: Node): string 
   } else {
     const comma = commaBetween(text, end, closingOf(container));
     const tailFrom = comma !== undefined && whitespaceOnly(text, end, comma) ? comma + 1 : end;
-    const stop = throughFirstLineBreak(text, tailFrom);
     const start = leadStart(text, child.offset);
+    const stop =
+      start === whitespaceStart(text, child.offset) &&
+      text.slice(container.offset + 1, start).includes("\n")
+        ? tailFrom
+        : throughFirstLineBreak(text, tailFrom);
     out = comma !== undefined && tailFrom === end ? splice(text, comma, 1, "") : text;
     out = splice(out, start, stop - start, "");
   }
@@ -181,13 +194,26 @@ function whitespaceEnd(text: string, offset: number): number {
 }
 
 // The whitespace run leading into a node, except the line break that terminates a `//` comment
-// on the line before it: taking that break would swallow the rest of the line.
+// right before it: taking that break would swallow the rest of the line.
 function leadStart(text: string, offset: number): number {
   const start = whitespaceStart(text, offset);
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  if (!text.slice(lineStart, start).includes("//")) return start;
+  if (!endsLineComment(text, start)) return start;
   const lineBreak = text.indexOf("\n", start);
   return lineBreak === -1 || lineBreak >= offset ? start : lineBreak + 1;
+}
+
+// Whether the character before `offset` belongs to a `//` comment (whose token runs to the line
+// break, trailing spaces included). The scanner runs from the top of the file so a `//` inside a
+// string (`"https://example.com"`) is never taken for one.
+function endsLineComment(text: string, offset: number): boolean {
+  const scanner = createScanner(text, false);
+  while (scanner.getPosition() < text.length) {
+    scanner.scan();
+    const at = scanner.getTokenOffset();
+    if (at + scanner.getTokenLength() < offset) continue;
+    return at < offset && text.startsWith("//", at);
+  }
+  return false;
 }
 
 function throughFirstLineBreak(text: string, offset: number): number {

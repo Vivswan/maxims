@@ -322,6 +322,18 @@ ${flatOurs} ]}}`,
     { before: `{\n  // keep\n  "hooks": {}\n}\n`, after: `{\n  // keep\n  "hooks": {}\n}\n` },
     { before: `{/* keep */}`, after: `{/* keep */\n  "hooks": {}\n}` },
     { before: `// keep\n{}\n`, after: `// keep\n{\n  "hooks": {}\n}\n` },
+    {
+      before: `{"hooks":{"SessionStart":[\n// keep\n]}}`,
+      after: `{"hooks":{"SessionStart":[\n// keep\n]}}`,
+    },
+    {
+      before: `{"url":"https://example.com","hooks":{"SessionStart":[/* keep */]}}`,
+      after: `{"url":"https://example.com","hooks":{"SessionStart":[/* keep */]}}`,
+    },
+    {
+      before: `{ "$schema": "https://json.schemastore.org/x.json", "hooks": { /* keep */ } }`,
+      after: `{ "$schema": "https://json.schemastore.org/x.json", "hooks": { /* keep */ } }`,
+    },
   ];
 
   test.each(annotated)("add then remove of %j keeps the user's comment", ({ before, after }) => {
@@ -331,17 +343,6 @@ ${flatOurs} ]}}`,
       { hooks: [grouped.hook.handler(hookSpecFor(grouped))] },
     ]);
     expect(textOf(plan(grouped, false, added))).toBe(after);
-  });
-
-  test("a line comment inside an empty event list survives add and remove", () => {
-    const original = `{"hooks":{"SessionStart":[
-// keep
-]}}`;
-    const added = textOf(plan(grouped, true, original));
-    expect(parse(added).hooks.SessionStart).toHaveLength(1);
-    const removed = textOf(plan(grouped, false, added));
-    expect(removed).toContain("// keep");
-    expect(parse(removed)).toEqual({ hooks: { SessionStart: [] } });
   });
 
   test("a comment between an event key and its list pins the list; it is emptied, not cut", () => {
