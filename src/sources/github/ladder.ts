@@ -1,8 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
-import { type SimpleGit, simpleGit } from "simple-git";
-import { DEFAULT_GITHUB_REF, type LastError } from "../../state/schema.ts";
+import debug from "debug";
+import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
+import { DEFAULT_GIT_REF, type LastError } from "../../state/schema.ts";
 import type { WarnSink } from "../tree.ts";
 import { extractTarball } from "./tarball.ts";
 
@@ -31,9 +34,26 @@ export type GitOutcome<T> =
   | { kind: "absent" }
   | { kind: "failed"; message: string };
 
+// What identity a git call may carry. `none` clears the headers and credential helpers the user's
+// own gitconfig would add for the URL, so an anonymous fetch is anonymous even on a machine that is
+// logged in. `header` is one complete header line applied to that URL only, so an `insteadOf`
+// rewrite to another host cannot carry it along; it is the only way a token reaches git, and it
+// never appears in a URL or an argument. `sparsePath` undefined checks out the whole tree.
+export type GitCredentials =
+  | { kind: "none" }
+  | { kind: "inherited" }
+  | { kind: "header"; header: string };
+export type GitCallOptions = { credentials: GitCredentials };
+export type GitCloneOptions = GitCallOptions & { sparsePath?: string };
+
 export interface GitRunner {
-  lsRemote(url: string, patterns: string[]): Promise<GitOutcome<string>>;
-  shallowClone(url: string, ref: string, dir: string): Promise<GitOutcome<string>>;
+  lsRemote(url: string, patterns: string[], options: GitCallOptions): Promise<GitOutcome<string>>;
+  shallowClone(
+    url: string,
+    ref: string,
+    dir: string,
+    options: GitCloneOptions,
+  ): Promise<GitOutcome<string>>;
 }
 
 export interface Runner {
@@ -49,42 +69,86 @@ export type Endpoints = {
   codeloadUrl(repo: RepoCoordinate, ref: string): string;
 };
 
-export const GITHUB_ENDPOINTS: Endpoints = {
-  ghHost: "github.com",
-  apiBase: "https://api.github.com",
-  gitUrl: ({ owner, repo }) => `https://github.com/${owner}/${repo}.git`,
-  codeloadUrl: ({ owner, repo }, ref) =>
-    `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`,
-};
+export const DEFAULT_GH_HOST = "github.com";
+
+// github.com serves archives from codeload and its API from api.github.com; an enterprise host
+// serves both itself, the API under /api/v3 and archives under the repository's own path.
+export function endpointsFor(host: string): Endpoints {
+  const ghHost = host.toLowerCase();
+  const isDotCom = ghHost === DEFAULT_GH_HOST;
+  return {
+    ghHost,
+    apiBase: isDotCom ? "https://api.github.com" : `https://${ghHost}/api/v3`,
+    gitUrl: ({ owner, repo }) => `https://${ghHost}/${owner}/${repo}.git`,
+    codeloadUrl: ({ owner, repo }, ref) =>
+      isDotCom
+        ? `https://codeload.github.com/${owner}/${repo}/tar.gz/${encodeURIComponent(ref)}`
+        : `https://${ghHost}/${owner}/${repo}/archive/${encodeURIComponent(ref)}.tar.gz`,
+  };
+}
 
 export type LadderOptions = {
   runner: Runner;
   endpoints: Endpoints;
   warn: WarnSink;
+  timeoutMs: number;
+  token: string | undefined;
 };
 
-export interface Ladder {
-  resolveRef(repo: RepoCoordinate, ref: string): Promise<string>;
-  fetchTree(repo: RepoCoordinate, sha: string, destDir: string): Promise<void>;
+export type LadderRequest = { auth: boolean };
+export type TreeRequest = LadderRequest & { sparsePath?: string };
+
+// A sparse cone of the repository root would hold only its top-level files, so a memory path that
+// names the root (".", "./", "") is the same request as a full checkout.
+export function sparsePathFor(scope: {
+  memoryPath: string;
+  fullDepth: boolean;
+}): string | undefined {
+  if (scope.fullDepth) return undefined;
+  const trimmed = scope.memoryPath.replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  return trimmed === "" || trimmed === "." ? undefined : trimmed;
 }
 
-const FULL_SHA = /^[0-9a-f]{40}$/;
-const HTTP_TIMEOUT_MS = 60_000;
-const EXEC_TIMEOUT_MS = 120_000;
-const EXEC_MAX_BYTES = 256 * 1024 * 1024;
+export interface Ladder {
+  resolveRef(repo: RepoCoordinate, ref: string, request: LadderRequest): Promise<string>;
+  fetchTree(
+    repo: RepoCoordinate,
+    sha: string,
+    destDir: string,
+    request: TreeRequest,
+  ): Promise<void>;
+}
 
-type RungOutcome<T> =
+export const DEFAULT_FETCH_TIMEOUT_SECONDS = 60;
+const EXEC_MAX_BYTES = 256 * 1024 * 1024;
+const FULL_SHA = /^[0-9a-f]{40}$/;
+
+export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const raw = env.MAXIMS_FETCH_TIMEOUT?.trim() ?? "";
+  const seconds = /^\d+$/.test(raw) ? Number(raw) : DEFAULT_FETCH_TIMEOUT_SECONDS;
+  return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
+}
+
+export function tokenFrom(env: NodeJS.ProcessEnv): string | undefined {
+  const token = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim();
+  return token === undefined || token === "" ? undefined : token;
+}
+
+export type RungOutcome<T> =
   | { kind: "ok"; value: T }
   | { kind: "skipped" }
   | { kind: "failed"; failure: FetchFailure };
 
-type Rung<T> = () => Promise<RungOutcome<T>>;
+// A `fallback` rung runs only when the rung before it could not be tried at all (its binary is
+// absent) or failed for a reason a second transport can fix; a network failure is not one, so it
+// stops the ladder rather than paying for a second request that will fail the same way.
+export type Rung<T> = { run: () => Promise<RungOutcome<T>>; fallback?: boolean };
 
-// Rungs are tried in order and every failure falls through; the answer to `gh auth status` is
-// remembered per ladder because a session's login state cannot change between two rungs. Every gh
-// command names the host, or an inherited GH_HOST would quietly serve the repo from elsewhere.
+// Anonymous by default: without `auth` no gh command runs and no token leaves the process. The
+// answer to `gh auth status` is remembered per ladder because a session's login state cannot change
+// between two rungs, and every gh command names the host so an inherited GH_HOST cannot redirect it.
 export function createLadder(options: LadderOptions): Ladder {
-  const { runner, endpoints, warn } = options;
+  const { runner, endpoints, warn, timeoutMs } = options;
   const host = ["--hostname", endpoints.ghHost];
   let ghReady: Promise<boolean> | undefined;
   const ghAvailable = (): Promise<boolean> => {
@@ -95,60 +159,103 @@ export function createLadder(options: LadderOptions): Ladder {
   };
   const api = (repo: RepoCoordinate, kind: string, ref: string): string =>
     `repos/${repo.owner}/${repo.repo}/${kind}/${encodeURIComponent(ref)}`;
+  const bearer = (request: LadderRequest): Record<string, string> =>
+    request.auth && options.token !== undefined ? { Authorization: `Bearer ${options.token}` } : {};
+  const gitOptions = (request: LadderRequest): GitCallOptions => {
+    if (!request.auth) return { credentials: { kind: "none" } };
+    if (options.token === undefined) return { credentials: { kind: "inherited" } };
+    return {
+      credentials: { kind: "header", header: `Authorization: Bearer ${options.token}` },
+    };
+  };
+  const ghRung = <T>(
+    args: string[],
+    onSuccess: (stdout: Uint8Array) => RungOutcome<T> | Promise<RungOutcome<T>>,
+  ): Rung<T> => ({
+    run: async () => {
+      if (!(await ghAvailable())) return { kind: "skipped" };
+      return ghOutcome(await runner.exec("gh", ["api", ...host, ...args]), onSuccess);
+    },
+  });
 
   return {
-    resolveRef: (repo, ref) =>
+    resolveRef: (repo, ref, request) =>
       climb(warn, [
-        async () => {
-          if (!(await ghAvailable())) return { kind: "skipped" };
-          const result = await runner.exec("gh", [
-            "api",
-            ...host,
-            api(repo, "commits", ref),
-            "--jq",
-            ".sha",
-          ]);
-          return ghOutcome("gh api", result, (stdout) =>
-            parseSha(new TextDecoder().decode(stdout)),
-          );
-        },
-        async () => {
-          const candidates = refCandidates(ref);
-          const patterns = candidates.flatMap((name) => [name, `${name}^{}`]);
-          const result = await runner.git.lsRemote(endpoints.gitUrl(repo), patterns);
-          return gitOutcome("git ls-remote", result, (text) =>
-            parseLsRemote(text, ref, candidates),
-          );
-        },
-        async () => {
-          const url = `${endpoints.apiBase}/${api(repo, "commits", ref)}`;
-          const body = await http(runner, url, { Accept: "application/vnd.github.sha" });
-          if (body.kind !== "ok") return body;
-          return parseSha(new TextDecoder().decode(body.value));
+        ...(request.auth
+          ? [
+              ghRung(
+                [api(repo, "commits", ref), "--jq", ".sha"],
+                (stdout): RungOutcome<string> => parseSha(new TextDecoder().decode(stdout)),
+              ),
+            ]
+          : []),
+        lsRemoteRung(runner, endpoints.gitUrl(repo), ref, gitOptions(request)),
+        {
+          fallback: true,
+          run: async () => {
+            const url = `${endpoints.apiBase}/${api(repo, "commits", ref)}`;
+            const headers = { Accept: "application/vnd.github.sha", ...bearer(request) };
+            const body = await http(runner, url, headers, timeoutMs);
+            if (body.kind !== "ok") return body;
+            return parseSha(new TextDecoder().decode(body.value));
+          },
         },
       ]),
-    fetchTree: (repo, sha, destDir) =>
+    fetchTree: (repo, sha, destDir, request) =>
       climb(warn, [
-        async () => {
-          if (!(await ghAvailable())) return { kind: "skipped" };
-          const result = await runner.exec("gh", ["api", ...host, api(repo, "tarball", sha)]);
-          return ghOutcome("gh api", result, (stdout) => extract(stdout, destDir, warn));
-        },
-        async () => {
-          await emptyDir(destDir);
-          const result = await runner.git.shallowClone(endpoints.gitUrl(repo), sha, destDir);
-          return gitOutcome("git clone", result, (head) =>
-            head === sha
-              ? { kind: "ok", value: undefined }
-              : failed("invalid", `git clone checked out ${head}, expected ${sha}`),
-          );
-        },
-        async () => {
-          const body = await http(runner, endpoints.codeloadUrl(repo, sha), {});
-          if (body.kind !== "ok") return body;
-          return extract(body.value, destDir, warn);
+        ...(request.auth
+          ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
+          : []),
+        cloneRung(runner, endpoints.gitUrl(repo), sha, destDir, {
+          ...gitOptions(request),
+          sparsePath: request.sparsePath,
+        }),
+        {
+          fallback: true,
+          run: async () => {
+            const url = endpoints.codeloadUrl(repo, sha);
+            const body = await http(runner, url, bearer(request), timeoutMs);
+            if (body.kind !== "ok") return body;
+            return extract(body.value, destDir, warn);
+          },
         },
       ]),
+  };
+}
+
+export function lsRemoteRung(
+  runner: Runner,
+  url: string,
+  ref: string,
+  options: GitCallOptions,
+): Rung<string> {
+  return {
+    run: async () => {
+      const candidates = refCandidates(ref);
+      const patterns = candidates.flatMap((name) => [name, `${name}^{}`]);
+      const result = await runner.git.lsRemote(url, patterns, options);
+      return gitOutcome("git ls-remote", result, (text) => parseLsRemote(text, ref, candidates));
+    },
+  };
+}
+
+export function cloneRung(
+  runner: Runner,
+  url: string,
+  sha: string,
+  destDir: string,
+  options: GitCloneOptions,
+): Rung<undefined> {
+  return {
+    run: async () => {
+      await emptyDir(destDir);
+      const result = await runner.git.shallowClone(url, sha, destDir, options);
+      return gitOutcome("git clone", result, (head) =>
+        head === sha
+          ? { kind: "ok", value: undefined }
+          : failed("invalid", `git clone checked out ${head}, expected ${sha}`),
+      );
+    },
   };
 }
 
@@ -158,13 +265,18 @@ const FAILURE_PRIORITY: FetchFailureKind[] = ["ratelimit", "auth", "missing", "i
 
 // A rung may only end in an outcome: whatever it throws instead is a failure of that rung, never
 // the end of the ladder, because a hook that dies here loses the last-good store for nothing.
-async function climb<T>(warn: WarnSink, rungs: Rung<T>[]): Promise<T> {
+export async function climb<T>(warn: WarnSink, rungs: Rung<T>[]): Promise<T> {
   const failures: FetchFailure[] = [];
+  let previous: RungOutcome<T> | undefined;
   for (const rung of rungs) {
-    const outcome = await rung().catch(
-      (cause: unknown): RungOutcome<T> =>
-        failed("invalid", cause instanceof Error ? cause.message : String(cause)),
-    );
+    if (rung.fallback === true && previous !== undefined && !allowsFallback(previous)) continue;
+    const outcome = await rung
+      .run()
+      .catch(
+        (cause: unknown): RungOutcome<T> =>
+          failed("invalid", cause instanceof Error ? cause.message : String(cause)),
+      );
+    previous = outcome;
     if (outcome.kind === "ok") return outcome.value;
     if (outcome.kind === "skipped") continue;
     warn(outcome.failure.message);
@@ -174,6 +286,10 @@ async function climb<T>(warn: WarnSink, rungs: Rung<T>[]): Promise<T> {
   const matching = failures.filter((f) => f.kind === kind);
   const chosen = matching.find((f) => f.retryAfterSeconds !== undefined) ?? matching[0];
   throw chosen ?? new FetchFailure("invalid", "no fetch method is available on this machine");
+}
+
+function allowsFallback<T>(previous: RungOutcome<T>): boolean {
+  return !(previous.kind === "failed" && previous.failure.kind === "network");
 }
 
 // A rung that failed half-way leaves files a later rung would otherwise merge into its own tree.
@@ -191,13 +307,12 @@ function failed<T>(
 }
 
 function ghOutcome<T>(
-  label: string,
   result: ExecResult,
   onSuccess: (stdout: Uint8Array) => RungOutcome<T> | Promise<RungOutcome<T>>,
 ): RungOutcome<T> | Promise<RungOutcome<T>> {
   if (result.kind === "absent") return { kind: "skipped" };
   if (result.code !== 0)
-    return failed(classifyGh(result.stderr), `${label}: ${firstLine(result.stderr)}`);
+    return failed(classifyGh(result.stderr), `gh api: ${firstLine(result.stderr)}`);
   return onSuccess(result.stdout);
 }
 
@@ -208,9 +323,16 @@ function gitOutcome<T>(
 ): RungOutcome<T> {
   if (result.kind === "absent") return { kind: "skipped" };
   if (result.kind === "failed") {
-    return failed(classifyGit(result.message), `${label}: ${firstLine(result.message)}`);
+    const line = redactUserinfo(firstLine(result.message));
+    return failed(classifyGit(result.message), `${label}: ${line}`);
   }
   return onSuccess(result.value);
+}
+
+// Git anonymizes URLs in most of its own messages but not in all of them; a remote's `user:pass@`
+// never belongs in a warning or a stored error.
+export function redactUserinfo(text: string): string {
+  return text.replace(/(\/\/)[^\s/@]+@/g, "$1");
 }
 
 // The body is read inside the same guard as the request: a connection that drops mid-body is a
@@ -219,12 +341,13 @@ async function http(
   runner: Runner,
   url: string,
   headers: Record<string, string>,
+  timeoutMs: number,
 ): Promise<RungOutcome<Uint8Array>> {
   try {
     const response = await runner.fetch(url, {
       headers: { "User-Agent": "maxims", ...headers },
       redirect: "follow",
-      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.ok) return { kind: "ok", value: new Uint8Array(await response.arrayBuffer()) };
     const classified = classifyResponse(response);
@@ -259,7 +382,7 @@ function parseSha(text: string): RungOutcome<string> {
 // ls-remote patterns match a ref's tail, so `main` alone would also match `refs/heads/feature/main`;
 // only fully qualified names are asked for, tags before branches as `git rev-parse` orders them.
 function refCandidates(ref: string): string[] {
-  if (ref === DEFAULT_GITHUB_REF || ref.startsWith("refs/")) return [ref];
+  if (ref === DEFAULT_GIT_REF || ref.startsWith("refs/")) return [ref];
   return [`refs/tags/${ref}`, `refs/heads/${ref}`];
 }
 
@@ -297,8 +420,10 @@ const GIT_PATTERNS: [FetchFailureKind, RegExp][] = [
   ["auth", /invalid username or|error: 40[13]|unable to get password from user/i],
   ["network", /could not resolve host|unable to access|connection (refused|timed out|reset)/i],
   ["network", /network is unreachable|could not read from remote repository|timed out/i],
-  ["network", /block timeout reached/i],
-  ["network", /failed to connect|ssl|tls/i],
+  ["network", /block timeout reached|failed to connect|ssl|tls/i],
+  ["network", /early EOF|unexpected disconnect|remote end hung up|RPC failed|transfer closed/i],
+  ["network", /index-pack failed|invalid index-pack output|recv failure|send failure/i],
+  ["network", /empty reply from server/i],
 ];
 
 export function classifyGh(stderr: string): FetchFailureKind {
@@ -383,14 +508,24 @@ const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "GIT_PREFIX",
 ]);
 
+// Every git tracing switch goes too: a trace line carries the full remote URL, password included,
+// and git's stderr is what a failure message is made of.
+const TRACE_ENV = /^(GIT_TRACE|GIT_CURL_VERBOSE)/i;
+
+// LFS pointers stay pointers: a smudge would download every large file in a repo whose memories
+// are a few kilobytes of text. GIT_ALLOW_PROTOCOL is the one protocol setting a user's gitconfig
+// cannot override, so `ext::` and other command-running transports stay closed whatever it says.
 export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
-    if (value !== undefined && !SCRUBBED_ENV.has(key.toUpperCase())) env[key] = value;
+    if (value === undefined || SCRUBBED_ENV.has(key.toUpperCase()) || TRACE_ENV.test(key)) continue;
+    env[key] = value;
   }
   return {
     ...env,
     GIT_TERMINAL_PROMPT: "0",
+    GIT_LFS_SKIP_SMUDGE: "1",
+    GIT_ALLOW_PROTOCOL: "https:http:ssh:git:file",
     GCM_INTERACTIVE: "never",
     GH_PROMPT_DISABLED: "1",
     GH_NO_UPDATE_NOTIFIER: "1",
@@ -400,15 +535,18 @@ export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<
 
 const execFileAsync = promisify(execFile);
 
-export function systemRunner(): Runner {
+export function systemRunner(env: NodeJS.ProcessEnv = process.env): Runner {
+  const timeoutMs = fetchTimeoutMs(env);
+  const childEnv = childEnvironment(env);
   return {
     exec: async (binary, args) => {
       try {
         const { stdout, stderr } = await execFileAsync(binary, args, {
           encoding: "buffer",
-          env: childEnvironment(),
+          env: childEnv,
           maxBuffer: EXEC_MAX_BYTES,
-          timeout: EXEC_TIMEOUT_MS,
+          timeout: timeoutMs,
+          shell: false,
         });
         return { kind: "exited", code: 0, stdout, stderr: stderr.toString("utf8") };
       } catch (cause) {
@@ -416,8 +554,62 @@ export function systemRunner(): Runner {
       }
     },
     fetch: (url, init) => fetch(url, init),
-    git: simpleGitRunner(),
+    git: simpleGitRunner({ env: gitEnvironment(env), timeoutMs }),
   };
+}
+
+// What git alone gets, beyond the common scrub: no GitHub token, because git never reads one and
+// simple-git would echo it to its debug log, and an ssh that fails instead of asking, because
+// GIT_TERMINAL_PROMPT=0 says nothing to OpenSSH's own passphrase and host-key questions.
+const TOKEN_ENV: ReadonlySet<string> = new Set([
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+]);
+
+function shellQuote(word: string): string {
+  return `'${word.replace(/'/g, `'\\''`)}'`;
+}
+
+export function gitEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(childEnvironment(base))) {
+    if (!TOKEN_ENV.has(key.toUpperCase())) env[key] = value;
+  }
+  return { ...env, GIT_SSH_COMMAND: batchSshCommand(base) };
+}
+
+// ssh honors the FIRST occurrence of an option, so BatchMode goes right after the program word of
+// whatever ssh command the user configured, ahead of any option of theirs; a program path spelled
+// with quotes is one word. A bare GIT_SSH is a literal program path, spaces and dollar signs and
+// all, so it is single-quoted before it joins a command line the shell will split and expand.
+function batchSshCommand(base: NodeJS.ProcessEnv): string {
+  const program = base.GIT_SSH?.trim();
+  const command =
+    base.GIT_SSH_COMMAND?.trim() ||
+    (program === undefined || program === "" ? "ssh" : shellQuote(program));
+  const word = leadingShellWord(command);
+  return `${word} -o BatchMode=yes${command.slice(word.length)}`;
+}
+
+// The first word of a POSIX command line: quotes of either kind and backslash escapes glue pieces
+// together, and the word ends at the first unquoted whitespace.
+function leadingShellWord(command: string): string {
+  let quote: string | null = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? "";
+    if (quote === null) {
+      if (/\s/.test(char)) return command.slice(0, index);
+      if (char === "'" || char === '"') quote = char;
+      else if (char === "\\") index += 1;
+    } else if (char === quote) {
+      quote = null;
+    } else if (quote === '"' && char === "\\") {
+      index += 1;
+    }
+  }
+  return command;
 }
 
 type ExecError = Error & {
@@ -443,38 +635,166 @@ function execFailure(binary: string, cause: unknown): ExecResult {
   };
 }
 
-// `--filter=blob:none` keeps the fetch to one tree; the checkout then prefetches the missing blobs
-// in a single round trip. A `core.askPass` from the user's own gitconfig would still open a prompt
-// with the environment scrubbed, so it is emptied per command; the inherited config-path variables
-// and that constant are allowed through simple-git's unsafe plugin because both are the caller's own.
-export function simpleGitRunner(binary = "git"): GitRunner {
-  const env = childEnvironment();
-  const client = (baseDir?: string): SimpleGit =>
-    simpleGit({
-      ...(baseDir === undefined ? {} : { baseDir }),
+export type GitRunnerOptions = {
+  binary?: string;
+  env?: Record<string, string>;
+  timeoutMs?: number;
+};
+
+// `protocol.allow=never` closes `ext::` and any other transport that runs a command named in a
+// URL; the listed ones are re-opened one by one. A `core.askPass` from the user's own gitconfig
+// would still open a prompt with the environment scrubbed, so it is emptied per command. The
+// inherited config-path variables and these constants pass simple-git's unsafe plugin because
+// they are the caller's own, not values read from a source.
+const GIT_CONFIG = [
+  "core.askPass=",
+  "credential.interactive=false",
+  "protocol.allow=never",
+  "protocol.https.allow=always",
+  "protocol.http.allow=always",
+  "protocol.ssh.allow=always",
+  "protocol.git.allow=always",
+  "protocol.file.allow=always",
+];
+
+// A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
+// prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
+// simple-git's debug channel is switched off for the whole process: under `DEBUG=simple-git:*` it
+// prints every spawn's arguments and environment, which is where a remote URL's password or an
+// inherited token would appear.
+export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
+  debug.disable();
+  const binary = options.binary ?? "git";
+  const env = options.env ?? gitEnvironment();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_SECONDS * 1000;
+  const client = (config: string[], baseDir?: string, callEnv = env): SimpleGit => {
+    const settings: Partial<SimpleGitOptions> = {
       binary,
-      config: ["core.askPass=", "credential.interactive=false"],
-      timeout: { block: EXEC_TIMEOUT_MS },
+      config: [...GIT_CONFIG, ...config],
+      timeout: { block: timeoutMs },
       unsafe: {
         allowUnsafeConfigPaths: true,
         allowUnsafeConfigEnvCount: true,
         allowUnsafeAskPass: true,
+        allowUnsafeProtocolOverride: true,
+        allowUnsafeSshCommand: true,
       },
-    }).env(env);
+    };
+    if (baseDir !== undefined) settings.baseDir = baseDir;
+    return simpleGit(settings).env(callEnv);
+  };
+  // An anonymous call hands git the URL it would have reached anyway, minus any `user:password@`
+  // the user's `insteadOf` rule wrote into it: git would send those as Basic auth after a 401.
+  const target = async (url: string, credentials: GitCredentials): Promise<string> =>
+    credentials.kind === "none" ? withoutUserinfo(await effectiveUrl(client([]), url)) : url;
   return {
-    lsRemote: (url, patterns) => gitAttempt(binary, () => client().listRemote([url, ...patterns])),
-    shallowClone: (url, ref, dir) =>
+    lsRemote: (url, patterns, call) =>
       gitAttempt(binary, async () => {
-        await mkdir(dir, { recursive: true });
-        const git = client(dir);
-        await git.raw(["init", "--quiet"]);
-        await git.raw(["remote", "add", "origin", url]);
-        await git.raw(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", ref]);
-        await git.raw(["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
-        return (await git.revparse(["HEAD"])).trim();
+        const remote = await target(url, call.credentials);
+        return withCredentials(url, remote, call.credentials, env, (config, callEnv) =>
+          client(config, undefined, callEnv).listRemote([remote, ...patterns]),
+        );
+      }),
+    shallowClone: (url, ref, dir, call) =>
+      gitAttempt(binary, async () => {
+        const remote = await target(url, call.credentials);
+        return withCredentials(url, remote, call.credentials, env, async (config, callEnv) => {
+          await mkdir(dir, { recursive: true });
+          const git = client(config, dir, callEnv);
+          await git.raw(["init", "--quiet"]);
+          await git.raw(["remote", "add", "origin", remote]);
+          await git.raw(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", ref]);
+          if (call.sparsePath !== undefined) {
+            await git.raw(["sparse-checkout", "set", "--cone", "--", call.sparsePath]);
+          }
+          await git.raw(["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+          return (await git.revparse(["HEAD"])).trim();
+        });
       }),
   };
 }
+
+// Only http(s) carries credentials in its URL that git would replay; an ssh user is the login the
+// transport needs, and an scp-like remote is not a URL at all.
+function withoutUserinfo(url: string): string {
+  if (!/^https?:\/\//i.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+// The user's `insteadOf` rules may send a URL somewhere else entirely; an anonymous call resolves
+// that destination itself and resets its credentials too, so what the user configured for the
+// mirror does not leave on a fetch they asked to be anonymous. A token stays with the URL it was
+// given, and the rewrite, if any, is git's to apply.
+async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
+  const expanded = (await git.raw(["ls-remote", "--get-url", url])).trim();
+  return expanded === "" ? url : expanded;
+}
+
+// Credentials reach git through a private include file, never an argument or the environment:
+// simple-git echoes both to its debug log. The file scopes its entries to the exact URL, which is
+// the longest match git can find, so it outranks any `http.<prefix>.extraheader` or
+// `credential.<prefix>.helper` the user's gitconfig carries; an empty value resets that list. The
+// scope also means a URL rewritten by the user's own `insteadOf` no longer matches, and the
+// header stays home. An anonymous call also pins its destination with an `insteadOf` of the exact
+// URL onto itself: the longest matching rule wins, so a shorter user rule that would write
+// credentials back into the URL is not applied a second time. And it runs in a private HOME,
+// because libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
+async function withCredentials<T>(
+  url: string,
+  remote: string,
+  credentials: GitCredentials,
+  env: Record<string, string>,
+  action: (config: string[], env: Record<string, string>) => Promise<T>,
+): Promise<T> {
+  if (credentials.kind === "inherited") return action([], env);
+  const dir = await mkdtemp(join(tmpdir(), "maxims-git-"));
+  try {
+    const lines = [...new Set([url, remote])].flatMap((scope) => [
+      `[http ${JSON.stringify(scope)}]`,
+      "\textraheader =",
+      ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
+      `[credential ${JSON.stringify(scope)}]`,
+      "\thelper =",
+    ]);
+    if (credentials.kind === "none") {
+      lines.push(`[url ${JSON.stringify(remote)}]`, `\tinsteadOf = ${remote}`);
+    }
+    lines.push("");
+    const file = join(dir, "config");
+    await writeFile(file, lines.join("\n"), { mode: 0o600 });
+    const callEnv = credentials.kind === "none" ? await privateHome(env, join(dir, "home")) : env;
+    return await action([`include.path=${file}`], callEnv);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// HOME is libcurl's only pointer to `.netrc`, and also git's for `~/.gitconfig`, `~/.config`, every
+// `~`-relative path in them, and ssh's for `~/.ssh`. The private HOME mirrors the real one entry by
+// entry through symlinks, minus the netrc files, so all of those keep resolving. A HOME that cannot
+// be mirrored fails the call outright: proceeding without the user's proxy or CA settings would
+// only surface later as a network error that points nowhere.
+async function privateHome(
+  env: Record<string, string>,
+  home: string,
+): Promise<Record<string, string>> {
+  await mkdir(home, { recursive: true });
+  const realHome = env.HOME ?? homedir();
+  for (const name of await readdir(realHome)) {
+    if (NETRC_FILES.has(name.toLowerCase())) continue;
+    await symlink(join(realHome, name), join(home, name));
+  }
+  return { ...env, HOME: home, USERPROFILE: home };
+}
+
+const NETRC_FILES: ReadonlySet<string> = new Set([".netrc", "_netrc"]);
 
 // A missing executable surfaces as the spawn failure naming the binary; an ENOENT anywhere else in
 // git's own output (a repository path, a remote URL) is a failure of the command, not an absent git.

@@ -1,4 +1,11 @@
-import type { ExecResult, GitOutcome, GitRunner, Runner } from "../ladder.ts";
+import type {
+  ExecResult,
+  GitCallOptions,
+  GitCloneOptions,
+  GitOutcome,
+  GitRunner,
+  Runner,
+} from "../ladder.ts";
 
 export type ScriptedRunnerOptions = {
   exec?: (binary: string, args: string[]) => ExecResult | Promise<ExecResult>;
@@ -25,16 +32,25 @@ export function scriptedRunner(options: ScriptedRunnerOptions = {}): ScriptedRun
       return options.fetch(url, init);
     },
     git: {
-      lsRemote: (url, patterns) => {
-        calls.push(`git ls-remote ${url} ${patterns.join(" ")}`);
-        return git.lsRemote(url, patterns);
+      lsRemote: (url, patterns, options) => {
+        calls.push(`git ls-remote ${url} ${patterns.join(" ")}${describe(options)}`);
+        return git.lsRemote(url, patterns, options);
       },
-      shallowClone: (url, ref, dir) => {
-        calls.push(`git clone ${url} ${ref}`);
-        return git.shallowClone(url, ref, dir);
+      shallowClone: (url, ref, dir, options) => {
+        calls.push(`git clone ${url} ${ref}${describe(options)}`);
+        return git.shallowClone(url, ref, dir, options);
       },
     },
   };
+}
+
+function describe(options: GitCloneOptions): string {
+  const creds = options.credentials;
+  const parts: string[] = [
+    creds.kind === "header" ? `header=${creds.header}` : `creds=${creds.kind}`,
+  ];
+  if (options.sparsePath !== undefined) parts.push(`sparse=${options.sparsePath}`);
+  return ` [${parts.join(" ")}]`;
 }
 
 export const ABSENT: ExecResult = { kind: "absent" };
@@ -78,23 +94,24 @@ export function absentGit(): GitRunner {
 }
 
 export function scriptedGit(script: {
-  lsRemote?: (url: string, patterns: string[]) => GitOutcome<string>;
+  lsRemote?: (url: string, patterns: string[], options: GitCallOptions) => GitOutcome<string>;
   shallowClone?: (
     url: string,
     ref: string,
     dir: string,
+    options: GitCloneOptions,
   ) => GitOutcome<string> | Promise<GitOutcome<string>>;
 }): GitRunner {
   const absent = absentGit();
   return {
-    lsRemote: async (url, patterns) =>
+    lsRemote: async (url, patterns, options) =>
       script.lsRemote === undefined
-        ? absent.lsRemote(url, patterns)
-        : script.lsRemote(url, patterns),
-    shallowClone: async (url, ref, dir) =>
+        ? absent.lsRemote(url, patterns, options)
+        : script.lsRemote(url, patterns, options),
+    shallowClone: async (url, ref, dir, options) =>
       script.shallowClone === undefined
-        ? absent.shallowClone(url, ref, dir)
-        : script.shallowClone(url, ref, dir),
+        ? absent.shallowClone(url, ref, dir, options)
+        : script.shallowClone(url, ref, dir, options),
   };
 }
 

@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { Parser, type ReadEntry } from "tar";
 import { MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, writeFileAtomic } from "../../util/fs.ts";
+import { assertInsideRoot, type RootedPath, writeFileAtomic } from "../../util/fs.ts";
 import type { WarnSink } from "../tree.ts";
 
 // GitHub wraps every archive in one `<owner>-<repo>-<sha>/` folder; the first segment of every
@@ -63,7 +63,7 @@ async function place(
     entry.resume();
     return;
   }
-  let target: string;
+  let target: RootedPath;
   try {
     target = assertInsideRoot(root, join(root, ...inner));
   } catch (cause) {

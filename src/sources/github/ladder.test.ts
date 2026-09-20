@@ -1,10 +1,14 @@
-// Guards the fetch ladder's fail-soft contract: a rung that throws instead of falling through, a 403
-// recorded as "missing", or a Retry-After dropped would each turn into a silently stale rule file.
+// Guards the fetch ladder's contract: an anonymous fetch that runs gh or sends a token, a rung that
+// throws instead of falling through, a 403 recorded as "missing", a Retry-After dropped, or a
+// tarball fetched after git failed on the network would each pass silently and change what users
+// install.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { simpleGit } from "simple-git";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
+import { createFixtureRepo } from "./fixtures/repo.ts";
 import {
   brokenBodyResponse,
   exited,
@@ -22,23 +26,46 @@ import {
   classifyResponse,
   createLadder,
   type Endpoints,
+  endpointsFor,
   FetchFailure,
   type FetchFailureKind,
-  GITHUB_ENDPOINTS,
+  type GitCredentials,
+  gitEnvironment,
   type Runner,
   simpleGitRunner,
+  systemRunner,
 } from "./ladder.ts";
 
 const REPO = { owner: "example-user", repo: "rules" };
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";
 const OTHER = "89abcdef89abcdef89abcdef89abcdef89abcdef";
+const GIT_URL = "https://github.com/example-user/rules.git";
+const ANON = { auth: false };
+const AUTH = { auth: true };
+const INHERITED = { credentials: { kind: "inherited" } } as const;
 
-function ladder(runner: Runner, endpoints: Partial<Endpoints> = {}, warnings: string[] = []) {
+type LadderSetup = {
+  endpoints?: Partial<Endpoints>;
+  warnings?: string[];
+  token?: string;
+  timeoutMs?: number;
+};
+
+function ladder(runner: Runner, setup: LadderSetup = {}) {
   return createLadder({
     runner,
-    endpoints: { ...GITHUB_ENDPOINTS, ...endpoints },
-    warn: (m) => warnings.push(m),
+    endpoints: { ...endpointsFor("github.com"), ...setup.endpoints },
+    warn: (m) => setup.warnings?.push(m),
+    timeoutMs: setup.timeoutMs ?? 60_000,
+    token: setup.token,
   });
+}
+
+// The private include file a credentialed call writes must be gone when the call returns.
+function includeDirs(): string[] {
+  return readdirSync(tmpdir())
+    .filter((name) => name.startsWith("maxims-git-"))
+    .sort();
 }
 
 async function failure(action: Promise<unknown>): Promise<FetchFailure> {
@@ -51,28 +78,25 @@ async function failure(action: Promise<unknown>): Promise<FetchFailure> {
   throw new Error("expected the ladder to fail");
 }
 
-describe("resolveRef rungs", () => {
-  test("gh answers first and nothing below it runs", async () => {
-    const runner = scriptedRunner({ exec: ghScript(() => exited(0, `${SHA}\n`)) });
-    expect(await ladder(runner).resolveRef(REPO, "HEAD")).toBe(SHA);
-    expect(runner.calls).toEqual([
-      "exec gh auth status --hostname github.com",
-      "exec gh api --hostname github.com repos/example-user/rules/commits/HEAD --jq .sha",
-    ]);
-  });
+function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fetch"] } {
+  const headers: Record<string, string>[] = [];
+  return {
+    headers,
+    fetch: async (_url, init) => {
+      headers.push({ ...(init.headers as Record<string, string>) });
+      return httpResponse(200, SHA);
+    },
+  };
+}
 
-  test("an unauthenticated gh is skipped silently and git ls-remote answers", async () => {
-    const warnings: string[] = [];
+describe("resolveRef without auth", () => {
+  test("starts with ls-remote and never runs gh, even with a token in reach", async () => {
     const runner = scriptedRunner({
-      exec: ghScript(() => exited(0, SHA), false),
+      exec: ghScript(() => exited(0, OTHER)),
       git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${SHA}\tHEAD\n` }) }),
     });
-    expect(await ladder(runner, {}, warnings).resolveRef(REPO, "HEAD")).toBe(SHA);
-    expect(warnings).toEqual([]);
-    expect(runner.calls).toEqual([
-      "exec gh auth status --hostname github.com",
-      "git ls-remote https://github.com/example-user/rules.git HEAD HEAD^{}",
-    ]);
+    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
+    expect(runner.calls).toEqual([`git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=none]`]);
   });
 
   test("a pinned tag asks for the peeled ref and records the commit, not the tag object", async () => {
@@ -84,10 +108,9 @@ describe("resolveRef rungs", () => {
         }),
       }),
     });
-    expect(await ladder(runner).resolveRef(REPO, "v1")).toBe(SHA);
+    expect(await ladder(runner).resolveRef(REPO, "v1", ANON)).toBe(SHA);
     expect(runner.calls).toEqual([
-      "exec gh auth status --hostname github.com",
-      "git ls-remote https://github.com/example-user/rules.git refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{}",
+      `git ls-remote ${GIT_URL} refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=none]`,
     ]);
   });
 
@@ -100,109 +123,220 @@ describe("resolveRef rungs", () => {
     const runner = scriptedRunner({
       git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${rows}\n` }) }),
     });
-    expect(await ladder(runner).resolveRef(REPO, "main")).toBe(SHA);
+    expect(await ladder(runner).resolveRef(REPO, "main", ANON)).toBe(SHA);
     const tagWins = scriptedRunner({
       git: scriptedGit({
         lsRemote: () => ({ kind: "ok", value: `${OTHER}\trefs/heads/v1\n${SHA}\trefs/tags/v1\n` }),
       }),
     });
-    expect(await ladder(tagWins).resolveRef(REPO, "v1")).toBe(SHA);
+    expect(await ladder(tagWins).resolveRef(REPO, "v1", ANON)).toBe(SHA);
   });
 
+  test("with git absent the API answers anonymously, without an Authorization header", async () => {
+    const capture = headerCapture();
+    const runner = scriptedRunner({ fetch: capture.fetch });
+    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "v1", ANON)).toBe(SHA);
+    expect(runner.calls).toEqual([
+      `git ls-remote ${GIT_URL} refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=none]`,
+      "fetch https://api.github.com/repos/example-user/rules/commits/v1",
+    ]);
+    expect(capture.headers).toEqual([
+      { "User-Agent": "maxims", Accept: "application/vnd.github.sha" },
+    ]);
+  });
+
+  // The API answers 404 here, so a rung that reaches it ends as "missing" unless a more actionable
+  // kind (auth) already outranks it; a network fault never reaches it at all.
+  const fallthrough: [string, string, boolean, FetchFailureKind][] = [
+    [
+      "a missing repo",
+      "fatal: repository 'https://github.com/o/r.git/' not found",
+      true,
+      "missing",
+    ],
+    ["an auth refusal", "fatal: could not read Username: terminal prompts disabled", true, "auth"],
+    [
+      "a network fault",
+      "fatal: unable to access: Could not resolve host: github.com",
+      false,
+      "network",
+    ],
+  ];
+  test.each(fallthrough)(
+    "%s from ls-remote reaches the API: %p",
+    async (_label, message, reachesApi, kind) => {
+      const warnings: string[] = [];
+      const runner = scriptedRunner({
+        git: scriptedGit({ lsRemote: () => ({ kind: "failed", message }) }),
+        fetch: () => httpResponse(404),
+      });
+      const error = await failure(ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON));
+      expect(runner.calls.some((c) => c.startsWith("fetch "))).toBe(reachesApi);
+      expect(error.kind).toBe(kind);
+      expect(warnings[0]).toBe(`git ls-remote: ${message}`);
+    },
+  );
+
   test("a ref with URL-significant characters is percent-encoded in API paths", async () => {
-    const runner = scriptedRunner({
-      exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
-      fetch: () => httpResponse(200, SHA),
-    });
-    expect(await ladder(runner).resolveRef(REPO, "release#1")).toBe(SHA);
-    expect(runner.calls[1]).toBe(
-      "exec gh api --hostname github.com repos/example-user/rules/commits/release%231 --jq .sha",
-    );
+    const runner = scriptedRunner({ fetch: () => httpResponse(200, SHA) });
+    expect(await ladder(runner).resolveRef(REPO, "release#1", ANON)).toBe(SHA);
     expect(runner.calls.at(-1)).toBe(
       "fetch https://api.github.com/repos/example-user/rules/commits/release%231",
     );
-  });
-
-  test("with neither binary the API over HTTPS answers", async () => {
-    const runner = scriptedRunner({ fetch: () => httpResponse(200, `${SHA}\n`) });
-    expect(await ladder(runner).resolveRef(REPO, "v1")).toBe(SHA);
-    expect(runner.calls).toEqual([
-      "exec gh auth status --hostname github.com",
-      "git ls-remote https://github.com/example-user/rules.git refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{}",
-      "fetch https://api.github.com/repos/example-user/rules/commits/v1",
-    ]);
-  });
-
-  test("a failing rung warns and falls through to the next", async () => {
-    const warnings: string[] = [];
-    const runner = scriptedRunner({
-      exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
-      git: scriptedGit({
-        lsRemote: () => ({
-          kind: "failed",
-          message: "fatal: unable to access: Could not resolve host",
-        }),
-      }),
-      fetch: () => httpResponse(200, SHA),
-    });
-    expect(await ladder(runner, {}, warnings).resolveRef(REPO, "HEAD")).toBe(SHA);
-    expect(warnings).toEqual([
-      "gh api: gh: Not Found (HTTP 404)",
-      "git ls-remote: fatal: unable to access: Could not resolve host",
-    ]);
-  });
-
-  test("when every rung fails the most actionable failure is thrown and Retry-After is kept", async () => {
-    const runner = scriptedRunner({
-      exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
-      git: scriptedGit({
-        lsRemote: () => ({ kind: "failed", message: "fatal: Could not resolve host: github.com" }),
-      }),
-      fetch: () => httpResponse(403, "", { "retry-after": "120", "x-ratelimit-remaining": "0" }),
-    });
-    const error = await failure(ladder(runner).resolveRef(REPO, "HEAD"));
-    expect(error.kind).toBe("ratelimit");
-    expect(error.retryAfterSeconds).toBe(120);
-    expect(error.message).toBe(
-      "https://api.github.com/repos/example-user/rules/commits/HEAD: HTTP 403",
-    );
-  });
-
-  test("Retry-After survives when an earlier rung reported the rate limit without one", async () => {
-    const runner = scriptedRunner({
-      exec: ghScript(() => exited(1, "", "gh: API rate limit exceeded (HTTP 403)")),
-      fetch: () => httpResponse(403, "", { "retry-after": "45" }),
-    });
-    const error = await failure(ladder(runner).resolveRef(REPO, "HEAD"));
-    expect(error.kind).toBe("ratelimit");
-    expect(error.retryAfterSeconds).toBe(45);
-  });
-
-  test("a body that dies after a 200 is a network failure, not an escaped exception", async () => {
-    const warnings: string[] = [];
-    const runner = scriptedRunner({ fetch: () => brokenBodyResponse() });
-    const error = await failure(ladder(runner, {}, warnings).resolveRef(REPO, "HEAD"));
-    expect(error.kind).toBe("network");
-    expect(warnings).toEqual([
-      "https://api.github.com/repos/example-user/rules/commits/HEAD: terminated",
-    ]);
   });
 
   test("an empty ls-remote answer is a missing ref, and a garbage sha is invalid", async () => {
     const empty = scriptedRunner({
       git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: "" }) }),
     });
-    expect((await failure(ladder(empty).resolveRef(REPO, "nope"))).kind).toBe("missing");
-    const garbage = scriptedRunner({ exec: ghScript(() => exited(0, "null\n")) });
-    expect((await failure(ladder(garbage).resolveRef(REPO, "HEAD"))).kind).toBe("invalid");
+    expect((await failure(ladder(empty).resolveRef(REPO, "nope", ANON))).kind).toBe("missing");
+    const garbage = scriptedRunner({ fetch: () => httpResponse(200, "null\n") });
+    expect((await failure(ladder(garbage).resolveRef(REPO, "HEAD", ANON))).kind).toBe("invalid");
+  });
+
+  test("a body that dies after a 200 is a network failure, not an escaped exception", async () => {
+    const warnings: string[] = [];
+    const runner = scriptedRunner({ fetch: () => brokenBodyResponse() });
+    const error = await failure(ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON));
+    expect(error.kind).toBe("network");
+    expect(warnings).toEqual([
+      "https://api.github.com/repos/example-user/rules/commits/HEAD: terminated",
+    ]);
   });
 });
 
-describe("fetchTree rungs", () => {
-  test("the gh tarball is extracted into the destination", async () => {
+describe("resolveRef with auth", () => {
+  test("gh answers first, bound to the host, and nothing below it runs", async () => {
+    const runner = scriptedRunner({ exec: ghScript(() => exited(0, `${SHA}\n`)) });
+    expect(await ladder(runner).resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
+    expect(runner.calls).toEqual([
+      "exec gh auth status --hostname github.com",
+      "exec gh api --hostname github.com repos/example-user/rules/commits/HEAD --jq .sha",
+    ]);
+  });
+
+  test("an unauthenticated gh is skipped silently and ls-remote carries the token header", async () => {
+    const warnings: string[] = [];
+    const runner = scriptedRunner({
+      exec: ghScript(() => exited(0, SHA), false),
+      git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${SHA}\tHEAD\n` }) }),
+    });
+    const climb = ladder(runner, { warnings, token: "secret" });
+    expect(await climb.resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
+    expect(warnings).toEqual([]);
+    expect(runner.calls).toEqual([
+      "exec gh auth status --hostname github.com",
+      `git ls-remote ${GIT_URL} HEAD HEAD^{} [header=Authorization: Bearer secret]`,
+    ]);
+  });
+
+  test("with gh and git absent the API carries the Bearer token", async () => {
+    const capture = headerCapture();
+    const runner = scriptedRunner({ fetch: capture.fetch });
+    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
+    expect(capture.headers).toEqual([
+      {
+        "User-Agent": "maxims",
+        Accept: "application/vnd.github.sha",
+        Authorization: "Bearer secret",
+      },
+    ]);
+  });
+
+  test("without a token in the environment, auth adds no header and no git option", async () => {
+    const capture = headerCapture();
+    const runner = scriptedRunner({ fetch: capture.fetch });
+    expect(await ladder(runner).resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
+    expect(runner.calls[1]).toBe(`git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=inherited]`);
+    expect(capture.headers[0]?.Authorization).toBeUndefined();
+  });
+
+  test("gh encodes the ref too, and a gh failure warns then falls through", async () => {
+    const warnings: string[] = [];
+    const runner = scriptedRunner({
+      exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
+      fetch: () => httpResponse(200, SHA),
+    });
+    expect(await ladder(runner, { warnings }).resolveRef(REPO, "release#1", AUTH)).toBe(SHA);
+    expect(runner.calls[1]).toBe(
+      "exec gh api --hostname github.com repos/example-user/rules/commits/release%231 --jq .sha",
+    );
+    expect(warnings).toEqual(["gh api: gh: Not Found (HTTP 404)"]);
+  });
+
+  test("when every rung fails the most actionable failure is thrown and Retry-After survives", async () => {
+    const runner = scriptedRunner({
+      exec: ghScript(() => exited(1, "", "gh: API rate limit exceeded (HTTP 403)")),
+      git: scriptedGit({
+        lsRemote: () => ({ kind: "failed", message: "fatal: repository not found" }),
+      }),
+      fetch: () => httpResponse(403, "", { "retry-after": "120", "x-ratelimit-remaining": "0" }),
+    });
+    const error = await failure(ladder(runner).resolveRef(REPO, "HEAD", AUTH));
+    expect(error.kind).toBe("ratelimit");
+    expect(error.retryAfterSeconds).toBe(120);
+    expect(error.message).toBe(
+      "https://api.github.com/repos/example-user/rules/commits/HEAD: HTTP 403",
+    );
+  });
+});
+
+describe("fetchTree", () => {
+  test("anonymous fetch clones a sparse cone of the memory folder and never downloads a tarball", async () => {
+    await withTempDir(async (dir) => {
+      const runner = scriptedRunner({
+        git: scriptedGit({ shallowClone: () => ({ kind: "ok", value: SHA }) }),
+        exec: ghScript(() => exited(0, cleanTarball())),
+      });
+      const climb = ladder(runner, { token: "secret" });
+      await climb.fetchTree(REPO, SHA, join(dir, "tree"), { ...ANON, sparsePath: "memories" });
+      await climb.fetchTree(REPO, SHA, join(dir, "full"), ANON);
+      expect(runner.calls).toEqual([
+        `git clone ${GIT_URL} ${SHA} [creds=none sparse=memories]`,
+        `git clone ${GIT_URL} ${SHA} [creds=none]`,
+      ]);
+    });
+  });
+
+  const tarballWhen: [string, ReturnType<typeof scriptedGit>, boolean, FetchFailureKind | null][] =
+    [
+      ["git is absent", scriptedGit({}), true, null],
+      [
+        "the clone failed for a non-network reason",
+        scriptedGit({ shallowClone: () => ({ kind: "ok", value: OTHER }) }),
+        true,
+        null,
+      ],
+      [
+        "the clone failed on the network",
+        scriptedGit({
+          shallowClone: () => ({
+            kind: "failed",
+            message: "fatal: unable to access: Could not resolve host",
+          }),
+        }),
+        false,
+        "network",
+      ],
+    ];
+  test.each(tarballWhen)("the tarball rung runs only when %s", async (_label, git, runs, kind) => {
+    await withTempDir(async (dir) => {
+      const runner = scriptedRunner({ git, fetch: () => httpResponse(200, cleanTarball()) });
+      const attempt = ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"), ANON);
+      if (kind === null) {
+        await attempt;
+        expect(readdirSync(join(dir, "tree"))).toContain("README.md");
+      } else {
+        expect((await failure(attempt)).kind).toBe(kind);
+      }
+      expect(runner.calls.some((c) => c.startsWith("fetch "))).toBe(runs);
+    });
+  });
+
+  test("with auth the gh tarball comes first and is extracted into the destination", async () => {
     await withTempDir(async (dir) => {
       const runner = scriptedRunner({ exec: ghScript(() => exited(0, cleanTarball())) });
-      await ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"));
+      await ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
       expect(runner.calls).toEqual([
         "exec gh auth status --hostname github.com",
         `exec gh api --hostname github.com repos/example-user/rules/tarball/${SHA}`,
@@ -214,22 +348,6 @@ describe("fetchTree rungs", () => {
     });
   });
 
-  test("a clone that lands on another commit is invalid and codeload takes over", async () => {
-    await withTempDir(async (dir) => {
-      const warnings: string[] = [];
-      const runner = scriptedRunner({
-        git: scriptedGit({ shallowClone: () => ({ kind: "ok", value: OTHER }) }),
-        fetch: () => httpResponse(200, cleanTarball()),
-      });
-      await ladder(runner, {}, warnings).fetchTree(REPO, SHA, join(dir, "tree"));
-      expect(warnings).toEqual([`git clone checked out ${OTHER}, expected ${SHA}`]);
-      expect(runner.calls.at(-1)).toBe(
-        `fetch https://codeload.github.com/example-user/rules/tar.gz/${SHA}`,
-      );
-      expect(readdirSync(join(dir, "tree"))).toContain("README.md");
-    });
-  });
-
   test("a rung that failed half-way leaves nothing for the next rung to merge into", async () => {
     await withTempDir(async (dir) => {
       const warnings: string[] = [];
@@ -237,7 +355,7 @@ describe("fetchTree rungs", () => {
         exec: ghScript(() => exited(0, corruptAfterOneFileTarball())),
         fetch: () => httpResponse(200, cleanTarball()),
       });
-      await ladder(runner, {}, warnings).fetchTree(REPO, SHA, join(dir, "tree"));
+      await ladder(runner, { warnings }).fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
       expect(warnings).toEqual([expect.stringMatching(/^tarball could not be extracted: /)]);
       expect(readdirSync(join(dir, "tree", "memories")).sort()).toEqual([
         "commit-review.md",
@@ -257,7 +375,7 @@ describe("fetchTree rungs", () => {
         }),
         fetch: () => httpResponse(200, cleanTarball()),
       });
-      await ladder(runner, {}, warnings).fetchTree(REPO, SHA, join(dir, "tree"));
+      await ladder(runner, { warnings }).fetchTree(REPO, SHA, join(dir, "tree"), ANON);
       expect(warnings).toEqual(["ENOSPC: no space left on device"]);
       expect(readdirSync(join(dir, "tree"))).toContain("README.md");
     });
@@ -266,20 +384,43 @@ describe("fetchTree rungs", () => {
   test("a body that is not an archive fails the rung as invalid rather than leaving an empty tree", async () => {
     await withTempDir(async (dir) => {
       const runner = scriptedRunner({ fetch: () => httpResponse(200, "<html>nope</html>") });
-      const error = await failure(ladder(runner).fetchTree(REPO, SHA, join(dir, "tree")));
+      const error = await failure(ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"), ANON));
       expect(error.kind).toBe("invalid");
       expect(error.message).toMatch(/^tarball could not be extracted: /);
     });
   });
 
-  test("every rung offline is a network failure", async () => {
+  test("everything offline is a network failure", async () => {
     await withTempDir(async (dir) => {
       const runner = scriptedRunner();
-      const error = await failure(ladder(runner).fetchTree(REPO, SHA, join(dir, "tree")));
+      const error = await failure(ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"), ANON));
       expect(error.kind).toBe("network");
       expect(error.message).toBe(
         `https://codeload.github.com/example-user/rules/tar.gz/${SHA}: fetch failed: getaddrinfo ENOTFOUND api.github.com`,
       );
+    });
+  });
+});
+
+describe("GH_HOST", () => {
+  test("an enterprise host changes every URL and the gh hostname", async () => {
+    await withTempDir(async (dir) => {
+      const runner = scriptedRunner({
+        exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
+        fetch: (url) => httpResponse(200, url.includes("/api/v3/") ? SHA : cleanTarball()),
+      });
+      const climb = ladder(runner, { endpoints: endpointsFor("GHE.example.com") });
+      expect(await climb.resolveRef(REPO, "v1", AUTH)).toBe(SHA);
+      await climb.fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
+      expect(runner.calls).toEqual([
+        "exec gh auth status --hostname ghe.example.com",
+        "exec gh api --hostname ghe.example.com repos/example-user/rules/commits/v1 --jq .sha",
+        "git ls-remote https://ghe.example.com/example-user/rules.git refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=inherited]",
+        "fetch https://ghe.example.com/api/v3/repos/example-user/rules/commits/v1",
+        `exec gh api --hostname ghe.example.com repos/example-user/rules/tarball/${SHA}`,
+        `git clone https://ghe.example.com/example-user/rules.git ${SHA} [creds=inherited]`,
+        `fetch https://ghe.example.com/example-user/rules/archive/${SHA}.tar.gz`,
+      ]);
     });
   });
 });
@@ -315,15 +456,15 @@ describe("failure classification", () => {
         throw networkError();
       },
     });
-    expect((await failure(ladder(runner).resolveRef(REPO, "HEAD"))).kind).toBe("network");
+    expect((await failure(ladder(runner).resolveRef(REPO, "HEAD", ANON))).kind).toBe("network");
   });
 
   const gh: [string, FetchFailureKind][] = [
     ["gh: API rate limit exceeded for user ID 1 (HTTP 403)", "ratelimit"],
     ["gh: Not Found (HTTP 404)", "missing"],
+    ["gh: No commit found for SHA: absent (HTTP 422)", "missing"],
     ["gh: Must have admin rights to Repository. (HTTP 403)", "auth"],
     ["gh: Bad credentials (HTTP 401)", "auth"],
-    ["gh: No commit found for SHA: absent (HTTP 422)", "missing"],
     [
       "error connecting to api.github.com\ndial tcp: lookup api.github.com: no such host",
       "network",
@@ -363,6 +504,11 @@ describe("failure classification", () => {
       "network",
     ],
     ["block timeout reached", "network"],
+    [
+      "fetch-pack: unexpected disconnect while reading sideband packet\nfatal: early EOF\nfatal: fetch-pack: invalid index-pack output",
+      "network",
+    ],
+    ["error: RPC failed; curl 56 Recv failure: Connection reset by peer", "network"],
     ["error: unknown option `--filter=blob:none'", "invalid"],
   ];
   test.each(git)("git message %j is %s", (message, kind) => {
@@ -370,79 +516,445 @@ describe("failure classification", () => {
   });
 });
 
-describe("childEnvironment", () => {
-  test("drops prompt and repository-selection variables, keeps the rest, and disables prompts", () => {
-    const env = childEnvironment({
-      PATH: "/usr/bin",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GH_TOKEN: "token",
-      GIT_DIR: "/home/user/project/.git",
-      GIT_WORK_TREE: "/home/user/project",
-      GIT_INDEX_FILE: "/home/user/project/.git/index",
-      GIT_ASKPASS: "/usr/bin/ask",
-      EDITOR: "vi",
-      PAGER: "less",
-      GIT_SSH_COMMAND: "ssh -v",
+describe("systemRunner", () => {
+  test("arguments reach the child literally: no shell expands them", async () => {
+    const result = await systemRunner({ PATH: process.env.PATH }).exec("printf", [
+      "%s",
+      "a;b $HOME `id` && rm",
+    ]);
+    expect(result).toEqual({
+      kind: "exited",
+      code: 0,
+      stdout: Buffer.from("a;b $HOME `id` && rm"),
+      stderr: "",
     });
-    expect(env).toEqual({
-      PATH: "/usr/bin",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GH_TOKEN: "token",
-      GIT_TERMINAL_PROMPT: "0",
-      GCM_INTERACTIVE: "never",
-      GH_PROMPT_DISABLED: "1",
-      GH_NO_UPDATE_NOTIFIER: "1",
-      NO_COLOR: "1",
+  });
+
+  test("a child that outlives MAXIMS_FETCH_TIMEOUT is killed and reads as a network failure", async () => {
+    const runner = systemRunner({ PATH: process.env.PATH, MAXIMS_FETCH_TIMEOUT: "1" });
+    const result = await runner.exec("sleep", ["5"]);
+    expect(result).toEqual({
+      kind: "exited",
+      code: -1,
+      stdout: new Uint8Array(),
+      stderr: "sleep timed out",
     });
+    if (result.kind === "exited") expect(classifyGh(result.stderr)).toBe("network");
+  });
+
+  test("an HTTP request that stalls past the timeout is a network failure", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    try {
+      const runner = scriptedRunner({ fetch: (url, init) => fetch(url, init) });
+      const climb = ladder(runner, {
+        timeoutMs: 300,
+        endpoints: { apiBase: `http://127.0.0.1:${server.port}` },
+      });
+      const error = await failure(climb.resolveRef(REPO, "HEAD", ANON));
+      expect(error.kind).toBe("network");
+      expect(error.message).toMatch(/timed out|TimeoutError|aborted/i);
+    } finally {
+      server.stop(true);
+    }
   });
 });
 
 describe("git rung against a file:// fixture repo", () => {
-  test("resolves HEAD and an annotated tag, then clones the pinned commit", async () => {
+  test("resolves HEAD and an annotated tag, then sparse-clones the pinned commit", async () => {
     await withTempDir(async (dir) => {
-      const repo = join(dir, "repo");
-      mkdirSync(join(repo, "memories"), { recursive: true });
-      writeFileSync(join(repo, "memories", "first-rule.md"), "first\n");
-      const git = simpleGit(repo);
-      await git.raw(["init", "--quiet", "-b", "main"]);
-      await git.add(".");
-      await git.commit("one");
-      await git.addAnnotatedTag("v1", "first release");
-      const tagged = (await git.revparse(["v1^{commit}"])).trim();
-      writeFileSync(join(repo, "memories", "second-rule.md"), "second\n");
-      await git.add(".");
-      await git.commit("two");
-      const head = (await git.revparse(["HEAD"])).trim();
-      expect(tagged).not.toBe(head);
-
+      const repo = await createFixtureRepo(join(dir, "repo"));
       const runner = scriptedRunner({ git: simpleGitRunner() });
-      const endpoints = { gitUrl: () => `file://${repo}` };
-      const climb = ladder(runner, endpoints);
-      expect(await climb.resolveRef(REPO, "HEAD")).toBe(head);
-      expect(await climb.resolveRef(REPO, "v1")).toBe(tagged);
-      const dest = join(dir, "tree");
-      await climb.fetchTree(REPO, tagged, dest);
-      expect(readdirSync(join(dest, "memories"))).toEqual(["first-rule.md"]);
-      expect(readFileSync(join(dest, "memories", "first-rule.md"), "utf8")).toBe("first\n");
-      expect(runner.calls.filter((c) => c.startsWith("fetch "))).toEqual([]);
-
-      const missing = await failure(climb.resolveRef(REPO, "v9"));
-      expect(missing.kind).toBe("missing");
+      const climb = ladder(runner, { endpoints: { gitUrl: () => repo.url } });
+      expect(await climb.resolveRef(REPO, "HEAD", ANON)).toBe(repo.head);
+      expect(await climb.resolveRef(REPO, "v1", ANON)).toBe(repo.tagged);
+      const sparse = join(dir, "sparse");
+      await climb.fetchTree(REPO, repo.tagged, sparse, { ...ANON, sparsePath: "memories" });
+      expect(readdirSync(join(sparse, "memories"))).toEqual(["first-rule.md"]);
+      expect(readFileSync(join(sparse, "memories", "first-rule.md"), "utf8")).toBe("first\n");
+      expect(existsSync(join(sparse, "src"))).toBe(false);
+      const full = join(dir, "full");
+      await climb.fetchTree(REPO, repo.head, full, ANON);
+      expect(readdirSync(join(full, "memories")).sort()).toEqual([
+        "first-rule.md",
+        "second-rule.md",
+      ]);
+      expect(existsSync(join(full, "src", "deep", "unrelated.txt"))).toBe(true);
+      expect(runner.calls.filter((c) => c.startsWith("fetch ") || c.startsWith("exec "))).toEqual(
+        [],
+      );
+      expect((await failure(climb.resolveRef(REPO, "v9", ANON))).kind).toBe("missing");
     });
   });
 
   test("a repository path that merely contains ENOENT is a failed command, not an absent git", async () => {
-    const outcome = await simpleGitRunner().lsRemote("file:///nonexistent/ENOENT-repo", ["HEAD"]);
+    const outcome = await simpleGitRunner().lsRemote(
+      "file:///nonexistent/ENOENT-repo",
+      ["HEAD"],
+      INHERITED,
+    );
     expect(outcome.kind).toBe("failed");
+  });
+
+  test("a command-running transport is refused even when the user's gitconfig allows it", async () => {
+    await withTempDir(async (dir) => {
+      const gitconfig = join(dir, "gitconfig");
+      writeFileSync(gitconfig, '[protocol "ext"]\n\tallow = always\n');
+      const marker = join(dir, "pwned");
+      const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+      const outcome = await simpleGitRunner({ env }).lsRemote(
+        `ext::sh -c touch%20${marker}`,
+        ["HEAD"],
+        INHERITED,
+      );
+      expect(outcome.kind).toBe("failed");
+      if (outcome.kind === "failed") expect(outcome.message).toMatch(/not allowed/);
+      expect(existsSync(marker)).toBe(false);
+    });
+  });
+
+  // The user's gitconfig below carries an unscoped header, one scoped to the server's host, and one
+  // scoped to the exact repository URL, plus an insteadOf rewrite of github.com onto the server. Git
+  // sends every matching header, so the server sees them joined; what it sees is the whole contract.
+  const identity: [string, GitCredentials, (port: number) => string, string | null][] = [
+    [
+      "inherited credentials keep the user's own headers",
+      { kind: "inherited" },
+      (p) => `http://127.0.0.1:${p}/rules.git`,
+      "Bearer inherited, Bearer scoped-inherited, Bearer exact-inherited",
+    ],
+    [
+      "anonymous strips the user's own headers, scoped and unscoped alike",
+      { kind: "none" },
+      (p) => `http://127.0.0.1:${p}/rules.git`,
+      null,
+    ],
+    [
+      "anonymous stays anonymous across an insteadOf rewrite",
+      { kind: "none" },
+      () => "https://github.com/example-user/rules.git",
+      null,
+    ],
+    [
+      "a token replaces the user's headers for the URL it was given",
+      { kind: "header", header: "Authorization: Bearer ours" },
+      (p) => `http://127.0.0.1:${p}/rules.git`,
+      "Bearer ours",
+    ],
+    [
+      "a token does not follow an insteadOf rewrite to another host",
+      { kind: "header", header: "Authorization: Bearer ours" },
+      () => "https://github.com/example-user/rules.git",
+      "Bearer inherited, Bearer scoped-inherited",
+    ],
+  ];
+  test.each(identity)("%s", async (_label, credentials, urlFor, expected) => {
+    const seen: (string | null)[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization"));
+        return new Response("not here", { status: 404 });
+      },
+    });
+    try {
+      await withTempDir(async (dir) => {
+        const port = server.port ?? 0;
+        const gitconfig = join(dir, "gitconfig");
+        writeFileSync(
+          gitconfig,
+          [
+            "[http]",
+            "\textraheader = Authorization: Bearer inherited",
+            `[http "http://127.0.0.1:${port}/"]`,
+            "\textraheader = Authorization: Bearer scoped-inherited",
+            `[http "http://127.0.0.1:${port}/rules.git"]`,
+            "\textraheader = Authorization: Bearer exact-inherited",
+            `[url "http://127.0.0.1:${port}/"]`,
+            "\tinsteadOf = https://github.com/",
+            "",
+          ].join("\n"),
+        );
+        const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+        const outcome = await simpleGitRunner({ env }).lsRemote(urlFor(port), ["HEAD"], {
+          credentials,
+        });
+        expect(outcome.kind).toBe("failed");
+        expect(seen.length).toBeGreaterThan(0);
+        expect(new Set(seen)).toEqual(new Set([expected]));
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  // Two rewrites carry a password: one onto the loopback host, one from the loopback host onto
+  // itself, so that stripping the userinfo and handing git the plain URL would trigger it again.
+  const BASIC = `Basic ${Buffer.from("example-user:fixture-secret").toString("base64")}`;
+  const userinfo: [string, GitCredentials, (port: number) => string, string | null][] = [
+    [
+      "inherited credentials replay a password the user's insteadOf wrote into the URL",
+      { kind: "inherited" },
+      () => "https://github.com/example-user/rules.git",
+      BASIC,
+    ],
+    [
+      "anonymous never sends a password a rewrite onto another host carries",
+      { kind: "none" },
+      () => "https://github.com/example-user/rules.git",
+      null,
+    ],
+    [
+      "anonymous never sends a password a rewrite onto the same host carries",
+      { kind: "none" },
+      (p) => `http://127.0.0.1:${p}/rules.git`,
+      null,
+    ],
+  ];
+  test.each(userinfo)("%s", async (_label, credentials, urlFor, expected) => {
+    const seen: (string | null)[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization"));
+        return new Response("who are you", {
+          status: 401,
+          headers: { "WWW-Authenticate": "Basic" },
+        });
+      },
+    });
+    try {
+      await withTempDir(async (dir) => {
+        const port = server.port ?? 0;
+        const gitconfig = join(dir, "gitconfig");
+        writeFileSync(
+          gitconfig,
+          [
+            `[url "http://example-user:fixture-secret@127.0.0.1:${port}/"]`,
+            "\tinsteadOf = https://github.com/",
+            `\tinsteadOf = http://127.0.0.1:${port}/`,
+            "",
+          ].join("\n"),
+        );
+        const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+        const outcome = await simpleGitRunner({ env }).lsRemote(urlFor(port), ["HEAD"], {
+          credentials,
+        });
+        expect(outcome.kind).toBe("failed");
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.filter((value) => value !== null)).toEqual(expected === null ? [] : [expected]);
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  const netrc: [string, GitCredentials, string | null][] = [
+    ["inherited credentials let libcurl answer a 401 from ~/.netrc", { kind: "inherited" }, BASIC],
+    ["anonymous never reaches ~/.netrc", { kind: "none" }, null],
+  ];
+  test.each(netrc)("%s", async (_label, credentials, expected) => {
+    const seen: (string | null)[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization"));
+        return new Response("who are you", {
+          status: 401,
+          headers: { "WWW-Authenticate": "Basic" },
+        });
+      },
+    });
+    try {
+      await withTempDir(async (home) => {
+        writeFileSync(
+          join(home, ".netrc"),
+          "machine 127.0.0.1 login example-user password fixture-secret\n",
+          { mode: 0o600 },
+        );
+        const env = gitEnvironment({ ...process.env, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null" });
+        const outcome = await simpleGitRunner({ env }).lsRemote(
+          `http://127.0.0.1:${server.port ?? 0}/rules.git`,
+          ["HEAD"],
+          { credentials },
+        );
+        expect(outcome.kind).toBe("failed");
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.filter((value) => value !== null)).toEqual(expected === null ? [] : [expected]);
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("anonymous calls still read ~/.gitconfig and a ~-relative include from the real HOME", async () => {
+    const agents: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        agents.push(request.headers.get("user-agent") ?? "");
+        return new Response("not here", { status: 404 });
+      },
+    });
+    try {
+      await withTempDir(async (home) => {
+        writeFileSync(join(home, ".gitconfig"), "[include]\n\tpath = ~/extra-config\n");
+        writeFileSync(join(home, "extra-config"), "[http]\n\tuserAgent = tilde-include-agent\n");
+        writeFileSync(join(home, ".netrc"), "machine 127.0.0.1 login example-user password x\n");
+        const base: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+        delete base.GIT_CONFIG_GLOBAL;
+        const env = gitEnvironment(base);
+        const outcome = await simpleGitRunner({ env }).lsRemote(
+          `http://127.0.0.1:${server.port ?? 0}/rules.git`,
+          ["HEAD"],
+          { credentials: { kind: "none" } },
+        );
+        expect(outcome.kind).toBe("failed");
+        expect(new Set(agents)).toEqual(new Set(["tilde-include-agent"]));
+        expect(readdirSync(home).sort()).toEqual([".gitconfig", ".netrc", "extra-config"]);
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a memory folder named like an option is still a sparse path, not a flag", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createFixtureRepo(join(dir, "repo"));
+      const dest = join(dir, "clone");
+      const outcome = await simpleGitRunner().shallowClone(repo.url, repo.head, dest, {
+        credentials: { kind: "none" },
+        sparsePath: "-dashed",
+      });
+      expect(outcome).toEqual({ kind: "ok", value: repo.head });
+      expect(readdirSync(join(dest, "-dashed"))).toEqual(["odd-rule.md"]);
+      expect(existsSync(join(dest, "memories"))).toBe(false);
+    });
+  });
+
+  const helpers: [string, GitCredentials, boolean][] = [
+    ["inherited credentials let the user's helper answer a 401", { kind: "inherited" }, true],
+    ["anonymous never consults the user's helper", { kind: "none" }, false],
+  ];
+  test.each(helpers)("%s", async (_label, credentials, consulted) => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response("who are you", { status: 401, headers: { "WWW-Authenticate": "Basic" } }),
+    });
+    try {
+      await withTempDir(async (dir) => {
+        const marker = join(dir, "helper-ran");
+        const helper = join(dir, "helper.sh");
+        writeFileSync(helper, `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+        const gitconfig = join(dir, "gitconfig");
+        writeFileSync(gitconfig, `[credential]\n\thelper = ${helper}\n`);
+        const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+        const url = `http://127.0.0.1:${server.port ?? 0}/rules.git`;
+        const before = includeDirs();
+        const outcome = await simpleGitRunner({ env }).lsRemote(url, ["HEAD"], { credentials });
+        expect(outcome.kind).toBe("failed");
+        expect(existsSync(marker)).toBe(consulted);
+        expect(includeDirs()).toEqual(before);
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("ssh runs in batch mode ahead of the user's own options, so a question fails instead of waiting", async () => {
+    await withTempDir(async (dir) => {
+      const record = join(dir, "ssh-args");
+      const fakeSsh = join(dir, "ssh.sh");
+      writeFileSync(fakeSsh, `#!/bin/sh\necho "$@" > ${record}\nexit 255\n`, { mode: 0o755 });
+      const env = gitEnvironment({
+        ...process.env,
+        GIT_SSH_COMMAND: `${fakeSsh} -o BatchMode=no -i /home/user/.ssh/key`,
+      });
+      const outcome = await simpleGitRunner({ env }).lsRemote(
+        "ssh://example.com/rules.git",
+        ["HEAD"],
+        {
+          credentials: { kind: "inherited" },
+        },
+      );
+      expect(outcome.kind).toBe("failed");
+      const args = readFileSync(record, "utf8").trim().split(" ");
+      expect(args.indexOf("BatchMode=yes")).toBeGreaterThan(-1);
+      expect(args.indexOf("BatchMode=yes")).toBeLessThan(args.indexOf("BatchMode=no"));
+      expect(args).toContain("/home/user/.ssh/key");
+    });
+  });
+
+  test("a GIT_SSH program path stays one literal word ahead of BatchMode", () => {
+    const env = gitEnvironment({ GIT_SSH: "/home/user/My $Tools/it's ssh" });
+    expect(env.GIT_SSH_COMMAND).toBe("'/home/user/My $Tools/it'\\''s ssh' -o BatchMode=yes");
+    expect(env.GIT_SSH).toBeUndefined();
+  });
+
+  test("git's environment carries no GitHub token under any of gh's names", () => {
+    const env = gitEnvironment({
+      PATH: "/usr/bin",
+      GITHUB_TOKEN: "a",
+      GH_TOKEN: "b",
+      GH_ENTERPRISE_TOKEN: "c",
+      GITHUB_ENTERPRISE_TOKEN: "d",
+    });
+    expect(Object.keys(env).filter((key) => /TOKEN/i.test(key))).toEqual([]);
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  test("simple-git's debug channel prints nothing, so a token in the environment stays out of stderr", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createFixtureRepo(join(dir, "repo"));
+      const script = [
+        `import { simpleGitRunner } from ${JSON.stringify(join(import.meta.dir, "ladder.ts"))};`,
+        `const out = await simpleGitRunner().lsRemote(${JSON.stringify(repo.url)}, ["HEAD"], { credentials: { kind: "none" } });`,
+        "console.log(out.kind);",
+      ].join("\n");
+      const proc = Bun.spawnSync(["bun", "-e", script], {
+        env: { ...process.env, DEBUG: "simple-git:*", GITHUB_TOKEN: "ghp-fixture-secret" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(proc.stdout.toString().trim()).toBe("ok");
+      expect(proc.stderr.toString()).toBe("");
+    });
+  });
+
+  test("an inherited GIT_DIR cannot point the clone at the caller's own repository", async () => {
+    await withTempDir(async (dir) => {
+      const source = await createFixtureRepo(join(dir, "source"));
+      const victim = await createFixtureRepo(join(dir, "victim"));
+      const env = childEnvironment({
+        ...process.env,
+        GIT_DIR: join(dir, "victim", ".git"),
+        GIT_WORK_TREE: join(dir, "victim"),
+      });
+      const dest = join(dir, "clone");
+      const outcome = await simpleGitRunner({ env }).shallowClone(source.url, source.head, dest, {
+        credentials: { kind: "inherited" },
+      });
+      expect(outcome).toEqual({ kind: "ok", value: source.head });
+      expect(readdirSync(join(dest, "memories")).sort()).toEqual([
+        "first-rule.md",
+        "second-rule.md",
+      ]);
+      const untouched = simpleGit(join(dir, "victim"));
+      expect((await untouched.revparse(["HEAD"])).trim()).toBe(victim.head);
+      expect((await untouched.raw(["remote"])).trim()).toBe("");
+    });
   });
 
   test("a git binary that does not exist drops the rung silently", async () => {
     const warnings: string[] = [];
     const runner = scriptedRunner({
-      git: simpleGitRunner("/nonexistent/maxims-test-git"),
+      git: simpleGitRunner({ binary: "/nonexistent/maxims-test-git" }),
       fetch: () => httpResponse(200, SHA),
     });
-    expect(await ladder(runner, {}, warnings).resolveRef(REPO, "HEAD")).toBe(SHA);
+    expect(await ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
     expect(warnings).toEqual([]);
   });
 });

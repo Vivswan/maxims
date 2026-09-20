@@ -1,8 +1,8 @@
 import { join, resolve } from "node:path";
-import type { SourceFrom } from "../state/schema.ts";
+import { canonicalSourceKey, type SourceFrom } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
 import { assertInsideRoot } from "../util/fs.ts";
-import { storePathFor } from "../util/home.ts";
+import { homePaths, storePathFor } from "../util/home.ts";
 import type { SourceResolver } from "./contract.ts";
 import { hashFiles, readMemoryTree, type TreeFile, type WarnSink } from "./tree.ts";
 
@@ -21,7 +21,7 @@ export function createLocalResolver(warn: WarnSink): SourceResolver {
 // and live leaves nothing behind; it is meant for the moment a source changed, not for every sync.
 // A live entry is a symlink to the source directory, so deleting it later never reaches the target.
 export function materializeLocal(from: LocalSourceFrom, home: string, files: TreeFile[]): Change[] {
-  const entry = storePathFor(home, from);
+  const entry = assertInsideRoot(homePaths(home).store, storePathFor(home, from));
   const changes: Change[] = [{ kind: "delete", path: entry }];
   if (from.live === true) {
     changes.push({ kind: "symlink", path: entry, target: resolve(from.path) });
@@ -39,6 +39,8 @@ export function materializeLocal(from: LocalSourceFrom, home: string, files: Tre
 }
 
 function expectLocal(from: SourceFrom): LocalSourceFrom {
-  if (from.type !== "local") throw new Error(`the local resolver cannot fetch @${from.repo}`);
+  if (from.type !== "local") {
+    throw new Error(`the local resolver cannot fetch ${canonicalSourceKey(from)}`);
+  }
   return from;
 }
