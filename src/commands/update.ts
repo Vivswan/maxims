@@ -14,7 +14,7 @@ import type { RenameMap, State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
-import { loadIntent, persistCooldownCap, updateIntent } from "./shared/cli-context.ts";
+import { loadIntentFor, persistCooldownCap, updateIntent } from "./shared/cli-context.ts";
 import {
   agentsFilter,
   type Command,
@@ -63,10 +63,10 @@ export const update: Command = {
       preview = await recordRenames(only?.[0] ?? "", renames, ctx, persisted.config);
       preview = { ...preview, changes: [...persisted.changes, ...preview.changes] };
     } else if (persisted.changes.length > 0) {
-      const { state } = await loadIntent(io.home);
+      const { state } = await loadIntentFor(io.home, ctx.global.dryRun);
       preview = { state, config: persisted.config, changes: persisted.changes };
     }
-    const before = await loadIntent(io.home);
+    const before = await loadIntentFor(io.home, ctx.global.dryRun);
     console.intro();
     console.step(STRINGS.checkingUpdates);
     const liveKeys = Object.entries(before.state.sources)
@@ -89,7 +89,7 @@ export const update: Command = {
       },
       io,
     );
-    const after = await loadIntent(io.home);
+    const after = await loadIntentFor(io.home, ctx.global.dryRun);
     const lines: string[] = [];
     const failures = report.failed
       .filter((failure) => only === undefined || only.includes(failure.key))
@@ -138,7 +138,7 @@ async function onlySource(
   ctx: CommandContext,
 ): Promise<string[] | undefined> {
   if (arg === undefined) return undefined;
-  const { state } = await loadIntent(ctx.io.home);
+  const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   return [findInstalledSource(state, arg, ctx.io)];
 }
 

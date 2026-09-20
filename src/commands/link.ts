@@ -4,7 +4,7 @@ import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { syncAfterCommit } from "./add.ts";
-import { loadIntent, updateIntent } from "./shared/cli-context.ts";
+import { loadIntentFor, updateIntent } from "./shared/cli-context.ts";
 import {
   type Args,
   type Command,
@@ -40,7 +40,7 @@ async function linkTarget(
     throw usage(`${verb} needs a source`, { hint: `maxims ${verb} <source> -a <harness>` });
   const selection = parseAgents(args, knownHarnessIds(ctx.io));
   if (selection.kind !== "ids") throw usage(`${verb} needs -a <harness>`);
-  const { state } = await loadIntent(ctx.io.home);
+  const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const key = findInstalledSource(state, positional, ctx.io);
   return { target: { key, ids: selection.ids }, state };
 }

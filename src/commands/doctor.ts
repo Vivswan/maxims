@@ -5,7 +5,7 @@ import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
-import { loadIntent } from "./shared/cli-context.ts";
+import { peekIntent } from "./shared/cli-context.ts";
 import { readTextIfPresent } from "./shared/fs-probe.ts";
 import {
   type Command,
@@ -56,7 +56,7 @@ export const doctor: Command = {
   flags: DOCTOR_FLAGS,
   async run(args, ctx) {
     const { io } = ctx;
-    const { state, notices } = await loadIntent(io.home);
+    const { state, notices } = await peekIntent(io.home);
     const findings: Finding[] = notices.map((text) => ({ level: "warn", text }));
     const unresolved = unresolvedHarnessIds(state, io.harnesses);
     for (const id of unresolved) findings.push({ level: "warn", text: notDefinedHere(id) });

@@ -3,7 +3,7 @@ import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../harnesses/contract.ts";
 import { canonicalSourceKey, type State } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { loadIntent, persistCooldownCap } from "./shared/cli-context.ts";
+import { loadIntentFor, persistCooldownCap } from "./shared/cli-context.ts";
 import {
   type Args,
   agentsFilter,
@@ -55,7 +55,7 @@ export const sync: Command = {
     const preview =
       ctx.global.dryRun && persisted.changes.length > 0
         ? {
-            state: (await loadIntent(ctx.io.home)).state,
+            state: (await loadIntentFor(ctx.io.home, true)).state,
             config: persisted.config,
             changes: persisted.changes,
           }
@@ -72,7 +72,7 @@ export const sync: Command = {
     );
     if (ctx.io.projectRoot !== null && !ctx.global.quiet && !ctx.global.json) {
       const lock = readProjectLock(ctx.io.projectRoot);
-      const { state } = await loadIntent(ctx.io.home);
+      const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
       const root = ctx.io.projectRoot;
       const missing =
         lock.kind === "present"
@@ -161,7 +161,7 @@ async function removeTarget(
     return { kind: "all", agents };
   }
   if (positional === undefined) throw usage("Missing required argument: source or memory name");
-  const { state } = await loadIntent(ctx.io.home);
+  const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const key = installedSourceOrNull(state, positional, ctx.io);
   if (key !== null) {
     if (destination !== null) {

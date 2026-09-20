@@ -753,3 +753,37 @@ test("--from, --full-depth and --copy round-trip through the manifest into a fre
     expect(readFileSync(lockPath, "utf8")).toBe(written);
   });
 });
+
+const CORRUPT_STATE = {
+  version: 1,
+  writtenBy: "x",
+  hooks: [],
+  sources: { "@a/b": { bogus: true } },
+};
+
+// A read that must not write keeps its hands off a corrupt file: the locking read would move it
+// aside (a write) and, before that, create the home to take the lock. The notice names the verb
+// that settles it.
+test("add --dry-run refuses a corrupt state file and add --list warns, both leaving it in place", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    writeState(scenario, CORRUPT_STATE);
+    const before = await snapshot(scenario.home);
+    const dry = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--dry-run"]);
+    expect(dry.code).toBe(1);
+    expect(dry.stderr).toBe(
+      " ERROR  state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
+    );
+    expect(await snapshot(scenario.home)).toBe(before);
+    const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
+    expect(listed.code).toBe(0);
+    expect(listed.stdout).toContain(
+      "!  state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
+    );
+    expect(listed.stdout).toContain("|    skip-unfit-skills\n");
+    expect(await snapshot(scenario.home)).toBe(before);
+    expect((await runCli(scenario, ["link", "@a/b", "-a", "claude-code", "--dry-run"])).code).toBe(
+      1,
+    );
+    expect(await snapshot(scenario.home)).toBe(before);
+  });
+});

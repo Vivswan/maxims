@@ -1484,3 +1484,28 @@ test("doctor names a harness id no definition answers to and fails an --expect t
     expect(JSON.parse(json.stdout)).toMatchObject({ ok: true, unresolved: ["team-agent"] });
   });
 });
+
+test("doctor reports a corrupt state file as a warning and leaves it in place", async () => {
+  await withScenario({}, async (scenario) => {
+    writeState(scenario, { version: 1, writtenBy: "x", hooks: [], sources: { "@a/b": {} } });
+    const before = await snapshot(scenario.home);
+    const run = await runCli(scenario, ["doctor"]);
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(
+      "!   state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
+    );
+    expect(await snapshot(scenario.home)).toBe(before);
+  });
+});
+
+// The persisted-flag preview reads state on a real run too, so the read must stay the locking
+// one there: a corrupt file is settled (moved aside) as on any other real run, never refused.
+test("update --cap on a real run settles a corrupt state file instead of refusing it", async () => {
+  await withScenario({}, async (scenario) => {
+    writeState(scenario, { version: 1, writtenBy: "x", hooks: [], sources: { "@a/b": {} } });
+    const run = await runCli(scenario, ["update", "--cap", "7"]);
+    expect(run.code).toBe(0);
+    expect(existsSync(homePaths(scenario.home).state)).toBe(false);
+    expect(existsSync(homePaths(scenario.home).config)).toBe(true);
+  });
+});

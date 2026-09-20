@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
 import { emptyState, parseState, type State } from "../../state/schema.ts";
 import {
+  inspectState,
   type LoadedState,
   readState,
   serializeState,
@@ -127,6 +128,48 @@ export async function loadIntent(home: string): Promise<Intent> {
   return intentFrom(await readState(home), homePaths(home).state);
 }
 
+// The read for a verb that must not write: `add --list`, `doctor`, and every `--dry-run`. It
+// never takes the lock (which would create the home) and never moves a corrupt file aside or
+// persists a migration; such a file becomes an empty intent plus the notice naming the locking
+// verb that would settle it.
+export async function peekIntent(home: string): Promise<Intent> {
+  const inspection = await inspectState(home);
+  switch (inspection.kind) {
+    case "absent":
+      return { state: emptyState(WRITTEN_BY), notices: [] };
+    case "current":
+      return { state: inspection.state, notices: [] };
+    case "newer":
+      return intentFrom(
+        { kind: "newer", version: inspection.version, path: homePaths(home).state },
+        homePaths(home).state,
+      );
+    case "corrupt":
+      return {
+        state: emptyState(WRITTEN_BY),
+        notices: [
+          `state.json is corrupt: ${inspection.issues[0] ?? "unreadable"}; run maxims sync to quarantine it`,
+        ],
+      };
+    case "migrated":
+      return {
+        state: emptyState(WRITTEN_BY),
+        notices: ["state.json needs migration; run maxims sync"],
+      };
+  }
+}
+
+// A dry run of a mutating verb plans against the file as it is. A file the lock-free read cannot
+// obey stops the run with exit 1: the real run would first move it aside or migrate it, and a plan
+// drawn against an empty intent would not show the writes that settle it.
+export async function loadIntentFor(home: string, dryRun: boolean): Promise<Intent> {
+  if (!dryRun) return loadIntent(home);
+  const peeked = await peekIntent(home);
+  const notice = peeked.notices[0];
+  if (notice !== undefined) throw new MaximsError(ExitCode.Usage, notice);
+  return peeked;
+}
+
 export type IntentUpdate = {
   state: State;
   changes: Change[];
@@ -154,7 +197,7 @@ export async function updateIntent(
     ],
   });
   if (dryRun) {
-    const update = await fn(await loadIntent(home));
+    const update = await fn(await loadIntentFor(home, true));
     const planned = withStateWrite(update);
     await apply({ changes: update.changes, notices: update.notices });
     return planned;

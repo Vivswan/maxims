@@ -47,7 +47,13 @@ import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import { configWrite, cooldownCapConfig, loadIntent, updateIntent } from "./shared/cli-context.ts";
+import {
+  configWrite,
+  cooldownCapConfig,
+  loadIntentFor,
+  peekIntent,
+  updateIntent,
+} from "./shared/cli-context.ts";
 import {
   type AgentSelection,
   type Args,
@@ -321,7 +327,9 @@ export async function stageAdd(
   console.step(`Source: ${describeSource(requested.from)}`);
   const tree = await fetchTree(requested, io, console);
   if ("kind" in tree) return { kind: "store-empty" };
-  const intent = await loadIntent(io.home);
+  const intent = requested.list
+    ? await peekIntent(io.home)
+    : await loadIntentFor(io.home, ctx.global.dryRun);
   for (const notice of intent.notices) console.warn(notice);
   const request = adoptRecordedKey(requested, intent.state);
   const scan = scanMemories(request, tree.files, io.env, console);

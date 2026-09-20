@@ -1,7 +1,7 @@
 import { wasNotDisabled } from "../console/strings.ts";
 import type { Scope } from "../harnesses/contract.ts";
 import { syncAfterCommit } from "./add.ts";
-import { loadIntent } from "./shared/cli-context.ts";
+import { loadIntentFor } from "./shared/cli-context.ts";
 import {
   type Args,
   type Command,
@@ -35,7 +35,7 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
       hint: "run inside a git checkout, or pass -g",
     });
   }
-  const { state } = await loadIntent(ctx.io.home);
+  const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const resolved = resolveMemoryName(state, ctx.io, positional);
   return { scope, name: resolved.name, key: resolved.key };
 }
