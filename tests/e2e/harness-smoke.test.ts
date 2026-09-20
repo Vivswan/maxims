@@ -1,6 +1,7 @@
 // Fails if an installed harness CLI stops running the session-start hook maxims registered, stops
 // loading the rule file maxims wrote where maxims wrote it, or drifts in the redirect, dummy-auth
-// or headless knobs the container tier relies on. The real rows run only inside the container
+// or headless knobs the container tier relies on, and if the built bundle stops running its
+// install and sync verbs under node. The real rows run only inside the container
 // tier (the image sets MAXIMS_CONTAINER_TIER=1); locally they skip by name, and a stub CLI that
 // speaks the Claude Code shape proves the smoke's own logic, including its two failure findings.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -291,25 +292,53 @@ process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result
 type Verdict = { ok: true } | { ok: false; problems: string[] };
 const PASSED: Verdict = { ok: true };
 
-// The CLI runs from its source through bun, here and behind the shim: the smoke proves the
-// harness seam (hook ran, rule text on the wire), while the published bundle's own integrity is
-// pinned by the release tests.
-const CLI_ENTRY: readonly string[] = [process.execPath, join(REPO_ROOT, "src", "cli.ts")];
+// The CLI under test is the published artifact: the bundle scripts/build.ts produces, run by node
+// as `npx` runs it, both for the install and behind the shim. A defect only the bundle has (a
+// dependency entry that resolves at build time and not at load) therefore fails the smoke too.
+type Scratch = { root: string; stub: string; entry: readonly string[] };
+let scratch: Scratch | null = null;
 
-type Scratch = { root: string; stub: string };
-let scratch: Scratch;
+function ready(): Scratch {
+  if (scratch === null) throw new Error("the smoke's setup did not run");
+  return scratch;
+}
 
 beforeAll(() => {
   const launcherHome = process.env.HOME;
   if (launcherHome === undefined) throw new Error("the test launcher must set HOME");
+  const node = Bun.which("node");
+  if (node === null) throw new Error("node is required: the published bundle targets node");
   const root = mkdtempSync(join(launcherHome, "maxims-smoke-"));
-  const stub = join(root, "stub-cli.ts");
-  writeFileSync(stub, STUB_SOURCE);
-  scratch = { root, stub };
+  try {
+    const bundle = join(root, "cli.js");
+    const build = Bun.spawnSync(
+      [
+        process.execPath,
+        join(REPO_ROOT, "scripts", "build.ts"),
+        "--outfile",
+        bundle,
+        "--size-json",
+        join(root, "size.json"),
+      ],
+      { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+    );
+    if (build.exitCode !== 0) {
+      throw new Error(`bundle build failed: ${build.stderr.toString()}${build.stdout.toString()}`);
+    }
+    // The published package declares its module type beside the bundle; without it an older
+    // node reads the ESM bundle as CommonJS and refuses its first import.
+    writeFileSync(join(root, "package.json"), `${JSON.stringify({ type: "module" })}\n`);
+    const stub = join(root, "stub-cli.ts");
+    writeFileSync(stub, STUB_SOURCE);
+    scratch = { root, stub, entry: [node, bundle] };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 });
 
 afterAll(() => {
-  rmSync(scratch.root, { recursive: true, force: true });
+  if (scratch !== null) rmSync(scratch.root, { recursive: true, force: true });
 });
 
 // The hook command names `npx`, which the container cannot run for lack of network; a shim first
@@ -323,7 +352,7 @@ function shimSource(log: string): string {
     `printf '%s\\n' "$*" >> ${quoted(log)}`,
     'if [ "$1" = "-y" ] && [ "$2" = "@vivswan/maxims" ]; then',
     "  shift 2",
-    `  exec ${CLI_ENTRY.map(quoted).join(" ")} "$@"`,
+    `  exec ${ready().entry.map(quoted).join(" ")} "$@"`,
     "fi",
     'echo "npx shim: unexpected arguments: $*" >&2',
     "exit 1",
@@ -404,7 +433,7 @@ function memoryFile(nonce: string): string {
 // written by the maxims CLI, never by the test, so the harness is proven to read what `sync`
 // wrote where it wrote it.
 async function smoke(row: Row, extraEnv: Record<string, string> = {}): Promise<Verdict> {
-  const dir = join(scratch.root, `row-${row.name}-${randomUUID().slice(0, 8)}`);
+  const dir = join(ready().root, `row-${row.name}-${randomUUID().slice(0, 8)}`);
   const home = join(dir, "home");
   const work = join(dir, "work");
   const bin = join(dir, "bin");
@@ -436,7 +465,7 @@ async function smoke(row: Row, extraEnv: Record<string, string> = {}): Promise<V
       ...extraEnv,
     };
     const add = await runWithDeadline(
-      [...CLI_ENTRY, "add", source, "-g", "--rule", "--add-hook", "-a", row.harness, "-y"],
+      [...ready().entry, "add", source, "-g", "--rule", "--add-hook", "-a", row.harness, "-y"],
       { cwd: work, env },
       CLI_DEADLINE_MS,
     );
@@ -515,7 +544,7 @@ function judge(
 }
 
 function stubRow(): Row {
-  return { ...CLAUDE, name: "stub", command: [process.execPath, scratch.stub] };
+  return { ...CLAUDE, name: "stub", command: [process.execPath, ready().stub] };
 }
 
 describe("the smoke's own logic on a stub CLI", () => {
