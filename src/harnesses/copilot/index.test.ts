@@ -18,12 +18,16 @@ const frontmatters: [Scope, string[] | undefined, string][] = [
   ["project", ["src/**", "docs/**"], "src/**,docs/**"],
 ];
 
+// Copilot reads `applyTo` only from a `---`-delimited YAML block; a bare `applyTo:` line is body
+// text, so the delimiters are part of the pinned bytes.
 test.each(frontmatters)(
   "the %s instructions frontmatter applies to every file unless paths narrow it (%p)",
   (scope, paths, expected) => {
     const rendered = copilot.targets[scope].frontmatter({ paths });
-    expect(rendered).toBe(`applyTo: ${expected}\n`);
-    expect(parse(rendered)).toEqual({ applyTo: expected.replaceAll('"', "") });
+    expect(rendered).toBe(`---\napplyTo: ${expected}\n---\n`);
+    expect(parse(rendered.slice("---\n".length, -"---\n".length))).toEqual({
+      applyTo: expected.replaceAll('"', ""),
+    });
   },
 );
 

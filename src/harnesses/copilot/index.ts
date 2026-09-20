@@ -24,14 +24,17 @@ function hooksDir(scope: Scope, ctx: HarnessContext): string {
 }
 
 // Without `applyTo` an instructions file is path-scoped by Copilot's own matching and silently
-// stops being always-loaded, so the frontmatter is never omitted; `**` matches every file.
+// stops being always-loaded, so the frontmatter is never omitted; `**` matches every file. Copilot
+// reads the key only from a `---`-delimited YAML block, so the delimiters are part of the render.
 function instructionsTarget(dir: string) {
   return {
     kind: "rules-dir",
     dir,
     fileName: (sourceSlug: string) => `maxims-${sourceSlug}.instructions.md`,
     frontmatter: ({ paths }: { paths?: string[] }) =>
-      stringify({ applyTo: paths === undefined || paths.length === 0 ? "**" : paths.join(",") }),
+      `---\n${stringify({
+        applyTo: paths === undefined || paths.length === 0 ? "**" : paths.join(","),
+      })}---\n`,
   } satisfies Target;
 }
 
