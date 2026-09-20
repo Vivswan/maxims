@@ -1,15 +1,38 @@
-// Fails if the hook path regrows: a static import chain from the bin entry to the sync verb that
-// reaches the interactive frame, the color library, agent detection, or the git and tarball code
-// would load them at every session start, which the latency budget forbids. Dynamic imports are
-// not followed, since that is exactly how the interactive verbs are meant to load, and neither
-// are type-only imports, which the compiler erases and the bundle never carries.
+// Fails if the hook path regrows: a static import chain from the bin entry, the engine loader or
+// the sync verb that reaches the interactive frame, the color library, agent detection, the
+// GitHub fetch ladder or the git and tarball resolvers would load them at every session start,
+// which the latency budget forbids. Dynamic imports are not followed, since that is exactly how
+// the interactive verbs and the resolvers are meant to load, and neither are type-only imports,
+// which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const SRC = resolve(import.meta.dir, "..", "..", "src");
 
-const HEAVY = ["@clack/prompts", "picocolors", "@vercel/detect-agent", "simple-git", "tar"];
+const HEAVY = [
+  "@clack/prompts",
+  "picocolors",
+  "@vercel/detect-agent",
+  "simple-git",
+  "tar",
+  "debug",
+];
+
+const HOOK_PATH_EXCLUDES = [
+  "sources/github/ladder.ts",
+  "sources/github/index.ts",
+  "sources/github/tarball.ts",
+  "sources/git/index.ts",
+  "console/clack.ts",
+  "console/rename.ts",
+  "commands/add.ts",
+  "commands/update.ts",
+].map((path) => resolve(SRC, path));
+
+const HOOK_PATH_ROOTS = ["cli.ts", "commands/engine.ts", "commands/engine-verbs.ts"].map((path) =>
+  resolve(SRC, path),
+);
 
 const STATIC_IMPORT = /^\s*(?:import|export)\s(?!type\s)[^;]*?\sfrom\s+["']([^"']+)["']/gm;
 const BARE_IMPORT = /^\s*import\s+["']([^"']+)["']/gm;
@@ -38,25 +61,38 @@ function walk(entry: string): Set<string> {
   return seen;
 }
 
-function offenders(graph: Set<string>): string[] {
-  return HEAVY.filter((name) => graph.has(name));
+function offenders(graph: Set<string>): { packages: string[]; modules: string[] } {
+  return {
+    packages: HEAVY.filter((name) => graph.has(name)),
+    modules: HOOK_PATH_EXCLUDES.filter((path) => graph.has(path)).map((path) =>
+      path.slice(SRC.length + 1),
+    ),
+  };
 }
 
-test("the static graph from the bin entry through the sync verb carries no interactive module", () => {
-  const graph = new Set([
-    ...walk(resolve(SRC, "cli.ts")),
-    ...walk(resolve(SRC, "commands", "engine-verbs.ts")),
-  ]);
-  expect(offenders(graph)).toEqual([]);
-  expect(graph.has(resolve(SRC, "console", "clack.ts"))).toBe(false);
-  expect(graph.has(resolve(SRC, "commands", "add.ts"))).toBe(false);
+test("the static graph from the bin entry, the engine loader and the sync verb carries no fetch or interactive module", () => {
+  const graph = new Set(HOOK_PATH_ROOTS.flatMap((root) => [...walk(root)]));
+  expect(offenders(graph)).toEqual({ packages: [], modules: [] });
 });
 
-// The negative control: the same check over a graph known to carry the interactive libraries
-// must name them, or a green run above proves nothing.
-test("the check names the interactive libraries when the walk starts at the clack renderer", () => {
-  expect(offenders(walk(resolve(SRC, "console", "clack.ts")))).toEqual([
-    "@clack/prompts",
-    "picocolors",
-  ]);
+// The negative controls: the same check over graphs known to carry the interactive libraries and
+// the fetch ladder must name them, or a green run above proves nothing.
+const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
+  [
+    "the clack renderer",
+    "console/clack.ts",
+    { packages: ["@clack/prompts", "picocolors"], modules: ["console/clack.ts"] },
+  ],
+  [
+    "the github resolver",
+    "sources/github/index.ts",
+    {
+      packages: ["simple-git", "tar", "debug"],
+      modules: ["sources/github/ladder.ts", "sources/github/index.ts", "sources/github/tarball.ts"],
+    },
+  ],
+];
+
+test.each(CONTROLS)("the check names what a walk from %s carries", (_name, root, expected) => {
+  expect(offenders(walk(resolve(SRC, root)))).toEqual(expected);
 });
