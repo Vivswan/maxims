@@ -69,7 +69,9 @@ describe("checkCap", () => {
       code: ExitCode.RuleCapExceeded,
       count: 3,
       cap: 2,
-      hint: "narrow the source with --memory <name>..., or raise config.ruleCap (currently 2)",
+      hint:
+        "narrow the source with --memory <name>..., or raise the cap (currently 2) " +
+        "with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it",
     });
   });
 });

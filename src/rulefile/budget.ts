@@ -29,6 +29,13 @@ export function checkCap(count: number, cap: number): CapCheck {
     code: ExitCode.RuleCapExceeded,
     count,
     cap,
-    hint: `narrow the source with --memory <name>..., or raise config.ruleCap (currently ${cap})`,
+    hint: capHint(cap),
   };
+}
+
+function capHint(cap: number): string {
+  return (
+    `narrow the source with --memory <name>..., or raise the cap (currently ${cap}) ` +
+    "with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it"
+  );
 }
