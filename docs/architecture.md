@@ -128,7 +128,7 @@ flowchart LR
   local -->|"copied: one write per file, live: one symlink"| storedir
 ```
 
-- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way. [How a source is fetched](cli.md#how-a-source-is-fetched) owns the user-facing table.
+- **A GitHub source is anonymous by default.** Without `--auth` no `gh` command runs and no GitHub token leaves the process; with it, `gh auth status` is asked once per host and the token rides as a bearer header. Another git remote uses git's own credential helpers either way; [How a source is fetched](cli.md#how-a-source-is-fetched) owns the user-facing table.
 - **Nothing under `src/sources/` writes a remote source into the store.** A remote fetch lands in the temporary directory and returns its files in memory, so a fetch that fails on every rung leaves the previous store entry untouched: the last good copy the [failure paths](state-and-store.md#failure-paths) promise.
 - **A rung may only end in an outcome.** Whatever a rung throws becomes that rung's failure, and when every rung fails the most actionable failure wins: rate limit, then auth, missing, invalid, network.
 - **The memory contract reports, the caller refuses.** `parseMemory()` returns a reason instead of throwing, and `hiddenCharacters()` lists what renders as nothing; [memory files](memory-files.md#the-contract) owns what is refused and why.
@@ -214,7 +214,7 @@ flowchart LR
 - **A custom `reconcile` quirk needs hook kind `none` in the spec;** `toDefinition()` throws otherwise, so a folder cannot declare a registry hook and then replace it in code.
 - **The registry is guarded by a completeness test:** a folder missing from the import list fails it, and a user spec that names a built-in id or repeats one is refused with the entry named.
 
-Demonstrated by: [src/harnesses/from-spec.test.ts](../src/harnesses/from-spec.test.ts), [src/harnesses/registry.test.ts](../src/harnesses/registry.test.ts), [src/harnesses/user-defined.test.ts](../src/harnesses/user-defined.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/codex/index.test.ts](../src/harnesses/codex/index.test.ts).
+Demonstrated by: [src/harnesses/from-spec.test.ts](../src/harnesses/from-spec.test.ts), [src/harnesses/contract.test.ts](../src/harnesses/contract.test.ts), [src/harnesses/registry.test.ts](../src/harnesses/registry.test.ts), [src/harnesses/user-defined.test.ts](../src/harnesses/user-defined.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/codex/index.test.ts](../src/harnesses/codex/index.test.ts).
 
 ## Every write is a planned change
 
@@ -269,7 +269,7 @@ flowchart LR
 - **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](harnesses.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
 - **The verbs are not drawn yet.** `src/commands/` holds their option and report types; each verb's flow joins this page as the verb lands there.
 
-Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/contract.test.ts](../src/harnesses/contract.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
+Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
 
 ## The module map
 
