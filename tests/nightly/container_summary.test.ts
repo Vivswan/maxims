@@ -1,7 +1,8 @@
 // Fails if the nightly container job could pass while its build metric was never written: the
-// tier's entry must append the build time and image size to GITHUB_STEP_SUMMARY after a
-// successful build, a runtime that cannot report the size must stop the tier rather than write a
-// zero, and a runner with no runtime must fail when the job says the runtime is required.
+// tier's entry must print the image size beside the build time and append both to
+// GITHUB_STEP_SUMMARY after a successful build, a runtime that cannot report the size must stop
+// the tier rather than write a zero, and a runner with no runtime must fail when the job says the
+// runtime is required.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -63,7 +64,7 @@ const FAKE_DOCKER = [
 ].join("\n");
 
 describe("the tier's entry with a fake runtime", () => {
-  test("appends the build time and image size to the step summary after the build", async () => {
+  test("prints the image size after the build line and appends both to the step summary", async () => {
     await withTempDir((dir) => {
       const bin = join(dir, "bin");
       mkdirSync(bin);
@@ -81,6 +82,9 @@ describe("the tier's entry with a fake runtime", () => {
         exitCode: 0,
         stderr: "",
       });
+      expect(proc.stdout.toString()).toMatch(
+        /^container tier: image build \(maxims-container-tier:local\) exit 0 in \d+\.\ds\ncontainer tier: image size 793 KiB \(812345 bytes\)\n/,
+      );
       const written = readFileSync(summary, "utf8");
       const seconds = /\| Image build \| (\d+\.\d) s \|/.exec(written)?.[1] ?? "(missing)";
       expect(seconds).toMatch(/^\d+\.\d$/);

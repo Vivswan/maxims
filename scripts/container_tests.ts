@@ -9,6 +9,7 @@ import {
   detectRuntime,
   HERMETIC_PROBE_OK,
   hermeticProbe,
+  iec,
   imageSize,
   REQUIRE_RUNTIME_ENV,
   type RunResult,
@@ -49,8 +50,10 @@ let started = performance.now();
 const build = buildImage(runtime, IMAGE);
 const buildSeconds = report(`image build (${IMAGE})`, started, build);
 if (build.exitCode !== 0) process.exit(build.exitCode);
+const bytes = imageSize(runtime, IMAGE);
+process.stdout.write(`container tier: image size ${iec(bytes)} (${bytes} bytes)\n`);
 if (process.env.GITHUB_STEP_SUMMARY) {
-  writeStepSummary(renderBuildSummary(buildSeconds, imageSize(runtime, IMAGE)), process.env);
+  writeStepSummary(renderBuildSummary(buildSeconds, bytes), process.env);
 }
 
 started = performance.now();
