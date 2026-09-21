@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { DEFAULT_GIT_REF, parseRemote, type SourceFrom, stripGitSuffix } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { assertInsideRoot, type RootedPath, sha256 } from "./fs.ts";
@@ -19,10 +19,12 @@ export type HomePaths = {
   log: string;
   lastSync: string;
   config: string;
+  pending: string;
 };
 
 // `lastSync` is the universal quiet-mode debounce stamp: every `sync --quiet` run, whichever hook
-// fired it, exits 0 without work while the stamp is younger than 60 seconds.
+// fired it, exits 0 without work while the stamp is younger than 60 seconds. `pending` holds the
+// held revisions of reviewed sources, laid out like the store.
 export function homePaths(home: string): HomePaths {
   return {
     store: join(home, "store"),
@@ -31,7 +33,18 @@ export function homePaths(home: string): HomePaths {
     log: join(home, "log", "refresh.log"),
     lastSync: join(home, "last-sync"),
     config: join(home, "config.json"),
+    pending: join(home, "pending"),
   };
+}
+
+// A held revision sits at the store entry's own relative path under a sibling root, never beside
+// the entry inside the store: the orphan sweep reads every directory at an entry position under
+// the store as an entry, and a repository may itself be named `x.pending`, so no name inside the
+// store is structurally its own.
+export function pendingPathFor(home: string, from: SourceFrom): RootedPath {
+  const paths = homePaths(home);
+  const inStore = relative(paths.store, storePathFor(home, from));
+  return assertInsideRoot(paths.pending, join(paths.pending, inStore));
 }
 
 // GitHub owner and repo names are case-insensitive, so the store folds them to lower case: two

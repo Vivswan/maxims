@@ -1,10 +1,14 @@
 // Guards store-path derivation: two local sources sharing a basename must not share an entry, a
 // github entry must fold case so one repo never lands in two folders, and the derived path must
 // already be the proven-inside-root type that a store write accepts, so no caller re-asserts it.
+// Also guards the pending root: a held revision must land where the store entry would, under
+// `pending/` instead of `store/`, or a pinned source's hold would be swapped into its tracking
+// twin's slot.
 import { describe, expect, test } from "bun:test";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
+import type { SourceFrom } from "../state/schema.ts";
 import type { RootedPath } from "./fs.ts";
-import { homePaths, storePathFor } from "./home.ts";
+import { homePaths, pendingPathFor, storePathFor } from "./home.ts";
 
 describe("storePathFor", () => {
   const home = "/home/user/.agents/maxims";
@@ -98,6 +102,48 @@ describe("storePathFor", () => {
       storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
     ).toBe(a);
   });
+});
+
+// Every source variant, pins and hosts included, pinned to the layout the store test pins for the
+// same sources: a held revision lands at the store entry's own place under `pending/`, so a hold of
+// a pinned source can never be swapped into its tracking twin's slot.
+const HEX8 = "[0-9a-f]{8}";
+const heldSources: [string, SourceFrom, string | RegExp][] = [
+  [
+    "a tracking github source",
+    { type: "github", repo: "Acme/Rules", ref: "HEAD" },
+    join("pending", "acme", "rules"),
+  ],
+  [
+    "a pinned github source",
+    { type: "github", repo: "acme/rules", ref: "release/1.0" },
+    new RegExp(`^${join("pending", "acme", "rules@release-1.0-")}${HEX8}$`),
+  ],
+  [
+    "an enterprise github source",
+    { type: "github", repo: "acme/rules", ref: "HEAD", host: "github.example.com" },
+    join("pending", "_github", "github.example.com", "acme", "rules"),
+  ],
+  [
+    "a git remote with a port and a pin",
+    { type: "git", url: "ssh://git@git.example.com:2222/team/rules.git", ref: "v2" },
+    new RegExp(`^${join("pending", "_git", "git.example.com_2222", "team", "rules@v2-")}${HEX8}$`),
+  ],
+  [
+    "a copied local directory",
+    { type: "local", path: "/home/user/dotfiles/memories" },
+    new RegExp(`^${join("pending", "_local", "memories-")}${HEX8}$`),
+  ],
+];
+test.each(heldSources)("pendingPathFor lays %s out under the pending root", (_title, from, at) => {
+  const home = "/home/user/.agents/maxims";
+  const held: RootedPath = pendingPathFor(home, from);
+  const inHome = relative(home, held);
+  if (typeof at === "string") expect(inHome).toBe(at);
+  else expect(inHome).toMatch(at);
+  expect(relative(homePaths(home).store, storePathFor(home, from))).toBe(
+    relative(homePaths(home).pending, held),
+  );
 });
 
 // The canonical key keeps the URL verbatim, so two ports are two sources; the store must not fold

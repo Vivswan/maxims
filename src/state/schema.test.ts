@@ -182,6 +182,76 @@ describe("parseState", () => {
     expect(parseState(json).ok).toBe("corrupt");
   });
 
+  // `add --review` and `maxims review` hold a refresh under `pending` until `accept`; the flag is
+  // read back on every refresh, so it must round-trip and stay absent, never `false`, when unset.
+  test("intent.review round-trips when set, stays absent when unset, and refuses false", () => {
+    const json = clone(VALID);
+    (json.sources["@example-user/rules"].intent as Record<string, unknown>).review = true;
+    const result = parseState(json);
+    expect(result.ok).toBe("parsed");
+    if (result.ok !== "parsed") return;
+    expect(result.state.sources["@example-user/rules"]?.intent.review).toBe(true);
+    expect(
+      "review" in (result.state.sources["https://gitlab.example.com/team/rules.git"]?.intent ?? {}),
+    ).toBe(false);
+    (json.sources["@example-user/rules"].intent as Record<string, unknown>).review = false;
+    expect(parseState(json).ok).toBe("corrupt");
+  });
+
+  // A held revision records the sha of the variant it belongs to: a commit id for a remote, a
+  // content hash for a copied directory, and nothing at all for a live source, whose tree is the
+  // record. A `pending` on the wrong variant or with the other brand is a hand edit the file
+  // refuses whole.
+  const pendingShapes: [string, string, unknown, "parsed" | "corrupt"][] = [
+    [
+      "a commit sha on a remote entry",
+      "@example-user/rules",
+      { sha: "b".repeat(40), at: "2026-09-01T00:00:00.000Z", summary: ["+ new-rule"] },
+      "parsed",
+    ],
+    [
+      "a content hash on a remote entry",
+      "@example-user/rules",
+      { sha: `sha256:${"cd".repeat(32)}`, at: "2026-09-01T00:00:00.000Z", summary: [] },
+      "corrupt",
+    ],
+    [
+      "a content hash on a copied local entry",
+      "/home/user/shared/memories",
+      { sha: `sha256:${"cd".repeat(32)}`, at: "2026-09-01T00:00:00.000Z", summary: [] },
+      "parsed",
+    ],
+    [
+      "a commit sha on a copied local entry",
+      "/home/user/shared/memories",
+      { sha: "b".repeat(40), at: "2026-09-01T00:00:00.000Z", summary: [] },
+      "corrupt",
+    ],
+    [
+      "any pending on a live entry",
+      "/home/user/dotfiles/memories",
+      { sha: `sha256:${"cd".repeat(32)}`, at: "2026-09-01T00:00:00.000Z", summary: [] },
+      "corrupt",
+    ],
+    [
+      "a pending without a summary",
+      "@example-user/rules",
+      { sha: "b".repeat(40), at: "2026-09-01T00:00:00.000Z" },
+      "corrupt",
+    ],
+  ];
+  test.each(pendingShapes)("pending: %s", (_title, key, pending, verdict) => {
+    const json = clone(VALID);
+    (json.sources[key as keyof typeof json.sources] as Record<string, unknown>).pending = pending;
+    const result = parseState(json);
+    expect(result.ok).toBe(verdict);
+    if (result.ok !== "parsed") return;
+    const entry = result.state.sources[key];
+    expect<unknown>(entry !== undefined && "pending" in entry ? entry.pending : undefined).toEqual(
+      pending,
+    );
+  });
+
   // `disable <name>` records the name in state at either scope: the global list, or the project
   // list keyed by the project root, so one file owns every answer and the project lock only
   // carries a committed copy. Each list is sorted and unique so two syncs that disable the same

@@ -181,6 +181,9 @@ const IntentFields = {
   // Set by `add --share`, `share` and `install` on a project-scope entry: the project lock carries
   // the entry for teammates. Absent means private to this machine.
   shared: z.literal(true).optional(),
+  // Set by `add --review` or `maxims review`: a refresh is fetched into `pending` and applied by
+  // `maxims accept`. Absent means a refresh applies at once.
+  review: z.literal(true).optional(),
 };
 
 // Sharing is a project-scope notion: a user-scope or `-o` entry has no lock to appear in, so the
@@ -243,15 +246,29 @@ const CopiedLocalFetched = fetchedSchema(ContentHashSchema);
 /** @public */
 export type Fetched = z.infer<typeof RemoteFetched> | z.infer<typeof CopiedLocalFetched>;
 
+// A reviewed source's refresh that is fetched and not yet applied: its files sit under the
+// pending root, and `summary` is the memory diff against the last-good `fetched.memories`, so it
+// is a fact about the source and not a copy of anything on disk. A live source has no fetch to
+// hold, so its variant carries no `pending`.
+function pendingSchema<S extends z.ZodType<string>>(sha: S) {
+  return z.strictObject({ sha, at: IsoTimestamp, summary: z.array(z.string()) });
+}
+const RemotePending = pendingSchema(GitShaSchema);
+const CopiedLocalPending = pendingSchema(ContentHashSchema);
+/** @public */
+export type Pending = z.infer<typeof RemotePending> | z.infer<typeof CopiedLocalPending>;
+
 export const SourceEntrySchema = z.union([
   z.strictObject({
     intent: RemoteIntent,
     fetched: RemoteFetched.optional(),
+    pending: RemotePending.optional(),
     addedAt: IsoTimestamp,
   }),
   z.strictObject({
     intent: CopiedLocalIntent,
     fetched: CopiedLocalFetched.optional(),
+    pending: CopiedLocalPending.optional(),
     addedAt: IsoTimestamp,
   }),
   z.strictObject({ intent: LiveIntent, addedAt: IsoTimestamp }),
