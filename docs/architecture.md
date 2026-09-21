@@ -58,7 +58,7 @@ flowchart LR
 - **Every destination has one writer.** `add`, `update` and `remove` change `state.json` and then run `sync`; no verb has a private path to a rules directory, an instruction file or a registry.
 - The [canonical home](files.md#the-canonical-home) owns the tree, why it sits inside the agents folder, every naming rule of the store, and which two files are not state.
 
-Demonstrated by: [src/util/home.test.ts](../src/util/home.test.ts), [src/state/store.test.ts](../src/state/store.test.ts), [src/util/log.test.ts](../src/util/log.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
+Demonstrated by: [tests/util/home.test.ts](../tests/util/home.test.ts), [tests/state/store.test.ts](../tests/state/store.test.ts), [tests/util/log.test.ts](../tests/util/log.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## State is intent, everything else is derived
 
@@ -92,7 +92,7 @@ flowchart LR
 - **A live local source has no `fetched` member at all,** so nothing downstream checks for one; the remote and copied-local variants differ only in what their sha is, a git commit or a content hash.
 - The [state page](state.md#state-holds-intent-never-actuality) owns the table of what belongs in the file and what its real owner is.
 
-Demonstrated by: [src/state/store.test.ts](../src/state/store.test.ts), [src/state/schema.test.ts](../src/state/schema.test.ts), [src/state/migrations/index.test.ts](../src/state/migrations/index.test.ts), [src/state/config.test.ts](../src/state/config.test.ts).
+Demonstrated by: [tests/state/store.test.ts](../tests/state/store.test.ts), [tests/state/schema.test.ts](../tests/state/schema.test.ts), [tests/state/migrations/index.test.ts](../tests/state/migrations/index.test.ts), [tests/state/config.test.ts](../tests/state/config.test.ts).
 
 ## A source becomes memories
 
@@ -135,7 +135,7 @@ flowchart LR
 - **A rung may only end in an outcome.** Whatever a rung throws becomes that rung's failure, and when every rung fails the most actionable failure wins: rate limit, then auth, missing, invalid, network.
 - **The memory contract reports, the caller refuses.** `parseMemory()` returns a reason instead of throwing, and `hiddenCharacters()` lists what renders as nothing; [memory files](write-memories.md#the-contract) owns what is refused and why.
 
-Demonstrated by: [src/sources/github/ladder.test.ts](../src/sources/github/ladder.test.ts), [src/sources/github/index.test.ts](../src/sources/github/index.test.ts), [src/sources/git/index.test.ts](../src/sources/git/index.test.ts), [src/sources/local.test.ts](../src/sources/local.test.ts), [src/sources/tree.test.ts](../src/sources/tree.test.ts), [src/memory/contract.test.ts](../src/memory/contract.test.ts), [src/memory/wikilinks.test.ts](../src/memory/wikilinks.test.ts).
+Demonstrated by: [tests/sources/github/ladder.test.ts](../tests/sources/github/ladder.test.ts), [tests/sources/github/index.test.ts](../tests/sources/github/index.test.ts), [tests/sources/git/index.test.ts](../tests/sources/git/index.test.ts), [tests/sources/local.test.ts](../tests/sources/local.test.ts), [tests/sources/tree.test.ts](../tests/sources/tree.test.ts), [tests/memory/contract.test.ts](../tests/memory/contract.test.ts), [tests/memory/wikilinks.test.ts](../tests/memory/wikilinks.test.ts).
 
 ## Memories become rule lines
 
@@ -163,7 +163,7 @@ flowchart LR
   block -->|"replaceBlock() over the current text: every byte outside the pair survives"| shared
 ```
 
-The block `renderBlock()` produces for two rule lines under stripped markers, as [src/rulefile/block.test.ts](../src/rulefile/block.test.ts) pins it:
+The block `renderBlock()` produces for two rule lines under stripped markers, as [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins it:
 
 ```text
 <!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->
@@ -178,7 +178,7 @@ The block `renderBlock()` produces for two rule lines under stripped markers, as
 - **Appending closes what the user's text left open.** A fence, comment or raw HTML block still open at the end of the file gets the closer its kind has, or the blank line alone when a block tag needs none; otherwise the fence would swallow the markers and every later sync would append again.
 - **Escaping follows the harness's `expands` list,** and the [rule file](harnesses.md#the-rule-file) owns the table of what is escaped and why.
 
-Demonstrated by: [src/rulefile/block.test.ts](../src/rulefile/block.test.ts), [src/rulefile/dedupe.test.ts](../src/rulefile/dedupe.test.ts), [src/rulefile/budget.test.ts](../src/rulefile/budget.test.ts), [src/harnesses/strategies/once-per-target.test.ts](../src/harnesses/strategies/once-per-target.test.ts), [src/harnesses/strategies/shared-block.test.ts](../src/harnesses/strategies/shared-block.test.ts).
+Demonstrated by: [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts), [tests/rulefile/dedupe.test.ts](../tests/rulefile/dedupe.test.ts), [tests/rulefile/budget.test.ts](../tests/rulefile/budget.test.ts), [tests/harnesses/strategies/once-per-target.test.ts](../tests/harnesses/strategies/once-per-target.test.ts), [tests/harnesses/strategies/shared-block.test.ts](../tests/harnesses/strategies/shared-block.test.ts).
 
 ## A harness is a declaration plus quirks
 
@@ -219,7 +219,7 @@ flowchart LR
 - **A custom `reconcile` quirk needs hook kind `none` in the spec;** `toDefinition()` throws otherwise, so a folder cannot declare a registry hook and then replace it in code.
 - **The registry is guarded by a completeness test:** a folder missing from the import list fails it, and a user spec that names a built-in id or repeats one is refused with the entry named.
 
-Demonstrated by: [src/harnesses/from-spec.test.ts](../src/harnesses/from-spec.test.ts), [src/harnesses/contract.test.ts](../src/harnesses/contract.test.ts), [src/harnesses/registry.test.ts](../src/harnesses/registry.test.ts), [src/harnesses/user-defined.test.ts](../src/harnesses/user-defined.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/codex/index.test.ts](../src/harnesses/codex/index.test.ts).
+Demonstrated by: [tests/harnesses/from-spec.test.ts](../tests/harnesses/from-spec.test.ts), [tests/harnesses/contract.test.ts](../tests/harnesses/contract.test.ts), [tests/harnesses/registry.test.ts](../tests/harnesses/registry.test.ts), [tests/harnesses/user-defined.test.ts](../tests/harnesses/user-defined.test.ts), [tests/harnesses/conformance.test.ts](../tests/harnesses/conformance.test.ts), [tests/harnesses/codex/index.test.ts](../tests/harnesses/codex/index.test.ts).
 
 ## Every write is a planned change
 
@@ -243,7 +243,7 @@ flowchart LR
 - **`unlink` and `symlink` refuse a real file or directory at the path,** so the only thing a link change replaces is a link maxims could have written itself; a repointed link is created beside the old one and renamed over it, so no reader sees it absent.
 - **Containment is judged on real paths.** `assertInsideRoot()` resolves the existing prefix of both root and candidate, so a rules directory symlinked out of the project fails while a root that is itself a symlink passes.
 
-Demonstrated by: [src/util/change.test.ts](../src/util/change.test.ts), [src/util/fs.test.ts](../src/util/fs.test.ts), [src/util/lock.test.ts](../src/util/lock.test.ts).
+Demonstrated by: [tests/util/change.test.ts](../tests/util/change.test.ts), [tests/util/fs.test.ts](../tests/util/fs.test.ts), [tests/util/lock.test.ts](../tests/util/lock.test.ts).
 
 ## The hook path
 
@@ -273,7 +273,7 @@ flowchart LR
 - **The command carries no source, no filter and no version pin:** intent supplies the first two, and the missing pin lets a fix reach hooked sessions without a re-add.
 - **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](keep-fresh.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
 
-Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
+Demonstrated by: [tests/harnesses/hook-writer.test.ts](../tests/harnesses/hook-writer.test.ts), [tests/harnesses/conformance.test.ts](../tests/harnesses/conformance.test.ts), [tests/harnesses/mcp-stub/server.test.ts](../tests/harnesses/mcp-stub/server.test.ts), [tests/harnesses/mcp-stub/register.test.ts](../tests/harnesses/mcp-stub/register.test.ts), [tests/state/store.test.ts](../tests/state/store.test.ts).
 
 ## A verb runs: add
 
@@ -360,7 +360,7 @@ flowchart LR
 - **A refused fresh refresh is rolled back.** `planSync()` loops: the source's last-good copy is restored and the whole installation is planned again from it, so what the retained rules point at is what the name index and the sweeps see. The refusal's own lines are carried over once.
 - **A failed fetch is a report, not a stop.** The other sources land; the failure is logged, shown at once when the source is gone or its content invalid, otherwise once the source counts as stale; and the verb exits 2, or 3 when every failure is a source with nothing valid to install.
 
-Demonstrated by: [src/commands/sync.test.ts](../src/commands/sync.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/sync.test.ts](../tests/commands/sync.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
 
 ## A hook runs: sync --quiet
 
@@ -400,7 +400,7 @@ flowchart LR
 - **One stamp debounces every hook on the machine,** since each runs the same command; an interactive run is never debounced but writes the stamp too.
 - **Notices reach the session only in its protocol.** `stdoutVariantFor()` reads the definition's declared stdout shape; a harness this build does not know gets silence, since plain text into a JSON-only reader is a hook error at every session start.
 
-Demonstrated by: [src/commands/sync-failsoft.test.ts](../src/commands/sync-failsoft.test.ts), [src/commands/shared/stdin.test.ts](../src/commands/shared/stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-failsoft.test.ts), [tests/commands/shared/stdin.test.ts](../tests/commands/shared/stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
 
 ## A verb runs: remove
 
@@ -436,7 +436,7 @@ flowchart LR
 - **`-a` on a source drops that harness's artifacts and keeps the entry while another harness remains;** on a memory or a narrowed selection it is refused, since a memory has no per-harness half.
 - **A bare name two sources provide is refused** with both qualified forms and no change; a name nobody provides is a usage error before the engine runs.
 
-Demonstrated by: [src/commands/remove.test.ts](../src/commands/remove.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/remove.test.ts](../tests/commands/remove.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
 
 ## Two read-only verbs: list and doctor
 
@@ -473,7 +473,7 @@ flowchart LR
 - **`list` reports what state asks for,** with everything past intent re-derived on the spot: a hook the user deleted reads absent, a tier the config demoted reads 2, a rename whose collision is gone reads unneeded.
 - **`doctor` goes file by file.** A rule file counts as present only when the engine's own parser finds this source's block in it; each `x` line is one thing a harness will not load as state asks (a block, a preamble, a hook, an `--expect` name), and `--expect` is the CI assertion.
 
-Demonstrated by: [src/commands/list.test.ts](../src/commands/list.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
+Demonstrated by: [tests/commands/list.test.ts](../tests/commands/list.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [tests/state/store.test.ts](../tests/state/store.test.ts).
 
 ## The lock projection: add --share, share and unshare
 
@@ -509,7 +509,7 @@ flowchart LR
 - **This machine edits only its own entries,** because a clone that has not replayed the lock holds none of the team's entries in state; a teammate's disabled names are kept with their entries.
 - **Of the project's disabled names, the lock carries those a shared source provides;** a private source providing a name a teammate switched off says nothing about the teammate's choice.
 
-Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [src/commands/shared/select.test.ts](../src/commands/shared/select.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
+Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/commands/shared/select.test.ts](../tests/commands/shared/select.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## A verb runs: install
 
@@ -542,7 +542,7 @@ flowchart LR
 - **The manifest is input here, never output.** The lock is how a fresh clone learns what to add, and state stays the only thing `sync` reads: `sync` never installs from the lock; once state exists it prints one notice naming the lock-only sources and says to run `install`.
 - **Replayed entries are `shared`,** so the machine that installed from the lock writes the same entries back when it edits them; a field the lock omits is recorded at `add`'s default.
 
-Demonstrated by: [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
+Demonstrated by: [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## The module map
 

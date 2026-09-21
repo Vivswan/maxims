@@ -137,9 +137,9 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/contracts/harness-id.ts`.
 2. Add `index.ts` exporting the compiled definition as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a tier probe (Codex), a config edit (OpenCode), or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`.
 3. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
-4. Write `index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
+4. Write `tests/harnesses/<id>/index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 
-The folder census test under `src/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current page before encoding it, and record that page in `verifiedAgainst`.
+The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current page before encoding it, and record that page in `verifiedAgainst`.
 
 `contentHash` is the `sha256:<hex>` of the page's text as the nightly drift check reads it, in `scripts/nightly/harness_drift.ts`; one normalization stands behind every stored hash.
 

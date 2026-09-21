@@ -378,7 +378,7 @@ describe("the oracle departs from the reference parsers", () => {
   });
 });
 
-// mulberry32 and the inline pieces, copied from src/rulefile/block.test.ts so that a failing case
+// mulberry32 and the inline pieces, copied from tests/rulefile/block.test.ts so that a failing case
 // is reproducible from its index alone. The copy leaves out the inline tags and the non-breaking
 // space: a lone tag under a list item and a non-breaking space beside a tag are the two readings
 // the rows above attribute, and every generated document must read alike. The pieces can still
