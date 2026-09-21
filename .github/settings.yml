@@ -77,6 +77,9 @@ labels:
     - name: nightly-parity-drift
       color: D93F0B
       description: npx skills --help drifted from the parity fixture
+    - name: nightly-property-deep
+      color: D93F0B
+      description: The deep property run failed
     - name: release-blocker
       color: B60205
       description: Blocks releases while open - release-health fails release PRs and
@@ -192,6 +195,11 @@ environments:
     wait_timer: 0
     prevent_self_review: false
     reviewers: []
+    deployment_branch_policy:
+      protected_branches: false
+      custom_branch_policies: true
+    deployment_branch_policies:
+      - name: main
 actions:
   can_approve_pull_request_reviews: true
 pages:
