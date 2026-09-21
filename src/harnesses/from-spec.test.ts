@@ -172,13 +172,19 @@ test("a reconcile quirk becomes the custom hook of a spec that declares none", (
 test("quirks given as a function receive the compiled data definition", async () => {
   const xdg = resolve("/xdg");
   const def = toDefinition(rendering, (declared) => ({
-    achievedTier: async (ctx) => (declared.globalRoot?.(ctx) === join(xdg, "example") ? 2 : 1),
+    achievedTier: async (ctx) => ({
+      tier: declared.globalRoot?.(ctx) === join(xdg, "example") ? 2 : 1,
+      unreadable: null,
+    }),
   }));
   const home = resolve("/home/user");
-  expect(await def.achievedTier?.({ home, projectRoot: null, env: {} })).toBe(1);
-  expect(await def.achievedTier?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } })).toBe(
-    2,
-  );
+  expect(await def.achievedTier?.({ home, projectRoot: null, env: {} })).toEqual({
+    tier: 1,
+    unreadable: null,
+  });
+  expect(
+    await def.achievedTier?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } }),
+  ).toEqual({ tier: 2, unreadable: null });
 });
 
 // Detection reads a directory it cannot inspect as an error, not as "not installed": a

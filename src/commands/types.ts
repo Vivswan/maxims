@@ -1,6 +1,12 @@
 import type { Readable } from "node:stream";
 import type { Sink } from "../console/contract.ts";
-import type { HarnessContext, HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
+import type {
+  AchievedTier,
+  HarnessContext,
+  HarnessDefinition,
+  HarnessId,
+  Scope,
+} from "../harnesses/contract.ts";
 import type { HookPlan } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { ResolverFor } from "../sources/contract.ts";
@@ -218,6 +224,6 @@ export type Engine = {
     ctx: HarnessContext,
     wanted: boolean,
   ): Promise<HookPlan>;
-  achievedTier(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Promise<1 | 2>;
+  achievedTier(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Promise<AchievedTier>;
   serveMcpStub(options: McpStubOptions): Promise<void>;
 };

@@ -1,16 +1,16 @@
 // Guards the tier Codex actually reaches: hooks are on by default and only `[features] hooks =
 // false` in the project or user config.toml disables them, with the project layer deciding when it
 // sets the key at all. Reporting tier 1 on a disabled machine would promise a refresh that never
-// fires, and so would passing an unreadable config off as an absent one. Also guards that every
-// user-level file follows $CODEX_HOME, that the variable alone never counts as an install, and the
-// bytes a fresh hooks.json receives, which Codex reads without checking them for us.
+// fires, and so would passing an unreadable config off as an absent one; a probe that threw on it
+// would abort the sync and the read-only verbs over a file maxims never writes. Also guards that
+// every user-level file follows $CODEX_HOME, that the variable alone never counts as an install,
+// and the bytes a fresh hooks.json receives, which Codex reads without checking them for us.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
-import { type HarnessContext, scopeRoot } from "../contract.ts";
+import { type AchievedTier, type HarnessContext, scopeRoot } from "../contract.ts";
 import { hasHook, planHookRegistryWrite } from "../hook-writer.ts";
 import { codex } from "./index.ts";
 
@@ -20,7 +20,7 @@ const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
 
-function achievedTier(ctx: HarnessContext): Promise<1 | 2> {
+function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
   if (codex.achievedTier === undefined) throw new Error("Codex probes its config.toml layers");
   return codex.achievedTier(ctx);
 }
@@ -49,20 +49,30 @@ test.each(layers)(
       mkdirSync(join(project, ".codex"), { recursive: true });
       if (projectToml !== null) writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       if (userToml !== null) writeFileSync(join(home, ".codex", "config.toml"), userToml);
-      expect(await achievedTier({ home, projectRoot: project, env: {} })).toBe(expected);
+      expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+        tier: expected,
+        unreadable: null,
+      });
     });
   },
 );
 
-test("achievedTier surfaces a config.toml it cannot read instead of counting it absent", async () => {
+const unreadable = (path: string, reason: string): AchievedTier => ({
+  tier: 2,
+  unreadable: `config.toml could not be read (${path}: ${reason}); assuming hooks off`,
+});
+
+test("achievedTier reads a config.toml it cannot open as hooks off, and says so", async () => {
   await withTempDir(async (dir) => {
-    mkdirSync(join(dir, ".codex", "config.toml"), { recursive: true });
-    const refused = await achievedTier({ home: dir, projectRoot: null, env: {} }).catch((e) => e);
-    expect(refused).toBeInstanceOf(MaximsError);
-    expect({ code: refused.code, message: refused.message }).toEqual({
-      code: ExitCode.DestinationWriteFailed,
-      message: expect.stringMatching(/^cannot read .*config\.toml: EISDIR/),
-    });
+    const path = join(dir, ".codex", "config.toml");
+    mkdirSync(path, { recursive: true });
+    const reading = await achievedTier({ home: dir, projectRoot: null, env: {} });
+    expect(reading.tier).toBe(2);
+    expect(reading.unreadable).toMatch(
+      new RegExp(
+        `^config\\.toml could not be read \\(${regexEscape(path)}: EISDIR.*\\); assuming hooks off$`,
+      ),
+    );
   });
 });
 
@@ -92,22 +102,41 @@ const malformed: [string, string, string][] = [
 ];
 
 test.each(malformed)(
-  "achievedTier refuses a config.toml it cannot read a hooks flag from with exit 4 (%s)",
+  "achievedTier reads a config.toml that does not parse, or sets hooks to a non-boolean, as hooks off with the reason (%s)",
   async (_, toml, reason) => {
     await withTempDir(async (dir) => {
       mkdirSync(join(dir, ".codex"), { recursive: true });
       const path = join(dir, ".codex", "config.toml");
       writeFileSync(path, toml);
-      const refused = await achievedTier({ home: dir, projectRoot: null, env: {} }).catch((e) => e);
-      expect(refused).toBeInstanceOf(MaximsError);
-      expect({ code: refused.code, message: refused.message, hint: refused.hint }).toEqual({
-        code: ExitCode.DestinationWriteFailed,
-        message: `cannot read ${path}: ${reason}`,
-        hint: "fix the file by hand, then run maxims sync",
-      });
+      expect(await achievedTier({ home: dir, projectRoot: null, env: {} })).toEqual(
+        unreadable(path, reason),
+      );
     });
   },
 );
+
+// A project layer that cannot be read decides nothing for the user layer: the machine is taken
+// at hooks off whatever the user config says, since the layer Codex reads first is the broken one.
+test("an unreadable project config.toml is reported over an enabling user config", async () => {
+  await withTempDir(async (dir) => {
+    const home = join(dir, "home");
+    const project = join(dir, "project");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    mkdirSync(join(project, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), enabled);
+    writeFileSync(join(project, ".codex", "config.toml"), "hooks\n");
+    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
+      unreadable(
+        join(project, ".codex", "config.toml"),
+        "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
+      ),
+    );
+  });
+});
+
+function regexEscape(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
   await withTempDir(async (dir) => {
@@ -117,7 +146,10 @@ test("achievedTier skips a project whose .codex is a regular file and lets the u
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, ".codex"), "not a directory\n");
     writeFileSync(join(home, ".codex", "config.toml"), disabled);
-    expect(await achievedTier({ home, projectRoot: project, env: {} })).toBe(2);
+    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+      tier: 2,
+      unreadable: null,
+    });
   });
 });
 
@@ -127,7 +159,7 @@ test("$CODEX_HOME moves the user AGENTS.md, config and hook registry, even when 
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(join(codexHome, "config.toml"), disabled);
     const ctx = { home: join(dir, "home"), projectRoot: null, env: { CODEX_HOME: codexHome } };
-    expect(await achievedTier(ctx)).toBe(2);
+    expect((await achievedTier(ctx)).tier).toBe(2);
     expect(hookPath("global", ctx)).toBe(join(codexHome, "hooks.json"));
     const target = codex.targets.global;
     if (target?.kind !== "shared-block") throw new Error("the user AGENTS.md is a shared block");

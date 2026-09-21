@@ -66,7 +66,8 @@ export type ScenarioOptions = {
   >;
   listReport?: ListReport;
   hookMissing?: HarnessId[];
-  tier2?: HarnessId[];
+  // The reason a harness's tier probe could not read its config: tier 2 with that reason.
+  tierUnreadable?: Partial<Record<HarnessId, string>>;
   // The refusal the engine's planner would raise for what a verb is about to install (a
   // collision, a cap, a byte budget): thrown, already reported, from every planning run.
   refuse?: { code: ExitCode; message: string };
@@ -149,7 +150,9 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
         : { changes: [] };
     },
     async achievedTier(def) {
-      return (options.tier2 ?? []).includes(def.id) ? 2 : 1;
+      const unreadable = options.tierUnreadable?.[def.id];
+      if (unreadable !== undefined) return { tier: 2, unreadable };
+      return { tier: 1, unreadable: null };
     },
     async serveMcpStub(stubOptions) {
       calls.mcpServe += 1;

@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { heldFinding, notDefinedHere } from "../console/strings.ts";
-import type { HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
+import type { AchievedTier, HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
@@ -50,7 +50,7 @@ type HarnessReport = {
   scope: Scope;
   ruleFiles: RuleFileReport[];
   hook: "current" | "missing" | "none" | "not-wanted";
-  tier: 1 | 2;
+  tier: AchievedTier;
 };
 
 type ExpectReport = { name: string; met: boolean; checked: number; missing: string[] };
@@ -268,7 +268,12 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
       text: `${prefix} hook missing (run maxims add <source> --add-hook)`,
     });
   }
-  if (report.tier === 2) findings.push({ kind: "warn", text: `${prefix} tier 2 on this machine` });
+  if (report.tier.tier === 2) {
+    findings.push({ kind: "warn", text: `${prefix} tier 2 on this machine` });
+  }
+  if (report.tier.unreadable !== null) {
+    findings.push({ kind: "warn", text: `${prefix} ${report.tier.unreadable}` });
+  }
   return findings;
 }
 

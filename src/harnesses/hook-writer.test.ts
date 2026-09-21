@@ -819,7 +819,7 @@ describe("achievedTier", () => {
         mkdirSync(join(home, ".codex"), { recursive: true });
         writeFileSync(join(home, ".codex", "config.toml"), config);
       }
-      expect(await achievedTier(codexLike, "global", local)).toBe(tier);
+      expect(await achievedTier(codexLike, "global", local)).toEqual({ tier, unreadable: null });
     });
   });
 
@@ -837,13 +837,19 @@ describe("achievedTier", () => {
       });
       mkdirSync(join(home, ".example"), { recursive: true });
       writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false } }');
-      expect(await achievedTier(jsonCheck, "global", local)).toBe(2);
+      expect(await achievedTier(jsonCheck, "global", local)).toEqual({ tier: 2, unreadable: null });
       writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false }');
-      expect(await achievedTier(jsonCheck, "global", local)).toBe(1);
+      expect(await achievedTier(jsonCheck, "global", local)).toEqual({ tier: 1, unreadable: null });
       writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false } }');
-      const probed: HarnessDefinition = { ...jsonCheck, achievedTier: async () => 1 };
-      expect(await achievedTier(probed, "global", local)).toBe(1);
-      expect(await achievedTier({ ...base, hook: { kind: "none" } }, "global", local)).toBe(1);
+      const probed: HarnessDefinition = {
+        ...jsonCheck,
+        achievedTier: async () => ({ tier: 1, unreadable: null }),
+      };
+      expect(await achievedTier(probed, "global", local)).toEqual({ tier: 1, unreadable: null });
+      expect(await achievedTier({ ...base, hook: { kind: "none" } }, "global", local)).toEqual({
+        tier: 1,
+        unreadable: null,
+      });
     });
   });
 });

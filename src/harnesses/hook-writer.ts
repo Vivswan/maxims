@@ -21,6 +21,7 @@ import {
   replaceValue,
 } from "../util/jsonc.ts";
 import {
+  type AchievedTier,
   type ConfigFormat,
   type HarnessContext,
   type HarnessDefinition,
@@ -379,8 +380,16 @@ export async function achievedTier(
   def: HarnessDefinition,
   scope: Scope,
   ctx: HarnessContext,
-): Promise<1 | 2> {
+): Promise<AchievedTier> {
   if (def.achievedTier !== undefined) return def.achievedTier(ctx);
+  return { tier: await declaredTier(def, scope, ctx), unreadable: null };
+}
+
+async function declaredTier(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+): Promise<1 | 2> {
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return def.tier;
   const check = def.hook.tierCheck;
   const text = await readFile(check.path(scope, ctx), "utf8").catch(() => null);

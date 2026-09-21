@@ -92,7 +92,8 @@ export async function planRuleFile(
       notices: [`maxims: ${file.path} is a symlink; managed blocks are not written through links`],
     };
   }
-  const { linked, current, rendering, gone, rendered } = drawn;
+  const { linked, current, rendering, gone, rendered, unreadable } = drawn;
+  for (const line of unreadable) notices.push(`maxims: ${line}`);
   for (const { block, text } of rendered) {
     notices.push(...blockChangeNotices(file.path, block, text, current));
   }
@@ -184,6 +185,8 @@ type RenderedFile = {
   rendering: Rendering;
   gone: BlockRequest[];
   rendered: { block: BlockRequest; text: string }[];
+  // What the tier probes could not read, each with the harness ahead of it, said by the plan.
+  unreadable: string[];
 };
 
 // The blocks as this run draws them, beside what the file holds. Null for a shared file the user
@@ -206,11 +209,10 @@ async function renderRuleFile(
   const staleKeys = live.filter((block) => block.stale !== undefined).map((block) => block.key);
   // The tier decides only which stale block carries the self-refresh line, so the harness configs
   // behind it are read only when a block is stale: a file this run renders no block for (a kept
-  // block, an orphan strip) must plan on a machine whose config a probe refuses to read.
+  // block, an orphan strip) must plan on a machine whose config a probe cannot read.
+  const probed = staleKeys.length === 0 ? null : await fileTier(file, options.ctx);
   const selfRefresh =
-    staleKeys.length === 0
-      ? null
-      : chooseSelfRefreshSource({ tier: await fileTier(file, options.ctx) }, staleKeys);
+    probed === null ? null : chooseSelfRefreshSource({ tier: probed.tier }, staleKeys);
   const rendered = live.map((block) => ({
     block,
     text: renderBlock({
@@ -223,7 +225,7 @@ async function renderRuleFile(
       selfRefresh: block.key === selfRefresh,
     }),
   }));
-  return { linked, current, rendering, gone, rendered };
+  return { linked, current, rendering, gone, rendered, unreadable: probed?.unreadable ?? [] };
 }
 
 // The sources whose block this run changes in the file: absent from it, or drawn differently
@@ -255,14 +257,22 @@ function renderingFor(file: RuleFile): Rendering {
   return { markers, expands };
 }
 
-// One hooked (tier 1) reader is enough to make the self-refresh line redundant.
-async function fileTier(file: RuleFile, ctx: EngineContext): Promise<1 | 2> {
-  if (file.kind === "out") return 1;
+// One hooked (tier 1) reader is enough to make the self-refresh line redundant. Every reader is
+// probed, so a config one of them could not read is said even when another reader hooks.
+async function fileTier(
+  file: RuleFile,
+  ctx: EngineContext,
+): Promise<{ tier: 1 | 2; unreadable: string[] }> {
+  if (file.kind === "out") return { tier: 1, unreadable: [] };
   const harnessCtx = harnessContext(ctx);
+  let tier: 1 | 2 = 2;
+  const unreadable: string[] = [];
   for (const target of file.targets) {
-    if ((await achievedTier(target.def, target.scope, harnessCtx)) === 1) return 1;
+    const probed = await achievedTier(target.def, target.scope, harnessCtx);
+    if (probed.tier === 1) tier = 1;
+    if (probed.unreadable !== null) unreadable.push(`${target.def.id} ${probed.unreadable}`);
   }
-  return 2;
+  return { tier, unreadable };
 }
 
 // The strategy owns the frontmatter and the byte budget; the file it names is `file.path`.

@@ -229,10 +229,11 @@ function contextAt(home: string): HarnessContext {
   return { home, projectRoot: null, env: {} };
 }
 
-// A config.toml a user mistyped, or one with `hooks = "true"`, is a user-owned config like the
-// registries above: a library error escaping the probe would crash a sync with a stack.
+// A config.toml a user mistyped, or one with `hooks = "true"`, is a user-owned config maxims only
+// reads: the probe answers a tier reading for any bytes, hooks off with the reason when it cannot
+// read a flag, and never a throw that would abort a sync or a read-only verb over it.
 test(
-  "codex.achievedTier answers 1, 2 or an exit-4 refusal for any config.toml bytes",
+  "codex.achievedTier answers a tier reading for any config.toml bytes",
   async () => {
     const probe = codex.achievedTier;
     if (probe === undefined) throw new Error("codex declares a tier probe");
@@ -242,8 +243,15 @@ test(
       await fuzz("codex tier probe", tomlText, async (text) => {
         writeFileSync(configPath, text);
         const result = await asyncOutcome(() => probe(contextAt(home)));
-        if (result.kind === "threw") return refusal(result.error);
-        expect([1, 2]).toContain(result.value);
+        if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
+        const reading = result.value;
+        if (reading.unreadable === null) expect([1, 2]).toContain(reading.tier);
+        else {
+          expect(reading.tier).toBe(2);
+          expect(reading.unreadable).toMatch(
+            /^config\.toml could not be read \(.+\); assuming hooks off$/s,
+          );
+        }
       });
     });
   },

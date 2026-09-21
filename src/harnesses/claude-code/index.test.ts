@@ -158,11 +158,20 @@ describe("claude-code", () => {
     await withTempDir(async (home) => {
       const local: HarnessContext = { home, projectRoot: null, env: {} };
       mkdirSync(join(home, ".claude"));
-      expect(await achievedTier(claudeCode, "global", local)).toBe(1);
+      expect(await achievedTier(claudeCode, "global", local)).toEqual({
+        tier: 1,
+        unreadable: null,
+      });
       writeFileSync(join(home, ".claude", "settings.json"), '{ "disableAllHooks": true }\n');
-      expect(await achievedTier(claudeCode, "global", local)).toBe(2);
+      expect(await achievedTier(claudeCode, "global", local)).toEqual({
+        tier: 2,
+        unreadable: null,
+      });
       writeFileSync(join(home, ".claude", "settings.json"), '{ "disableAllHooks": false }\n');
-      expect(await achievedTier(claudeCode, "global", local)).toBe(1);
+      expect(await achievedTier(claudeCode, "global", local)).toEqual({
+        tier: 1,
+        unreadable: null,
+      });
     });
   });
 

@@ -80,6 +80,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 ## Per-harness catches
 
 - **Codex.** Hooks are on by default; `[features] hooks = false` in `config.toml` makes the hook inert. A project-local hook runs only once the project's `.codex` layer is trusted, and a non-managed hook must be reviewed and trusted through Codex's `/hooks` before it runs. maxims only reads that flag, never writes it, and `list` reports the tier achieved: 2 when it is false.
+- **Codex's unreadable config.** A `config.toml` that does not parse, or sets `hooks` to something other than `true` or `false`, is read as hooks off: `doctor` says so in a warning, `list` beside the tier, and `sync` in a notice on a run that renders a stale block for Codex. Nothing is written to it; fix the file by hand.
 - **Codex instruction files.** Codex reads `AGENTS.override.md` instead of `AGENTS.md` when one exists, so a block beside an override file never loads, and it stops reading instruction files past 32 KiB combined by default.
 - **Cursor.** A plain `.md` in `.cursor/rules` is ignored, so the file is `.mdc` with `alwaysApply: true` frontmatter; without it the rule is silently conditional. Its `sessionStart` hook is fire-and-forget.
 - **Copilot.** `applyTo: "**"` is what keeps the instructions file always-loaded instead of path-scoped; a missing `applyTo` silently narrows the rule. The hook belongs to the CLI, so the IDE half stays tier 2.

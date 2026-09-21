@@ -616,10 +616,17 @@ async function planInstall(
   for (;;) {
     const rendered = await renderFiles(files, ctx, keepAt);
     if (rendered.ok) {
+      // A file's notices may name a machine-wide fact (a config a tier probe could not read), so a
+      // line two files earn is said once.
+      const said = new Set<string>();
       for (const filePlan of rendered.plans) {
         builder.add("destination", filePlan.writes);
         builder.add("removal", filePlan.removals);
-        for (const line of filePlan.notices) notices.notice(line);
+        for (const line of filePlan.notices) {
+          if (said.has(line)) continue;
+          said.add(line);
+          notices.notice(line);
+        }
         for (const token of filePlan.tokens) {
           tokens += token.tokens;
           notices.notice(`~${token.tokens} tokens in ${token.path}`);

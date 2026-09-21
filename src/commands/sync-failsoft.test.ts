@@ -26,12 +26,14 @@ import {
   readStateFile,
   rulesDirHarness,
   seedStore,
+  sharedBlockHarness,
   stateWith,
   writeSource,
   writeState,
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
 import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
+import { codex } from "../harnesses/codex/index.ts";
 import type { HarnessDefinition } from "../harnesses/contract.ts";
 import { HARNESSES } from "../harnesses/registry.ts";
 import { parseBlocks } from "../rulefile/block.ts";
@@ -867,3 +869,37 @@ function readdirRules(userHome: string): string {
   const [only] = readdirSync(dir);
   return join(dir, only ?? "");
 }
+
+// The tier probe is consulted for a stale block, and Codex's reads a file maxims never writes. A
+// config.toml it cannot read is taken as hooks off: the sync completes, the block carries the
+// self-refresh line a tier 2 machine needs, the run says why on its notices, and `list` shows the
+// tier with the same reason.
+test("a codex config.toml the probe cannot read demotes to tier 2 with a notice, and aborts nothing", async () => {
+  await world(async ({ home, dir, userHome }) => {
+    const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
+    seedStore(home, FROM, upstream);
+    const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), {
+      kind: "ratelimit",
+      message: "429",
+      at: NOW.toISOString(),
+    });
+    writeState(home, stateWith({ [KEY]: fetchedEntry(FROM, facts, { harnesses: ["codex"] }) }));
+    const probed: HarnessDefinition = { ...sharedBlockHarness, achievedTier: codex.achievedTier };
+    const io = fakeIo({ home, userHome, cwd: dir, harnesses: [probed] });
+    const configToml = join(userHome, ".codex", "config.toml");
+    mkdirSync(join(userHome, ".codex"), { recursive: true });
+    writeFileSync(configToml, "hooks\n");
+    const reason = `config.toml could not be read (${configToml}: Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)); assuming hooks off`;
+    const report = await runSync({ ...SYNC, fetch: "none" }, io);
+    expect(report.notices).toContain(`maxims: codex ${reason}`);
+    const shared = join(userHome, ".fixture", "FIXTURE.md");
+    expect(readFileSync(shared, "utf8")).toContain(SELF_REFRESH);
+    io.out.length = 0;
+    const listed = await runList({ quiet: false, dryRun: false, json: true }, io);
+    expect(listed.sources[0]?.harnesses.map((h) => [h.tier, h.tierNote])).toEqual([[2, reason]]);
+    writeFileSync(configToml, "[features]\nhooks = true\n");
+    const healthy = await runSync({ ...SYNC, fetch: "none" }, io);
+    expect(healthy.notices.some((line) => line.includes("could not be read"))).toBe(false);
+    expect(readFileSync(shared, "utf8")).not.toContain(SELF_REFRESH);
+  });
+});

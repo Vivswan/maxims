@@ -809,8 +809,15 @@ test("update <source> --strict leaves the sources it does not refresh unjudged",
 });
 
 test("doctor reports rule files, frontmatter, hooks, tiers and --expect without writing", async () => {
+  const unreadable =
+    "config.toml could not be read (/home/user/.codex/config.toml: Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)); assuming hooks off";
   await withScenario(
-    { project: true, github: { "a/b": SKILLS }, hookMissing: ["codex"], tier2: ["codex"] },
+    {
+      project: true,
+      github: { "a/b": SKILLS },
+      hookMissing: ["codex"],
+      tierUnreadable: { codex: unreadable },
+    },
     async (scenario) => {
       expect(
         (
@@ -851,6 +858,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
           "ok  codex: AGENTS.md",
           "x   codex: hook missing (run maxims add <source> --add-hook)",
           "!   codex: tier 2 on this machine",
+          `!   codex: ${unreadable}`,
           "x   cursor: .cursor/rules/maxims-a-b.mdc lacks the frontmatter Cursor needs to load it every session",
           "ok  expect gate-exit-conditions-the-merge: rule line in place",
           "x   expect @a/b/skip-unfit-skills: no rule line in AGENTS.md, .cursor/rules/maxims-a-b.mdc",
@@ -875,7 +883,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
         block("@a/b", ["skip-unfit-skills", "gate-exit-conditions-the-merge"]),
       );
       scenario.options.hookMissing = [];
-      scenario.options.tier2 = [];
+      scenario.options.tierUnreadable = {};
       const prose = await runCli(scenario, ["doctor", "--expect", "no-sleep-waiting-on-subagents"]);
       expect(prose.code).toBe(1);
       expect(prose.stdout).toContain("x   expect no-sleep-waiting-on-subagents: no rule line in ");

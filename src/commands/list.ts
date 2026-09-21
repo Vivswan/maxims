@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { heldToken } from "../console/strings.ts";
-import type { Scope } from "../harnesses/contract.ts";
+import type { AchievedTier, Scope } from "../harnesses/contract.ts";
 import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
@@ -258,8 +258,8 @@ async function listHarnesses(
       out.push({ ...base, skipped: "another project" });
       continue;
     }
-    const tier = await achievedTier(def, scope, harnessCtx);
-    const listed: ListedHarness = { ...base, tier, tierNote: tierNote(def, tier) };
+    const probed = await achievedTier(def, scope, harnessCtx);
+    const listed: ListedHarness = { ...base, tier: probed.tier, tierNote: tierNote(def, probed) };
     const resolved = resolveTargets({
       intent: { harnesses: [id] },
       scope,
@@ -287,8 +287,12 @@ async function listHarnesses(
   return out;
 }
 
-function tierNote(def: NonNullable<EngineIo["harnesses"][number]>, tier: 1 | 2): string | null {
-  if (tier === 1) return null;
+function tierNote(
+  def: NonNullable<EngineIo["harnesses"][number]>,
+  probed: AchievedTier,
+): string | null {
+  if (probed.unreadable !== null) return probed.unreadable;
+  if (probed.tier === 1) return null;
   if (hasHook(def, "registry") && def.hook.tierCheck !== undefined) {
     return `${def.hook.tierCheck.key} = ${JSON.stringify(def.hook.tierCheck.demotesWhen)}`;
   }

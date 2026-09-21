@@ -53,6 +53,12 @@ export type HarnessContext = {
   env: Record<string, string | undefined>;
 };
 
+// What a tier probe read on this machine. A config the probe could not read is not one that
+// leaves hooks on: the harness is taken at tier 2 and `unreadable` says why, with no harness
+// named in it, so the surface that prints it (a sync notice, a doctor finding, a list note) can
+// put the harness where its own layout wants it.
+export type AchievedTier = { tier: 1 | 2; unreadable: null } | { tier: 2; unreadable: string };
+
 // Strategy A writes one whole file per source into a rules directory; strategy B writes a managed
 // block into a file the user also owns. A harness only chooses; the two writers exist once.
 // `dir` and `file` are RELATIVE to the scope root from `scopeRoot`; `HookShape.path`,
@@ -195,7 +201,7 @@ export interface HarnessDefinition {
   expands: ExpansionSyntax[];
   byteBudget?: ByteBudget;
   detect: (ctx: HarnessContext) => boolean;
-  achievedTier?: (ctx: HarnessContext) => Promise<1 | 2>;
+  achievedTier?: (ctx: HarnessContext) => Promise<AchievedTier>;
   scopeFrontmatter?: (globs: string[]) => string | null;
   verifiedAgainst: { url: string; date: string; contentHash?: ContentHash };
   fixtures?: HarnessFixtures;
