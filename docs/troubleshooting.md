@@ -56,6 +56,19 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 **What to do:** fix the file by hand, a trailing comma or a comment where the format forbids one, then run `sync`.
 
+## Exit 4: stray marker lines surround the block to remove
+
+**What you see:** `remove` or `unlink` exits 4 with these two lines, `@you/notes` being the source you removed and `@old/notes` the source the stray lines name. Every later `sync` prints the same two lines and exits 0 while the block is still there; a hook run puts them in the session's context where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
+
+```text
+!  maxims: removing the @you/notes block would pair the stray maxims markers for @old/notes around it into a managed block
+!  maxims: edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry
+```
+
+**What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it. maxims holds the file instead: nothing in it changes, and every other file refreshes.
+
+**What to do:** open the file, delete or edit the stray `maxims:begin` and `maxims:end` lines the message names, then run `sync`; the block leaves with that run.
+
 ## Exit 3: nothing resolved to install
 
 **What you see:** one of three messages, each with exit 3 and nothing written.
@@ -88,7 +101,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 **What it means:** a project-scope source records its project root in `state.json`, as `destination: {scope: "project", root}`, and nothing follows a rename. This is by design; the [state schema](state.md#the-schema) owns the field.
 
-**What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project`, in `state.json` by hand, the way the [moving section](move-or-uninstall.md#back-up-or-move-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
+**What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project` and `hooks.project`, in `state.json` by hand, the way the [moving section](move-or-uninstall.md#back-up-or-move-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
 
 ## `--quiet` printed nothing
 
