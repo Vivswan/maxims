@@ -98,7 +98,7 @@ export const update: Command = {
       const planned = await framed(io, (engine) =>
         ctx.engine.runSync({ ...base, dryRun: true, json: false, preview: proposed }, engine),
       );
-      refuseRisky(await refreshWarnings(planned.plan, proposed.state, io));
+      refuseRisky(await refreshWarnings(planned.plan, proposed.state, io, only));
     }
     const persisted = await persistConfig(ctx, nextConfig);
     let preview: SyncPreview | undefined;
@@ -132,7 +132,7 @@ export const update: Command = {
     const report = await framed(io, (engine) => ctx.engine.runSync(options, engine));
     // The scan judges the state this run recorded: a rename moves a memory's local name, which
     // is the name the disabled list knows it by.
-    const warnings = await refreshWarnings(report.plan, preview?.state ?? before.state, io);
+    const warnings = await refreshWarnings(report.plan, preview?.state ?? before.state, io, only);
     if (strict) refuseRisky(warnings);
     const lines = report.fetched.map((key) => {
       const changes = report.upstreamChanges[key] ?? [];

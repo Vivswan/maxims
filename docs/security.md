@@ -42,7 +42,7 @@ Each entry below is one entry point: the scenario first, then the mitigation, th
 | verb | where the lines sit | what is scanned |
 | --- | --- | --- |
 | `add`, `install` | above the plan | the memories the selection installs |
-| `update` | among the notices | the descriptions the refresh brought in, and the ones a live source holds |
+| `update` | among the notices | every source the run refreshed, changed upstream or not, plus what a live source holds |
 
 They are advisory: the install proceeds unless `--strict` turns any warning into exit 3 with nothing written or persisted.
 

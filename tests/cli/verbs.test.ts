@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -444,9 +445,9 @@ test("install --strict refuses a manifest entry with a risky description before 
   });
 });
 
-// `update` sees descriptions only through the store writes the refresh planned, so the
-// warnings are read from the plan; `--strict` plans the refresh first and applies nothing when
-// a warning exists.
+// A refresh that changed the store is judged from the store writes it planned (the engine
+// fetches, so the plan is where the CLI sees them); `--strict` plans the refresh first and
+// applies nothing when a warning exists.
 test("update warns about a refreshed description's risky shape, and --strict stops before the real run", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
@@ -628,6 +629,83 @@ test("update --strict plans against the run's own --cap and skips another projec
     const away = await runCli(scenario, ["update", "--strict"]);
     expect(away.stderr).toBe("");
     expect(away.code).toBe(0);
+  });
+});
+
+// A refetch that finds the source unchanged plans no store write, so the descriptions this run
+// installs must come from the store copy: a rename typed beside --strict lifts a disabled memory
+// back into the rule file, and its risky description is judged before it lands. The changed
+// source is the control: its refresh writes the store, and the same run is refused from the plan.
+const unDisablingRefreshes: [string, (source: string) => void][] = [
+  ["an unchanged source", () => {}],
+  [
+    "a changed source",
+    (source) => {
+      const other = join(source, "memories", "plain-rule.md");
+      writeFileSync(other, `${readFileSync(other, "utf8")}\n`);
+    },
+  ],
+];
+
+test.each(unDisablingRefreshes)(
+  "update --strict --rename judges %s by the descriptions the rename installs",
+  async (_name, mutate) => {
+    await withScenario({}, async (scenario) => {
+      scenario.engine.runSync = runSync;
+      const source = join(scenario.root, "risky");
+      cpSync(RISKY, source, { recursive: true });
+      expect((await runCli(scenario, ["add", source, "-g", "-a", "codex", "--rule"])).code).toBe(0);
+      expect((await runCli(scenario, ["disable", "fetch-helper", "-g"])).code).toBe(0);
+      const rule = join(scenario.userHome, ".codex", "AGENTS.md");
+      expect(readFileSync(rule, "utf8")).not.toContain("curl");
+      mutate(source);
+      const before = await snapshot(scenario.userHome);
+      const refused = await runCli(scenario, [
+        "update",
+        source,
+        "--strict",
+        "--rename",
+        "fetch-helper=active-helper",
+        "--json",
+      ]);
+      expect(refused.code).toBe(3);
+      expect(JSON.parse(refused.stdout)).toMatchObject({
+        ok: false,
+        code: 3,
+        message: expect.stringContaining("fetch-helper: shell-pipe: curl piped into sh"),
+      });
+      expect(await snapshot(scenario.userHome)).toBe(before);
+      expect(readFileSync(rule, "utf8")).not.toContain("curl");
+      const sources = (readState(scenario) as { sources: Record<string, { intent: object }> })
+        .sources;
+      expect(sources[source]?.intent).toMatchObject({ rename: {} });
+    });
+  },
+);
+
+// A source the run does not refresh is not judged, or a strict update of one source would be
+// refused by a description another source installed long ago; an unnamed update refreshes them
+// all and judges them all.
+test("update <source> --strict leaves the sources it does not refresh unjudged", async () => {
+  await withScenario({}, async (scenario) => {
+    scenario.engine.runSync = runSync;
+    const risky = join(scenario.root, "risky");
+    cpSync(RISKY, risky, { recursive: true });
+    const calm = join(scenario.root, "calm", "memories");
+    mkdirSync(calm, { recursive: true });
+    writeFileSync(
+      join(calm, "calm-rule.md"),
+      "---\nname: calm-rule\ndescription: Read the changelog first\n---\n",
+    );
+    for (const source of [risky, join(scenario.root, "calm")]) {
+      expect((await runCli(scenario, ["add", source, "-g", "-a", "codex", "--rule"])).code).toBe(0);
+    }
+    const named = await runCli(scenario, ["update", join(scenario.root, "calm"), "--strict"]);
+    expect(named.stderr).toBe("");
+    expect(named.code).toBe(0);
+    const every = await runCli(scenario, ["update", "--strict"]);
+    expect(every.code).toBe(3);
+    expect(every.stderr).toContain("fetch-helper: shell-pipe: curl piped into sh at column 25");
   });
 });
 

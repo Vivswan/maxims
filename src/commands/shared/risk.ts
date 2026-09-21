@@ -54,27 +54,26 @@ export function refuseRisky(warnings: readonly MemoryRiskWarning[]): void {
   });
 }
 
-// The descriptions an `update` plans: for a fetched source, the store files its refresh writes
-// (the engine fetches, so the plan is where the CLI sees them); for a live source, its own
-// directory, which every sync reads whatever source the run was limited to. Each source is
-// narrowed to the memories the sync installs (its selection, the scope's disabled names), so an
-// unselected memory upstream refuses nothing, and another project's entries are not this run's.
-// A live directory that cannot be read yields no warning here; the sync reports that failure as
-// the source's own.
+// The descriptions an `update` installs, judged as the sync installs them. A refreshed source
+// that is unchanged upstream writes nothing to the store, yet a rename typed beside `--strict`
+// can lift a disabled memory into the rule file, so its store copy is read where the plan has no
+// write for it. A directory that cannot be read yields no warning here; the sync reports that
+// failure as the source's own.
 export async function refreshWarnings(
   plan: Plan,
   state: State,
   io: Pick<CliIo, "home" | "env" | "projectRoot">,
+  only: readonly string[] | undefined,
 ): Promise<MemoryRiskWarning[]> {
   const warnings: MemoryRiskWarning[] = [];
   const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
-  for (const entry of Object.values(state.sources)) {
+  for (const [key, entry] of Object.entries(state.sources)) {
     if (!actsHere(entry, io)) continue;
     const { from, destination } = entry.intent;
     const memories =
       from.type === "local" && from.live === true
-        ? await liveMemories(from.path, entry.intent)
-        : validateMemoryFiles(storeWrites(plan, storePathFor(io.home, from))).memories;
+        ? await memoriesAt(from.path, entry.intent)
+        : await fetchedMemories(plan, storePathFor(io.home, from), entry.intent, only, key);
     const { selected } = selectMemories({
       memories,
       intent: entry.intent,
@@ -87,7 +86,20 @@ export async function refreshWarnings(
   return warnings;
 }
 
-async function liveMemories(root: string, scope: TreeScope): Promise<SourceMemory[]> {
+async function fetchedMemories(
+  plan: Plan,
+  store: string,
+  scope: TreeScope,
+  only: readonly string[] | undefined,
+  key: string,
+): Promise<SourceMemory[]> {
+  const writes = storeWrites(plan, store);
+  if (writes.length > 0) return validateMemoryFiles(writes).memories;
+  const refreshed = only === undefined || only.includes(key);
+  return refreshed ? await memoriesAt(store, scope) : [];
+}
+
+async function memoriesAt(root: string, scope: TreeScope): Promise<SourceMemory[]> {
   try {
     return (await readSourceMemories(root, scope, () => undefined)).memories;
   } catch {

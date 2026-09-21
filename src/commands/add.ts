@@ -686,9 +686,10 @@ export type Provenance = {
   pinned: string | null;
 };
 
-// The owner of a remote: the GitHub account under its host (case-insensitive, as GitHub names
-// are), or a git host and the first path segment (`git.example.com/team`). A local directory has
-// no owner to be new. A git URL the store cannot place is its own owner.
+// The owner of a remote: the GitHub account under its host, or a git host and the first path
+// segment (`git.example.com/team`), both lower-cased so a GitHub Enterprise repository spelled as
+// a URL and as a shorthand is one owner (GitHub names are case-insensitive). A local directory
+// has no owner to be new. A git URL the store cannot place is its own owner.
 export function sourceOwner(from: SourceFrom): string | null {
   if (from.type === "github") {
     const [owner = ""] = from.repo.toLowerCase().split("/", 1);
@@ -697,7 +698,8 @@ export function sourceOwner(from: SourceFrom): string | null {
   if (from.type === "local") return null;
   const remote = parseRemote(from.url);
   const [first] = remote?.segments ?? [];
-  return remote === null || first === undefined ? from.url : `${remote.host}/${first}`;
+  if (remote === null || first === undefined) return from.url;
+  return `${remote.host}/${first.toLowerCase()}`;
 }
 
 // A re-add of a recorded source is not a first install, so the recorded entry counts as known.

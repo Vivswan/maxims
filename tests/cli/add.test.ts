@@ -472,7 +472,12 @@ const owners: [string, SourceFrom, string | null][] = [
   [
     "https git remote",
     { type: "git", url: "https://git.example.com/Team/rules.git", ref: "HEAD" },
-    "git.example.com/Team",
+    "git.example.com/team",
+  ],
+  [
+    "git remote on a GitHub Enterprise host",
+    { type: "git", url: "https://ghe.example.com/Acme/rules.git", ref: "HEAD" },
+    "ghe.example.com/acme",
   ],
   [
     "scp-like git remote",
