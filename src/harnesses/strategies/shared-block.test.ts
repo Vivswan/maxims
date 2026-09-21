@@ -62,9 +62,9 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
       restored: "hand-written\n",
     },
     {
-      name: "another source's block before ours",
+      name: "another source's block, which sorts after ours, already in the file",
       before: `intro\n${theirs}`,
-      after: `intro\n${theirs}\n${ours}`,
+      after: `intro\n${ours}\n${theirs}`,
       restored: `intro\n${theirs}`,
     },
     {
@@ -98,15 +98,41 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
   });
 
   test("replacing one source's block leaves the other source's bytes untouched", () => {
-    const before = `${theirs}\n${ours}\ntrailing notes\n`;
+    const before = `${ours}\n${theirs}\ntrailing notes\n`;
     const [change] = planSharedBlockWrite({ ...location("@a/b", before), block: oursV2 });
     expect(change).toEqual({
       kind: "write",
       path,
-      content: `${theirs}\n${oursV2}\ntrailing notes\n`,
+      content: `${oursV2}\n${theirs}\ntrailing notes\n`,
     });
     expect(planSharedBlockRemove(location("@c/d", before))).toEqual([
       { kind: "write", path, content: `${ours}\ntrailing notes\n` },
+    ]);
+  });
+
+  // `add alpha; add beta; link beta; link alpha` and `add alpha -a codex; add beta -a codex` are
+  // one intent; the shared file they leave must be one set of bytes.
+  test("two sources reaching one file in either order leave the same bytes", () => {
+    const write = (text: string | null, source: string, block: string): string => {
+      const [change] = planSharedBlockWrite({ ...location(source, text), block });
+      return change?.kind === "write" ? change.content : (text ?? "");
+    };
+    const oursFirst = write(write("# Agents\n", "@a/b", ours), "@c/d", theirs);
+    const theirsFirst = write(write("# Agents\n", "@c/d", theirs), "@a/b", ours);
+    expect(theirsFirst).toBe(oursFirst);
+    expect(oursFirst).toBe(`# Agents\n\n${ours}\n${theirs}`);
+  });
+
+  // The second block's slot opens between the first block and the text glued below it; removing
+  // that block must take its separator back, or the user's text drifts one blank line down.
+  test("a block added after another one and removed again leaves the glued text as it was", () => {
+    const before = `${ours}user notes\n`;
+    const joined = `${ours}\n${theirs}user notes\n`;
+    expect(planSharedBlockWrite({ ...location("@c/d", before), block: theirs })).toEqual([
+      { kind: "write", path, content: joined },
+    ]);
+    expect(planSharedBlockRemove(location("@c/d", joined))).toEqual([
+      { kind: "write", path, content: before },
     ]);
   });
 

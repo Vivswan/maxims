@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { parseBlocks, replaceBlock, stripBlock } from "../../rulefile/block.ts";
+import { replaceBlock, stripBlock } from "../../rulefile/block.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import {
@@ -27,11 +27,10 @@ export type SharedBlockWriteInput = SharedBlockLocation & {
   block: string;
 };
 
-// The block grammar and the splice live in src/rulefile/block.ts: replacing covers the old span
-// so every byte outside the pair survives, and appending closes whatever construct the user's
-// text left open (a fence would otherwise swallow the markers, and every later sync would append
-// again) before one blank line and the block. Add-then-remove leaves two residues by design: a
-// missing final newline on the user's text, which gains one, and that closer, which stays.
+// The grammar, the splice and the block order live in src/rulefile/block.ts. Add-then-remove
+// leaves three residues by design: a missing final newline on the user's text, which gains one;
+// the closer the first block wrote for a construct the user's text left open, which stays; and a
+// CRLF or lone-CR line ending that closed a block on disk, which becomes LF.
 export function planSharedBlockWrite(input: SharedBlockWriteInput): Change[] {
   const path = sharedBlockPath(input);
   const next = replaceBlock(input.currentText ?? "", input.source, input.block);
@@ -40,18 +39,13 @@ export function planSharedBlockWrite(input: SharedBlockWriteInput): Change[] {
   return [{ kind: "write", path, content: next }];
 }
 
-// Removal takes back the blank line the append wrote. stripBlock takes the one before the block;
-// a block that opens the file has that line after it instead, where a later block's append put
-// it, so the leading line ending goes too.
 export function planSharedBlockRemove(input: SharedBlockLocation): Change[] {
   const path = sharedBlockPath(input);
   if (input.currentText === null) return [];
-  const block = parseBlocks(input.currentText).blocks.find((b) => b.source === input.source);
-  if (block === undefined) return [];
   const stripped = stripBlock(input.currentText, input.source);
-  const rest = block.start === 0 ? stripped.text.replace(/^(\r\n|\r|\n)/, "") : stripped.text;
-  if (rest.trim() === "") return [{ kind: "delete", path }];
-  return [{ kind: "write", path, content: rest }];
+  if (stripped.text === input.currentText) return [];
+  if (stripped.emptied) return [{ kind: "delete", path }];
+  return [{ kind: "write", path, content: stripped.text }];
 }
 
 export function sharedBlockPath(

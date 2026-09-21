@@ -233,6 +233,7 @@ describe("ownLineMatcher", () => {
 
 const BLOCK = renderBlock(input({ markers: "counted" }));
 const OTHER = renderBlock(input({ markers: "counted", source: "@example-user/rules", sha: "b" }));
+const ZETA = renderBlock(input({ markers: "counted", source: "@zeta/rules", sha: "z" }));
 
 describe("parseBlocks", () => {
   test("finds a rendered block, its source and sha, and the exact span it occupies", () => {
@@ -549,13 +550,153 @@ describe("replaceBlock and stripBlock", () => {
     expect(replaceBlock(`${BLOCK}\n${BLOCK}`, SOURCE, next)).toBe(`${next}\n${BLOCK}`);
   });
 
+  // `@Vivswan/skills` sorts before `@example-user/rules`: an upper-case letter's code unit is
+  // lower. The file must not remember which source arrived first.
+  const OTHER_SOURCE = "@example-user/rules";
+  const ORDERED = `${BLOCK}\n${OTHER}`;
+  const arrivals: [string, string][] = [
+    ["ours first", replaceBlock(replaceBlock("", SOURCE, BLOCK), OTHER_SOURCE, OTHER)],
+    ["theirs first", replaceBlock(replaceBlock("", OTHER_SOURCE, OTHER), SOURCE, BLOCK)],
+  ];
+  test.each(arrivals)(
+    "two sources arriving %s leave the blocks in source order",
+    (_label, text) => {
+      expect(text).toBe(ORDERED);
+    },
+  );
+
+  test("a new block joins the run right after the last block, ahead of the user's text below it", () => {
+    const before = `intro\n\n${OTHER}\nnotes\n`;
+    expect(replaceBlock(before, SOURCE, BLOCK)).toBe(`intro\n\n${ORDERED}\nnotes\n`);
+  });
+
+  test("the run keeps its slots: user text between two blocks stays between the two slots", () => {
+    const before = `intro\n\n${OTHER}\nbetween\n\n${BLOCK}\n`;
+    const next = renderBlock(input({ markers: "counted", lines: [GATE] }));
+    expect(replaceBlock(before, SOURCE, next)).toBe(`intro\n\n${next}\nbetween\n\n${OTHER}\n`);
+  });
+
+  test("a block that ends the file without a newline gains one when the run is re-dealt", () => {
+    const trimmed = OTHER.slice(0, -1);
+    expect(replaceBlock(trimmed, SOURCE, BLOCK)).toBe(ORDERED);
+    expect(replaceBlock(trimmed, "@zeta/rules", ZETA)).toBe(`${OTHER}\n${ZETA}`);
+  });
+
+  test("a file already in source order is spliced in place, byte for byte", () => {
+    const next = renderBlock(input({ markers: "counted", lines: [GATE] }));
+    expect(replaceBlock(`${ORDERED}\ntrailing`, SOURCE, next)).toBe(`${next}\n${OTHER}\ntrailing`);
+    expect(replaceBlock(ORDERED, SOURCE, BLOCK)).toBe(ORDERED);
+  });
+
+  // Dealing the blocks by source must not hand a hand-duplicated pair the first pair's place: that
+  // pair is the one the parser keeps, so the second pass would overwrite the duplicate the user made.
+  test("a duplicated pair keeps its slot and its text through a re-sort, and a second pass changes nothing", () => {
+    const stale = renderBlock(input({ markers: "counted", source: OTHER_SOURCE, sha: "old" }));
+    const duplicate = renderBlock(input({ markers: "counted", source: OTHER_SOURCE, sha: "dup" }));
+    const once = replaceBlock(`${stale}\n${duplicate}\n${BLOCK}`, OTHER_SOURCE, OTHER);
+    expect(once).toBe(`${BLOCK}\n${OTHER}\n${duplicate}`);
+    expect(replaceBlock(once, OTHER_SOURCE, OTHER)).toBe(once);
+  });
+
+  // A lone CR closing a moved block, followed by the LF that opens the gap after its new slot,
+  // would read as one CRLF ending on the next pass and take the user's blank line with it.
+  test("a moved block is closed with LF, so a lone CR never merges with the gap's LF, and later passes change nothing", () => {
+    const carriage = BLOCK.replaceAll("\n", "\r");
+    const before = `${OTHER}\nuser notes\n${carriage}`;
+    const afterOther = replaceBlock(before, OTHER_SOURCE, OTHER);
+    expect(afterOther).toBe(`${carriage.slice(0, -1)}\n\nuser notes\n${OTHER}`);
+    const afterBoth = replaceBlock(afterOther, SOURCE, BLOCK);
+    expect(afterBoth).toBe(`${BLOCK}\nuser notes\n${OTHER}`);
+    expect(replaceBlock(afterBoth, OTHER_SOURCE, OTHER)).toBe(afterBoth);
+    expect(replaceBlock(afterBoth, SOURCE, BLOCK)).toBe(afterBoth);
+  });
+
+  test("stripping the block that heads a run shifts the rest into its slots and closes the last slot", () => {
+    expect(stripBlock(`intro\n${ORDERED}`, SOURCE)).toEqual({
+      text: `intro\n${OTHER}`,
+      emptied: false,
+    });
+  });
+
+  // Adding a source and removing it again gives back the user's bytes whatever slot the new block
+  // took: the slot the run opened at its end is the one the removal closes.
+  const roundTrips: [string, string, string, string][] = [
+    [
+      "a new first block with user text between the others",
+      `${OTHER}\nuser notes\n${ZETA}`,
+      SOURCE,
+      BLOCK,
+    ],
+    [
+      "a new middle block behind a CRLF separator",
+      `${BLOCK}\r\n${ZETA}notes\n`,
+      OTHER_SOURCE,
+      OTHER,
+    ],
+    ["a new first block after lone-CR text", `intro\r\r${OTHER}`, SOURCE, BLOCK],
+    [
+      "a new last block with text glued below the first",
+      `${BLOCK}user notes\n`,
+      OTHER_SOURCE,
+      OTHER,
+    ],
+  ];
+  test.each(roundTrips)(
+    "adding then removing %s restores the file",
+    (_label, before, source, block) => {
+      const added = replaceBlock(before, source, block);
+      expect(added).not.toBe(before);
+      expect(stripBlock(added, source).text).toBe(before);
+    },
+  );
+
+  // A closer kept from disk made the bytes depend on which source the engine refreshed first: a
+  // lone CR before the LF separator read as one CRLF, which the refresh of that block then ate.
+  const diskEndings: [string, string][] = [
+    ["CRLF", "\r\n"],
+    ["lone CR", "\r"],
+  ];
+  test.each(diskEndings)(
+    "a block on disk in %s endings is closed with LF, so refresh order cannot show",
+    (_label, ending) => {
+      const onDisk = BLOCK.replaceAll("\n", ending);
+      const before = `${onDisk}notes\n`;
+      const otherFirst = replaceBlock(replaceBlock(before, OTHER_SOURCE, OTHER), SOURCE, BLOCK);
+      const ownFirst = replaceBlock(replaceBlock(before, SOURCE, BLOCK), OTHER_SOURCE, OTHER);
+      expect(otherFirst).toBe(`${BLOCK}\n${OTHER}notes\n`);
+      expect(ownFirst).toBe(otherFirst);
+    },
+  );
+
+  test("a duplicated pair on disk in CRLF endings is closed with LF in either refresh order", () => {
+    const duplicate = renderBlock(
+      input({ markers: "counted", source: OTHER_SOURCE, sha: "dup" }),
+    ).replaceAll("\n", "\r\n");
+    const before = `${OTHER}\n${ZETA}\n${duplicate}`;
+    const refreshed = (order: [string, string][]): string =>
+      stripBlock(
+        order.reduce((text, [source, block]) => replaceBlock(text, source, block), before),
+        "@zeta/rules",
+      ).text;
+    const ownFirst = refreshed([
+      [SOURCE, BLOCK],
+      [OTHER_SOURCE, OTHER],
+    ]);
+    expect(ownFirst).toBe(`${BLOCK}\n${OTHER}\n${duplicate.slice(0, -2)}\n`);
+    expect(
+      refreshed([
+        [OTHER_SOURCE, OTHER],
+        [SOURCE, BLOCK],
+      ]),
+    ).toBe(ownFirst);
+  });
+
   const appends: [string, string, string][] = [
     ["an empty file", "", BLOCK],
     ["a newline-terminated file", "# Mine\n", `# Mine\n\n${BLOCK}`],
     ["a file missing its final newline", "# Mine", `# Mine\n\n${BLOCK}`],
     ["a CRLF-terminated file, blank line in its own style", "# Mine\r\n", `# Mine\r\n\r\n${BLOCK}`],
     ["a lone-CR-terminated file, blank line in its own style", "# Mine\r", `# Mine\r\r${BLOCK}`],
-    ["a file holding another source's block", OTHER, `${OTHER}\n${BLOCK}`],
     [
       "a file ending inside an open fence",
       "# Mine\n````js\ncode\n",
@@ -721,6 +862,11 @@ describe("replaceBlock and stripBlock", () => {
     ["a block between user texts", `a\n\n${BLOCK}\nb\n`, { text: "a\n\nb\n", emptied: false }],
     ["a block glued to user text", `a\n\n${BLOCK}b\n`, { text: "a\n\nb\n", emptied: false }],
     ["a block beside another source's", `${OTHER}\n${BLOCK}`, { text: OTHER, emptied: false }],
+    [
+      "a block after another source's with text glued below it",
+      `${OTHER}\n${BLOCK}notes\n`,
+      { text: `${OTHER}notes\n`, emptied: false },
+    ],
     ["whitespace only around a block", `\n\n${BLOCK}\n`, { text: "\n\n", emptied: true }],
     ["no block at all", "# Mine\n", { text: "# Mine\n", emptied: false }],
     ["no block in a blank file", "\n", { text: "\n", emptied: false }],

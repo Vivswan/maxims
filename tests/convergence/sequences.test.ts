@@ -12,7 +12,6 @@ import fc from "fast-check";
 import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { emptyState } from "../../src/state/schema.ts";
 import { WRITTEN_BY } from "../../src/state/store.ts";
-import { sha256 } from "../../src/util/fs.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { type MemorySpec, memoryFile, writeMemories } from "../chaos/shared/fixture-repo.ts";
 import { type RealWorld, runReal, withRealWorld } from "../chaos/shared/real-cli.ts";
@@ -306,29 +305,6 @@ function fileSnapshot(root: string, skip: string[]): Map<string, string> {
   return new Map([...snapshot(root, skip)].filter(([, digest]) => digest !== "dir"));
 }
 
-// The snapshot two histories are compared by. A shared-block file keeps each block where it was
-// first written, so two sources in one file hold the same blocks in an order that is history, not
-// intent; that file's digest is taken with its blocks sorted into the slots they occupy, so the
-// text around them and each block's own bytes stay exact. Every other file is its bytes.
-function historyFreeSnapshot(root: string, skip: string[]): Map<string, string> {
-  const entries = new Map<string, string>();
-  for (const [rel, digest] of fileSnapshot(root, skip)) {
-    entries.set(rel, digest.startsWith("link:") ? digest : orderFreeDigest(join(root, rel)));
-  }
-  return entries;
-}
-
-const MANAGED_BLOCK = /<!-- maxims:begin [\s\S]*?<!-- maxims:end [^\n]*-->\n?/g;
-
-function orderFreeDigest(path: string): string {
-  const text = readFileSync(path, "utf8");
-  const blocks = text.match(MANAGED_BLOCK) ?? [];
-  if (blocks.length < 2) return sha256(text);
-  const sorted = [...blocks].sort();
-  let slot = 0;
-  return sha256(text.replace(MANAGED_BLOCK, () => sorted[slot++] ?? ""));
-}
-
 const RUN_RECORDS = [
   ".agents/maxims/log",
   ".agents/maxims/last-sync",
@@ -375,13 +351,13 @@ test(
       fc.asyncProperty(sequence, async (steps) => {
         await withSources(false, async (world) => {
           const model = await runSequence(world, steps);
-          const sequenced = historyFreeSnapshot(world.userHome, RUN_RECORDS_AND_STATE);
+          const sequenced = fileSnapshot(world.userHome, RUN_RECORDS_AND_STATE);
           const { disabled: sequencedDisabled, ...sequencedIntent } = intentOf(world.maximsHome);
           expect(sequencedDisabled).toEqual(disabledIntent(model.disabled));
           expect(Object.keys(sequencedIntent.sources as object)).toHaveLength(model.sources.size);
           wipeHome(world);
           await installIntent(world, model);
-          expect(sequenced).toEqual(historyFreeSnapshot(world.userHome, RUN_RECORDS_AND_STATE));
+          expect(sequenced).toEqual(fileSnapshot(world.userHome, RUN_RECORDS_AND_STATE));
           const { disabled: freshDisabled, ...freshIntent } = intentOf(world.maximsHome);
           expect(sequencedIntent).toEqual(freshIntent);
           expect(freshDisabled).toEqual(disabledIntent(respeakableDisabled(model)));

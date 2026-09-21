@@ -1,6 +1,7 @@
 import type { MemoryName } from "../memory/contract.ts";
 import type { RenameMap, Select, SourceIntent } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
+import { compareSourceKeys } from "./block.ts";
 import { type CapCheck, checkCap } from "./budget.ts";
 import type { RuleLine } from "./types.ts";
 
@@ -19,7 +20,7 @@ export type Installed = Pick<IndexedSource, "key" | "addedAt">;
 // not strings: `...:00Z` and `...:00.001Z` are both valid spellings and their string order is
 // not their time order. The key breaks a tie so two machines order the same.
 export function compareInstalled(a: Installed, b: Installed): number {
-  return Date.parse(a.addedAt) - Date.parse(b.addedAt) || compare(a.key, b.key);
+  return Date.parse(a.addedAt) - Date.parse(b.addedAt) || compareSourceKeys(a.key, b.key);
 }
 
 // Derived on every run from intent plus each source's current memory names, which the caller

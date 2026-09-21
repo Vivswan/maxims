@@ -305,6 +305,7 @@ const TITLE_CONTINUES = {
 const LINE_ENDING = /\r\n|\r|\n/g;
 const LAST_LINE_ENDING = /(\r\n|\r|\n)$/;
 const FIRST_LINE_ENDING = /^(\r\n|\r|\n)/;
+const SINGLE_LINE_ENDING = /^(\r\n|\r|\n)$/;
 const BOM = "\uFEFF";
 
 export function markdownLines(fileText: string): MarkdownLine[] {
@@ -693,10 +694,24 @@ export type ParsedBlocks = {
 // body never holds a marker, so an orphaned or mismatched BEGIN is plain text rather than a span
 // that swallows the user's lines and a later valid block.
 export function parseBlocks(fileText: string): ParsedBlocks {
-  const lines = markdownLines(fileText);
   const blocks: ParsedBlock[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
+  for (const span of blockSpans(fileText)) {
+    if (seen.has(span.source)) {
+      warnings.push(`two managed blocks for ${span.source}; keeping the first`);
+    } else {
+      seen.add(span.source);
+      blocks.push(span);
+    }
+  }
+  return { blocks, warnings };
+}
+
+// Every well-formed pair in document order, a hand-duplicated source's later pairs included.
+function blockSpans(fileText: string): ParsedBlock[] {
+  const lines = markdownLines(fileText);
+  const spans: ParsedBlock[] = [];
   let i = 0;
   while (i < lines.length) {
     const begin = lines[i].kind === "comment" ? BEGIN_LINE.exec(lines[i].text) : null;
@@ -711,14 +726,10 @@ export function parseBlocks(fileText: string): ParsedBlocks {
       i += 1;
       continue;
     }
-    if (seen.has(source)) warnings.push(`two managed blocks for ${source}; keeping the first`);
-    else {
-      seen.add(source);
-      blocks.push({ source, sha, start: lines[i].start, end: lines[j].end });
-    }
+    spans.push({ source, sha, start: lines[i].start, end: lines[j].end });
     i = j + 1;
   }
-  return { blocks, warnings };
+  return spans;
 }
 
 function isMarker(line: MarkdownLine): boolean {
@@ -731,11 +742,7 @@ function isMarker(line: MarkdownLine): boolean {
 // of the list item holding the block, a fence's own indentation past it kept, so that the block is
 // closed inside the item before the blank line; the block-tag HTML kind needs no closer but that
 // blank line.
-export function replaceBlock(fileText: string, source: string, newBlock: string): string {
-  const block = firstBlock(fileText, source);
-  const rendered = withNewline(newBlock);
-  if (block !== undefined)
-    return fileText.slice(0, block.start) + rendered + fileText.slice(block.end);
+function appendBlock(fileText: string, rendered: string): string {
   if (fileText === "") return rendered;
   const { open } = scanLines(fileText);
   const ending = LAST_LINE_ENDING.exec(fileText)?.[1] ?? "\n";
@@ -744,23 +751,97 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
   return `${terminated}${closer}${ending}${rendered}`;
 }
 
+// The one order of the blocks in a shared file, and the tie-break of installation order in the
+// name index: source keys by code unit, ascending. Neither history nor locale enters, so two
+// machines holding the same intent write the same bytes.
+export function compareSourceKeys(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+type Occupant = { key: string; text: string };
+
+function occupants(fileText: string, spans: readonly ParsedBlock[]): Occupant[] {
+  return spans.map((span) => ({ key: span.source, text: fileText.slice(span.start, span.end) }));
+}
+
+export function replaceBlock(fileText: string, source: string, newBlock: string): string {
+  const rendered = withNewline(newBlock);
+  const spans = blockSpans(fileText);
+  if (spans.length === 0) return appendBlock(fileText, rendered);
+  const slots = occupants(fileText, spans);
+  const own = slots.find((occupant) => occupant.key === source);
+  const fresh = { key: source, text: rendered };
+  const contents =
+    own === undefined
+      ? [...slots, fresh]
+      : slots.map((occupant) => (occupant === own ? fresh : occupant));
+  return deal(fileText, spans, contents);
+}
+
+export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
+  const spans = blockSpans(fileText);
+  const slots = occupants(fileText, spans);
+  const own = slots.find((occupant) => occupant.key === source);
+  if (own === undefined) return { text: fileText, emptied: false };
+  const text = deal(
+    fileText,
+    spans,
+    slots.filter((occupant) => occupant !== own),
+  );
+  return { text, emptied: text.trim() === "" };
+}
+
+// The slots are the file's pairs; the contents, one more, one fewer or as many, are dealt into them
+// in source order, so the bytes between slots never move. Every well-formed pair is a slot and the
+// sort is stable: a hand-duplicated pair keeps its text and the first pair for a source is the one
+// replaced. One content more opens a slot after the last block, behind one LF blank line. One
+// content fewer closes the last slot: with the single line ending that joined it to the block
+// before, or with the blank line before it when text stood between or it was the only slot. Every
+// block is closed with LF, whatever closed it on disk: a closer kept from disk made the bytes
+// depend on which source the engine refreshed first, and a lone CR before the LF separator would
+// read as one CRLF.
+function deal(
+  fileText: string,
+  spans: readonly ParsedBlock[],
+  contents: readonly Occupant[],
+): string {
+  const dealt = [...contents].sort((a, b) => compareSourceKeys(a.key, b.key));
+  let text = "";
+  let cursor = 0;
+  dealt.forEach((content, index) => {
+    const slot = spans[index];
+    const closing = closingEnding(content.text);
+    const placed = withNewline(content.text.slice(0, content.text.length - closing.length));
+    if (slot === undefined) {
+      text += `\n${placed}`;
+      return;
+    }
+    text += fileText.slice(cursor, slot.start) + placed;
+    cursor = slot.end;
+  });
+  if (dealt.length < spans.length) {
+    const closed = spans[spans.length - 1];
+    const gap = fileText.slice(cursor, closed.start);
+    const post = fileText.slice(closed.end);
+    const endings = trailingLineEndings(gap);
+    if (spans.length === 1 || !SINGLE_LINE_ENDING.test(gap)) {
+      const blank = endings.length >= 2 && (post === "" || FIRST_LINE_ENDING.test(post));
+      text += blank ? gap.slice(0, -endings[endings.length - 1].length) : gap;
+    }
+    cursor = closed.end;
+  }
+  return text + fileText.slice(cursor);
+}
+
+function closingEnding(text: string): string {
+  return LAST_LINE_ENDING.exec(text)?.[1] ?? "";
+}
+
 export function closerFor({ block, column }: OpenLeaf, ending: string): string {
   if (block.kind === "fence") return `${" ".repeat(column + block.indent)}${block.opener}${ending}`;
   const closer = block.kind === "comment" ? "-->" : block.closer;
   return closer === "" ? "" : `${" ".repeat(column)}${closer}${ending}`;
-}
-
-export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
-  const block = firstBlock(fileText, source);
-  if (block === undefined) return { text: fileText, emptied: false };
-  let before = fileText.slice(0, block.start);
-  const after = fileText.slice(block.end);
-  const endings = trailingLineEndings(before);
-  if (endings.length >= 2 && (after === "" || FIRST_LINE_ENDING.test(after))) {
-    before = before.slice(0, -endings[endings.length - 1].length);
-  }
-  const text = before + after;
-  return { text, emptied: text.trim() === "" };
 }
 
 // The blank line an append wrote is the last of two consecutive line endings before the block;
@@ -768,8 +849,4 @@ export function stripBlock(fileText: string, source: string): { text: string; em
 function trailingLineEndings(text: string): string[] {
   const run = /(?:\r\n|\r|\n)+$/.exec(text);
   return run === null ? [] : (run[0].match(/\r\n|\r|\n/g) ?? []);
-}
-
-function firstBlock(fileText: string, source: string): ParsedBlock | undefined {
-  return parseBlocks(fileText).blocks.find((block) => block.source === source);
 }
