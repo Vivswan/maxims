@@ -118,6 +118,19 @@ describe("show", () => {
       ]);
       const far = await runCli(scenario, ["show", "nothing-like-it"]);
       expect(far.stderr).toBe(" ERROR  nothing-like-it is not installed\n");
+      // A spelling only a source could have is refused as a source, in the memory's document.
+      const noSource = await runCli(scenario, ["show", "@nobody/nothing", "--json"]);
+      expect([noSource.code, noSource.stderr, JSON.parse(noSource.stdout)]).toEqual([
+        1,
+        "",
+        {
+          ok: false,
+          code: 1,
+          message: "@nobody/nothing is not installed",
+          hint: null,
+          notices: [],
+        },
+      ]);
       const scoped = await runCli(scenario, ["show", NAME, "--source", "@a/c"]);
       expect(scoped.stderr).toBe(" ERROR  @a/c is not installed\n");
       const missing = await runCli(scenario, ["show", "no-such-rule", "--source", "@a/b"]);
@@ -250,6 +263,17 @@ describe("show", () => {
       );
       expect(readFileSync(path, "utf8")).toBe('{"version": 1, "sources": "nope"}\n');
       expect(readdirSync(scenario.home)).toEqual(["state.json"]);
+      const json = await runCli(scenario, ["show", NAME, "--json"]);
+      expect([json.code, json.stderr]).toEqual([1, ""]);
+      expect(JSON.parse(json.stdout)).toEqual({
+        ok: false,
+        code: 1,
+        message: expect.stringMatching(
+          /^state\.json is corrupt: .*; run maxims sync to quarantine it$/,
+        ),
+        hint: null,
+        notices: [],
+      });
       expect(await snapshot(scenario.root)).toBe(before);
     });
   });

@@ -11,7 +11,6 @@ import { storePathFor } from "../util/home.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere } from "./shared/context.ts";
 import { isFetchedEntry, readInstalledTree, shortSha } from "./shared/engine.ts";
-import { ReportedMaximsError } from "./shared/errors.ts";
 import {
   type Args,
   type Command,
@@ -22,7 +21,7 @@ import {
   projectDestination,
   usage,
 } from "./shared/options.ts";
-import { errorDocument } from "./shared/report.ts";
+import { reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, type SelectedMemory, selectMemories } from "./shared/select.ts";
 import {
   findInstalledSource,
@@ -69,62 +68,80 @@ export const show: Command = {
   arity: 1,
   flags: SHOW_FLAGS,
   async run(args, ctx) {
-    const { io } = ctx;
-    const positional = args.positionals[0];
-    if (positional === undefined) {
-      throw usage("show needs a memory or source name", { hint: "maxims show <memory or source>" });
+    // Every refusal of the verb, whichever kind of name was asked for, leaves in the one document.
+    try {
+      return await showOne(args, ctx);
+    } catch (error) {
+      throw refused(error, ctx, []);
     }
-    const scope = scopeFlag(args, io.projectRoot);
-    const source = args.value(FLAGS.source) ?? null;
-    const { state, notices } = await peekIntent(io.home);
-    const [unusable] = notices;
-    if (unusable !== undefined) throw usage(unusable);
-    const console = await ctx.openConsole(true);
-    const name = parseMemoryName(positional);
-    const request: ShowRequest | null = name === null ? null : { name, source, scope };
-    const lookup = request === null ? null : await lookupMemory(state, io, request);
-    // A memory name wins over a source spelled the same; the source's own refusals (recorded for
-    // another project, a path that cannot be looked at) wait until no memory answers.
-    if (lookup !== null && request !== null && lookup.kind !== "absent") {
-      const alias = lookup.kind === "found" ? sourceAlias(state, positional, io) : null;
-      if (alias !== null) {
-        console.warn(`${positional} also names a source; maxims show ${alias} prints it`);
-      }
-      return printMemory(lookup, request, ctx, console);
-    }
-    const recorded = recordedSource(state, positional, io, name !== null);
-    if (recorded.kind === "absent") {
-      if (lookup !== null && request !== null) return printMemory(lookup, request, ctx, console);
-      throw usage(`${positional} is not installed`);
-    }
-    if (recorded.kind === "elsewhere") throw installedElsewhere(recorded.key, recorded.root);
-    if (scope !== null) throw usage(`${recorded.key} has one recorded destination; drop -g or -p`);
-    if (source !== null) {
-      throw usage(`--source narrows a memory lookup; ${recorded.key} is a source`);
-    }
-    const found = await sourceFacts(state, io, recorded.key, recorded.entry);
-    for (const line of found.notices) console.warn(line);
-    if (ctx.global.json) {
-      const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
-      io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
-      return ExitCode.Ok;
-    }
-    if (ctx.global.quiet) return ExitCode.Ok;
-    console.intro();
-    console.note(sourceFactLines(found.facts).join("\n"), found.facts.key);
-    const { held } = found.facts;
-    if (held !== null && "unreadable" in held) console.warn(held.unreadable);
-    if (held !== null && !("unreadable" in held)) {
-      const title = `Held changes: ${shortSha(found.facts.sha ?? "")} -> ${shortSha(held.sha)}`;
-      console.note(heldLines(held).join("\n"), title);
-      for (const body of held.bodies) {
-        console.gap();
-        io.stdout.write(`--- ${body.name}\n${body.diff}`);
-      }
-    }
-    return ExitCode.Ok;
   },
 };
+
+async function showOne(args: Args, ctx: CommandContext): Promise<number> {
+  const { io } = ctx;
+  const positional = args.positionals[0];
+  if (positional === undefined) {
+    throw usage("show needs a memory or source name", { hint: "maxims show <memory or source>" });
+  }
+  const scope = scopeFlag(args, io.projectRoot);
+  const source = args.value(FLAGS.source) ?? null;
+  const { state, notices } = await peekIntent(io.home);
+  const [unusable] = notices;
+  if (unusable !== undefined) throw usage(unusable);
+  const console = await ctx.openConsole(true);
+  const name = parseMemoryName(positional);
+  const request: ShowRequest | null = name === null ? null : { name, source, scope };
+  const lookup = request === null ? null : await lookupMemory(state, io, request);
+  // A memory name wins over a source spelled the same; the source's own refusals (recorded for
+  // another project, a path that cannot be looked at) wait until no memory answers.
+  if (lookup !== null && request !== null && lookup.kind !== "absent") {
+    const alias = lookup.kind === "found" ? sourceAlias(state, positional, io) : null;
+    if (alias !== null) {
+      console.warn(`${positional} also names a source; maxims show ${alias} prints it`);
+    }
+    return printMemory(lookup, request, ctx, console);
+  }
+  const recorded = recordedSource(state, positional, io, name !== null);
+  if (recorded.kind === "absent") {
+    if (lookup !== null && request !== null) return printMemory(lookup, request, ctx, console);
+    throw usage(`${positional} is not installed`);
+  }
+  if (recorded.kind === "elsewhere") throw installedElsewhere(recorded.key, recorded.root);
+  if (scope !== null) throw usage(`${recorded.key} has one recorded destination; drop -g or -p`);
+  if (source !== null) {
+    throw usage(`--source narrows a memory lookup; ${recorded.key} is a source`);
+  }
+  const found = await sourceFacts(state, io, recorded.key, recorded.entry);
+  for (const line of found.notices) console.warn(line);
+  if (ctx.global.json) {
+    const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
+    io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+    return ExitCode.Ok;
+  }
+  if (ctx.global.quiet) return ExitCode.Ok;
+  console.intro();
+  console.note(sourceFactLines(found.facts).join("\n"), found.facts.key);
+  const { held } = found.facts;
+  if (held !== null && "unreadable" in held) console.warn(held.unreadable);
+  if (held !== null && !("unreadable" in held)) {
+    const title = `Held changes: ${shortSha(found.facts.sha ?? "")} -> ${shortSha(held.sha)}`;
+    console.note(heldLines(held).join("\n"), title);
+    for (const body of held.bodies) {
+      console.gap();
+      io.stdout.write(`--- ${body.name}\n${body.diff}`);
+    }
+  }
+  return ExitCode.Ok;
+}
+
+// The one shape a `show` refusal takes under `--json`: the failure's fields plus the store
+// warnings gathered before it, so a name "not installed" beside an unreadable source is a
+// different fact from one nobody provides. Outside `--json` the error passes through for the
+// generic frame.
+function refused(error: unknown, ctx: CommandContext, notices: string[]): unknown {
+  const stdout = (text: string) => ctx.io.stdout.write(text);
+  return reportedUnderJson(error, { stdout }, ctx.global.json, { notices });
+}
 
 // `-g` and `-p` narrow the sources judged; `show` has no `-o`, since an out folder is a rule
 // file and not a place a memory is read from. `-p` outside a project gets the refusal every
@@ -187,14 +204,7 @@ function printMemory(
 ): number {
   const { io } = ctx;
   for (const line of lookup.notices) console.warn(line);
-  if (lookup.kind !== "found") {
-    const failure = lookupFailure(lookup, request);
-    if (!ctx.global.json) throw failure;
-    // The `--json` document is the one place the store warnings can reach a caller, and a name
-    // "not installed" beside an unreadable source is a different fact from one nobody provides.
-    io.stdout.write(errorDocument(failure, { notices: lookup.notices }));
-    throw new ReportedMaximsError(failure.code, failure.message, { hint: failure.hint });
-  }
+  if (lookup.kind !== "found") throw refused(lookupFailure(lookup, request), ctx, lookup.notices);
   const { memory } = lookup;
   if (ctx.global.json) {
     const body = { ok: true, kind: "memory", ...memory, notices: lookup.notices };

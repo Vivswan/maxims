@@ -1,7 +1,7 @@
 // Fails if the hook path regrows: a static import chain from the bin entry, the engine loader or
 // the sync verb that reaches the interactive frame, the color library, agent detection, the
-// GitHub fetch ladder or the git and tarball resolvers would load them at every session start,
-// which the latency budget forbids. Dynamic imports are not followed, since that is exactly how
+// GitHub fetch ladder, the git and tarball resolvers or the diff renderer would load them at
+// every session start, which the latency budget forbids. Dynamic imports are not followed, since that is exactly how
 // the interactive verbs and the resolvers are meant to load, and neither are type-only imports,
 // which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
@@ -17,6 +17,7 @@ const HEAVY = [
   "simple-git",
   "tar",
   "debug",
+  "diff",
 ];
 
 const HOOK_PATH_EXCLUDES = [
@@ -61,12 +62,13 @@ function walk(entry: string): Set<string> {
   return seen;
 }
 
+// Sorted, so a row below names a set and a reordering of the lists above changes nothing.
 function offenders(graph: Set<string>): { packages: string[]; modules: string[] } {
   return {
-    packages: HEAVY.filter((name) => graph.has(name)),
-    modules: HOOK_PATH_EXCLUDES.filter((path) => graph.has(path)).map((path) =>
-      relative(SRC, path).split(sep).join("/"),
-    ),
+    packages: HEAVY.filter((name) => graph.has(name)).sort(),
+    modules: HOOK_PATH_EXCLUDES.filter((path) => graph.has(path))
+      .map((path) => relative(SRC, path).split(sep).join("/"))
+      .sort(),
   };
 }
 
@@ -87,8 +89,16 @@ const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
     "the github resolver",
     "sources/github/index.ts",
     {
-      packages: ["simple-git", "tar", "debug"],
-      modules: ["sources/github/ladder.ts", "sources/github/index.ts", "sources/github/tarball.ts"],
+      packages: ["debug", "simple-git", "tar"],
+      modules: ["sources/github/index.ts", "sources/github/ladder.ts", "sources/github/tarball.ts"],
+    },
+  ],
+  [
+    "the show verb",
+    "commands/show.ts",
+    {
+      packages: ["debug", "diff", "simple-git", "tar"],
+      modules: ["sources/github/index.ts", "sources/github/ladder.ts", "sources/github/tarball.ts"],
     },
   ],
 ];

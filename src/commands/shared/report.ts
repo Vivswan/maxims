@@ -193,10 +193,16 @@ export function errorDocument(error: unknown, extra: Record<string, unknown> = {
 
 // Under `--json` a failure that escaped the plan is printed as the one document and rethrown as
 // already reported, so the caller maps it to an exit and prints nothing more; the original stays
-// on `cause` for a log. Any other failure passes through untouched.
-export function reportedUnderJson(error: unknown, io: EngineIo, json: boolean): unknown {
+// on `cause` for a log. Any other failure passes through untouched. `extra` is what the verb
+// reports beside the failure, as for `errorDocument`.
+export function reportedUnderJson(
+  error: unknown,
+  io: Pick<EngineIo, "stdout">,
+  json: boolean,
+  extra: Record<string, unknown> = {},
+): unknown {
   if (!json || error instanceof ReportedMaximsError) return error;
-  io.stdout(errorDocument(error));
+  io.stdout(errorDocument(error, extra));
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
   const message = error instanceof Error ? error.message : String(error);
   return new ReportedMaximsError(code, message, {

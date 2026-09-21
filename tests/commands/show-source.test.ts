@@ -205,6 +205,20 @@ test("a memory name shadows a source spelled the same; flags for memories are re
     expect(scoped.stderr).toBe(` ERROR  ${dir} has one recorded destination; drop -g or -p\n`);
     const narrowed = await runCli(scenario, ["show", dir, "--source", dir]);
     expect(narrowed.stderr).toBe(` ERROR  --source narrows a memory lookup; ${dir} is a source\n`);
+    // Under `--json` a source's refusal is the same five-field document a memory's refusal is,
+    // so one caller parses one shape whichever kind of name it passed.
+    const refusals: [string[], string][] = [
+      [["-g"], `${dir} has one recorded destination; drop -g or -p`],
+      [["--source", dir], `--source narrows a memory lookup; ${dir} is a source`],
+    ];
+    for (const [flags, message] of refusals) {
+      const json = await runCli(scenario, ["show", dir, ...flags, "--json"]);
+      expect([json.code, json.stderr, JSON.parse(json.stdout)]).toEqual([
+        1,
+        "",
+        { ok: false, code: 1, message, hint: null, notices: [] },
+      ]);
+    }
   });
 });
 
@@ -238,6 +252,18 @@ test("a memory name is printed even when the same spelling is a source recorded 
     expect([source.code, source.stderr]).toEqual([
       1,
       ` ERROR  ${dir} is installed for the project at ${join(scenario.root, "elsewhere")}\nTip: run the command from that project\n`,
+    ]);
+    const json = await runCli(scenario, ["show", "./always-review", "--json"]);
+    expect([json.code, json.stderr, JSON.parse(json.stdout)]).toEqual([
+      1,
+      "",
+      {
+        ok: false,
+        code: 1,
+        message: `${dir} is installed for the project at ${join(scenario.root, "elsewhere")}`,
+        hint: "run the command from that project",
+        notices: [],
+      },
     ]);
   });
 });
