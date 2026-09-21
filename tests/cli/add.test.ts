@@ -814,6 +814,61 @@ test.each(scopeMoves)(
   },
 );
 
+// The ref is part of the key, so a re-add with another ref is a second source whose memories
+// collide with the recorded one's. The collision names the recorded key and the one order that
+// repins it, instead of reporting the source as its own owner; two pins of one repository still
+// install side by side when their selections do not collide.
+const refMoves: [string, string[], string[], string, string, string][] = [
+  ["HEAD to a pin", [], ["--pin", "v2"], "@a/b", "tracking HEAD", "with --pin v2"],
+  ["a pin to HEAD", ["--pin", "v2"], [], "@a/b#v2", "pinned to v2", "without --pin"],
+  [
+    "one pin to another",
+    ["--pin", "v1"],
+    ["--pin", "v2"],
+    "@a/b#v1",
+    "pinned to v1",
+    "with --pin v2",
+  ],
+];
+
+test.each(refMoves)(
+  "re-adding an installed source with another ref is refused: %s",
+  async (_title, first, second, recorded, tracking, flag) => {
+    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+      expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", ...first])).code).toBe(0);
+      const before = readFileSync(homePaths(scenario.home).state, "utf8");
+      const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", ...second]);
+      expect([run.code, run.stderr]).toEqual([
+        6,
+        ` ERROR  @a/b is already installed as ${recorded} (${tracking})\nTip: run maxims remove ${recorded} first, then add it ${flag}\n`,
+      ]);
+      expect(readFileSync(homePaths(scenario.home).state, "utf8")).toBe(before);
+      expect(scenario.engine.calls.sync).toHaveLength(2);
+    });
+  },
+);
+
+// A collision the incoming source has with itself (two names renamed onto one) is not a repin:
+// removing the installed copy could not resolve it, so the rename path keeps it.
+test("a re-add colliding with itself through a rename keeps the rename path", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
+    const run = await runCli(scenario, [
+      "add",
+      "@a/b",
+      "-g",
+      "-a",
+      "codex",
+      "--rename",
+      "no-sleep-waiting-on-subagents=skip-unfit-skills",
+    ]);
+    expect([run.code, run.stderr]).toEqual([
+      6,
+      " ERROR  skip-unfit-skills is owned by @a/b\nTip: --rename skip-unfit-skills=<new>\n",
+    ]);
+  });
+});
+
 // Hook intent is per scope: a global `--add-hook` must not make a later project add without the
 // flag plant a hook under the project, and a scope whose last source for a harness leaves gives
 // its hook up, so a later add there without the flag registers nothing either.

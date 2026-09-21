@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { HarnessId } from "../../contracts/harness-id.ts";
-import { AbsolutePathSchema, type SourceFrom } from "../../contracts/source.ts";
+import { AbsolutePathSchema, DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -293,6 +293,26 @@ export function installedAtOtherScope(
   return new MaximsError(ExitCode.Usage, `${key} is installed ${describeScope(recorded)}`, {
     hint: `run maxims remove ${key} first, then add it with ${flag}`,
   });
+}
+
+// The ref is part of the key, so a re-add with another ref is a second source whose memories
+// collide with the recorded one's. The collision names the recorded key and the order that repins
+// it, rather than reporting the source as its own owner.
+export function installedAtOtherRef(
+  base: string,
+  recorded: string,
+  recordedRef: string,
+  wantedRef: string,
+): MaximsError {
+  const standing = recordedRef === DEFAULT_GIT_REF ? "tracking HEAD" : `pinned to ${recordedRef}`;
+  const flag = wantedRef === DEFAULT_GIT_REF ? "without --pin" : `with --pin ${wantedRef}`;
+  return new MaximsError(
+    ExitCode.NameCollision,
+    `${base} is already installed as ${recorded} (${standing})`,
+    {
+      hint: `run maxims remove ${recorded} first, then add it ${flag}`,
+    },
+  );
 }
 
 function describeScope(destination: Destination): string {

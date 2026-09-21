@@ -99,12 +99,14 @@ import {
   effectiveNames,
   findSourceKey,
   harnessContext,
+  installedAtOtherRef,
   installedAtOtherScope,
   installedSources,
   knownHarnessIds,
   realLocal,
   resolveIncoming,
   scopeOf,
+  sourceIdentity,
   sourcesHere,
   storeTree,
   targetPath,
@@ -535,6 +537,26 @@ export async function planAdd(
   };
 }
 
+// Every colliding name owned by one repository recorded under another ref is a repin: two source
+// keys, one repository, and a rename prompt would only obscure the order that repins it. A name
+// the incoming source collides with itself on (two renamed onto one) or with any other source
+// keeps the rename path. A local directory has no ref.
+function repinRefusal(from: SourceFrom, owners: string[], state: State): MaximsError | null {
+  if (from.type === "local") return null;
+  const base = { ...from, ref: DEFAULT_GIT_REF };
+  let repinned: { key: string; ref: string } | null = null;
+  for (const owner of owners) {
+    const recorded = state.sources[owner]?.intent.from;
+    if (recorded === undefined || recorded.type === "local" || recorded.ref === from.ref) {
+      return null;
+    }
+    if (sourceIdentity({ ...recorded, ref: DEFAULT_GIT_REF }) !== sourceIdentity(base)) return null;
+    repinned ??= { key: owner, ref: recorded.ref };
+  }
+  if (repinned === null) return null;
+  return installedAtOtherRef(canonicalSourceKey(base), repinned.key, repinned.ref, from.ref);
+}
+
 // A harness that declares no hook shape has nothing to register; asking for one is not an error,
 // it is a no-op that must not be reported as a registration.
 function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
@@ -944,6 +966,12 @@ async function validate(
       );
     }
     const collisions: Collision[] = outcome.collisions;
+    const repin = repinRefusal(
+      request.from,
+      [...new Set(collisions.map((collision) => collision.ownedBy))],
+      state,
+    );
+    if (repin !== null) throw repin;
     const taken = new Set<string>(installedNames);
     for (const memory of chosen) taken.add(renamed(rename, memory.name));
     const answer = await promptRenames(console, collisions, renameSuffix(request.from), taken);

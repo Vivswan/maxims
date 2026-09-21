@@ -120,6 +120,10 @@ o  First source from github.com/acme
 
 `--pin <sha or tag>` tracks that ref instead of the default branch, for GitHub and git sources. It is not offered for a local directory. A GitHub URL with a `/tree/<ref>` segment sets the same pin, as the [source forms](cli.md#sources) show.
 
+The ref is part of the source's key, so an installed source is repinned in two steps: `remove` it, then `add` it with the new `--pin` (or without one, to track HEAD again). A re-add with another ref collides with the installed copy on every shared name and is refused with the installed key and that order named.
+
+Two pins of one repository install side by side when their installed names are disjoint; `-m` and `--rename` are the ways to keep them apart.
+
 ## Path scoping
 
 `--paths <glob>` writes the rule file in the target harness's own path-scoping syntax and is stored per source. A harness with no scoping mechanism warns and skips it.
