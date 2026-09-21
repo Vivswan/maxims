@@ -16,6 +16,7 @@ export const EMPTY_REPORT: SyncReport = {
   rules: 0,
   tokens: 0,
   fetched: [],
+  held: [],
   upstreamChanges: {},
   failed: [],
   changed: [],

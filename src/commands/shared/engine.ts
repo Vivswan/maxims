@@ -1,5 +1,6 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { heldForReview } from "../../console/strings.ts";
 import type { HarnessId, Scope } from "../../harnesses/contract.ts";
 import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
 import {
@@ -14,7 +15,6 @@ import {
   type IndexedSource,
   type Resolution,
   resolveSourceCandidates,
-  shortHash,
 } from "../../rulefile/dedupe.ts";
 import type { RuleLine, Staleness } from "../../rulefile/types.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
@@ -24,7 +24,7 @@ import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import { storePathFor } from "../../util/home.ts";
+import { homePaths, pendingPathFor, storePathFor } from "../../util/home.ts";
 import type {
   EngineIo,
   FetchIntent,
@@ -37,7 +37,7 @@ import { parseRuleBlocks } from "./blocks.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
-import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import { diffLines, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { planHooks } from "./hooks.ts";
 import {
@@ -204,9 +204,11 @@ export async function planSync(
           rules: attempt.rules,
           tokens: attempt.tokens,
           fetched: refreshed.fetchedKeys,
-          upstreamChanges: Object.fromEntries(
-            refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
-          ),
+          held: attempt.awaitingReview.map((source) => source.key),
+          upstreamChanges: Object.fromEntries([
+            ...refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
+            ...attempt.awaitingReview.map((source) => [source.key, source.summary]),
+          ]),
           failed,
           notices: notices.user,
           plan: built.plan,
@@ -243,6 +245,10 @@ type Attempt = {
   refusedKept: string[];
   // Live sources whose directory could not be read this run.
   failed: SyncReport["failed"];
+  // Sources with a revision held for review at the end of this run, made now or earlier, with
+  // what it changes: a session hears about a waiting revision at every start, as it does about a
+  // stale source.
+  awaitingReview: { key: string; summary: string[] }[];
   hookRun: boolean;
   sources: number;
   memories: number;
@@ -267,6 +273,14 @@ async function planInstall(
   const refusals: Refusal[] = [];
   const refusedFresh: string[] = [];
   const refusedKept: string[] = [];
+  // Said for every source standing held, admitted or not: a refused source keeps the very block
+  // the held revision would replace, so the hold is as live for it as for an admitted one.
+  const awaitingReview: Attempt["awaitingReview"] = [];
+  for (const [key, entry] of Object.entries(refreshed.sources)) {
+    if (!actsHere(entry, ctx) || !isFetchedEntry(entry) || entry.pending === undefined) continue;
+    awaitingReview.push({ key, summary: entry.pending.summary });
+    notices.loud(heldForReview(key, entry.pending.summary.length));
+  }
   // A source refused whole: `said` carries its lines on the channel the reason earns.
   const refuse = (key: string, said: Notices, failure: SyncFailure): void => {
     notices.absorb(said);
@@ -683,7 +697,18 @@ async function planInstall(
   const expected = new Set(
     Object.values(refreshed.sources).map((entry) => storePathFor(ctx.home, entry.intent.from)),
   );
-  builder.add("orphan", planOrphanSweep(ctx.home, expected, warn));
+  builder.add("orphan", planOrphanSweep(ctx.paths.store, expected, warn));
+  // A held revision lands beside the store, and stays only while its entry still holds it: an
+  // accepted or removed source's revision is swept like an orphaned store entry.
+  for (const changes of refreshed.pendingChanges.values()) builder.add("store", changes);
+  const heldExpected = new Set(
+    Object.values(refreshed.sources).flatMap((entry) =>
+      "pending" in entry && entry.pending !== undefined
+        ? [pendingPathFor(ctx.home, entry.intent.from)]
+        : [],
+    ),
+  );
+  builder.add("orphan", planOrphanSweep(homePaths(ctx.home).pending, heldExpected, warn));
   builder.add("state", extras.extraChanges);
 
   const nextState: State = { ...state, sources: refreshed.sources };
@@ -705,6 +730,7 @@ async function planInstall(
     refusedFresh,
     refusedKept,
     failed: read.failed,
+    awaitingReview,
     hookRun,
     sources: works.length,
     memories,
@@ -804,11 +830,15 @@ async function noticeLockOnlySources(
 
 // `storeChanges` are held per source until admission: a fresh fetch that collides or exceeds the
 // cap is refused whole, and `refuse` puts the source's previous entry back so the store and the
-// state keep last-good.
+// state keep last-good. `pendingChanges` lay a reviewed source's held revision under the pending
+// root; they answer to no admission, since the store copy the run installs from is unchanged, and
+// what the revision changes stays out of `changeLines`, which a block renders only for an applied
+// refresh.
 type Refreshed = {
   sources: State["sources"];
   freshTrees: Map<string, SourceTree>;
   storeChanges: Map<string, Change[]>;
+  pendingChanges: Map<string, Change[]>;
   changeLines: Map<string, string[]>;
   // The lines a fresh refresh earns ("refreshed", new upstream names), shown only once the
   // refresh has survived admission.
@@ -819,7 +849,8 @@ type Refreshed = {
 };
 
 // A failed fetch is never a stop: the source keeps last-good and the failure is reported, so the
-// caller decides what a manual run's exit says about it.
+// caller decides what a manual run's exit says about it. A hold is traced line by line here; the
+// install pass says it to the user, since a standing hold is said at every run.
 async function refreshAll(
   state: State,
   ctx: EngineContext,
@@ -830,6 +861,7 @@ async function refreshAll(
   const sources: State["sources"] = {};
   const freshTrees = new Map<string, SourceTree>();
   const storeChanges = new Map<string, Change[]>();
+  const pendingChanges = new Map<string, Change[]>();
   const changeLines = new Map<string, string[]>();
   const lines = new Map<string, string[]>();
   const fetchedKeys: string[] = [];
@@ -860,6 +892,11 @@ async function refreshAll(
         lines.set(key, earned);
         break;
       }
+      case "held": {
+        pendingChanges.set(key, result.storeChanges);
+        for (const line of result.summary) notices.trace(`${key}: held ${line}`);
+        break;
+      }
       case "failed":
       case "no-valid":
         notices.trace(`${key}: fetch failed (${result.error.kind}): ${result.error.message}`);
@@ -875,6 +912,7 @@ async function refreshAll(
     sources,
     freshTrees,
     storeChanges,
+    pendingChanges,
     changeLines,
     lines,
     fetchedKeys,
@@ -928,22 +966,6 @@ function fetchIntentFor(key: string, options: SyncOptions): FetchIntent {
   if (options.only !== undefined && !options.only.includes(key)) return "none";
   if (options.fetch === "due" && options.agents !== undefined) return "none";
   return options.fetch;
-}
-
-function diffLines(before: Fetched["memories"], after: Fetched["memories"]): string[] {
-  const old = new Map(Object.entries(before));
-  const next = new Map(Object.entries(after));
-  const lines: string[] = [];
-  for (const name of [...new Set([...old.keys(), ...next.keys()])].sort()) {
-    const was = old.get(name);
-    const is = next.get(name);
-    if (was === undefined && is !== undefined) lines.push(`+ ${name}`);
-    else if (was !== undefined && is === undefined) lines.push(`- ${name}`);
-    else if (was !== undefined && is !== undefined && was.content !== is.content) {
-      lines.push(`~ ${name} (${shortHash(was.content)} -> ${shortHash(is.content)})`);
-    }
-  }
-  return lines;
 }
 
 type ReadTrees = {

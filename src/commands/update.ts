@@ -1,6 +1,7 @@
 import {
   failedToUpdate,
   foundUpdates,
+  heldUpdate,
   isLive,
   ownedBy,
   renameHint,
@@ -134,12 +135,15 @@ export const update: Command = {
     // is the name the disabled list knows it by.
     const warnings = await refreshWarnings(report.plan, preview?.state ?? before.state, io, only);
     if (strict) refuseRisky(warnings);
-    const lines = report.fetched.map((key) => {
-      const changes = report.upstreamChanges[key] ?? [];
-      const added = changes.filter((line) => line.startsWith("+ ")).length;
-      const removed = changes.filter((line) => line.startsWith("- ")).length;
-      return updated(key, added, removed);
-    });
+    const lines = [
+      ...report.fetched.map((key) => {
+        const changes = report.upstreamChanges[key] ?? [];
+        const added = changes.filter((line) => line.startsWith("+ ")).length;
+        const removed = changes.filter((line) => line.startsWith("- ")).length;
+        return updated(key, added, removed);
+      }),
+      ...report.held.map((key) => heldUpdate(key, (report.upstreamChanges[key] ?? []).length)),
+    ];
     if (report.failed.length > 0) {
       showRiskWarnings(console, warnings);
       for (const line of lines) console.step(line);
@@ -155,15 +159,20 @@ export const update: Command = {
       }
       throw error;
     }
-    const summary =
-      report.fetched.length === 0 ? STRINGS.allUpToDate : foundUpdates(report.fetched.length);
+    const found = report.fetched.length + report.held.length;
+    const summary = found === 0 ? STRINGS.allUpToDate : foundUpdates(found);
     return finish(ctx, console, {
       plan: {
         changes: [...(preview?.changes ?? persisted.changes), ...report.plan.changes],
         notices: [],
       },
       notices: [...warnings.map(riskLine), ...report.notices],
-      json: { fetched: report.fetched, upstreamChanges: report.upstreamChanges, warnings },
+      json: {
+        fetched: report.fetched,
+        held: report.held,
+        upstreamChanges: report.upstreamChanges,
+        warnings,
+      },
       lines: [summary, ...lines],
     });
   },

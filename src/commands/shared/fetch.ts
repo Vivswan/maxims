@@ -2,7 +2,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contentHashOf, type MemoryName, parseContentHash } from "../../memory/contract.ts";
-import { pruneRenames } from "../../rulefile/dedupe.ts";
+import { pruneRenames, shortHash } from "../../rulefile/dedupe.ts";
 import { needsFetch } from "../../sources/github/index.ts";
 import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
@@ -16,10 +16,10 @@ import {
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import { storePathFor } from "../../util/home.ts";
+import { pendingPathFor, storePathFor } from "../../util/home.ts";
 import type { EngineIo, FetchIntent } from "../types.ts";
 import type { EngineContext } from "./context.ts";
-import type { SourceTree } from "./memories.ts";
+import type { SourceMemory, SourceTree } from "./memories.ts";
 import { validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { inSelect } from "./select.ts";
@@ -40,7 +40,9 @@ export function isRemoteEntry(entry: FetchedEntry): entry is RemoteEntry {
 
 // A fresh fetch carries its content: the store swap is only planned at this point, so the rest of
 // the run reads the memories from `tree`, not from disk. Every outcome returns the entry to keep,
-// with the fetch facts a failure or a confirmed-unchanged remote updated.
+// with the fetch facts a failure or a confirmed-unchanged remote updated. A `held` fetch is a
+// reviewed source's fresh revision parked under the pending root: the entry keeps its last-good
+// record and gains `pending`, and `storeChanges` lay the files there, not in the store.
 export type RefreshResult =
   | { outcome: "skipped" | "not-due"; entry: FetchedEntry }
   | { outcome: "unchanged"; entry: FetchedEntry }
@@ -51,6 +53,7 @@ export type RefreshResult =
       storeChanges: Change[];
       newUpstream: MemoryName[];
     }
+  | { outcome: "held"; entry: FetchedEntry; summary: string[]; storeChanges: Change[] }
   | { outcome: "failed" | "no-valid"; entry: FetchedEntry; error: LastError };
 
 export type RefreshOptions = {
@@ -91,7 +94,10 @@ export function isDue(
 }
 
 // One source's step 2. A failure at any rung keeps the last-good record and store copy and writes
-// only `lastError`; a fetch with zero valid memories is the same, classified `invalid`.
+// only `lastError`; a fetch with zero valid memories is the same, classified `invalid`. A remote
+// standing at the sha of a revision already held is unchanged: the hold waits, nothing is fetched
+// twice. A reviewed source with a last-good copy has its revision held instead of applied; with
+// none (never fetched, store copy gone) there is nothing to keep behind, so it applies.
 export async function refreshSource(
   key: string,
   entry: FetchedEntry,
@@ -111,12 +117,23 @@ export async function refreshSource(
   const auth = entry.intent.auth;
   const tempDir = await mkdtemp(join(tmpdir(), "maxims-fetch-"));
   const now = ctx.now.toISOString();
+  const lastGood = storePresent ? entry.fetched : undefined;
+  // Upstream standing at the installed revision has nothing to apply, and a hold it may have left
+  // behind is withdrawn: what was held is no longer what upstream has. Standing at the held
+  // revision, the hold waits and nothing is downloaded twice.
+  const settled = (sha: string): RefreshResult | null => {
+    if (lastGood === undefined) return null;
+    if (!needsFetch(from, lastGood.sha, sha)) {
+      if (entry.pending !== undefined) notices.trace(`${key}: held revision withdrawn upstream`);
+      return { outcome: "unchanged", entry: withoutPending(touched(entry, now)) };
+    }
+    if (sha === entry.pending?.sha) return { outcome: "unchanged", entry: touched(entry, now) };
+    return null;
+  };
   try {
-    if (resolver.resolveRef !== undefined && storePresent && entry.fetched !== undefined) {
-      const remoteSha = await resolver.resolveRef(from, undefined, { auth });
-      if (!needsFetch(from, entry.fetched.sha, remoteSha)) {
-        return { outcome: "unchanged", entry: touched(entry, now) };
-      }
+    if (resolver.resolveRef !== undefined && lastGood !== undefined) {
+      const byRef = settled(await resolver.resolveRef(from, undefined, { auth }));
+      if (byRef !== null) return byRef;
     }
     const result = await resolver.fetch(from, {
       memoryPath: entry.intent.memoryPath,
@@ -124,36 +141,38 @@ export async function refreshSource(
       tempDir,
       auth,
     });
-    if (storePresent && entry.fetched !== undefined && result.sha === entry.fetched.sha) {
-      return { outcome: "unchanged", entry: touched(entry, now) };
-    }
+    const byFetch = settled(result.sha);
+    if (byFetch !== null) return byFetch;
     const { memories, invalid } = validateMemoryFiles(result.files);
     for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
     if (memories.length === 0) {
       const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
       return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
     }
-    const names = memories.map((memory) => memory.memory.name);
-    const facts: Omit<Fetched, "sha"> = {
+    const unusable: LastError = {
+      kind: "invalid",
+      message: `the source reported an unusable commit id ${JSON.stringify(result.sha)}`,
       at: now,
-      memoryPath: result.memoryPath,
-      memories: Object.fromEntries(
-        memories.map((memory) => [
-          memory.memory.name,
-          {
-            content: memory.memory.contentHash,
-            description: contentHashOf(memory.memory.description),
-          },
-        ]),
-      ),
-      lastError: null,
     };
-    const rename = pruneRenames(entry.intent.rename, names);
-    const next = fresh(entry, rename, facts, result.sha);
-    if (next === null) {
-      const message = `the source reported an unusable commit id ${JSON.stringify(result.sha)}`;
-      return failed(entry, { kind: "invalid", message, at: now }, "failed");
+    const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
+    if (entry.intent.review === true && lastGood !== undefined) {
+      const summary = diffLines(lastGood.memories, memoryFacts(memories));
+      const held = heldEntry(entry, result.sha, now, summary);
+      if (held === null) return failed(entry, unusable, "failed");
+      return {
+        outcome: "held",
+        entry: held,
+        summary,
+        storeChanges: swapStoreEntry(pendingPathFor(ctx.home, from), files),
+      };
     }
+    const names = memories.map((memory) => memory.memory.name);
+    const rename = pruneRenames(entry.intent.rename, names);
+    const next = fetchedFactsFor(withRename(entry, rename), memories, result.memoryPath, {
+      sha: result.sha,
+      at: now,
+    });
+    if (next === null) return failed(entry, unusable, "failed");
     const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
     const newUpstream =
       entry.intent.select === "*"
@@ -163,10 +182,7 @@ export async function refreshSource(
       outcome: "fresh",
       entry: next,
       tree: { sha: result.sha, memories, invalid },
-      storeChanges: swapStoreEntry(
-        entryPath,
-        memories.map((memory) => ({ relPath: memory.relPath, text: memory.text })),
-      ),
+      storeChanges: swapStoreEntry(entryPath, files),
       newUpstream,
     };
   } catch (error) {
@@ -202,23 +218,88 @@ function withFetched(
   return { ...entry, fetched: { ...entry.fetched, ...patch } };
 }
 
-// The sha a resolver reports is parsed into the variant's own type here, once: a remote names a
-// commit, a copied directory the hash of its tree. A remote whose id does not parse (a sha256
-// repository, a proxy answering with something else) is a fetch that failed, not a crash.
-function fresh(
-  entry: FetchedEntry,
-  rename: RenameMap,
-  facts: Omit<Fetched, "sha">,
-  sha: string,
-): FetchedEntry | null {
+function withRename(entry: FetchedEntry, rename: RenameMap): FetchedEntry {
+  if (isRemoteEntry(entry)) return { ...entry, intent: { ...entry.intent, rename } };
+  return { ...entry, intent: { ...entry.intent, rename } };
+}
+
+export function withoutPending(entry: FetchedEntry): FetchedEntry {
   if (isRemoteEntry(entry)) {
+    const { pending: _withdrawn, ...rest } = entry;
+    return rest;
+  }
+  const { pending: _withdrawn, ...rest } = entry;
+  return rest;
+}
+
+// What a fetch records per memory: the hashes a later diff and the copy sweep compare by.
+export function memoryFacts(memories: readonly SourceMemory[]): Fetched["memories"] {
+  return Object.fromEntries(
+    memories.map((memory) => [
+      memory.memory.name,
+      {
+        content: memory.memory.contentHash,
+        description: contentHashOf(memory.memory.description),
+      },
+    ]),
+  );
+}
+
+// The entry an applied revision leaves: the intent as given, fresh fetch facts, and no `pending`,
+// since whatever was held is either this revision or superseded by it. The sha a resolver
+// reports is parsed into the variant's own type here, once: a remote names a commit, a copied
+// directory the hash of its tree. A remote whose id does not parse (a sha256 repository, a proxy
+// answering with something else) is a fetch that failed, not a crash.
+export function fetchedFactsFor(
+  entry: FetchedEntry,
+  memories: readonly SourceMemory[],
+  memoryPath: string,
+  revision: { sha: string; at: string },
+): FetchedEntry | null {
+  const facts = { at: revision.at, memoryPath, memories: memoryFacts(memories), lastError: null };
+  const { addedAt } = entry;
+  if (isRemoteEntry(entry)) {
+    const sha = parseGitSha(revision.sha);
+    return sha === null ? null : { intent: entry.intent, addedAt, fetched: { ...facts, sha } };
+  }
+  const sha = parseContentHash(revision.sha);
+  return sha === null ? null : { intent: entry.intent, addedAt, fetched: { ...facts, sha } };
+}
+
+// A hold keeps the last-good record, restarts the cooldown as a confirmed-unchanged remote does,
+// and records the revision it did not apply; a second hold replaces the first, since the summary
+// is always read against last-good.
+function heldEntry(
+  entry: FetchedEntry,
+  sha: string,
+  at: string,
+  summary: string[],
+): FetchedEntry | null {
+  const current = touched(entry, at);
+  if (isRemoteEntry(current)) {
     const parsed = parseGitSha(sha);
-    if (parsed === null) return null;
-    return { ...entry, intent: { ...entry.intent, rename }, fetched: { ...facts, sha: parsed } };
+    return parsed === null ? null : { ...current, pending: { sha: parsed, at, summary } };
   }
   const parsed = parseContentHash(sha);
-  if (parsed === null) return null;
-  return { ...entry, intent: { ...entry.intent, rename }, fetched: { ...facts, sha: parsed } };
+  return parsed === null ? null : { ...current, pending: { sha: parsed, at, summary } };
+}
+
+// The memories a revision adds (`+ name`), removes (`- name`) or changes (`~ name (old -> new)`)
+// against a recorded fetch, in name order.
+export function diffLines(before: Fetched["memories"], after: Fetched["memories"]): string[] {
+  const old = new Map(Object.entries(before));
+  const next = new Map(Object.entries(after));
+  const lines: string[] = [];
+  for (const name of [...new Set([...old.keys(), ...next.keys()])].sort()) {
+    const was = old.get(name);
+    const is = next.get(name);
+    if (was === undefined && is !== undefined) lines.push(`+ ${name}`);
+    else if (was !== undefined && is === undefined) lines.push(`- ${name}`);
+    else if (was !== undefined && is !== undefined && was.content !== is.content) {
+      lines.push(`~ ${name} (${shortHash(was.content)} -> ${shortHash(is.content)})`);
+    }
+  }
+  return lines;
 }
 
 // A ladder failure carries its own class; a local directory that is gone reads as `missing`,

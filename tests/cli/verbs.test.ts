@@ -124,6 +124,17 @@ test("update forces a refetch of every fetched source, or of the one named, and 
       scenario.options.syncReport = { fetched: [] };
       const quietRun = await runCli(scenario, ["update"]);
       expect(quietRun.stdout).toContain("o  All memories are up to date\n");
+      // A held refresh is an update the user has to act on, never "up to date".
+      scenario.options.syncReport = {
+        fetched: [],
+        held: ["@a/b"],
+        upstreamChanges: { "@a/b": ["+ new-rule", "~ skip-unfit-skills (abcdef1 -> 1234567)"] },
+      };
+      const heldRun = await runCli(scenario, ["update"]);
+      expect(heldRun.code).toBe(0);
+      expect(heldRun.stdout).toContain("o  Found 1 update(s)\n");
+      expect(heldRun.stdout).toContain("o  Held @a/b (2 changed lines); run maxims accept @a/b\n");
+      expect(heldRun.stdout).not.toContain("All memories are up to date");
     },
   );
 });

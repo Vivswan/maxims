@@ -57,7 +57,7 @@ export type ScenarioOptions = {
   syncReport?: Partial<
     Pick<
       SyncReport,
-      "rules" | "tokens" | "fetched" | "upstreamChanges" | "failed" | "notices" | "plan"
+      "rules" | "tokens" | "fetched" | "held" | "upstreamChanges" | "failed" | "notices" | "plan"
     >
   >;
   listReport?: ListReport;
@@ -100,6 +100,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     rules: options.syncReport?.rules ?? 0,
     tokens: options.syncReport?.tokens ?? 0,
     fetched: options.syncReport?.fetched ?? [],
+    held: options.syncReport?.held ?? [],
     upstreamChanges: options.syncReport?.upstreamChanges ?? {},
     failed: [...(options.syncReport?.failed ?? [])],
     changed: [],

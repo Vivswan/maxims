@@ -132,6 +132,19 @@ export function updated(key: string, added: number, removed: number): string {
   return `Updated ${key} (+${added} -${removed} rule)`;
 }
 
+export function changedLines(n: number): string {
+  return count(n, "changed line", "changed lines");
+}
+
+// The one line a hold prints, from the engine (a session hears it from the hook) and from `update`.
+export function heldForReview(key: string, changed: number): string {
+  return `maxims: ${key} has ${changedLines(changed)} held for review; run maxims accept ${key}`;
+}
+
+export function heldUpdate(key: string, changed: number): string {
+  return `Held ${key} (${changedLines(changed)}); run maxims accept ${key}`;
+}
+
 export function failedToUpdate(key: string, reason: string): string {
   return `Failed to update ${key}: ${reason}`;
 }

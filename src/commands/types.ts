@@ -50,16 +50,19 @@ export type SyncOptions = CommonOptions & {
 // failed, or a live source whose directory could not be read (its read is its refresh). Each
 // carries the failure's class so a caller tells an unreachable source from one with nothing valid
 // to install, from the report rather than from state, which a dry run leaves unchanged.
-// `upstreamChanges` holds, per refreshed key, the memories a refresh added (`+ name`), removed
-// (`- name`) or changed (`~ name (old -> new)`). `changed` lists the paths this run wrote, deleted
-// or relinked, never one a planned change found already in its final state; under `--dry-run` it
-// lists every path the plan names.
+// `upstreamChanges` holds, per refreshed or held key, the memories the revision adds (`+ name`),
+// removes (`- name`) or changes (`~ name (old -> new)`). `held` lists the reviewed sources with a
+// revision held for review at the end of this run, made now or earlier, in key order; they are
+// not in `fetched`. `changed` lists the paths this run wrote, deleted or relinked, never one a
+// planned change found already in its final state; under `--dry-run` it lists every path the
+// plan names.
 export type SyncReport = {
   sources: number;
   memories: number;
   rules: number;
   tokens: number;
   fetched: string[];
+  held: string[];
   upstreamChanges: Record<string, string[]>;
   failed: { key: string; message: string; kind: LastError["kind"] }[];
   changed: string[];
