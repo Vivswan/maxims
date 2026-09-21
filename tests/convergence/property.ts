@@ -40,11 +40,14 @@ function knob(
 }
 
 // Runs the property under the knobs and turns a failure into one assertion error carrying the
-// replay line, the shrunk counterexample and the underlying failure.
+// replay line, the shrunk counterexample and the underlying failure. A caller that scales the run
+// count past the knob names the knob's own value as `replayIterations`, so the printed line
+// reproduces the run instead of scaling it again.
 export async function checkProperty<T>(
   name: string,
   property: fc.IAsyncProperty<T>,
   knobs: PropertyKnobs = propertyKnobs(),
+  replayIterations: number = knobs.numRuns,
 ): Promise<void> {
   const details = await fc.check(property, {
     numRuns: knobs.numRuns,
@@ -54,6 +57,6 @@ export async function checkProperty<T>(
   const cause = details.errorInstance;
   const detail = cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);
   throw new Error(
-    `${name} failed; replay with MAXIMS_PROPERTY_SEED=${details.seed} MAXIMS_PROPERTY_ITERATIONS=${knobs.numRuns}\n${fc.defaultReportMessage(details)}\n${detail}`,
+    `${name} failed; replay with MAXIMS_PROPERTY_SEED=${details.seed} MAXIMS_PROPERTY_ITERATIONS=${replayIterations}\n${fc.defaultReportMessage(details)}\n${detail}`,
   );
 }
