@@ -50,9 +50,10 @@ export function checkCap(count: number, cap: number): CapCheck {
   };
 }
 
+// cooldownCapConfig persists `--cap`, so the hint must not read as a one-run override.
 function capHint(cap: number): string {
   return (
     `narrow the source with --memory <name>..., or raise the cap (currently ${cap}) ` +
-    "with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it"
+    "with --cap <n>, which saves ruleCap to config.json as `maxims config set ruleCap <n>` does"
   );
 }

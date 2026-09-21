@@ -215,7 +215,7 @@ describe("resolveSourceCandidates", () => {
       cap: 25,
       hint:
         "narrow the source with --memory <name>..., or raise the cap (currently 25) " +
-        "with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it",
+        "with --cap <n>, which saves ruleCap to config.json as `maxims config set ruleCap <n>` does",
     });
     const under = resolve(memories.slice(1));
     expect(under.ok).toBe(true);

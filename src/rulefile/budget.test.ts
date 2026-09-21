@@ -91,7 +91,7 @@ describe("checkCap", () => {
       cap: 2,
       hint:
         "narrow the source with --memory <name>..., or raise the cap (currently 2) " +
-        "with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it",
+        "with --cap <n>, which saves ruleCap to config.json as `maxims config set ruleCap <n>` does",
     });
   });
 });
