@@ -2,6 +2,7 @@
 // the test suite: the suite's launcher swaps HOME, which is where rootless podman keeps its
 // image store and docker keeps its contexts, so a run from inside the suite would not see the
 // image this process just built.
+import { writeSync } from "node:fs";
 import {
   buildImage,
   CONTAINER_HOME,
@@ -26,23 +27,38 @@ const PROBE = hermeticProbe({
   networkDir: "/sys/class/net",
 });
 
+// A stream write on a pipe queues what the pipe cannot take at once, and the blocking runtime
+// calls and process.exit that follow never flush the queue: the job log kept the first 64 KiB of
+// the suite output and lost bun's summary. A pipe left non-blocking answers EAGAIN while full, so
+// the loop waits for the reader instead of failing.
+function writeAllSync(fd: 1 | 2, text: string): void {
+  const bytes = Buffer.from(text, "utf8");
+  let offset = 0;
+  while (offset < bytes.length) {
+    try {
+      offset += writeSync(fd, bytes, offset, bytes.length - offset);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EAGAIN")) throw error;
+      Bun.sleepSync(1);
+    }
+  }
+}
+
 function report(step: string, started: number, result: RunResult): string {
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
+  writeAllSync(1, result.stdout);
+  writeAllSync(2, result.stderr);
   const seconds = ((performance.now() - started) / 1000).toFixed(1);
-  process.stdout.write(`container tier: ${step} exit ${result.exitCode} in ${seconds}s\n`);
+  writeAllSync(1, `container tier: ${step} exit ${result.exitCode} in ${seconds}s\n`);
   return seconds;
 }
 
 const runtime = detectRuntime();
 if (runtime === null) {
   if (process.env[REQUIRE_RUNTIME_ENV]) {
-    process.stderr.write(
-      `container tier: no container runtime, and ${REQUIRE_RUNTIME_ENV} is set\n`,
-    );
+    writeAllSync(2, `container tier: no container runtime, and ${REQUIRE_RUNTIME_ENV} is set\n`);
     process.exit(1);
   }
-  process.stdout.write(`${skipNotice()}\n`);
+  writeAllSync(1, `${skipNotice()}\n`);
   process.exit(0);
 }
 
@@ -51,7 +67,7 @@ const build = buildImage(runtime, IMAGE);
 const buildSeconds = report(`image build (${IMAGE})`, started, build);
 if (build.exitCode !== 0) process.exit(build.exitCode);
 const bytes = imageSize(runtime, IMAGE);
-process.stdout.write(`container tier: image size ${iec(bytes)} (${bytes} bytes)\n`);
+writeAllSync(1, `container tier: image size ${iec(bytes)} (${bytes} bytes)\n`);
 writeStepSummary(renderBuildSummary(buildSeconds, bytes), process.env);
 
 started = performance.now();
