@@ -294,6 +294,9 @@ test(
         own === -1
           ? [...blocks, fresh]
           : blocks.map((block, index) => (index === own ? fresh : block));
+      // Stated on its own ahead of the deal: with the block already in the file, no slot opens
+      // and no slot closes, so the bytes outside the pairs come back segment for segment.
+      if (own !== -1) expect(slotted(after).gaps).toEqual(gaps);
       expect(after).toBe(dealt(gaps, contents));
       if (own === -1) expect(stripBlock(after, SOURCE).text).toBe(dealt(gaps, blocks));
     });
