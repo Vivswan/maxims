@@ -15,6 +15,7 @@ import {
 import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
+import { MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { parseRuleLines, ruleLineName } from "./blocks.ts";
@@ -57,6 +58,22 @@ export type RuleFileOptions = {
 };
 
 const EMPTY_PLAN: RuleFilePlan = { writes: [], removals: [], notices: [], tokens: [] };
+
+// A removal the grammar refuses (`stripBlock`) holds the file whole, since only the user can edit
+// the stray markers. Not a `MaximsError`: a catch that classifies write failures must not take
+// the hold for one.
+export class RuleFileHeld extends Error {
+  readonly hint: string | undefined;
+
+  constructor(
+    readonly path: string,
+    refusal: MaximsError,
+  ) {
+    super(refusal.message);
+    this.name = "RuleFileHeld";
+    this.hint = refusal.hint;
+  }
+}
 
 // One target file: every block this run renders for it, spliced over whatever the file holds, plus
 // the removal of blocks no intent derives any more. Identical output means no change. A block with
@@ -112,15 +129,21 @@ export async function planRuleFile(
   // grammar's own splicer (which closes a construct the user left open, as the strategy does) and
   // the budget is judged once, on the finished text, against every reader of the file.
   const sharedTarget = primary.target;
-  const remove = (source: string, from: string): Change | undefined =>
-    planSharedBlockRemove({
-      def: primary.def,
-      target: sharedTarget,
-      scope: primary.scope,
-      ctx: harnessContext(options.ctx),
-      source,
-      currentText: from,
-    })[0];
+  const remove = (source: string, from: string): Change | undefined => {
+    try {
+      return planSharedBlockRemove({
+        def: primary.def,
+        target: sharedTarget,
+        scope: primary.scope,
+        ctx: harnessContext(options.ctx),
+        source,
+        currentText: from,
+      })[0];
+    } catch (error) {
+      if (!(error instanceof MaximsError)) throw error;
+      throw new RuleFileHeld(file.path, error);
+    }
+  };
   let text = current ?? "";
   for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
   // A still-installed source whose block renders empty leaves with this run's write, so the

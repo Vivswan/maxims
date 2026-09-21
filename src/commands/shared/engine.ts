@@ -63,6 +63,7 @@ import {
   planRuleFile,
   planRulesDirSweep,
   type RuleFile,
+  RuleFileHeld,
   type RuleFilePlan,
   readIfPresent,
 } from "./rules.ts";
@@ -629,6 +630,21 @@ async function planInstall(
           notices.notice(`~${token.tokens} tokens in ${token.path}`);
         }
       }
+      // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go
+      // out loud, since the block a session expects gone is still loaded. Only the remove verb
+      // fails on it: the user asked for that removal by name, while a sync that finds the block
+      // still there has done its own job, and a hook run must stay exit 0.
+      for (const hold of rendered.held) {
+        planned.add(realKeyOf(hold.path));
+        notices.loud(`maxims: ${hold.message}`);
+        if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
+        if (extras.verb !== "remove") continue;
+        failures.push({
+          code: ExitCode.DestinationWriteFailed,
+          message: hold.message,
+          ...(hold.hint === undefined ? {} : { hint: hold.hint }),
+        });
+      }
       break;
     }
     const { error, file } = rendered;
@@ -812,7 +828,7 @@ function newestBlock(
 }
 
 type RenderedFiles =
-  | { ok: true; plans: RuleFilePlan[] }
+  | { ok: true; plans: RuleFilePlan[]; held: RuleFileHeld[] }
   | { ok: false; file: RuleFile; error: BudgetExceeded };
 
 async function renderFiles(
@@ -821,16 +837,21 @@ async function renderFiles(
   keepAt: ReadonlyMap<string, ReadonlySet<string>>,
 ): Promise<RenderedFiles> {
   const plans: RuleFilePlan[] = [];
+  const held: RuleFileHeld[] = [];
   for (const file of files.values()) {
     try {
       const keep = keepAt.get(fileIdentity(file)) ?? new Set<string>();
       plans.push(await planRuleFile(file, { ctx, keep }));
     } catch (error) {
+      if (error instanceof RuleFileHeld) {
+        held.push(error);
+        continue;
+      }
       if (!(error instanceof BudgetExceeded)) throw error;
       return { ok: false, file, error };
     }
   }
-  return { ok: true, plans };
+  return { ok: true, plans, held };
 }
 
 // The lock is a projection the CLI writes; sync only says when it names a source this machine

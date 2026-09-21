@@ -27,6 +27,7 @@ import {
   localFrom,
   memoryFile,
   memoryName,
+  readStateFile,
   rulesDirHarness,
   seedStore,
   sharedBlockHarness,
@@ -1284,4 +1285,130 @@ describe("a vanished source's destination", () => {
       });
     });
   }
+});
+
+// A user's BEGIN and END left around the only block of a shared file are text while the block
+// stands between them; removing it would pair them into a block the next sweep takes. The grammar
+// refuses that removal, and the refusal holds that one file: every other write of the run lands,
+// a hook run stays exit 0 and says so on stdout, and only the verb asked for the removal exits 4.
+describe("a shared file whose block a stray marker pair wraps", () => {
+  const STRAY_BEGIN = "<!-- maxims:begin @stray/notes sha=old -->\nKEEP ME\n";
+  const STRAY_END = "<!-- maxims:end @stray/notes -->\n";
+  const hint =
+    'edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry';
+  const refusal = (key: string): string =>
+    `removing the ${key} block would pair the stray maxims markers for @stray/notes around it into a managed block`;
+
+  // Two sources, one per fixture harness: the wrapped block is the shared file's only one, and the
+  // rules-dir source has a pending refresh the hold must not take with it.
+  async function wrapped(
+    fn: (world: {
+      io: ReturnType<typeof fakeIo>;
+      home: string;
+      wrappedKey: string;
+      otherKey: string;
+      shared: string;
+      sharedBefore: string;
+      rulesFile: string;
+    }) => Promise<void>,
+  ): Promise<void> {
+    await world(async ({ home, dir, userHome }) => {
+      const wrappedKey = writeSource(join(dir, "wrapped"), { one: { description: "One." } });
+      const otherKey = writeSource(join(dir, "other"), { two: { description: "Two." } });
+      writeState(
+        home,
+        stateWith({
+          [wrappedKey]: entryFor(localFrom(wrappedKey, true), { harnesses: ["codex"] }),
+          [otherKey]: entryFor(localFrom(otherKey, true), { harnesses: ["claude-code"] }),
+        }),
+      );
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      const sharedBefore = `${STRAY_BEGIN}${readFileSync(shared, "utf8")}${STRAY_END}`;
+      writeFileSync(shared, sharedBefore);
+      writeFileSync(
+        join(otherKey, "memories", "two.md"),
+        memoryFile("two", { description: "Two, revised." }),
+      );
+      const rulesFile = globalRulesFile(userHome, sourceSlug(localFrom(otherKey, true)));
+      await fn({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile });
+    });
+  }
+
+  test("a hook run holds the file, lands the other write, exits 0 and logs the refusal as a line", async () => {
+    await wrapped(async ({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile }) => {
+      writeState(
+        home,
+        stateWith({
+          [otherKey]: entryFor(localFrom(otherKey, true), { harnesses: ["claude-code"] }),
+        }),
+      );
+      io.clock.now = new Date(NOW.getTime() + DAY_MS);
+      io.out.length = 0;
+      const report = await runSync(QUIET, io);
+      expect(report.notices).toEqual(
+        expect.arrayContaining([`maxims: ${refusal(wrappedKey)}`, `maxims: ${hint}`]),
+      );
+      expect(io.out.join("")).toBe(
+        `maxims: ${refusal(wrappedKey)}\nmaxims: ${hint}\nmaxims: rules refreshed (1 file updated)\n`,
+      );
+      expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
+      expect(readFileSync(rulesFile, "utf8")).toContain("Two, revised.");
+      const log = readFileSync(homePaths(home).log, "utf8");
+      expect(log).not.toContain("crashed");
+      expect(log).toContain(`sync --quiet: maxims: ${refusal(wrappedKey)}`);
+    });
+  });
+
+  test("an interactive sync prints the refusal and exits 0; a removal of that source exits 4", async () => {
+    await wrapped(async ({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile }) => {
+      const remove = { quiet: false, dryRun: false, json: false, all: false, confirmed: true };
+      const error = await expectExit(
+        runRemove({ ...remove, targets: [wrappedKey] }, io),
+        ExitCode.DestinationWriteFailed,
+      );
+      expect({ message: error.message, hint: error.hint }).toEqual({
+        message: refusal(wrappedKey),
+        hint,
+      });
+      expect(Object.keys(readStateFile(home).sources)).toEqual([otherKey]);
+      expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
+      expect(readFileSync(rulesFile, "utf8")).toContain("Two, revised.");
+      io.out.length = 0;
+      const report = await runSync(SYNC, io);
+      expect(report.notices).toEqual(
+        expect.arrayContaining([`maxims: ${refusal(wrappedKey)}`, `maxims: ${hint}`]),
+      );
+      expect(io.out.join("")).toContain(`!  maxims: ${refusal(wrappedKey)}\n!  maxims: ${hint}\n`);
+      expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
+    });
+  });
+
+  test("the --json document of the removal carries the refusal as its failure", async () => {
+    await wrapped(async ({ io, wrappedKey, shared, sharedBefore }) => {
+      const remove = { quiet: false, dryRun: false, json: true, all: false, confirmed: true };
+      io.out.length = 0;
+      await expectExit(
+        runRemove({ ...remove, targets: [wrappedKey] }, io),
+        ExitCode.DestinationWriteFailed,
+      );
+      const document = JSON.parse(io.out.join(""));
+      expect({
+        ok: document.ok,
+        code: document.code,
+        message: document.message,
+        hint: document.hint,
+      }).toEqual({
+        ok: false,
+        code: ExitCode.DestinationWriteFailed,
+        message: refusal(wrappedKey),
+        hint,
+      });
+      expect(document.report.notices).toEqual(
+        expect.arrayContaining([`maxims: ${refusal(wrappedKey)}`, `maxims: ${hint}`]),
+      );
+      expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
+    });
+  });
 });
