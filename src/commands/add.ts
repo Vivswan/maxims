@@ -127,6 +127,7 @@ export type AddRequest = {
   agents: AgentSelection;
   allowHidden: boolean;
   strict: boolean;
+  review: boolean;
   cap: number;
   list: boolean;
   noFetch: boolean;
@@ -156,6 +157,7 @@ const ADD_FLAGS: readonly FlagSpec[] = [
   FLAGS.rename,
   FLAGS.allowHidden,
   FLAGS.strict,
+  FLAGS.review,
   FLAGS.cooldown,
   FLAGS.cap,
   FLAGS.noFetch,
@@ -279,6 +281,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
   }
   const pin = args.value(FLAGS.pin);
   const link = args.flag(FLAGS.link);
+  const review = args.flag(FLAGS.review);
   let from = selector.from;
   if (from.type === "local") {
     if (pin !== undefined) throw usage("--pin applies to a GitHub or git source, not a directory");
@@ -287,6 +290,10 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     const path = realLocal(from).path;
     from =
       link || sourceArg === "." ? { type: "local", path, live: true } : { type: "local", path };
+    // A live directory is read in place at every sync, so there is no fetch to hold back.
+    if (review && from.live === true) {
+      throw usage("--review applies to a fetched source; a live directory is read in place");
+    }
   } else {
     if (link) throw usage("--link applies to a local directory");
     if (pin !== undefined) from = { ...from, ref: gitRefOrUsage(pin) };
@@ -336,6 +343,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     agents: parseAgents(args, knownHarnessIds(io)),
     allowHidden: args.flag(FLAGS.allowHidden),
     strict: args.flag(FLAGS.strict),
+    review,
     cap: configChanges?.ruleCap ?? config.ruleCap ?? DEFAULT_RULE_CAP,
     list,
     noFetch: args.flag(FLAGS.noFetch),
@@ -1112,6 +1120,7 @@ function buildEntry(
     ...(request.paths === undefined ? {} : { paths: request.paths }),
     ...(request.allowHidden ? { allowHidden: true } : {}),
     ...(request.shared ? { shared: true as const } : {}),
+    ...(request.review ? { review: true as const } : {}),
   };
   const from = request.from;
   const fetchedMemories = Object.fromEntries(

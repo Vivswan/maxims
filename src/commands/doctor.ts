@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { notDefinedHere } from "../console/strings.ts";
+import { heldFinding, notDefinedHere } from "../console/strings.ts";
 import type { HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
@@ -75,6 +75,11 @@ export const doctor: Command = {
           kind: "warn",
           text: `${key}: project folder ${destination.root} is missing`,
         });
+      }
+      // A waiting revision is a warning, never a failure: the harness loads exactly what state
+      // asks for, the last-good block, and the user chose to look before it changes.
+      if ("pending" in entry && entry.pending !== undefined && actsHere(entry, io)) {
+        findings.push({ kind: "warn", text: heldFinding(key, entry.pending.summary.length) });
       }
     }
     const here = (entry: SourceEntry): boolean => actsHere(entry, io);

@@ -19,6 +19,8 @@ Everything maxims owns lives under one directory, and this page is that tree: wh
 |   |-- _github/ghe.example.com/acme/rules/ # a GitHub Enterprise source: _github/<host>/<owner>/<repo>
 |   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>[_<port>]/<path without .git>
 |   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>
+|-- pending/                            # a reviewed source's fetched, not yet accepted revision, laid out like store/
+|   `-- acme/rules/
 |-- state.json                          # intent: what should be true
 |-- state.json.lock                     # the writer mutex, present only while a process writes
 |-- config.json                         # user defaults for future commands; never read as intent
@@ -32,7 +34,7 @@ Everything maxims owns lives under one directory, and this page is that tree: wh
 
 The home sits inside `.agents`, the directory `npx skills` already owns, so no new dotfolder appears and the layout is the same whether or not Claude Code is installed. Project memory directories link into it and rule lines point into it; the store is the only place a body lives, so a stale body cannot exist.
 
-A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync.
+A local or git source's store path is derived from its path or URL every run, never stored. `_local` and `_git` are segments no GitHub owner can have, since owner names cannot start with an underscore, so the namespaces cannot meet. A store entry no source in state derives to is swept on the next sync, and so is a held revision under `pending/` whose source no longer holds it.
 
 Two files are not state. `config.json`, beside it, holds the [user defaults](#user-defaults-in-configjson), which are preferences about future commands. The [project lock](share.md), in the project's `.agents/`, is the committed record a fresh clone replays.
 

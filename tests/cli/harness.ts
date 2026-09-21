@@ -8,8 +8,11 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { PassThrough } from "node:stream";
+import { runList } from "../../src/commands/list.ts";
 import { type CliDeps, main } from "../../src/commands/main.ts";
+import { runRemove } from "../../src/commands/remove.ts";
 import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
+import { runSync } from "../../src/commands/sync.ts";
 import type {
   Engine,
   EngineBundle,
@@ -21,6 +24,7 @@ import type {
 } from "../../src/commands/types.ts";
 import type { InteractiveStreams } from "../../src/console/contract.ts";
 import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
+import { achievedTier, planHookOnly } from "../../src/harnesses/hook-writer.ts";
 import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
@@ -70,6 +74,9 @@ export type ScenarioOptions = {
   // whose message contains the key. Without this the CLI gets no interactive streams and every
   // prompt takes its silent branch.
   answers?: Record<string, string>;
+  // The real engine over scripted resolvers, for a scenario that must see what a verb's sync
+  // lands rather than what it asked for; the recording engine is unused then.
+  bundle?: EngineBundle;
 };
 
 export type Scenario = {
@@ -214,7 +221,7 @@ export async function runCli(scenario: Scenario, argv: string[]): Promise<RunRes
   const answers = scenario.options.answers;
   const interactive =
     answers === undefined ? null : scriptedStreams(answers, (chunk) => (stdout += chunk));
-  const bundle: EngineBundle = {
+  const bundle: EngineBundle = scenario.options.bundle ?? {
     engine: scenario.engine,
     harnesses: scenario.options.harnesses ?? FIXTURE_HARNESSES,
     resolvers: fixtureResolvers(() => scenario),
@@ -290,6 +297,28 @@ export async function snapshot(dir: string): Promise<string> {
   };
   walk(dir);
   return `${await hashDirectory(dir)}|${entries.sort().join(",")}`;
+}
+
+// The real engine's three runners and probes over the given resolvers and definitions: what the
+// bin loads, minus the MCP stub, which no CLI scenario drives.
+export function realEngineBundle(
+  resolvers: ResolverFor,
+  harnesses: readonly HarnessDefinition[] = FIXTURE_HARNESSES,
+): EngineBundle {
+  return {
+    engine: {
+      runSync,
+      runRemove,
+      runList,
+      planHookAlone: (def, scope, ctx, wanted) => planHookOnly({ def, scope, ctx, wanted }),
+      achievedTier,
+      serveMcpStub: () => {
+        throw new Error("no CLI scenario drives the MCP stub");
+      },
+    },
+    harnesses,
+    resolvers,
+  };
 }
 
 // The last sync the fake engine recorded, or a thrown error: an assertion about an absent key on

@@ -208,6 +208,9 @@ function requestFrom(
     agents: { kind: "ids", ids: harnesses },
     allowHidden: source.allowHidden === true,
     strict,
+    // The lock carries install-time intent only; whether to review upstream changes is chosen per
+    // machine, with `maxims review`.
+    review: false,
     cap: ctx.config.ruleCap ?? DEFAULT_RULE_CAP,
     list: false,
     noFetch: false,

@@ -25,6 +25,7 @@ import {
   canonicalSourceKey,
   type Fetched,
   type GitSha,
+  type Pending,
   parseGitSha,
   type SourceEntry,
   type SourceFrom,
@@ -391,6 +392,12 @@ export function fetchedEntry(
   from: RemoteFrom,
   fetched: FetchedFacts,
   overrides: IntentOverrides = {},
+  pending?: Extract<Pending, { sha: GitSha }>,
 ): SourceEntry {
-  return { intent: { ...baseIntent(overrides), from }, addedAt: ADDED_AT, fetched };
+  return {
+    intent: { ...baseIntent(overrides), from },
+    addedAt: ADDED_AT,
+    fetched,
+    ...(pending === undefined ? {} : { pending }),
+  };
 }

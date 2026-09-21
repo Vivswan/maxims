@@ -31,6 +31,7 @@ flowchart LR
 | choose a scope, a selection, or a harness, or resolve a name collision | [Install a source](install.md) |
 | commit a source list a fresh clone replays | [Share rules with your team](share.md) |
 | know what the session hook does, and when a source is refetched | [Keep rules fresh](keep-fresh.md) |
+| look at upstream changes before they reach an agent | [Keep rules fresh](keep-fresh.md#hold-changes-for-review) |
 | write a memory file maxims accepts, scaffold one, lint a folder | [Write your own memories](write-memories.md) |
 | check what each harness loads, in a terminal or in CI | [Check an install](check.md) |
 | fix what a session start or a sync reports | [When something breaks](troubleshooting.md) |

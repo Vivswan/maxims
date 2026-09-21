@@ -5,7 +5,7 @@ import type { HookPlan } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { ResolverFor } from "../sources/contract.ts";
 import type { UserConfig } from "../state/config.ts";
-import type { LastError, SourceEntry, State } from "../state/schema.ts";
+import type { LastError, Pending, SourceEntry, State } from "../state/schema.ts";
 import type { Change, Plan } from "../util/change.ts";
 
 export type CommonOptions = {
@@ -131,12 +131,15 @@ export type ListedRename = {
 
 // `project` is set for a project-scope entry: the root it was added in, whether that is the
 // project this run is in (`here`), and whether the folder still exists at all; `shared` says the
-// entry is in that project's lock.
+// entry is in that project's lock. `review` says upstream changes wait for `accept`, and `held`
+// is the revision waiting right now, if any.
 export type ListedSource = {
   key: string;
   scope: "project" | "global" | "out";
   project: { root: string; here: boolean; rootMissing: boolean } | null;
   shared: boolean;
+  review: boolean;
+  held: Pending | null;
   live: boolean;
   outDir: string | null;
   sha: string | null;

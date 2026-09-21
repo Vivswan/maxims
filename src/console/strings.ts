@@ -47,6 +47,8 @@ export const STRINGS = {
     "Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.",
   storeEmpty: "Found 0 memories (store empty; run without --no-fetch)",
   noManifest: "no manifest",
+  nothingHeld: "nothing held for review",
+  allWithSource: "--all accepts every held source; drop the source name",
 } as const;
 
 export function found(n: number, internalHidden: number): string {
@@ -143,6 +145,43 @@ export function heldForReview(key: string, changed: number): string {
 
 export function heldUpdate(key: string, changed: number): string {
   return `Held ${key} (${changedLines(changed)}); run maxims accept ${key}`;
+}
+
+// The `list` token beside a source with a revision waiting; a reviewed source with none says `review`.
+export function heldToken(key: string, changed: number): string {
+  return `held (${changedLines(changed)}; run maxims accept ${key})`;
+}
+
+export function heldFinding(key: string, changed: number): string {
+  return `${key}: ${changedLines(changed)} held for review (run maxims accept ${key})`;
+}
+
+export function reviewing(key: string): string {
+  return `Reviewing ${key}; upstream changes wait for maxims accept`;
+}
+
+export function alreadyReviewing(key: string): string {
+  return `${key} is already held for review`;
+}
+
+export function notReviewing(key: string): string {
+  return `${key} was not held for review`;
+}
+
+export function unreviewed(key: string): string {
+  return `Unreviewed ${key}; upstream changes apply at once`;
+}
+
+export function accepted(key: string, changed: number): string {
+  return `Accepted ${key} (${changedLines(changed)})`;
+}
+
+export function nothingHeld(key: string): string {
+  return `${key} has nothing held for review`;
+}
+
+export function heldRevisionGone(key: string): string {
+  return `the held revision of ${key} is gone; run maxims update to fetch it again`;
 }
 
 export function failedToUpdate(key: string, reason: string): string {

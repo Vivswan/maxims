@@ -950,6 +950,50 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
   });
 });
 
+// The three review verbs edit intent and say what stands; the engine that holds and lands
+// revisions is pinned by its own tests, so the fake here records only that a sync followed.
+test("review and unreview flip the mark and sync once without a fetch; accept says what is held", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await installSkills(scenario);
+    const intentOf = () =>
+      (readState(scenario) as { sources: Record<string, { intent: { review?: true } }> }).sources[
+        "@a/b"
+      ]?.intent;
+    const marked = await runCli(scenario, ["review", "@a/b"]);
+    expect(marked.code).toBe(0);
+    expect(marked.stdout).toContain("o  Reviewing @a/b; upstream changes wait for maxims accept\n");
+    expect(intentOf()?.review).toBe(true);
+    expect(lastSyncCall(scenario)).toMatchObject({ fetch: "none" });
+    expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
+    const again = await runCli(scenario, ["review", "@A/B", "--json"]);
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.stdout)).toMatchObject({
+      ok: true,
+      source: "@a/b",
+      review: true,
+      accepted: false,
+      held: 0,
+    });
+    const nothing = await runCli(scenario, ["accept", "@a/b"]);
+    expect(nothing.code).toBe(0);
+    expect(nothing.stdout).toContain("o  @a/b has nothing held for review\n");
+    const none = await runCli(scenario, ["accept", "--all"]);
+    expect(none.code).toBe(0);
+    expect(none.stdout).toContain("o  nothing held for review\n");
+    const both = await runCli(scenario, ["accept", "@a/b", "--all"]);
+    expect(both.code).toBe(1);
+    expect(both.stderr).toContain("--all accepts every held source; drop the source name");
+    const lifted = await runCli(scenario, ["unreview", "@a/b"]);
+    expect(lifted.code).toBe(0);
+    expect(lifted.stdout).toContain("o  Unreviewed @a/b; upstream changes apply at once\n");
+    expect(intentOf()?.review).toBeUndefined();
+    const not = await runCli(scenario, ["unreview", "@a/b"]);
+    expect(not.code).toBe(0);
+    expect(not.stdout).toContain("o  @a/b was not held for review\n");
+    expect(scenario.engine.calls.sync.filter((call) => !call.dryRun)).toHaveLength(6);
+  });
+});
+
 test("disable and enable edit the per-scope list in state, then sync", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);

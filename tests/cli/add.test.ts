@@ -40,6 +40,7 @@ type SourceRecord = {
     harnesses: string[];
     destination: { scope: string; path?: string; root?: string };
     shared?: true;
+    review?: true;
     from: { type: string; live?: boolean; ref?: string; path?: string };
     rule: boolean;
     auth: boolean;
@@ -566,6 +567,29 @@ test("--list --no-fetch sees the files the fetch saw: a full-depth root folder a
     } finally {
       chmodSync(store, 0o755);
     }
+  });
+});
+
+// The mark rides on the entry `add` records, so a re-add without the flag replaces it like every
+// other flag, and the add's own fetch applies: there is no last-good copy to keep behind yet.
+test("add --review records the mark and applies its own fetch; a live source has nothing to hold", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--review"]);
+    expect(run.code).toBe(0);
+    const entry = source(scenario, "@a/b");
+    expect(entry.intent.review).toBe(true);
+    expect(entry.fetched?.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect("pending" in entry).toBe(false);
+    mkdirSync(join(scenario.cwd, "memories"));
+    writeFileSync(
+      join(scenario.cwd, "memories", "local-rule.md"),
+      "---\nname: local-rule\ndescription: A rule edited in place\n---\n",
+    );
+    const live = await runCli(scenario, ["add", ".", "-g", "-a", "codex", "--review"]);
+    expect(live.code).toBe(1);
+    expect(live.stderr).toContain("--review applies to a fetched source");
+    expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
+    expect(source(scenario, "@a/b").intent.review).toBeUndefined();
   });
 });
 

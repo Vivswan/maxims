@@ -13,6 +13,7 @@ import {
   fetchedEntry,
   fetchedFacts,
   githubFrom,
+  gitSha,
   localFrom,
   memoryName,
   rulesDirHarness,
@@ -144,6 +145,43 @@ describe("list", () => {
       expect(text.endsWith("Defaults: agents=detected rule=true cooldownDays=3 ruleCap=25\n")).toBe(
         true,
       );
+    });
+  });
+
+  // The mark and the waiting revision are read from state, and the text beside the source is the
+  // one place a user learns what `accept` would apply; the `--json` fields carry the same facts.
+  test("a reviewed source shows its mark, and a held revision the accept hint, in text and --json", async () => {
+    await world(async (w) => {
+      const upstream = writeSource(join(w.dir, "upstream"), TWO_MEMORIES);
+      const held = githubFrom("acme/rules");
+      const marked = githubFrom("acme/other");
+      seedStore(w.home, held, upstream);
+      seedStore(w.home, marked, upstream);
+      const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
+      const pending = {
+        sha: gitSha("b".repeat(40)),
+        at: NOW.toISOString(),
+        summary: ["~ always-review (aaaaaaa -> bbbbbbb)", "+ new-rule"],
+      };
+      writeState(
+        w.home,
+        stateWith({
+          "@acme/rules": fetchedEntry(held, facts, { review: true }, pending),
+          "@acme/other": fetchedEntry(marked, facts, { review: true }),
+        }),
+      );
+      const io = fakeIo({ ...w, cwd: w.dir });
+      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+      const byKey = Object.fromEntries(report.sources.map((source) => [source.key, source]));
+      expect(byKey["@acme/rules"]).toMatchObject({ review: true, held: pending });
+      expect(byKey["@acme/other"]).toMatchObject({ review: true, held: null });
+      io.out.length = 0;
+      await runList({ quiet: false, dryRun: false, json: false }, io);
+      const text = io.out.join("");
+      expect(text).toMatch(
+        /@acme\/rules {2}[0-9a-f]{7} {2}fetched 2026-09-19 {2}ok {2}held \(2 changed lines; run maxims accept @acme\/rules\)\n/,
+      );
+      expect(text).toMatch(/@acme\/other {2}[0-9a-f]{7} {2}fetched 2026-09-19 {2}ok {2}review\n/);
     });
   });
 

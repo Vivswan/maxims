@@ -19,6 +19,7 @@ The specification fixes what `list` reports and leaves the layout to mirror `npx
 | --- | --- |
 | each source, its selected memories, the fetched sha and each memory's short content hash | state |
 | staleness per source, with the reason of the last failed fetch | state |
+| a reviewed source's mark, and the revision [held for review](keep-fresh.md#hold-changes-for-review) with its changed-line count | state |
 | live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |
 | the tier each harness achieves, and the rule file token estimate | the harness configs and rule files on disk |
 
@@ -33,7 +34,7 @@ npx -y @vivswan/maxims doctor
 | line starts with | meaning |
 | --- | --- |
 | `ok` | this harness loads what state asks for |
-| `!` | a warning: a harness id state names that no definition answers to, or "never synced" |
+| `!` | a warning: an undefined harness id, a [held revision](keep-fresh.md#hold-changes-for-review), or "never synced" |
 | `x` | one harness that will not load a rule you believe is installed |
 
 The report ends with a `Defaults:` line naming the `rule` and `addHook` defaults from `config.json`, and with the age of the last sync. Exit 0 when every harness in state passes, exit 1 when any line is `x`.

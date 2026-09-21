@@ -5,7 +5,7 @@ group: Guides
 
 # Keep rules fresh
 
-How installed rules stay current: the session hook, the cooldown that decides when `sync` fetches, `update` for a refresh now, how a source is fetched, and what an agent sees when a source goes stale. The cap sits here too, because it shares `config.json` with the cooldown. Where the store lives is on the [files page](files.md#the-canonical-home); what a failed fetch keeps is on the [guarantees page](guarantees.md#failure-paths).
+How installed rules stay current: the session hook, the cooldown that decides when `sync` fetches, `update` for a refresh now, how a source is fetched, a hold for review, and what an agent sees when a source goes stale. The cap sits here too; it shares `config.json` with the cooldown. Where the store lives is on the [files page](files.md#the-canonical-home); what a failed fetch keeps is on the [guarantees page](guarantees.md#failure-paths).
 
 ## The session hook
 
@@ -15,14 +15,14 @@ The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run 
 npx -y @vivswan/maxims sync
 ```
 
-In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
+In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 
 ```text
 maxims: @Vivswan/skills has not refreshed since 2026-08-26 (network unreachable); rules may be out of date
 maxims: rules refreshed (1 file updated)
 ```
 
-`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](#the-cap-and-the-cooldown) sets the window; the [failure paths](guarantees.md#failure-paths) own what each failure does.
+`sync` touches the network only for a source past its fetch cooldown, and a failed fetch keeps the last good copy. The [cooldown flag](#the-cap-and-the-cooldown) sets the window; the [failure paths](guarantees.md#failure-paths) own what each failure does. A source added with `--review` keeps its rules until you run `accept`; the [review section](#hold-changes-for-review) owns that.
 
 ## One hook refreshes every harness
 
@@ -93,6 +93,28 @@ The cap is a count, and it is a hard gate: over it, the whole source is refused 
 A flag on the command line wins over `config.json` for that invocation and leaves the file alone. The two exceptions are `--cooldown` and `--cap` on `add`, `sync`, and `update`, which persist as well as apply, because a cap or cooldown typed once is meant for every later sync. On `lint`, `--cap` is a threshold for that run and persists nothing.
 
 The [defaults section](files.md#user-defaults-in-configjson) owns the other keys of the file.
+
+## Hold changes for review
+
+A source added with `--review`, or marked later with `maxims review <source>`, keeps its installed rules when upstream changes. The refresh is fetched and parked; nothing a harness reads moves until you accept it. A source pinned to a commit never changes, so this is for people who want fresh and reviewed.
+
+```text
+maxims: @acme/rules has 2 changed lines held for review; run maxims accept @acme/rules
+```
+
+| step | what happens |
+| --- | --- |
+| `sync` or `update` sees upstream move | the revision lands under `pending/`; the installed copy stays |
+| what changed | one line per memory in `log/refresh.log`; `list` and `doctor` count them |
+| every later run | the line above repeats until you act, from a hook too |
+| `maxims accept <source>` | applies the held revision, then syncs; `--all` takes every held source |
+| upstream moves again | the newer revision replaces the held one |
+| upstream returns to the installed revision | the hold is withdrawn |
+| `maxims unreview <source>` | lifts the mark and applies whatever is held |
+
+The held files sit under `pending/` in the [canonical home](files.md#the-canonical-home), laid out like the store. Each logged line is `+ name`, `- name` or `~ name (old -> new)`, the same diff `update` prints for an applied refresh.
+
+The first fetch of a source is never held: `add` installs what it fetched, and the mark applies from the next refresh on. A live directory is read in place and cannot be reviewed. The mark is this machine's choice and is not written into the [project lock](share.md#the-project-manifest).
 
 ## The staleness notice and the self-refresh line
 

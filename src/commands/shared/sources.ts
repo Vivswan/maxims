@@ -319,26 +319,18 @@ export function tildify(path: string, userHome: string): string {
 export type IntentFields = Omit<SourceIntent, "from">;
 
 // An intent edit on any variant of a source entry: the fields are edited apart from `from`, then
-// rejoined to the entry's own `from`, so the live variant keeps carrying no fetch record and a
-// fetched one keeps its own.
+// rejoined to the entry's own `from`; everything else the entry carries (its fetch record, a
+// revision held for review) rides along untouched. The variant is narrowed first so the checker
+// never pairs a live `from` with a fetch record.
 export function withIntent(
   entry: SourceEntry,
   edit: (fields: IntentFields) => IntentFields,
 ): SourceEntry {
   const { from: _from, ...fields } = entry.intent;
   const edited = edit(fields);
-  if (isLiveEntry(entry))
-    return { intent: { ...edited, from: entry.intent.from }, addedAt: entry.addedAt };
-  if (isCopiedEntry(entry)) {
-    const intent = { ...edited, from: entry.intent.from };
-    return entry.fetched === undefined
-      ? { intent, addedAt: entry.addedAt }
-      : { intent, fetched: entry.fetched, addedAt: entry.addedAt };
-  }
-  const intent = { ...edited, from: entry.intent.from };
-  return entry.fetched === undefined
-    ? { intent, addedAt: entry.addedAt }
-    : { intent, fetched: entry.fetched, addedAt: entry.addedAt };
+  if (isLiveEntry(entry)) return { ...entry, intent: { ...edited, from: entry.intent.from } };
+  if (isCopiedEntry(entry)) return { ...entry, intent: { ...edited, from: entry.intent.from } };
+  return { ...entry, intent: { ...edited, from: entry.intent.from } };
 }
 
 // Sharing is set or cleared on a project-scope entry; the field is absent, never false, so a

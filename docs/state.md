@@ -93,10 +93,12 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`intent.destination`** is `global`; `project` with `root`, the realpath of the project, so `sync` and `list` find a project's sources from state alone and a moved folder shows as a root that no longer exists; or `out` with a `path`. A project entry without `root` is corrupt, and `-g` with `-o` has no representation.
 - **`intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths`** record `--copy`, `--from`, `--full-depth`, `--paths` per source.
 - **`intent.harnesses`** is which harnesses this source writes to.
+- **`intent.review`** is `true` or absent, never `false`: set by `add --review` or `review`, so refreshes wait for `accept` instead of applying. The [review hold](keep-fresh.md#hold-changes-for-review) owns the verbs.
 - **`intent.shared`** is `true` or absent: `true` marks a project source as projected into `.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or `out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns the verbs.
 - **`fetched.at` and `fetched.sha`** drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record.
 - **`fetched.memories`** holds a content hash and a description hash per memory, so a body-only edit skips the rule rewrite.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.
+- **`pending`** is the revision held for review: its `sha`, `at`, and `summary`, the diff against `fetched.memories`. It is absent while nothing waits, and a live source never has one, since its directory is read in place.
 - **`addedAt`** is provenance; there is no `updatedAt`.
 - **`disabled`** holds the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a copy of its own root's list.
 

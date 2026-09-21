@@ -24,6 +24,9 @@ The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Comman
 | `unlink <source> -a <harness>` | | drop a harness from a source's recorded list, then sync | no | below |
 | `disable <memory>` | | keep a memory in state but withhold its rule line and link here, then sync | no | below |
 | `enable <memory>` | | undo `disable`, then sync | no | below |
+| `review <source>` | | hold this source's upstream changes until `accept` | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
+| `unreview <source>` | | let upstream changes apply at once again, accepting any held | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
+| `accept <source>`, `accept --all` | | apply the held revision of one source, or of every held source, then sync | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
 | `doctor` | | report, per harness, whether the rule file and hook are where it loads them | no | [check](check.md#doctor-what-each-harness-loads) |
 | `lint [path]` | | check a folder of memory files against the contract before publishing | no | [memories](write-memories.md#lint-a-folder-before-publishing) |
 | `config set\|get\|unset <key> [value]` | | read or write a user default | no | [files](files.md#user-defaults-in-configjson) |
@@ -73,7 +76,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `-a, --agent <ids>` | add, remove, sync, update, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix); each verb reads it differently, see below |
 | `-l, --list` | add | off | preview the source, write nothing; [what gets installed](install.md#what-gets-installed) |
 | `-y, --yes` | add, remove | auto | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior) |
-| `--all` | add, remove | off | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed) |
+| `--all` | add, remove, accept | off | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed) |
 | `--rule` | add | off | publish one-liners into the rule file; [two separate choices](install.md#two-separate-choices) |
 | `--add-hook` | add | off | register the harness's sync hook; [two separate choices](install.md#two-separate-choices) |
 | `--share` | add | off | record the source in the [project lock](share.md#the-project-manifest) as well as in state |
@@ -85,6 +88,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--paths <glob>` | add | off | scope the rules to matching files, repeatable; [path scoping](install.md#path-scoping) |
 | `--rename <upstream>=<local>` | add | off | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames) |
 | `--allow-hidden` | add | off | accept descriptions carrying [hidden characters](write-memories.md#hidden-characters-are-refused) |
+| `--review` | add | off | hold upstream changes until `accept`; [hold changes for review](keep-fresh.md#hold-changes-for-review) |
 | `--strict` | add, install, update | off | refuse a source whose descriptions carry a [risky shape](security.md#risky-shapes-in-descriptions), exit 3 |
 | `--auth` | add | off | fetch with your `gh` login; [fetching](keep-fresh.md#how-a-source-is-fetched) |
 | `--no-fetch` | sync | off | never touch the network; [fetching](keep-fresh.md#how-a-source-is-fetched) |
@@ -96,6 +100,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 - **`-a` on `update`** still refreshes every source, and a refreshed source is written for every harness that reads it; the filter narrows only the untouched sources.
 - **`-a` on `remove`** drops those harnesses from a whole source and is refused on a memory.
 - **`--strict` on `update`** plans the refresh first and applies it only when no warning exists.
+- **`--all` on `accept`** takes every held source.
 
 On `lint`, `--cap` is a threshold for this run only and persists nothing; the [lint section](write-memories.md#lint-a-folder-before-publishing) owns it.
 

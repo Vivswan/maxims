@@ -167,11 +167,7 @@ export async function refreshSource(
       };
     }
     const names = memories.map((memory) => memory.memory.name);
-    const rename = pruneRenames(entry.intent.rename, names);
-    const next = fetchedFactsFor(withRename(entry, rename), memories, result.memoryPath, {
-      sha: result.sha,
-      at: now,
-    });
+    const next = fetchedFactsFor(entry, memories, result.memoryPath, { sha: result.sha, at: now });
     if (next === null) return failed(entry, unusable, "failed");
     const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
     const newUpstream =
@@ -245,11 +241,12 @@ export function memoryFacts(memories: readonly SourceMemory[]): Fetched["memorie
   );
 }
 
-// The entry an applied revision leaves: the intent as given, fresh fetch facts, and no `pending`,
-// since whatever was held is either this revision or superseded by it. The sha a resolver
-// reports is parsed into the variant's own type here, once: a remote names a commit, a copied
-// directory the hash of its tree. A remote whose id does not parse (a sha256 repository, a proxy
-// answering with something else) is a fetch that failed, not a crash.
+// The entry an applied revision leaves: the intent with the renames upstream has outgrown pruned,
+// fresh fetch facts, and no `pending`, since whatever was held is either this revision or
+// superseded by it. The sha a resolver reports is parsed into the variant's own type here, once:
+// a remote names a commit, a copied directory the hash of its tree. A remote whose id does not
+// parse (a sha256 repository, a proxy answering with something else) is a fetch that failed, not
+// a crash.
 export function fetchedFactsFor(
   entry: FetchedEntry,
   memories: readonly SourceMemory[],
@@ -257,13 +254,15 @@ export function fetchedFactsFor(
   revision: { sha: string; at: string },
 ): FetchedEntry | null {
   const facts = { at: revision.at, memoryPath, memories: memoryFacts(memories), lastError: null };
-  const { addedAt } = entry;
-  if (isRemoteEntry(entry)) {
+  const names = memories.map((memory) => memory.memory.name);
+  const renamed = withRename(entry, pruneRenames(entry.intent.rename, names));
+  const { addedAt } = renamed;
+  if (isRemoteEntry(renamed)) {
     const sha = parseGitSha(revision.sha);
-    return sha === null ? null : { intent: entry.intent, addedAt, fetched: { ...facts, sha } };
+    return sha === null ? null : { intent: renamed.intent, addedAt, fetched: { ...facts, sha } };
   }
   const sha = parseContentHash(revision.sha);
-  return sha === null ? null : { intent: entry.intent, addedAt, fetched: { ...facts, sha } };
+  return sha === null ? null : { intent: renamed.intent, addedAt, fetched: { ...facts, sha } };
 }
 
 // A hold keeps the last-good record, restarts the cooldown as a confirmed-unchanged remote does,

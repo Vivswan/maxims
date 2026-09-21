@@ -104,6 +104,24 @@ const VERBS: readonly VerbEntry[] = [
     load: () => import("./disable.ts").then((m) => m.enable),
   },
   {
+    name: "review",
+    aliases: [],
+    hidden: false,
+    load: () => import("./review.ts").then((m) => m.review),
+  },
+  {
+    name: "unreview",
+    aliases: [],
+    hidden: false,
+    load: () => import("./review.ts").then((m) => m.unreview),
+  },
+  {
+    name: "accept",
+    aliases: [],
+    hidden: false,
+    load: () => import("./review.ts").then((m) => m.accept),
+  },
+  {
     name: "doctor",
     aliases: [],
     hidden: false,

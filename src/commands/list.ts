@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { heldToken } from "../console/strings.ts";
 import type { Scope } from "../harnesses/contract.ts";
 import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
@@ -193,6 +194,8 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
             }
           : null,
       shared: entry.intent.shared === true,
+      review: entry.intent.review === true,
+      held: isFetchedEntry(entry) ? (entry.pending ?? null) : null,
       live: !isFetchedEntry(entry),
       outDir: entry.intent.destination.scope === "out" ? entry.intent.destination.path : null,
       sha: fetched?.sha ?? (source.tree.kind === "tree" ? source.tree.tree.sha : null),
@@ -356,9 +359,18 @@ export function renderList(report: ListReport): string {
 
 function sourceLine(source: ListedSource): string {
   const sha = source.sha === null ? "-" : shortSha(source.sha);
-  const shared = source.shared ? "  shared" : "";
+  const marks = [
+    source.shared ? "shared" : null,
+    source.held !== null
+      ? heldToken(source.key, source.held.summary.length)
+      : source.review
+        ? "review"
+        : null,
+  ]
+    .flatMap((mark) => (mark === null ? [] : [`  ${mark}`]))
+    .join("");
   if (source.fetchedAt === null) {
-    return `${source.key}  ${sha}  ${source.live ? "live" : "not fetched yet"}${shared}`;
+    return `${source.key}  ${sha}  ${source.live ? "live" : "not fetched yet"}${marks}`;
   }
   const date = source.fetchedAt.slice(0, "2026-01-01".length);
   const verdict =
@@ -367,7 +379,7 @@ function sourceLine(source: ListedSource): string {
         ? "ok"
         : `ok (last fetch failed: ${source.lastError.kind})`
       : `stale ${source.stale.days}d: ${source.stale.kind}`;
-  return `${source.key}  ${sha}  fetched ${date}  ${verdict}${shared}`;
+  return `${source.key}  ${sha}  fetched ${date}  ${verdict}${marks}`;
 }
 
 function memoryLine(memory: ListedMemory, scope: string): string {

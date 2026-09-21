@@ -99,6 +99,7 @@ export const FLAGS = {
     kind: "boolean",
     summary: "accept descriptions carrying hidden characters",
   },
+  review: { name: "review", kind: "boolean", summary: "hold upstream changes until maxims accept" },
   cooldown: {
     name: "cooldown",
     kind: "value",
