@@ -379,7 +379,7 @@ type FetchedTree = FetchedFiles | { kind: "store-empty" };
 export type PreparedAdd = {
   request: AddRequest;
   tree: FetchedFiles;
-  memories: Memory[];
+  recorded: Memory[];
   chosen: Memory[];
   staged: State;
   rename: RenameMap;
@@ -396,10 +396,13 @@ export type PrepareOutcome =
 
 // A source after steps 1 and 2: fetched, scanned and filtered, nothing validated yet. `install`
 // stages every manifest entry before planning any, so the entries validate against each other.
+// `memories` are the ones the user can see; `recorded` every valid one, hidden internal memories
+// included, because the fetch record is a fact about the source and a refresh writes it that way.
 export type StagedAdd = {
   request: AddRequest;
   tree: FetchedFiles;
   memories: Memory[];
+  recorded: Memory[];
   chosen: Memory[];
   state: State;
   // The local names the commit switches off at the project beside the ones state already holds:
@@ -439,6 +442,7 @@ export async function stageAdd(
       request,
       tree,
       memories: scan.memories,
+      recorded: scan.recorded,
       chosen,
       state: intent.state,
       disabledByManifest: [],
@@ -510,7 +514,7 @@ export async function planAdd(
     prepared: {
       request,
       tree,
-      memories: staged.memories,
+      recorded: staged.recorded,
       chosen,
       staged: staged.state,
       rename,
@@ -612,7 +616,7 @@ export async function commitAdd(
           item.rename,
           harnesses.ids,
           item.tree,
-          item.memories,
+          item.recorded,
           now,
           state,
         );
@@ -788,11 +792,12 @@ async function fetchTree(request: AddRequest, io: CliIo, console: Console): Prom
   }
 }
 
-type Scan = { memories: Memory[]; internalHidden: number };
+type Scan = { memories: Memory[]; recorded: Memory[]; internalHidden: number };
 
 // Every `.md` under the memory folder is parsed; a file that fails the contract is skipped with
 // one warning naming the reason, never fatal. A memory marked internal is hidden unless it was
-// named on the command line or MAXIMS_INSTALL_INTERNAL=1 asks for the internal set.
+// named on the command line or MAXIMS_INSTALL_INTERNAL=1 asks for the internal set; it still
+// enters the fetch record, which lists what the source ships.
 function scanMemories(
   request: AddRequest,
   files: readonly TreeFile[],
@@ -802,6 +807,7 @@ function scanMemories(
   const named = new Set<string>(request.select === "*" ? [] : request.select);
   const installInternal = env.MAXIMS_INSTALL_INTERNAL === "1";
   const memories: Memory[] = [];
+  const recorded: Memory[] = [];
   let internalHidden = 0;
   for (const file of files) {
     if (!file.relPath.endsWith(".md")) continue;
@@ -811,6 +817,7 @@ function scanMemories(
       continue;
     }
     if (parsed.warning !== undefined) console.warn(`${parsed.memory.name}: ${parsed.warning}`);
+    recorded.push(parsed.memory);
     if (
       parsed.memory.metadata.internal === true &&
       !installInternal &&
@@ -821,8 +828,8 @@ function scanMemories(
     }
     memories.push(parsed.memory);
   }
-  memories.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return { memories, internalHidden };
+  const byName = (a: Memory, b: Memory) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  return { memories: memories.sort(byName), recorded: recorded.sort(byName), internalHidden };
 }
 
 function filterSelection(select: Select, memories: readonly Memory[]): Memory[] {

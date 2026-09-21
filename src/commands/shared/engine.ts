@@ -37,7 +37,7 @@ import { parseRuleBlocks } from "./blocks.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
-import { diffLines, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { hookedAt, planHooks } from "./hooks.ts";
 import {
@@ -170,6 +170,7 @@ export async function planSync(
       notices.absorb(base);
       for (const key of refreshed.fetchedKeys) {
         for (const line of refreshed.lines.get(key) ?? []) notices.notice(line);
+        for (const line of refreshed.changeLines.get(key) ?? []) notices.notice(line);
       }
       // A reason is said once, whether the final attempt found it again on its own or a source
       // earned it twice (refused fresh, then again from last-good), and on the channel it was
@@ -520,7 +521,7 @@ async function planInstall(
         sha: work.sha,
         lines: request.lines,
         stale: work.stale,
-        changeLines: refreshed.changeLines.get(key) ?? [],
+        refreshed: refreshed.fetchedKeys.includes(key),
         paths: intent.paths,
       });
     }
@@ -837,8 +838,8 @@ async function noticeLockOnlySources(
 // cap is refused whole, and `refuse` puts the source's previous entry back so the store and the
 // state keep last-good. `pendingChanges` lay a reviewed source's held revision under the pending
 // root; they answer to no admission, since the store copy the run installs from is unchanged, and
-// what the revision changes stays out of `changeLines`, which a block renders only for an applied
-// refresh.
+// what the revision changes stays out of `changeLines`, the lines an applied refresh is reported
+// with, once per source.
 type Refreshed = {
   sources: State["sources"];
   freshTrees: Map<string, SourceTree>;
@@ -888,8 +889,7 @@ async function refreshAll(
         freshTrees.set(key, result.tree);
         storeChanges.set(key, result.storeChanges);
         const earned = [`maxims: ${key} refreshed (${shortSha(result.tree.sha)})`];
-        const after = result.entry.fetched?.memories ?? {};
-        changeLines.set(key, diffLines(entry.fetched?.memories ?? {}, after));
+        changeLines.set(key, result.changeLines);
         if (result.newUpstream.length > 0) {
           const names = result.newUpstream.join(", ");
           earned.push(`maxims: ${key} has new memories not in your selection: ${names}`);

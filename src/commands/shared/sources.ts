@@ -75,24 +75,26 @@ export function targetPath(
   return join(root, target.dir, target.fileName(sourceSlug));
 }
 
-// The memory names a recorded source currently offers: the fetch record for a fetched source, its
-// own directory for a live one, walked and read with the same contract and internal-memory rule
-// the fetch applies, so a name `add` would hide is not a name the index can collide on.
+// The memory names a recorded source currently offers: its store copy, or its own directory for
+// a live source, walked and read with the same contract and internal-memory rule the sync
+// applies, so a name the sync would hide is not a name the index can collide on. The fetch record
+// lists every memory the source ships, hidden ones included, so it stands in only when the copy
+// is not there to read.
 export async function upstreamNames(
   entry: SourceEntry,
   io: Pick<CliIo, "home" | "env">,
 ): Promise<MemoryName[]> {
-  if ("fetched" in entry && entry.fetched !== undefined) {
+  const { from } = entry.intent;
+  const root =
+    from.type === "local" && from.live === true ? from.path : storePathFor(io.home, from);
+  const tree = await storeTree(root, entry.intent);
+  if (tree === null) {
+    if (!("fetched" in entry) || entry.fetched === undefined) return [];
     return Object.keys(entry.fetched.memories).flatMap((name) => {
       const parsed = parseMemoryName(name);
       return parsed === null ? [] : [parsed];
     });
   }
-  const { from } = entry.intent;
-  const root =
-    from.type === "local" && from.live === true ? from.path : storePathFor(io.home, from);
-  const tree = await storeTree(root, entry.intent);
-  if (tree === null) return [];
   const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
   const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
   return validateMemoryFiles(tree.files).memories.flatMap(({ memory }) => {

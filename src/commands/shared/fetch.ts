@@ -1,7 +1,12 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { contentHashOf, type MemoryName, parseContentHash } from "../../memory/contract.ts";
+import {
+  contentHashOf,
+  type MemoryName,
+  parseContentHash,
+  parseMemoryName,
+} from "../../memory/contract.ts";
 import { pruneRenames, shortHash } from "../../rulefile/dedupe.ts";
 import { needsFetch } from "../../sources/github/index.ts";
 import { FetchFailure } from "../../sources/github/ladder.ts";
@@ -11,6 +16,7 @@ import {
   type LastError,
   parseGitSha,
   type RenameMap,
+  type Select,
   type SourceEntry,
 } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
@@ -20,7 +26,7 @@ import { pendingPathFor, storePathFor } from "../../util/home.ts";
 import type { EngineIo, FetchIntent } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
-import { validateMemoryFiles } from "./memories.ts";
+import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { inSelect } from "./select.ts";
 
@@ -52,6 +58,7 @@ export type RefreshResult =
       tree: SourceTree;
       storeChanges: Change[];
       newUpstream: MemoryName[];
+      changeLines: string[];
     }
   | { outcome: "held"; entry: FetchedEntry; summary: string[]; storeChanges: Change[] }
   | { outcome: "failed" | "no-valid"; entry: FetchedEntry; error: LastError };
@@ -155,8 +162,14 @@ export async function refreshSource(
       at: now,
     };
     const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
+    const visible = (memory: SourceMemory): boolean =>
+      isVisible(memory, entry.intent.select, ctx.env.MAXIMS_INSTALL_INTERNAL === "1");
+    const changeLines = diffLines(
+      await visibleFacts(entry.fetched, entryPath, entry.intent, visible),
+      memoryFacts(memories.filter(visible)),
+    );
     if (entry.intent.review === true && lastGood !== undefined) {
-      const summary = diffLines(lastGood.memories, memoryFacts(memories));
+      const summary = changeLines;
       const held = heldEntry(entry, result.sha, now, summary);
       if (held === null) return failed(entry, unusable, "failed");
       return {
@@ -180,6 +193,7 @@ export async function refreshSource(
       tree: { sha: result.sha, memories, invalid },
       storeChanges: swapStoreEntry(entryPath, files),
       newUpstream,
+      changeLines,
     };
   } catch (error) {
     const classified = classifyFetchError(error, now);
@@ -226,6 +240,45 @@ export function withoutPending(entry: FetchedEntry): FetchedEntry {
   }
   const { pending: _withdrawn, ...rest } = entry;
   return rest;
+}
+
+// The rule `selectMemories` installs by, asked of one memory: in the selection, and not an
+// internal memory hidden behind a `*` selection without MAXIMS_INSTALL_INTERNAL=1.
+function isVisible(memory: SourceMemory, select: Select, installInternal: boolean): boolean {
+  const { name, metadata } = memory.memory;
+  return (
+    inSelect(select, name) && (metadata.internal !== true || select !== "*" || installInternal)
+  );
+}
+
+// The recorded facts narrowed to the memories the user could see, so a refresh's change lines
+// never name a hidden or unselected memory. The selection is judged from the record's names; which
+// of them were hidden internal memories is read from the store copy the record describes, and with
+// no copy to read, every selected name counts as seen.
+async function visibleFacts(
+  recorded: Fetched | undefined,
+  storeEntry: string,
+  intent: FetchedEntry["intent"],
+  visible: (memory: SourceMemory) => boolean,
+): Promise<Fetched["memories"]> {
+  if (recorded === undefined) return {};
+  let previous: SourceTree | null;
+  try {
+    previous = await readSourceMemories(storeEntry, intent, () => undefined);
+  } catch {
+    previous = null;
+  }
+  const hidden = new Set<string>(
+    (previous?.memories ?? [])
+      .filter((memory) => !visible(memory))
+      .map((memory) => memory.memory.name),
+  );
+  return Object.fromEntries(
+    Object.entries(recorded.memories).filter(([name]) => {
+      const parsed = parseMemoryName(name);
+      return parsed !== null && inSelect(intent.select, parsed) && !hidden.has(name);
+    }),
+  );
 }
 
 // What a fetch records per memory: the hashes a later diff and the copy sweep compare by.

@@ -26,12 +26,14 @@ import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/
 import { renderBlock } from "../../src/rulefile/block.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
+import { fakeResolvers, writeSource } from "../engine/harness.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
   lastSyncCall,
   readState,
+  realEngineBundle,
   runCli,
   type Scenario,
   snapshot,
@@ -54,6 +56,63 @@ async function installSkills(scenario: Scenario, extra: string[] = []): Promise<
   const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", ...extra]);
   expect(run.code).toBe(0);
 }
+
+// The refresh summary is about what the user installs: an internal memory is hidden from the rule
+// file and an unselected one never reaches it, so their coming, going or changing is no change to
+// report or to count, and one change line is said once for the source, not once per harness file
+// it lands in.
+// The third row refreshes with the store copy gone: the selection is then judged from the recorded
+// names alone, so an unselected memory earns no removal line either.
+const selections: [string, string[], boolean][] = [
+  ["a whole-source selection", [], false],
+  ["an explicit selection", ["-m", "alpha-rule"], false],
+  ["an explicit selection with the store copy gone", ["-m", "alpha-rule"], true],
+];
+
+test.each(selections)(
+  "update reports each visible change once under %s",
+  async (_title, select, dropStore) => {
+    const fake = fakeResolvers();
+    const from = { type: "github", repo: "a/b", ref: "HEAD" } as const;
+    await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+      const v1 = writeSource(join(scenario.root, "v1"), {
+        "alpha-rule": { description: "Alpha, first cut." },
+        "beta-rule": { description: "Beta, unchanged throughout." },
+        "delta-internal": { description: "Kept out of the rule file.", internal: true },
+      });
+      const v2 = writeSource(join(scenario.root, "v2"), {
+        "alpha-rule": { description: "Alpha, second cut." },
+        "beta-rule": { description: "Beta, unchanged throughout." },
+        "delta-internal": { description: "Kept out of the rule file, edited.", internal: true },
+        "epsilon-internal": { description: "New and hidden too.", internal: true },
+      });
+      fake.set(from, { kind: "dir", dir: v1 });
+      const added = await runCli(scenario, [
+        "add",
+        "@a/b",
+        "-g",
+        "--rule",
+        "-a",
+        "claude-code,codex",
+        ...select,
+      ]);
+      expect([added.code, added.stderr]).toEqual([0, ""]);
+      if (dropStore) rmSync(storePathFor(scenario.home, from), { recursive: true });
+      fake.set(from, { kind: "dir", dir: v2 });
+      const updated = await runCli(scenario, ["update"]);
+      expect([updated.code, updated.stderr]).toEqual([0, ""]);
+      const glyph = "!  ";
+      const changeLines = updated.stdout
+        .split("\n")
+        .filter((line) => line.startsWith(glyph) && /^[+~-] /.test(line.slice(glyph.length)));
+      expect(changeLines).toEqual([
+        expect.stringMatching(/^! {2}~ alpha-rule \([0-9a-f]{7} -> [0-9a-f]{7}\)$/),
+      ]);
+      expect(updated.stdout).toContain("o  Updated @a/b (+0 -0 rule)\n");
+      expect(updated.stdout).not.toContain("internal (");
+    });
+  },
+);
 
 // A managed block as the engine renders one, so `doctor` reads the fixture files with the real
 // parser, which takes each rule line's name from its detail path's last segment; the hash is

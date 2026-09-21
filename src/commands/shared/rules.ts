@@ -26,10 +26,9 @@ export type BlockRequest = {
   sha: string;
   lines: RuleLine[];
   stale: Staleness | undefined;
-  // Diff lines for a block whose rule set changed because upstream changed this run; empty when
-  // the fetch facts are unchanged, in which case a differing block on disk is judged for a local
-  // edit.
-  changeLines: string[];
+  // Whether upstream changed this run: a differing block on disk is then the refresh's doing,
+  // said once per source by the planner; otherwise it is judged for a local edit.
+  refreshed: boolean;
   paths: string[] | undefined;
 };
 
@@ -210,21 +209,20 @@ function rulesDirContent(
   return change?.kind === "write" ? change.content : block;
 }
 
-// The block on disk is compared with the fresh rendering: a difference explained by this run's
-// fetch is reported as rule-line changes; one not explained by any fetch (same sha, same facts)
-// is judged for a hand edit inside the markers, which the regeneration discards.
+// The block on disk is compared with the fresh rendering: a difference not explained by a fetch
+// (same sha, same facts) is judged for a hand edit inside the markers, which the regeneration
+// discards.
 function blockChangeNotices(
   path: string,
   block: BlockRequest,
   rendered: string,
   current: string | null,
 ): string[] {
-  if (current === null) return block.changeLines;
+  if (current === null || block.refreshed) return [];
   const span = parseBlocks(current).blocks.find((candidate) => candidate.source === block.key);
-  if (span === undefined) return block.changeLines;
+  if (span === undefined) return [];
   const onDisk = current.slice(span.start, span.end);
   if (onDisk === rendered) return [];
-  if (block.changeLines.length > 0) return block.changeLines;
   if (span.sha !== block.sha) return [];
   if (!handEdited(onDisk, rendered, ownLineMatcher(block.key))) return [];
   return [`maxims: local edit in ${path} discarded (the block is regenerated from ${block.key})`];
