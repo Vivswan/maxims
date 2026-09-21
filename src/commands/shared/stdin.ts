@@ -186,15 +186,21 @@ export function readHookStdin(
       stream.pause?.();
       resolve(value);
     };
-    const onEnd = (): void => finish(text === "" ? null : text);
-    const onError = (): void => finish(text === "" ? STDIN_FAILED : text);
+    // The decoder holds an unfinished UTF-8 sequence back for the next chunk; once the pipe is done
+    // none comes, and a pipe that sent only a lead byte would otherwise read as an empty one.
+    const settle = (whenEmpty: string | null): void => {
+      const all = text + decoder.end();
+      finish(all === "" ? whenEmpty : all);
+    };
+    const onEnd = (): void => settle(null);
+    const onError = (): void => settle(STDIN_FAILED);
     const onData = (chunk: Buffer | string): void => {
       clearTimeout(firstTimer);
       text += typeof chunk === "string" ? chunk : decoder.write(chunk);
       if (parsesAsJson(text)) finish(text);
     };
     const firstTimer = setTimeout(() => finish(null), firstChunkMs);
-    const totalTimer = setTimeout(() => finish(text === "" ? null : text), HOOK_STDIN_TOTAL_MS);
+    const totalTimer = setTimeout(() => settle(null), HOOK_STDIN_TOTAL_MS);
     stream.on("data", onData);
     stream.on("end", onEnd);
     stream.on("close", onEnd);

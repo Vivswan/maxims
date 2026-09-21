@@ -222,10 +222,9 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// The decoder buffers an incomplete UTF-8 sequence and the reader never flushes it, so a pipe
-// that sent only a lead byte and closed reads as a human at a terminal (null) instead of as a
-// pipe that sent bytes.
-test.todo("readHookStdin returns null for a pipe that sent only the lead byte 0xc3 and closed: expected the decoded text", async () => {
+// A pipe that closed after a lone UTF-8 lead byte sent bytes: read as a terminal (null), the hook
+// would print plain text into a harness that sent it a payload.
+test("readHookStdin hands back the decoded text of a pipe that closed mid-character", async () => {
   const stream = new FakeStdin(false);
   const read = readHookStdin(stream, FIRST_CHUNK_MS);
   await play(stream, { chunks: [new Uint8Array([0xc3])], ending: "end", tty: false }, read);
