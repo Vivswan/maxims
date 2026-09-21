@@ -3,8 +3,7 @@
 // tarball fetched after git failed on the network would each pass silently and change what users
 // install.
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { simpleGit } from "simple-git";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
@@ -61,13 +60,6 @@ function ladder(runner: Runner, setup: LadderSetup = {}) {
     timeoutMs: setup.timeoutMs ?? 60_000,
     token: setup.token,
   });
-}
-
-// The private include file a credentialed call writes must be gone when the call returns.
-function includeDirs(): string[] {
-  return readdirSync(tmpdir())
-    .filter((name) => name.startsWith("maxims-git-"))
-    .sort();
 }
 
 async function failure(action: Promise<unknown>): Promise<FetchFailure> {
@@ -884,11 +876,22 @@ describe("git rung against a file:// fixture repo", () => {
         writeFileSync(gitconfig, `[credential]\n\thelper = ${helper}\n`);
         const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
         const url = `http://127.0.0.1:${server.port ?? 0}/rules.git`;
-        const before = includeDirs();
-        const outcome = await simpleGitRunner({ env }).lsRemote(url, ["HEAD"], { credentials });
-        expect(outcome.kind).toBe("failed");
+        // The call's private include file lands under os.tmpdir(), which every other process on
+        // the machine shares; pointing TMPDIR at an empty directory for the call is what makes
+        // "gone when the call returns" a census of this call alone.
+        const tmp = join(dir, "tmp");
+        mkdirSync(tmp);
+        const previousTmpdir = process.env.TMPDIR;
+        process.env.TMPDIR = tmp;
+        try {
+          const outcome = await simpleGitRunner({ env }).lsRemote(url, ["HEAD"], { credentials });
+          expect(outcome.kind).toBe("failed");
+        } finally {
+          if (previousTmpdir === undefined) delete process.env.TMPDIR;
+          else process.env.TMPDIR = previousTmpdir;
+        }
         expect(existsSync(marker)).toBe(consulted);
-        expect(includeDirs()).toEqual(before);
+        expect(readdirSync(tmp)).toEqual([]);
       });
     } finally {
       server.stop(true);
