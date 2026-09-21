@@ -48,7 +48,7 @@ describe("applyChanges", () => {
   test("dry run applies nothing", async () => {
     await withTempDir(async (dir) => {
       const result = await applyChanges(planFor(dir), { dryRun: true });
-      expect(result).toEqual({ applied: 0 });
+      expect(result).toEqual({ applied: [] });
       expect(readdirSync(dir)).toEqual([]);
     });
   });
@@ -59,13 +59,13 @@ describe("applyChanges", () => {
       symlinkSync(join(dir, "nowhere"), join(dir, "old-link.md"));
       const plan = planFor(dir);
 
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 5 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toEqual(plan.changes);
       expect(readFileSync(join(dir, "rules", "maxims-a.md"), "utf8")).toBe("- rule\n");
       expect(readlinkSync(join(dir, "memories", "a.md"))).toBe(join(dir, "store", "a.md"));
       expect(existsSync(join(dir, "old-rule.md"))).toBe(false);
       expect(lstatSync(join(dir, "old-link.md"), { throwIfNoEntry: false })).toBeUndefined();
 
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
     });
   });
 
@@ -77,9 +77,9 @@ describe("applyChanges", () => {
         changes: [{ kind: "write", path, content: "#!/bin/sh\n", mode: 0o755 }],
         notices: [],
       };
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 1 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(1);
       expect(statSync(path).mode & 0o777).toBe(0o755);
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
     });
   });
 
@@ -93,11 +93,11 @@ describe("applyChanges", () => {
         changes: [{ kind: "write", path: rule, content: "- rule\n" }],
         notices: [],
       };
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 1 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(1);
       expect(lstatSync(rule).isSymbolicLink()).toBe(false);
       expect(readFileSync(rule, "utf8")).toBe("- rule\n");
       expect(readFileSync(store, "utf8")).toBe("- rule\n");
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
     });
   });
 
@@ -109,7 +109,7 @@ describe("applyChanges", () => {
         changes: [{ kind: "symlink", path: link, target: join(dir, "new") }],
         notices: [],
       };
-      expect(await applyChanges(repoint, { dryRun: false })).toEqual({ applied: 1 });
+      expect((await applyChanges(repoint, { dryRun: false })).applied).toHaveLength(1);
       expect(readlinkSync(link)).toBe(join(dir, "new"));
 
       const real = assertInsideRoot(dir, join(dir, "real.md"));
@@ -134,7 +134,7 @@ describe("applyChanges", () => {
         changes: [{ kind: "mkdir", path: assertInsideRoot(dir, join(dir, "alias")) }],
         notices: [],
       };
-      expect(await applyChanges(plan, { dryRun: false })).toEqual({ applied: 0 });
+      expect((await applyChanges(plan, { dryRun: false })).applied).toHaveLength(0);
     });
   });
 
@@ -145,19 +145,17 @@ describe("applyChanges", () => {
       writeFileSync(join(tree, "sub", "f"), "");
       const link = assertInsideRoot(dir, join(dir, "link"));
       symlinkSync(tree, link);
-      expect(
-        await applyChanges(
-          { changes: [{ kind: "delete", path: link }], notices: [] },
-          { dryRun: false },
-        ),
-      ).toEqual({ applied: 1 });
+      const unlinked = await applyChanges(
+        { changes: [{ kind: "delete", path: link }], notices: [] },
+        { dryRun: false },
+      );
+      expect(unlinked.applied).toHaveLength(1);
       expect(existsSync(join(tree, "sub", "f"))).toBe(true);
-      expect(
-        await applyChanges(
-          { changes: [{ kind: "delete", path: tree }], notices: [] },
-          { dryRun: false },
-        ),
-      ).toEqual({ applied: 1 });
+      const removed = await applyChanges(
+        { changes: [{ kind: "delete", path: tree }], notices: [] },
+        { dryRun: false },
+      );
+      expect(removed.applied).toHaveLength(1);
       expect(existsSync(tree)).toBe(false);
     });
   });

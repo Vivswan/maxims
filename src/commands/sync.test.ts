@@ -19,8 +19,11 @@ import {
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
+  configEditHarness,
   daysAgo,
   entryFor,
+  FIXTURE_CONFIG_CONTENT,
+  FIXTURE_DIR,
   fakeIo,
   fakeResolvers,
   fetchedEntry,
@@ -41,6 +44,7 @@ import {
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
 import { type HarnessDefinition, type HarnessId, HOOK_COMMAND } from "../harnesses/contract.ts";
+import { HARNESSES } from "../harnesses/registry.ts";
 import { parseBlocks } from "../rulefile/block.ts";
 import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
 import { readMemoryTree } from "../sources/tree.ts";
@@ -87,6 +91,50 @@ describe("idempotency and convergence", () => {
       expect(second.plan.changes).toEqual([]);
       expect(treeDigest(userHome)).toBe(before);
       expect(statSync(homePaths(home).state).mtimeMs).toBe(stateMtime);
+    });
+  });
+
+  test("a change planned every run but landing nothing is not reported: the run says up to date, a hook run says nothing", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [configEditHarness] });
+      await runSync(SYNC, io);
+      const config = join(userHome, FIXTURE_DIR, "config.json");
+      expect(readFileSync(config, "utf8")).toBe(FIXTURE_CONFIG_CONTENT);
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 1000);
+      const second = await runSync(SYNC, io);
+      expect(second.plan.changes.map((change) => String(change.path))).toEqual([config]);
+      expect(second.changed).toEqual([]);
+      expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 120_000);
+      const hook = await runSync(QUIET, io);
+      expect(hook.changed).toEqual([]);
+      expect(io.out.join("")).toBe("");
+      const logged = readFileSync(homePaths(home).log, "utf8")
+        .split("\n")
+        .filter((line) => line.endsWith(`write ${config}`));
+      expect(logged).toHaveLength(1);
+    });
+  });
+
+  test("with the shipped registry a second sync says up to date and a hook run prints nothing", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: HARNESSES });
+      await runSync(SYNC, io);
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 1000);
+      const second = await runSync(SYNC, io);
+      expect(second.changed).toEqual([]);
+      expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 120_000);
+      await runSync(QUIET, io);
+      expect(io.out.join("")).toBe("");
     });
   });
 
@@ -2097,7 +2145,7 @@ describe("plan surfaces", () => {
     });
   });
 
-  test("a forced refresh that fails keeps last-good and reports the source as failed", async () => {
+  test("a forced refresh that fails keeps last-good, reports the source as failed and never says up to date", async () => {
     await world(async ({ home, dir, userHome }) => {
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
       const from = githubFrom("acme/rules");
@@ -2114,6 +2162,12 @@ describe("plan surfaces", () => {
       const text = readFileSync(globalRulesFile(userHome, "acme-rules"), "utf8");
       expect(text).toContain("Never merge red.");
       expect(fetchedOf(home, "@acme/rules")?.lastError?.kind).toBe("network");
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 1000);
+      const again = await runSync({ ...SYNC, fetch: "force" }, io);
+      expect(again.failed.map((failure) => failure.key)).toEqual(["@acme/rules"]);
+      expect(again.changed.filter((path) => !path.startsWith(home))).toEqual([]);
+      expect(io.out.join("")).toBe("");
     });
   });
 });

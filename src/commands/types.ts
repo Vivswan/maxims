@@ -51,7 +51,9 @@ export type SyncOptions = CommonOptions & {
 // carries the failure's class so a caller tells an unreachable source from one with nothing valid
 // to install, from the report rather than from state, which a dry run leaves unchanged.
 // `upstreamChanges` holds, per refreshed key, the memories a refresh added (`+ name`), removed
-// (`- name`) or changed (`~ name (old -> new)`).
+// (`- name`) or changed (`~ name (old -> new)`). `changed` lists the paths this run wrote, deleted
+// or relinked, never one a planned change found already in its final state; under `--dry-run` it
+// lists every path the plan names.
 export type SyncReport = {
   sources: number;
   memories: number;

@@ -241,7 +241,7 @@ async function writeStateFile(paths: StatePaths, state: State): Promise<WriteRes
     notices: [],
   };
   const { applied } = await applyChanges(plan, { dryRun: false });
-  return { written: applied === 1 };
+  return { written: applied.length === 1 };
 }
 
 function statePaths(home: string): StatePaths {

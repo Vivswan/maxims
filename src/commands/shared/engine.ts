@@ -77,10 +77,11 @@ export type SyncExtras = {
   removedCopies: ReadonlySet<ContentHash>;
 };
 
+// `changed` is known only once the plan has been applied, so the outcome's report lacks it.
 export type SyncOutcome = {
   plan: Plan;
   deferred: Change[];
-  report: SyncReport;
+  report: Omit<SyncReport, "changed">;
   nextState: State;
   failures: SyncFailure[];
   notices: Notices;
@@ -195,7 +196,6 @@ export async function planSync(
             refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
           ),
           failed,
-          changed: [...new Set(built.plan.changes.map((change) => change.path))],
           notices: notices.user,
           plan: built.plan,
         },

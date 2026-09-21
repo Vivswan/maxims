@@ -1,7 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 import type { State } from "../../state/schema.ts";
 import { inspectState, type LoadedState } from "../../state/store.ts";
-import { applyChanges, planToJson, renderPlan } from "../../util/change.ts";
+import { applyChanges, type Change, planToJson, renderPlan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { appendRefreshLog } from "../../util/log.ts";
 import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
@@ -27,7 +27,9 @@ export type FinishOptions = CommonOptions & { verb: "sync" | "remove" };
 
 // Step 6: apply the plan in order, log what happened, and speak in the channel the run was
 // started from. A write failure under `--quiet` stops the run at that change and reports the
-// path; every earlier change stays applied, and the next run converges from there.
+// path; every earlier change stays applied, and the next run converges from there. `changed` is
+// what landed, not what was planned: a planner may plan a change the apply finds already in
+// place, and a hook that counted it would tell the session about a refresh that never happened.
 export async function finishSync(
   outcome: SyncOutcome,
   ctx: EngineContext,
@@ -35,33 +37,38 @@ export async function finishSync(
   options: FinishOptions,
 ): Promise<SyncReport> {
   const { notices } = outcome;
-  let applied = true;
+  let applied: Change[] = [];
   try {
-    await applyChanges(outcome.plan, { dryRun: options.dryRun });
+    ({ applied } = await applyChanges(outcome.plan, { dryRun: options.dryRun }));
   } catch (error) {
     if (!options.quiet || !(error instanceof MaximsError)) throw error;
     notices.loud(`maxims: ${error.message}`);
     outcome.failures.push({ code: error.code, message: error.message, hint: error.hint });
-    applied = false;
   }
-  if (!options.dryRun) await writeLog(outcome, ctx, options);
-  printOutcome(outcome, ctx, io, { ...options, applied });
+  const changed = options.dryRun ? outcome.plan.changes : applied;
+  const report: SyncReport = {
+    ...outcome.report,
+    changed: [...new Set(changed.map((change) => change.path))],
+  };
+  if (!options.dryRun) await writeLog(outcome, applied, ctx, options);
+  printOutcome(outcome, report, ctx, io, options);
   const [failure] = outcome.failures;
   if (failure !== undefined && !options.quiet) {
     throw new ReportedMaximsError(failure.code, failure.message, { hint: failure.hint });
   }
-  return outcome.report;
+  return report;
 }
 
 async function writeLog(
   outcome: SyncOutcome,
+  applied: readonly Change[],
   ctx: EngineContext,
   options: FinishOptions,
 ): Promise<void> {
   const stamp = ctx.now.toISOString();
   const lines = [
     ...outcome.report.fetched.map((key) => `refreshed ${key}`),
-    ...outcome.plan.changes.map((change) => `${change.kind} ${change.path}`),
+    ...applied.map((change) => `${change.kind} ${change.path}`),
     ...outcome.notices.log,
   ];
   if (lines.length === 0) return;
@@ -79,15 +86,15 @@ async function writeLog(
 // prints the notices and a summary when something changed.
 function printOutcome(
   outcome: SyncOutcome,
+  report: SyncReport,
   ctx: EngineContext,
   io: EngineIo,
-  options: FinishOptions & { applied: boolean },
+  options: FinishOptions,
 ): void {
-  const { report } = outcome;
   // The store and state live under the maxims home; only a file a harness reads counts as a
   // refresh worth a line.
   const visible = report.changed.filter((path) => !isInside(ctx.home, path));
-  const changed = options.applied && visible.length > 0;
+  const changed = visible.length > 0;
   if (options.json) {
     io.stdout(jsonDocument(report, outcome.failures));
     return;
@@ -106,11 +113,18 @@ function printOutcome(
   }
   for (const line of outcome.notices.user) io.stdout(`${line}\n`);
   if (changed) io.stdout(`${summaryLine(report)}\n`);
+  else if (options.verb === "sync" && outcome.failures.length === 0 && report.failed.length === 0) {
+    io.stdout(`o  Up to date: ${installedCounts(report)}\n`);
+  }
 }
 
 export function summaryLine(report: SyncReport): string {
   const tokens = report.tokens > 0 ? ` (~${report.tokens} tokens)` : "";
-  return `o  Installed ${countOf(report.memories, "memory", "memories")}, ${countOf(report.rules, "rule line")}${tokens}`;
+  return `o  Installed ${installedCounts(report)}${tokens}`;
+}
+
+function installedCounts(report: SyncReport): string {
+  return `${countOf(report.memories, "memory", "memories")}, ${countOf(report.rules, "rule line")}`;
 }
 
 function isInside(root: string, path: string): boolean {

@@ -35,17 +35,17 @@ export type ApplyOptions = {
 };
 
 export type ApplyResult = {
-  applied: number;
+  applied: Change[];
 };
 
 // A real file or directory where `unlink` or `symlink` expects a link is the user's work: it leaves
 // only through an explicit `delete` in the plan, never by an implicit replacement. A repointed link
 // is created beside the old one and renamed over it, so no reader sees it absent.
 export async function applyChanges(plan: Plan, options: ApplyOptions): Promise<ApplyResult> {
-  if (options.dryRun) return { applied: 0 };
-  let applied = 0;
+  if (options.dryRun) return { applied: [] };
+  const applied: Change[] = [];
   for (const change of plan.changes) {
-    if (await applyOne(change)) applied += 1;
+    if (await applyOne(change)) applied.push(change);
   }
   return { applied };
 }
