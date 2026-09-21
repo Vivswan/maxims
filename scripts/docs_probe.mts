@@ -4,12 +4,12 @@
 //   a paragraph or list item over the word cap (default 70)  -> finding, exit 1
 //   a table cell over the cell cap (default 15)              -> finding, exit 1
 //   a repository path the prose names that does not exist    -> finding, exit 1
-// Block structure comes from Bun's Markdown renderer, so what counts as prose
-// is what Markdown renders as a paragraph or a tight list item, and a table
-// contributes its cells, each against the cell cap: headings, code (fenced or
-// indented), raw HTML, and images contribute nothing.
-// Front matter is blanked before rendering; a BEGIN/END GENERATED region is
-// dropped where the renderer sees its markers as HTML blocks, so a marker
+// Block structure and line numbers come from micromark's tokens, so what
+// counts as prose is what CommonMark parses as a paragraph or a tight list
+// item, and a GFM table contributes its cells, each against the cell cap:
+// headings, code (fenced or indented), raw HTML, and images contribute nothing.
+// Front matter is blanked before parsing; a BEGIN/END GENERATED region is
+// dropped where the parser sees its markers as HTML blocks, so a marker
 // quoted inside a fence is code and changes nothing.
 // A path is a backticked token with a slash and an extension (or ./, ../, a
 // trailing slash), or a relative link destination; placeholders (<...>),
@@ -18,6 +18,14 @@
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import { parse, postprocess, preprocess } from "micromark";
+import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
+import { gfmTable } from "micromark-extension-gfm-table";
+import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
+import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
+import { normalizeIdentifier } from "micromark-util-normalize-identifier";
+import type { Event, Token, TokenizeContext } from "micromark-util-types";
 
 export const DEFAULT_MAX_WORDS = 70;
 export const DEFAULT_MAX_CELL_WORDS = 15;
@@ -41,6 +49,7 @@ export interface ProbeOptions {
 
 export interface Unit {
   readonly kind: "paragraph" | "item" | "cell";
+  /** The line of the first word the reader sees, which a tag or a comment opening the unit is not. */
   readonly line: number;
   /** The prose as the reader sees it: link labels and code spans kept, markup gone. */
   readonly text: string;
@@ -52,298 +61,280 @@ export interface Scan {
   readonly links: { readonly href: string; readonly line: number }[];
 }
 
-// Marker bytes the renderer callbacks emit; blocks nest, inlines do not. P and L are prose
-// (paragraph, list item), D a table cell; N is a block whose paths and links are checked but whose
-// words are not counted; T is a table and R one of its rows, which only steer the line locator; S is
-// a skipped block (code, raw HTML) carrying its source text, which the locator steps over.
-const OPEN = "";
-const INLINE_END = "";
-const BLOCK_END = "";
-const isBlockKind = (ch: string | undefined) =>
-  ["P", "L", "D", "N", "T", "R", "S"].includes(ch ?? "");
-
 /** The page with front matter blanked, line for line, so line numbers still match the file. */
-function blankFrontMatter(text: string): string[] {
+function blankFrontMatter(text: string): string {
   const lines = text.split("\n").map((line) => line.replace(/\r$/, ""));
-  const out = [...lines];
   // Only a closed block is front matter; a lone --- is a thematic break and the page is prose.
   if (lines[0] === "---") {
     const close = lines.indexOf("---", 1);
-    if (close !== -1) for (let i = 0; i <= close; i++) out[i] = "";
+    if (close !== -1) for (let i = 0; i <= close; i++) lines[i] = "";
+  }
+  return lines.join("\n");
+}
+
+/** The character a reference such as `&amp;`, `&#35;` or `&#x23;` stands for, as the reader sees it. */
+function decodeCharacterReference(reference: string): string {
+  const numeric = /^&#([xX]?)([0-9a-fA-F]+);$/.exec(reference);
+  if (numeric) return decodeNumericCharacterReference(numeric[2] ?? "", numeric[1] ? 16 : 10);
+  return decodeNamedCharacterReference(reference.slice(1, -1)) || reference;
+}
+
+/** Only the documented marker comment, with its name, opens or closes a generated region. */
+const REGION_MARKER = /^\s*<!-- (BEGIN|END) GENERATED: (\S+)/;
+
+interface Marker {
+  readonly kind: "BEGIN" | "END";
+  readonly name: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** Each BEGIN through the first END of the same name, as a closed line range; a BEGIN with no END, or a stray END, hides nothing. */
+function hiddenRanges(markers: readonly Marker[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < markers.length; i++) {
+    const open = markers[i];
+    if (open === undefined || open.kind !== "BEGIN") continue;
+    const close = markers.findIndex((m, j) => j > i && m.kind === "END" && m.name === open.name);
+    const end = markers[close];
+    if (end === undefined) continue;
+    out.push([open.start, end.end]);
+    i = close;
   }
   return out;
 }
-
-// A blank line, or one that is only a blockquote prefix, such as the lines before a table.
-const isBlank = (line: string) => /^\s*(>\s*)*$/.test(line);
 
 /**
- * A source line and a raw content line reduced to one form: indentation and container prefixes
- * (blockquote, list marker) removed from both, so they compare equal wherever the renderer
- * stripped them.
+ * Whether the list's items are separated by blank lines, or one holds a blank line between two
+ * blocks, read the way micromark's compiler reads it: a blank line directly in the list, not one
+ * inside a nested container and not one right after an item marker. Blank lines after the last
+ * item sit after the list's exit and are never seen here.
  */
-const bare = (line: string) => line.replace(/^\s*(?:>\s*|[-*+]\s+|\d{1,9}[.)]\s+)*/, "").trim();
-
-// The separator under a table's header. A lone --- (a thematic break or a setext underline) is
-// not one, hence the pipe.
-const isSeparatorRow = (line: string) => {
-  const body = bare(line);
-  if (!body.includes("|")) return false;
-  const cells = body.replace(/^\|/, "").replace(/\|$/, "").split("|");
-  return cells.every((cell) => /^\s*:?-+:?\s*$/.test(cell));
-};
-
-const ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-};
-const unescapeEntities = (s: string) =>
-  s.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => ENTITIES[m] ?? m);
-
-interface Segment {
-  /** true: a nested block segment with its markers; false: text at block depth 0, inline markers kept. */
-  readonly block: boolean;
-  readonly text: string;
-}
-
-/** `s` cut into nested block segments and the own text between them, in source order. */
-function segments(s: string): Segment[] {
-  const out: Segment[] = [];
-  let own = "";
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i] as string;
-    if (ch === OPEN && isBlockKind(s[i + 1])) {
-      if (depth === 0) {
-        start = i;
-        if (own !== "") out.push({ block: false, text: own });
-        own = "";
+function isLoose(events: readonly Event[], enter: number): boolean {
+  const list = events[enter]?.[1];
+  let nested = 0;
+  let atMarker = false;
+  for (let i = enter + 1; i < events.length; i++) {
+    const event = events[i];
+    if (event === undefined || event[1] === list) break;
+    const [step, token] = event;
+    if (token._container) {
+      atMarker = false;
+      nested += step === "enter" ? 1 : -1;
+    } else if (token.type === "listItemPrefix") {
+      if (step === "exit") atMarker = true;
+    } else if (token.type === "lineEndingBlank") {
+      if (step === "enter" && nested === 0) {
+        if (!atMarker) return true;
+        atMarker = false;
       }
-      depth++;
-    } else if (ch === BLOCK_END) {
-      depth--;
-      if (depth === 0 && start !== -1) {
-        out.push({ block: true, text: s.slice(start, i + 1) });
-        start = -1;
-      }
-    } else if (depth === 0) own += ch;
+    } else if (token.type !== "linePrefix") atMarker = false;
   }
-  if (own !== "") out.push({ block: false, text: own });
-  return out;
+  return false;
 }
 
-const nestedBlocks = (s: string) =>
-  segments(s)
-    .filter((p) => p.block)
-    .map((p) => p.text);
+type Scope =
+  | { readonly kind: "list"; readonly loose: boolean; unit: MutableUnit | null }
+  | { readonly kind: "quote" };
 
-/** Removes HTML comments innermost-first until none opens, so remains never reassemble into one. */
-function stripComments(text: string): string {
-  let out = text;
-  for (let open = out.indexOf("<!--"); open !== -1; open = out.indexOf("<!--")) {
-    const close = out.indexOf("-->", open + 4);
-    out = close === -1 ? out.slice(0, open) : out.slice(0, open) + out.slice(close + 3);
-  }
-  return out;
+type MutableUnit = { readonly kind: Unit["kind"]; readonly line: number; text: string };
+
+/** Text gathered while a token is open, and the line of its first visible character. */
+interface Collector {
+  text: string;
+  line: number | null;
 }
 
-/** Cuts each BEGIN region through the END marker of the same name; a BEGIN with no matching END, or a stray END, hides nothing. */
-function dropGeneratedRegions(stream: string): string {
-  let out = stream;
-  const begin = new RegExp(`${OPEN}G([^${BLOCK_END}]*)${BLOCK_END}`);
-  for (let m = begin.exec(out); m; m = begin.exec(out)) {
-    const close = `${OPEN}g${m[1]}${BLOCK_END}`;
-    const at = out.indexOf(close, m.index + m[0].length);
-    out =
-      at === -1
-        ? out.slice(0, m.index) + out.slice(m.index + m[0].length)
-        : out.slice(0, m.index) + out.slice(at + close.length);
-  }
-  return out.replace(new RegExp(`${OPEN}g[^${BLOCK_END}]*${BLOCK_END}`, "g"), "");
+/** A link or image being read: its destination and its label arrive from nested tokens. */
+interface Media {
+  readonly kind: "link" | "image";
+  /** The destination's line once one is read: a wrapped link is fixed where its target is written. */
+  line: number;
+  /** The label as written, since a definition is matched on source text, not on what it shows. */
+  label: string;
+  reference: string | null;
+  href: string | null;
 }
 
-// Inline markers with the code text or the href captured.
-const CODESPAN = `${OPEN}C([^${INLINE_END}]*)${INLINE_END}`;
-const LINK = `${OPEN}A([^${INLINE_END}]*)${INLINE_END}`;
+// Tokens whose text the reader sees, as micromark types them. Everything else in the inline
+// stream is markup (sequences, markers, padding, a task list's checkbox) or hidden (a destination,
+// a title, an alt text) and contributes nothing.
+const VISIBLE = new Set([
+  "data",
+  "codeTextData",
+  "characterEscapeValue",
+  "autolinkProtocol",
+  "autolinkEmail",
+]);
+// Tokens whose content is gathered into a collector of its own and dispatched when they close. A
+// heading's is dropped: its words are not counted, and its code spans and links were recorded as
+// they closed.
+const COLLECTED = new Set([
+  "paragraph",
+  "tableHeader",
+  "tableData",
+  "atxHeading",
+  "setextHeading",
+  "codeText",
+  "labelText",
+  "resourceDestinationString",
+  "definitionDestinationString",
+]);
+// Tokens whose inline content the reader never sees: an image's alt text, a destination's title.
+const SINKS = new Set(["image", "resource", "reference", "definition"]);
 
-/**
- * The prose as the reader sees it. Inline HTML is invisible (a comment says nothing, a tag is at
- * most a break) and is dropped; a code span shows every character, so `<name>` inside one is a word.
- */
-function visibleText(own: string): string {
-  return own
-    .replace(new RegExp(LINK, "g"), "")
-    .split(new RegExp(`(${OPEN}C[^${INLINE_END}]*${INLINE_END})`))
-    .map((part, index) =>
-      index % 2 === 1 ? part.slice(2, -1) : stripComments(part.replace(/<\/?[a-zA-Z][^>]*>/g, " ")),
-    )
-    .join("");
-}
+const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
+  const m = REGION_MARKER.exec(context.sliceSerialize(token));
+  const kind = m?.[1];
+  if (kind !== "BEGIN" && kind !== "END") return [];
+  return [{ kind, name: m?.[2] ?? "", start: token.start.line, end: token.end.line }];
+};
 
 export function scanPage(text: string): Scan {
-  const lines = blankFrontMatter(text);
-  const nothing = () => "";
-  const same = (c: string) => c;
-  const stream = Bun.markdown.render(lines.join("\n"), {
-    text: same,
-    strong: same,
-    emphasis: same,
-    strikethrough: same,
-    blockquote: same,
-    list: same,
-    heading: (c: string) => `${OPEN}N${c}${BLOCK_END}`,
-    code: (c: string) => `${OPEN}S${c}${BLOCK_END}`,
-    table: (c: string) => `${OPEN}T${c}${BLOCK_END}`,
-    tr: (c: string) => `${OPEN}R${c}${BLOCK_END}`,
-    th: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
-    td: (c: string) => `${OPEN}D${c}${BLOCK_END}`,
-    html: (c: string) => {
-      // Only the documented marker comment, with its name, opens or closes a region. The skipped
-      // block after a marker outlives the region cut when the marker closes one, so the cursor
-      // passes the END line and the rows the region hid.
-      const begin = /^\s*<!-- BEGIN GENERATED: (\S+)/.exec(c);
-      const end = /^\s*<!-- END GENERATED: (\S+)/.exec(c);
-      const skipped = `${OPEN}S${c}${BLOCK_END}`;
-      if (begin) return `${OPEN}G${begin[1]}${BLOCK_END}${skipped}`;
-      if (end) return `${OPEN}g${end[1]}${BLOCK_END}${skipped}`;
-      return skipped;
-    },
-    hr: nothing,
-    image: nothing,
-    codespan: (c: string) => `${OPEN}C${c}${INLINE_END}`,
-    link: (c: string, attrs: { href?: string }) => `${OPEN}A${attrs.href ?? ""}${INLINE_END}${c}`,
-    paragraph: (c: string) => `${OPEN}P${c}${BLOCK_END}`,
-    listItem: (c: string) => `${OPEN}L${c}${BLOCK_END}`,
+  const events = postprocess(
+    parse({ extensions: [gfmStrikethrough(), gfmTable(), gfmTaskListItem()] })
+      .document()
+      .write(preprocess()(blankFrontMatter(text), undefined, true)),
+  );
+  const hidden = hiddenRanges(
+    events.flatMap(([step, token, context]) =>
+      step === "enter" && token.type === "htmlFlow" ? regionMarker(token, context) : [],
+    ),
+  );
+  const isHidden = (line: number) => hidden.some(([from, to]) => line >= from && line <= to);
+
+  const units: MutableUnit[] = [];
+  const codespans: Scan["codespans"] = [];
+  const links: Scan["links"] = [];
+  const pendingLinks: Media[] = [];
+  // A definition's line is where a reference link's destination is written, and where it is fixed.
+  const definitions = new Map<string, { href: string; line: number }>();
+  const scopes: Scope[] = [];
+  const collectors: Collector[] = [];
+  const media: Media[] = [];
+  // A definition's destination string is absent when the destination is empty (`<>`), so the
+  // definition is registered when the whole token closes; a destination on the line after the
+  // label is reported on its own line, where the fix is made.
+  let definition = { label: "", href: "", line: 0 };
+  // GFM keeps as many cells per row as the header declares and drops the rest unrendered.
+  let columns = 0;
+  let column = 0;
+  let overflow = false;
+
+  const append = (piece: string, line: number | null) => {
+    const top = collectors[collectors.length - 1];
+    if (top === undefined) return;
+    top.text += piece;
+    if (top.line === null && piece.trim() !== "") top.line = line;
+  };
+  // Inside an image's alt text or a dropped cell nothing is recorded: the reader never sees it.
+  const muted = () => overflow || media.some((m) => m.kind === "image");
+  const record = (line: number) => !muted() && !isHidden(line);
+
+  // A tight item's prose is one unit however a fence or a heading splits it, so the item keeps
+  // the unit open until its next marker; a loose item's paragraphs stand alone.
+  const emitParagraph = (c: Collector) => {
+    if (c.line === null || isHidden(c.line)) return;
+    const top = scopes[scopes.length - 1];
+    if (top?.kind !== "list" || top.loose) {
+      units.push({ kind: "paragraph", line: c.line, text: c.text });
+    } else if (top.unit === null) {
+      top.unit = { kind: "item", line: c.line, text: c.text };
+      units.push(top.unit);
+    } else top.unit.text += `\n${c.text}`;
+  };
+
+  events.forEach(([step, token, context], index) => {
+    const type = token.type;
+    const source = () => context.sliceSerialize(token);
+    const target = media[media.length - 1];
+    if (step === "enter") {
+      if (type === "listUnordered" || type === "listOrdered")
+        scopes.push({ kind: "list", loose: isLoose(events, index), unit: null });
+      else if (type === "blockQuote") scopes.push({ kind: "quote" });
+      else if (type === "listItemPrefix") {
+        const top = scopes[scopes.length - 1];
+        if (top?.kind === "list") top.unit = null;
+      } else if (type === "table") columns = 0;
+      else if (type === "tableRow") column = 0;
+      else if (type === "tableHeader") columns++;
+      else if (type === "tableData") overflow = column++ >= columns;
+      else if (type === "link" || type === "image") {
+        media.push({ kind: type, line: token.start.line, label: "", reference: null, href: null });
+      } else if (type === "referenceString") {
+        if (target) target.reference = source();
+      } else if (type === "definition")
+        definition = { label: "", href: "", line: token.start.line };
+      else if (type === "definitionLabelString") definition.label = source();
+      else if (type === "resource") {
+        // `[a]()` is an inline link with an empty destination, not a reference.
+        if (target) target.href = "";
+      } else if (type === "htmlText") {
+        // A comment says nothing; a tag is at most a break between words.
+        append(source().startsWith("<!--") ? "" : " ", null);
+      } else if (type === "characterReference")
+        append(decodeCharacterReference(source()), token.start.line);
+      else if (type === "lineEnding") append("\n", null);
+      else if (VISIBLE.has(type)) {
+        append(source(), token.start.line);
+        if (type === "autolinkProtocol" && record(token.start.line))
+          links.push({ href: source(), line: token.start.line });
+        if (type === "autolinkEmail" && record(token.start.line))
+          links.push({ href: `mailto:${source()}`, line: token.start.line });
+      }
+      if (COLLECTED.has(type) || SINKS.has(type)) collectors.push({ text: "", line: null });
+      return;
+    }
+    if (type === "listUnordered" || type === "listOrdered" || type === "blockQuote") scopes.pop();
+    if (type === "table") columns = 0;
+    if (type === "link" || type === "image") {
+      const done = media.pop();
+      if (done?.kind === "link" && record(done.line)) pendingLinks.push(done);
+    }
+    if (SINKS.has(type)) collectors.pop();
+    if (type === "definition") {
+      const key = normalizeIdentifier(definition.label);
+      if (!definitions.has(key))
+        definitions.set(key, { href: definition.href, line: definition.line });
+    }
+    if (!COLLECTED.has(type)) return;
+    const c = collectors.pop();
+    if (c === undefined) return;
+    if (type === "paragraph") emitParagraph(c);
+    else if (type === "tableHeader" || type === "tableData") {
+      if (c.line !== null && !overflow && !isHidden(c.line))
+        units.push({ kind: "cell", line: c.line, text: c.text });
+      overflow = false;
+    } else if (type === "codeText") {
+      // GFM lets a cell hold a pipe inside code only escaped, and renders the pipe alone; an
+      // escaped backslash stays as written, as in the table extension's own compiler.
+      const code =
+        columns > 0 ? c.text.replace(/\\([\\|])/g, (m, ch) => (ch === "|" ? ch : m)) : c.text;
+      append(code, c.line);
+      if (record(token.start.line)) codespans.push({ text: code, line: token.start.line });
+    } else if (type === "labelText") {
+      append(c.text, c.line);
+      if (target) target.label = source();
+    } else if (type === "resourceDestinationString") {
+      if (target) {
+        target.href = c.text;
+        target.line = token.start.line;
+      }
+    } else if (type === "definitionDestinationString") {
+      definition.href = c.text;
+      definition.line = token.start.line;
+    }
   });
 
-  const prose = dropGeneratedRegions(stream);
-
-  const scan: Scan = { units: [], codespans: [], links: [] };
-  let cursor = 0;
-  // Rendered text has lost its markup (**bold**, [label](url) with the url between label and text),
-  // so a line matches when it carries the unit's first two words, letters and digits only. A link's
-  // destination sits between its label and a suffix (`[GitHub](url)-hosted`) and nowhere in the
-  // rendered word, so a line is also tried with destinations removed (a destination may hold one
-  // level of parentheses); a destination is itself the needle when a link is located, so the line
-  // as written is tried too.
-  const letters = (text: string) => text.replace(/[^A-Za-z0-9]+/g, "");
-  const DESTINATION = /\]\((?:[^()]|\([^()]*\))*\)/g;
-  const forms = (line: string) => [letters(line), letters(line.replace(DESTINATION, "]"))];
-  const search = (needle: string): number => {
-    const probes = unescapeEntities(needle).split(/\s+/).map(letters).filter(Boolean).slice(0, 2);
-    if (probes.length === 0) return -1;
-    for (let i = cursor; i < lines.length; i++) {
-      if (forms(lines[i] ?? "").some((form) => probes.every((probe) => form.includes(probe))))
-        return i;
+  // A reference link is a link only where its definition exists, so the lookup always lands.
+  for (const m of pendingLinks) {
+    if (m.href !== null) links.push({ href: m.href, line: m.line });
+    else {
+      const defined = definitions.get(normalizeIdentifier(m.reference ?? m.label));
+      if (defined !== undefined) links.push(defined);
     }
-    return -1;
-  };
-  // Inside a table every unit sits on its row's line, which the table fixes; nothing is searched.
-  let rowLine: number | null = null;
-  const locate = (needle: string): number => {
-    if (rowLine !== null) return rowLine;
-    const found = search(needle);
-    return found === -1 ? cursor : found;
-  };
-  const KINDS: Record<string, Unit["kind"] | undefined> = { P: "paragraph", L: "item", D: "cell" };
-  const nonBlank = (s: string) => s.split("\n").find((l) => l.trim() !== "");
-  // A skipped block's source lines pass under the cursor, or a fence quoting a table example would
-  // be where the next table's header is looked for. Its content is verbatim source, so its first
-  // non-blank line is matched whole: a line may have no letters at all, and a fence's info string
-  // may repeat one. Fenced content excludes its fences, so the cursor lands on the closer.
-  const skipRaw = (raw: string) => {
-    const rawLines = raw.replace(/\n$/, "").split("\n");
-    const start = rawLines.findIndex((l) => bare(l) !== "");
-    if (start === -1) return;
-    const needle = bare(rawLines[start] ?? "");
-    const found = lines.findIndex((line, i) => i >= cursor && bare(line) === needle);
-    if (found !== -1) cursor = found - start + rawLines.length;
-  };
-  // A table's rows are consecutive source lines: the header, its separator, then one line per body
-  // row. No cell's text is searched for: a body row may repeat the header's words while the header
-  // itself (a link with a suffix, an empty cell) matches nothing, so the separator anchors it.
-  const visitTable = (inner: string) => {
-    const rows = nestedBlocks(inner);
-    const found = lines.findIndex(
-      (line, i) => i >= cursor && !isBlank(line) && isSeparatorRow(lines[i + 1] ?? ""),
-    );
-    const header = found === -1 ? cursor : found;
-    rows.forEach((row, index) => {
-      rowLine = index === 0 ? header : header + 1 + index;
-      visit(row);
-    });
-    rowLine = null;
-    cursor = header + 1 + rows.length;
-  };
-  const visit = (block: string) => {
-    const inner = block.slice(2, -1);
-    if (block[1] === "S") {
-      skipRaw(inner);
-      return;
-    }
-    if (block[1] === "T") {
-      visitTable(inner);
-      return;
-    }
-    const kind = KINDS[block[1] ?? ""];
-    // The inner stream is walked in source order: a nested block moves the cursor at its place,
-    // so a fence that opens a list item, or splits the item's text, passes under the cursor
-    // before the text after it is located, and never lands on a later paragraph it quotes.
-    const parts = segments(inner).map((part) => ({
-      ...part,
-      plain: part.block ? "" : visibleText(part.text),
-    }));
-    const text = parts.map((part) => part.plain).join("");
-    let placed = false;
-    for (const part of parts) {
-      if (part.block) {
-        visit(part.text);
-        continue;
-      }
-      // The segment sits at its first visible line. One that shows no words (a link labelled by
-      // an image or a tag, a lone tag) still holds a line, and sits at its first link, or else at
-      // its markup, so it passes under the cursor like any other.
-      const links = [...part.text.matchAll(new RegExp(LINK, "g"))].map((m) =>
-        unescapeEntities(m[1] ?? ""),
-      );
-      const visible = nonBlank(part.plain);
-      const markup = part.text
-        .replace(new RegExp(CODESPAN, "g"), "")
-        .replace(new RegExp(LINK, "g"), "");
-      const anchor = visible ?? links[0] ?? nonBlank(markup);
-      if (anchor === undefined) continue;
-      const at = locate(anchor);
-      if (visible !== undefined && !placed) {
-        placed = true;
-        if (kind !== undefined)
-          scan.units.push({ kind, line: at + 1, text: unescapeEntities(text) });
-      }
-      let last = at;
-      const place = (needle: string) => {
-        const line = locate(needle);
-        last = Math.max(last, line);
-        return line + 1;
-      };
-      for (const m of part.text.matchAll(new RegExp(CODESPAN, "g"))) {
-        const code = unescapeEntities(m[1] ?? "");
-        scan.codespans.push({ text: code, line: place(`\`${code}\``) });
-      }
-      for (const href of links) scan.links.push({ href, line: place(href) });
-      // The segment's lines pass under the cursor, so a repeated opening line, or a fence quoting
-      // one of them, finds its own line and not this one again. A segment with words spans its
-      // visible lines, and a code span found elsewhere (one wrapped across two source lines) does
-      // not drag the cursor; one without words spans the lines its links were placed on. A table
-      // moves the cursor itself, past its last row.
-      if (rowLine === null)
-        cursor = visible === undefined ? last + 1 : at + part.plain.trim().split("\n").length;
-    }
-  };
-  for (const block of nestedBlocks(prose)) visit(block);
-  return scan;
+  }
+  return { units, codespans, links };
 }
 
 export function wordCount(text: string): number {

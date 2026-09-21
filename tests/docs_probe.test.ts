@@ -1,12 +1,11 @@
 // Fails if the docs probe stops counting a `<placeholder>` inside a code span as a word: the
 // inline-HTML strip would then eat it, a 71-word paragraph would pass the 70-word cap, and the
-// docs:check gate would stay green on a page that is over it. Also fails if the locator stops
-// placing a table's rows on consecutive lines under its header, starts searching for a cell's
-// text, or lets a code block, an HTML block, or a generated region sit under the cursor when the
-// next table is located: a cell, or the paragraph after the table, would then be reported on the
-// wrong line. Also fails if a list item's own text is located before the nested blocks that
-// precede it in the source: a fence inside the item would then pass under the cursor after the
-// item, and the paragraph it quotes, and every unit after it, would be reported lines too late.
+// docs:check gate would stay green on a page that is over it. Also fails if a unit's line stops
+// coming from the parser's source positions and goes back to being searched for: a table row, a
+// paragraph after a fence quoting an earlier line, a paragraph after a badge line or a comment
+// continued across lines, or a punctuation-only code span or link would then be reported on the
+// line of the text that happened to match first. Also fails if list tightness stops following
+// CommonMark: a tight item would be reported as a paragraph, or a loose one as a list item.
 import { expect, test } from "bun:test";
 import {
   DEFAULT_MAX_CELL_WORDS,
@@ -245,4 +244,186 @@ test.each(itemCases)("%s", (_name, text, placed) => {
     ...scan.units.map((unit) => `${unit.kind}@${unit.line}`),
     ...scan.links.map((link) => `link@${link.line}`),
   ]).toEqual(placed);
+});
+
+// The first ten cases were reported on the wrong line while units were located by counting
+// visible lines and searching for their first words: an invisible line (a comment's continuation,
+// a tag, a badge, an image, a definition, an empty fence) passed unseen, or a unit with no letters
+// matched nothing and took the cursor's line. The rest pin what the reader's renderer does and the
+// parser's raw tokens do not: a reference resolves through its definition on the label as written,
+// a cell's escaped pipe reads as a pipe, a row's cells past the header's count are dropped, an
+// autolink is a link, and a generated region hides its units wherever they are aggregated. The
+// pages carry no title so the expected lines are the source lines the reader counts.
+const positionCases: [name: string, text: string, placed: string[]][] = [
+  [
+    "a comment continued on the next line hides that line from the paragraph after it",
+    "Intro <!-- x\nGitHub-hosted text -->\n\n[GitHub](https://github.com)-hosted text here.\n",
+    ["paragraph@1", "paragraph@4", "link@4=https://github.com"],
+  ],
+  [
+    "a tag continued on the next line hides that line from the paragraph after it",
+    'Intro <span\ntitle="GitHub-hosted text">x</span>\n\n[GitHub](https://github.com)-hosted text here.\n',
+    ["paragraph@1", "paragraph@4", "link@4=https://github.com"],
+  ],
+  [
+    "a trailing badge line carrying the next paragraph's words is not that paragraph",
+    "Some words\n[![Build](build.svg)](https://example.com/build)\n\nBuild example words\n",
+    ["paragraph@1", "paragraph@4", "link@2=https://example.com/build"],
+  ],
+  [
+    "a link whose destination has no letters sits on its own line",
+    "Intro words.\n\n[x](#)-marked alpha beta.\n",
+    ["paragraph@1", "paragraph@3", "link@3=#"],
+  ],
+  [
+    "an image-only line equal to a fence's first line does not pull the fence onto itself",
+    "![img](a.png)\n\n```\n![img](a.png)\nalpha beta\n```\n\nalpha beta\n",
+    ["paragraph@8"],
+  ],
+  [
+    "an empty fence then a lone separator row keeps the row on its line",
+    "```\n```\n\n| --- |\n\nalpha beta\n",
+    ["paragraph@4", "paragraph@6"],
+  ],
+  [
+    "a definition duplicated as a fence's first line does not pull the fence onto itself",
+    "[ref]: https://example.com\n\n```\n[ref]: https://example.com\nalpha beta\n```\n\nalpha beta\n",
+    ["paragraph@8"],
+  ],
+  [
+    "a tag line repeated as a fence's first line does not pull the fence onto itself",
+    "text\n<br>\n\n```\n<br>\nalpha beta\n```\n\nalpha beta\n",
+    ["paragraph@1", "paragraph@9"],
+  ],
+  [
+    "a code span with no letters sits on its own line, not the cursor's",
+    "Intro words.\n\nUse `.` here.\n",
+    ["paragraph@1", "paragraph@3", "code@3=."],
+  ],
+  [
+    "a code span with no letters after a table sits on its own line",
+    "| a |\n| --- |\n| `*` |\n\nUse `..` here.\n",
+    ["cell@1", "cell@3", "paragraph@5", "code@3=*", "code@5=.."],
+  ],
+  [
+    "a reference link is checked where its definition writes the destination, once per use",
+    "[label][ref] and [ref] and [Ref][] words\n\n[ref]: ./missing.md\n",
+    ["paragraph@1", "link@3=./missing.md", "link@3=./missing.md", "link@3=./missing.md"],
+  ],
+  [
+    "a reference label is matched as written, not as it shows",
+    "[*label*] words\n\n[*label*]: ./missing.md\n",
+    ["paragraph@1", "link@3=./missing.md"],
+  ],
+  [
+    "a definition whose destination sits on the next line is reported on the destination's line",
+    "[x] words\n\n[x]:\n  ./missing.md\n",
+    ["paragraph@1", "link@4=./missing.md"],
+  ],
+  [
+    "a link whose destination sits on the next line is reported on the destination's line",
+    "[x](\n  ./missing.md\n) words\n",
+    ["paragraph@1", "link@2=./missing.md"],
+  ],
+  [
+    "a character reference in a destination names the file the reader is sent to",
+    "[x](./a&amp;b.md) and [y][d] words\n\n[d]: ./c&#35;d.md\n",
+    ["paragraph@1", "link@1=./a&b.md", "link@3=./c#d.md"],
+  ],
+  [
+    "a label is matched on collapsed ASCII spaces only, so a non-breaking space names another definition",
+    "[a] and [\u00a0a]\n\n[a]: ./x.md\n[\u00a0a]: ./missing.md\n",
+    ["paragraph@1", "link@3=./x.md", "link@4=./missing.md"],
+  ],
+  [
+    "an empty destination is a destination: an inline link and a first definition are not skipped for a later one",
+    "[a]() and [b] words\n\n[a]: ./missing.md\n[b]: <>\n[b]: ./missing.md\n",
+    ["paragraph@1", "link@1=", "link@4="],
+  ],
+  [
+    "a reference link inside a generated region is hidden even though its definition is outside",
+    "<!-- BEGIN GENERATED: x -->\n\n[ref]\n\n<!-- END GENERATED: x -->\n\n[ref]: ./missing.md\n",
+    [],
+  ],
+  [
+    "a pipe escaped inside a cell's code span is read as the pipe the reader sees, an escaped backslash as written",
+    "| a |\n| --- |\n| `config set\\|get` `a\\\\b` |\n",
+    ["cell@1", "cell@3", "code@3=config set|get", "code@3=a\\\\b"],
+  ],
+  [
+    "cells past the header's column count are dropped with their paths and links",
+    "| a |\n| --- |\n| good | extra words `./missing.md` [x](./gone.md) |\n",
+    ["cell@1", "cell@3"],
+  ],
+  [
+    "an autolink is a link with the destination the reader follows",
+    "<https://example.com> and <me@example.com> words\n",
+    ["paragraph@1", "link@1=https://example.com", "link@1=mailto:me@example.com"],
+  ],
+  [
+    "items separated by a blank line are paragraphs, and a blank line inside a nested list loosens only that list",
+    "- alpha\n\n- beta\n\ntext\n\n- a\n  - b\n\n  - c\n- d\n",
+    [
+      "paragraph@1",
+      "paragraph@3",
+      "paragraph@5",
+      "item@7",
+      "paragraph@8",
+      "paragraph@10",
+      "item@11",
+    ],
+  ],
+];
+
+test.each(positionCases)("%s", (_name, text, placed) => {
+  const scan = scanPage(text);
+  expect([
+    ...scan.units.map((unit) => `${unit.kind}@${unit.line}`),
+    ...scan.codespans.map((code) => `code@${code.line}=${code.text}`),
+    ...scan.links.map((link) => `link@${link.line}=${link.href}`),
+  ]).toEqual(placed);
+});
+
+// Word counts that depend on the unit's shape, not on its lines: what a tight item holds, and
+// what a task list's checkbox and a strikethrough's markers are not.
+const itemWordCases: [name: string, text: string, findings: ReturnType<typeof paragraph>[]][] = [
+  [
+    "a tight item's prose is one unit around a nested list and a heading",
+    "- a b\n  - child\n  # ignored\n  c d\n",
+    [
+      {
+        file: "page.md",
+        line: 1,
+        message:
+          "list item of 4 words; the cap is 2. Split it, or turn its facts into bullets, a table, or numbered steps",
+      },
+    ],
+  ],
+  [
+    "a generated region inside a tight item hides its words without splitting the item",
+    "- start\n  <!-- BEGIN GENERATED: x -->\n  hidden words\n  <!-- END GENERATED: x -->\n  end\n",
+    [],
+  ],
+  [
+    "a task list's checkbox is not a word",
+    "- [ ] hello there\n- [x] done now\n\n1. [X] loose\n",
+    [],
+  ],
+  ["strikethrough markers are markup, not words", "~~![x](a.png)~~ visible words\n", []],
+  [
+    "a character reference is decoded before words are counted, so a no-break space still separates two",
+    "one&nbsp;two three\n",
+    [
+      {
+        file: "page.md",
+        line: 1,
+        message:
+          "paragraph of 3 words; the cap is 2. Split it, or turn its facts into bullets, a table, or numbered steps",
+      },
+    ],
+  ],
+];
+
+test.each(itemWordCases)("%s", (_name, text, expected) => {
+  expect(probePage(text, "page.md", { ...options, maxWords: 2 })).toEqual(expected);
 });
