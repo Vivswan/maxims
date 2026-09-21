@@ -87,6 +87,9 @@ export async function planRuleFile(
   const tokens: RuleFilePlan["tokens"] = [];
   const drawn = await renderRuleFile(file, options);
   if (drawn === null) {
+    // The sweep visits every shared file a harness reads here, wanted or not; a link is only
+    // worth a line when the run has a block to write, keep or strip in it.
+    if (!hasWork(file, options)) return EMPTY_PLAN;
     return {
       ...EMPTY_PLAN,
       notices: [`maxims: ${file.path} is a symlink; managed blocks are not written through links`],
@@ -226,6 +229,14 @@ async function renderRuleFile(
     }),
   }));
   return { linked, current, rendering, gone, rendered, unreadable: probed?.unreadable ?? [] };
+}
+
+// Whether a run has anything to do in a file it cannot write: a block some source renders here,
+// one it keeps, or a managed block on disk it would strip.
+function hasWork(file: RuleFile, options: RuleFileOptions): boolean {
+  if (file.blocks.length > 0 || options.keep.size > 0) return true;
+  const current = readIfPresent(file.path);
+  return current !== null && parseBlocks(current).blocks.length > 0;
 }
 
 // The sources whose block this run changes in the file: absent from it, or drawn differently

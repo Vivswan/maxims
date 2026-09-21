@@ -1231,6 +1231,38 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
+  // The sweep visits every shared file a harness reads here; a link it finds is only worth a
+  // line when the run has something to do in the file. The rows are the linked file's content.
+  const linkedVisits: [string, string, boolean][] = [
+    ["a linked file with no managed block, wanted by no source here", "# From dotfiles\n", false],
+    [
+      "a linked file holding a departed source's block",
+      "# From dotfiles\n<!-- maxims:begin @acme/gone sha=abc1234 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n",
+      true,
+    ],
+  ];
+  test.each(linkedVisits)("the sweep on %s", async (_label, content, noticed) => {
+    await world(async ({ home, dir, userHome }) => {
+      const project = join(dir, "project");
+      mkdirSync(project, { recursive: true });
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source), {
+        harnesses: ["claude-code"],
+        destination: { scope: "project", root: project },
+      });
+      writeState(home, stateWith({ [source]: entry }));
+      const real = join(dir, "dotfiles-FIXTURE.md");
+      writeFileSync(real, content);
+      const shared = join(project, "FIXTURE.md");
+      symlinkSync(real, shared);
+      const io = fakeIo({ home, userHome, cwd: project });
+      const report = await runSync(SYNC, io);
+      expect(readFileSync(real, "utf8")).toBe(content);
+      const line = `maxims: ${shared} is a symlink; managed blocks are not written through links`;
+      expect(report.notices.includes(line)).toBe(noticed);
+    });
+  });
+
   test("a hook run leaves a departed source's block in a shared file; an interactive run strips it", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
