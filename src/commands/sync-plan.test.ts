@@ -609,6 +609,9 @@ describe("shared file byte budget", () => {
         const roomy = roomyIo(w);
         await runSync(SYNC, roomy);
         const fits = statSync(file).size;
+        // With the file gone every block is one this run writes, so the pick is the installation
+        // order alone.
+        rmSync(file);
         withSources(w.home, { [held]: dated(held, winner.addedAt[winner.held]) });
         const io = budgetedIo(w, fits);
         await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
@@ -667,6 +670,47 @@ describe("shared file byte budget", () => {
       expect(blockOf(after, alpha)).toContain("of alpha, edition two.");
       expect(blockOf(after, bravo)).toContain("of bravo, edition two.");
       expect(Buffer.byteLength(after)).toBe(Buffer.byteLength(before));
+    });
+  });
+
+  // Holding a source whose block is already on disk unchanged cannot make the file fit, so the
+  // fresh source is the one held and blamed, whatever the keys and the tie on addedAt say; the
+  // installed one keeps its block and earns no line.
+  test("a fresh source sorting before an installed one is the only source blamed for the overage", async () => {
+    await world(async (w) => {
+      const installed = writeSource(join(w.dir, "zzz-first"), ruleSet("zzz", 2));
+      const upstream = writeSource(join(w.dir, "aaa-upstream"), ruleSet("aaa", 2));
+      const installedFrom = githubFrom("zzz/first");
+      const freshFrom = githubFrom("aaa/rules");
+      seedStore(w.home, installedFrom, installed);
+      const facts = await fetchedFacts(installed, daysAgo(NOW, 1));
+      const file = shared(w.userHome);
+      writeState(w.home, stateWith({ "@zzz/first": fetchedEntry(installedFrom, facts, onDsh) }));
+      const fake = fakeResolvers();
+      fake.set(freshFrom, { kind: "dir", dir: upstream });
+      const roomy = fakeIo({
+        ...w,
+        cwd: w.dir,
+        resolvers: fake.resolvers,
+        harnesses: [sharedBlockHarness, budgetedReader(1 << 20)],
+      });
+      await runSync(SYNC, roomy);
+      const fits = statSync(file).size;
+      // Installed at the same instant, as two sources of one `install` are.
+      withSources(w.home, { "@aaa/rules": entryFor(freshFrom, onDsh) });
+      const io = fakeIo({
+        ...w,
+        cwd: w.dir,
+        resolvers: fake.resolvers,
+        harnesses: [sharedBlockHarness, budgetedReader(fits + 16)],
+      });
+      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
+      const document = JSON.parse(io.out.join(""));
+      const blamed = holdLines(document.report.notices).filter((line) => line.includes(" is "));
+      expect(blamed).toEqual([
+        expect.stringMatching(/^@aaa\/rules is \d+ bytes over the budget for /),
+      ]);
+      expect(blockKeys(file)).toEqual(["@zzz/first"]);
     });
   });
 

@@ -39,7 +39,7 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 - **`stdout`** is how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, and `-` means no declared stdout variant, a custom hook or no hook.
 - **`mcp stub`** is the MCP servers file, per scope, where the definition registers the bundled stub server whose start runs one sync; `-` when the definition names none.
 - **`markers`** is `stripped` when the harness drops HTML comments before injection, so the marker pair is free, and `counted` when they ride into context.
-- **`byte budget`** is the largest rule file the writer will produce for the harness; past it the newest source in the file is held, one at a time, until it fits. `-` when the definition declares no budget, so the writer enforces none.
+- **`byte budget`** is the largest rule file the writer will produce for the harness; past it the newest source whose block the run changes is held, one at a time, until it fits. `-` when the definition declares no budget, so the writer enforces none.
 
 Memory bodies do not vary by harness. They live in the maxims store and rule lines point at them; a project install links them into `.agents/memories/` for every harness, the convention `npx skills` set with `.agents/skills/`.
 

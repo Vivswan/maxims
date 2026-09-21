@@ -57,6 +57,7 @@ import { PlanBuilder } from "./plan.ts";
 import { readProjectLock } from "./project-lock-io.ts";
 import {
   type BlockRequest,
+  changingBlocks,
   claimedByMaxims,
   isAbsent,
   planRuleFile,
@@ -607,12 +608,14 @@ async function planInstall(
     keepBlock(key, target.realKey);
     addReaders(rendered, [target]);
   }
-  // A harness's byte budget is only known once a file is rendered. Over it, the source installed
-  // last is held: refused whole (bodies, store swap and its blocks in every other file), the same
-  // shape as the rule cap, while its last-good block stays where the file already carries one.
-  // The file keeps every reader and is judged again on the finished text, one hold at a time,
-  // until it fits or no source contributes to it. The lines go out loud: a hook session must
-  // hear that rules it expects are not loaded.
+  // A harness's byte budget is only known once a file is rendered. Over it, one source is held:
+  // refused whole (bodies, store swap and its blocks in every other file), the same shape as the
+  // rule cap, while its last-good block stays where the file already carries one. Held first is
+  // the source installed last among those whose block this run changes in the file; holding a
+  // source whose block already sits on disk as drawn cannot make the file fit, so it is blamed
+  // only when no changing source is left. The file keeps every reader and is
+  // judged again on the finished text, one hold at a time, until it fits or no source contributes
+  // to it. The lines go out loud: a hook session must hear that rules it expects are not loaded.
   let tokens = 0;
   for (;;) {
     const rendered = await renderFiles(files, ctx, keepAt);
@@ -629,7 +632,12 @@ async function planInstall(
       break;
     }
     const { error, file } = rendered;
-    const newest = newestBlock(file.blocks, refreshed.sources);
+    const changingKeys = await changingBlocks(file, {
+      ctx,
+      keep: keepAt.get(fileIdentity(file)) ?? new Set(),
+    });
+    const changing = file.blocks.filter((block) => changingKeys.includes(block.key));
+    const newest = newestBlock(changing.length > 0 ? changing : file.blocks, refreshed.sources);
     if (newest === undefined) throw error;
     const { key } = newest;
     const message = `${key} is ${error.size - error.budget} bytes over the budget for ${error.path}`;

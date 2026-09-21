@@ -22,7 +22,9 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 ## Exit 8: a rule file is over the harness byte budget
 
-**What you see:** the run names the newest source in the file and how many bytes over the budget it is, with exit 8. That source is held and every other source in the file refreshes; when the file is still over, the next newest is held too. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
+**What you see:** the run names the source it holds and how many bytes over the budget the file is, with exit 8. That source is held and every other source in the file refreshes; when the file is still over, the next is held too. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
+
+Held first is the newest source among those whose block the run changes in the file: holding one whose block is already there as drawn cannot make the file fit. When no block changes (your own text grew the file), the newest source in the file is held.
 
 ```text
 !  @you/notes is 716 bytes over the budget for /home/user/AGENTS.md

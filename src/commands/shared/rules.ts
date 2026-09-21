@@ -68,41 +68,14 @@ export async function planRuleFile(
 ): Promise<RuleFilePlan> {
   const notices: string[] = [];
   const tokens: RuleFilePlan["tokens"] = [];
-  // A rule file maxims owns whole is always a real file: a symlink at its path reads as absent so
-  // the write that replaces it is planned even when the linked content matches. A shared file is
-  // the user's; one they keep as a link (a dotfiles checkout) is left alone rather than replaced
-  // by a regular file holding only the blocks.
-  const linked = isSymlink(file.path);
-  if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
+  const drawn = await renderRuleFile(file, options);
+  if (drawn === null) {
     return {
       ...EMPTY_PLAN,
       notices: [`maxims: ${file.path} is a symlink; managed blocks are not written through links`],
     };
   }
-  const current = linked ? null : readIfPresent(file.path);
-  const rendering = renderingFor(file);
-  const live = file.blocks.filter((block) => block.lines.length > 0);
-  const gone = file.blocks.filter((block) => block.lines.length === 0);
-  const staleKeys = live.filter((block) => block.stale !== undefined).map((block) => block.key);
-  // The tier decides only which stale block carries the self-refresh line, so the harness configs
-  // behind it are read only when a block is stale: a file this run renders no block for (a kept
-  // block, an orphan strip) must plan on a machine whose config a probe refuses to read.
-  const selfRefresh =
-    staleKeys.length === 0
-      ? null
-      : chooseSelfRefreshSource({ tier: await fileTier(file, options.ctx) }, staleKeys);
-  const rendered = live.map((block) => ({
-    block,
-    text: renderBlock({
-      source: block.key,
-      sha: block.sha,
-      lines: block.lines,
-      markers: rendering.markers,
-      expands: rendering.expands,
-      stale: block.stale,
-      selfRefresh: block.key === selfRefresh,
-    }),
-  }));
+  const { linked, current, rendering, gone, rendered } = drawn;
   for (const { block, text } of rendered) {
     notices.push(...blockChangeNotices(file.path, block, text, current));
   }
@@ -180,6 +153,69 @@ export async function planRuleFile(
   if (emptied && current !== null) removals.push({ kind: "delete", path: file.path });
   else if (stripped !== text) removals.push({ kind: "write", path: file.path, content: stripped });
   return { writes, removals, notices, tokens };
+}
+
+type RenderedFile = {
+  linked: boolean;
+  current: string | null;
+  rendering: Rendering;
+  gone: BlockRequest[];
+  rendered: { block: BlockRequest; text: string }[];
+};
+
+// The blocks as this run draws them, beside what the file holds. Null for a shared file the user
+// keeps as a symlink (a dotfiles checkout): it is left alone rather than replaced by a regular
+// file holding only the blocks. A rule file maxims owns whole is always a real file, so a symlink
+// at its path reads as absent and the write that replaces it is planned even when the linked
+// content matches.
+async function renderRuleFile(
+  file: RuleFile,
+  options: RuleFileOptions,
+): Promise<RenderedFile | null> {
+  const linked = isSymlink(file.path);
+  if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
+    return null;
+  }
+  const current = linked ? null : readIfPresent(file.path);
+  const rendering = renderingFor(file);
+  const live = file.blocks.filter((block) => block.lines.length > 0);
+  const gone = file.blocks.filter((block) => block.lines.length === 0);
+  const staleKeys = live.filter((block) => block.stale !== undefined).map((block) => block.key);
+  // The tier decides only which stale block carries the self-refresh line, so the harness configs
+  // behind it are read only when a block is stale: a file this run renders no block for (a kept
+  // block, an orphan strip) must plan on a machine whose config a probe refuses to read.
+  const selfRefresh =
+    staleKeys.length === 0
+      ? null
+      : chooseSelfRefreshSource({ tier: await fileTier(file, options.ctx) }, staleKeys);
+  const rendered = live.map((block) => ({
+    block,
+    text: renderBlock({
+      source: block.key,
+      sha: block.sha,
+      lines: block.lines,
+      markers: rendering.markers,
+      expands: rendering.expands,
+      stale: block.stale,
+      selfRefresh: block.key === selfRefresh,
+    }),
+  }));
+  return { linked, current, rendering, gone, rendered };
+}
+
+// The sources whose block this run changes in the file: absent from it, or drawn differently
+// from the span it holds. Holding any other source cannot make the file smaller.
+export async function changingBlocks(file: RuleFile, options: RuleFileOptions): Promise<string[]> {
+  const drawn = await renderRuleFile(file, options);
+  if (drawn === null) return [];
+  const current = drawn.current ?? "";
+  const spans = parseBlocks(current).blocks;
+  return drawn.rendered
+    .filter(({ block, text }) => {
+      const span = spans.find((candidate) => candidate.source === block.key);
+      return span === undefined || current.slice(span.start, span.end) !== text;
+    })
+    .map(({ block }) => block.key);
 }
 
 type Rendering = { markers: Markers; expands: ExpansionSyntax[] };
