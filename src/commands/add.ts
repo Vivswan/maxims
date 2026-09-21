@@ -94,6 +94,7 @@ import {
   effectiveNames,
   findSourceKey,
   harnessContext,
+  installedAtOtherScope,
   installedSources,
   knownHarnessIds,
   realLocal,
@@ -526,7 +527,9 @@ function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
 // GitHub names are case-insensitive and the state file refuses two spellings of one repository,
 // so a re-add typed in another case continues the recorded entry under its recorded key. State
 // holds one entry per source, so a source recorded for another project cannot be added here in
-// any scope without taking that project's entry over; it is refused with the root named. A
+// any scope without taking that project's entry over, and one recorded at another scope cannot be
+// moved by a re-add; both are refused with the way out named. A re-add under another `-o` folder
+// stays a move of the same scope: the retired folder is swept by the sync that follows. A
 // `--list` takes nothing over and previews the source wherever it is recorded.
 function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequest {
   const recorded = findSourceKey(state, request.key);
@@ -540,6 +543,9 @@ function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequ
       `${recorded} is installed for the project at ${destination.root}`,
       { hint: "remove it from that project first, or install it there" },
     );
+  }
+  if (!request.list && destination.scope !== request.destination.scope) {
+    throw installedAtOtherScope(recorded, destination, request.destination);
   }
   if (recorded === request.key) return request;
   return { ...request, key: recorded, from: entry.intent.from };

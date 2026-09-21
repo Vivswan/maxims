@@ -23,7 +23,7 @@ The [quickstart](quickstart.md#install-a-source) shows what that command prints 
 | `-o, --out <dir>` | an output folder for a rule file no harness owns | neither scope; a relative path resolves against the cwd, not the project root |
 | `--share` | with `-p`: the source also enters the [project lock](share.md#sharing-a-source) for teammates | without it a project install stays yours; refused with `-g` or `-o` |
 
-Two of `-g`, `-p`, and `-o` together is exit 1, "two destinations given". A team folder inside a repo is the case `-o` exists for.
+Two of `-g`, `-p`, and `-o` together is exit 1, "two destinations given". A team folder inside a repo is the case `-o` exists for. A source already installed at one scope is not moved by a re-add at another: that is exit 1 naming where it is, and `remove` followed by `add` is the way to move it.
 
 A local directory source defaults to the user scope so personal text stays out of the repo; the [security page](security.md#where-personal-text-can-leak) owns what can leak.
 

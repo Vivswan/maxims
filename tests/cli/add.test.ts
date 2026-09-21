@@ -17,11 +17,13 @@ import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/state/schema.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { fakeResolvers } from "../engine/harness.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import {
   FIXTURES,
   lastSyncCall,
   readState,
+  realEngineBundle,
   runCli,
   type Scenario,
   snapshot,
@@ -753,6 +755,36 @@ test("a source recorded for another project is refused by add, link, update, sha
   );
 });
 
+// State holds one entry per source, so a re-add at another scope would move it: the user-scope
+// rule file would go, the codex block with it, and only the project write would be printed. The
+// move is refused at the door, the way out named; a re-add at the recorded scope still works.
+const scopeMoves: [string, string[], string[], string][] = [
+  ["global to project", ["-g"], ["-p"], "@a/b is installed at the user scope"],
+  ["project to global", ["-p"], ["-g"], "@a/b is installed for the project at <cwd>"],
+  ["global to out", ["-g"], ["-o", "./team"], "@a/b is installed at the user scope"],
+];
+
+test.each(scopeMoves)(
+  "re-adding an installed source at another scope is refused: %s",
+  async (_title, first, second, message) => {
+    await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+      expect((await runCli(scenario, ["add", "@a/b", ...first, "-a", "codex"])).code).toBe(0);
+      const before = readFileSync(homePaths(scenario.home).state, "utf8");
+      const run = await runCli(scenario, ["add", "@a/b", ...second, "-a", "codex"]);
+      const flag = second.join(" ").replace("./team", join(scenario.cwd, "team"));
+      expect([run.code, run.stderr]).toEqual([
+        1,
+        ` ERROR  ${message.replace("<cwd>", scenario.cwd)}\nTip: run maxims remove @a/b first, then add it with ${flag}\n`,
+      ]);
+      expect(readFileSync(homePaths(scenario.home).state, "utf8")).toBe(before);
+      // The recording engine ran the first add's two syncs and nothing since.
+      expect(scenario.engine.calls.sync).toHaveLength(2);
+      const again = await runCli(scenario, ["add", "@a/b", ...first, "-a", "codex"]);
+      expect([again.code, again.stderr]).toEqual([0, ""]);
+    });
+  },
+);
+
 // A teammate's checkout has no path to a directory outside the project, so such a source is
 // refused at the moment it would be shared rather than dropped from the lock in silence.
 test("a local source outside the project cannot be shared", async () => {
@@ -1034,14 +1066,27 @@ test("re-adding a GitHub source in another case continues the recorded entry", a
   });
 });
 
-test("moving a source from the project to the user scope retires it from the manifest", async () => {
-  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
-    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(0);
-    const lock = join(scenario.cwd, ".agents", "maxims.lock");
-    expect(existsSync(lock)).toBe(true);
-    expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
-    expect(existsSync(lock)).toBe(false);
-  });
+// The manifest follows the source out of the project by the one order that moves it: the refused
+// re-add leaves the lock as it was, the removal takes the entry out of it.
+test("moving a shared source to the user scope goes through remove, which retires it from the manifest", async () => {
+  const fake = fakeResolvers();
+  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
+  await withScenario(
+    { project: true, bundle: realEngineBundle(fake.resolvers) },
+    async (scenario) => {
+      expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(
+        0,
+      );
+      const lock = join(scenario.cwd, ".agents", "maxims.lock");
+      const shared = readFileSync(lock, "utf8");
+      expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(1);
+      expect(readFileSync(lock, "utf8")).toBe(shared);
+      expect((await runCli(scenario, ["remove", "@a/b", "-y"])).code).toBe(0);
+      expect(existsSync(lock)).toBe(false);
+      expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
+      expect(existsSync(lock)).toBe(false);
+    },
+  );
 });
 
 // The old folder is nobody's destination any more, and only the caller knows it existed: the

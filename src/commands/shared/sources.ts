@@ -231,9 +231,38 @@ export function findInstalledSource(state: State, arg: string, io: CliIo): strin
 }
 
 export function installedElsewhere(key: string, root: string): MaximsError {
-  return new MaximsError(ExitCode.Usage, `${key} is installed for the project at ${root}`, {
-    hint: "run the command from that project",
+  return new MaximsError(
+    ExitCode.Usage,
+    `${key} is installed ${describeScope({ scope: "project", root })}`,
+    {
+      hint: "run the command from that project",
+    },
+  );
+}
+
+// A re-add at another scope would move the source: its files at the recorded scope would leave
+// with nothing said about them. The refusal names where it is and the one order that moves it.
+export function installedAtOtherScope(
+  key: string,
+  recorded: Destination,
+  wanted: Destination,
+): MaximsError {
+  const flag =
+    wanted.scope === "global" ? "-g" : wanted.scope === "project" ? "-p" : `-o ${wanted.path}`;
+  return new MaximsError(ExitCode.Usage, `${key} is installed ${describeScope(recorded)}`, {
+    hint: `run maxims remove ${key} first, then add it with ${flag}`,
   });
+}
+
+function describeScope(destination: Destination): string {
+  switch (destination.scope) {
+    case "global":
+      return "at the user scope";
+    case "project":
+      return `for the project at ${destination.root}`;
+    case "out":
+      return `into ${destination.path}`;
+  }
 }
 
 // GitHub names are case-insensitive, so `@vivswan/skills` finds the entry recorded as

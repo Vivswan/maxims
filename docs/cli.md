@@ -121,7 +121,7 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 | 8 | rule cap exceeded |
 
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
-- **Exit 1** follows an unknown flag, `-g` with `-o`, an ambiguous bare name, a non-interactive `remove` without `--yes`, or a `doctor --expect` that is not met.
+- **Exit 1** follows an unknown flag, `-g` with `-o`, an ambiguous bare name, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.
 - **Exit 2** follows a repo not found, no read access, a missing local directory, a non-GitHub git URL with no `git` on PATH, or an interactive `sync` whose fetch failed.
 - **Exit 3** follows a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](write-memories.md#hidden-characters-are-refused) without `--allow-hidden`, a [risky shape](security.md#risky-shapes-in-descriptions) under `--strict`, or a `lint` that found problems.
 - **Exit 4** follows permissions, a read-only filesystem, a full disk, or an unparsable harness config.
