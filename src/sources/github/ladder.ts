@@ -100,10 +100,14 @@ export function endpointsFor(host: string): Endpoints {
   };
 }
 
+// `warn` carries what a person should hear about the fetched content (an entry skipped, a token
+// not applied). `rung` carries which transport failed and why, a diagnostic for the caller to
+// keep or drop; what the ladder finally throws is the one failure the engine records.
 export type LadderOptions = {
   runner: Runner;
   endpoints: Endpoints;
   warn: WarnSink;
+  rung: WarnSink;
   timeoutMs: number;
   token: string | undefined;
 };
@@ -172,7 +176,7 @@ export type Rung<T> = { run: () => Promise<RungOutcome<T>>; fallback?: boolean }
 // answer to `gh auth status` is remembered per ladder because a session's login state cannot change
 // between two rungs, and every gh command names the host so an inherited GH_HOST cannot redirect it.
 export function createLadder(options: LadderOptions): Ladder {
-  const { runner, endpoints, warn, timeoutMs } = options;
+  const { runner, endpoints, warn, rung, timeoutMs } = options;
   const host = ["--hostname", endpoints.ghHost];
   let ghReady: Promise<boolean> | undefined;
   const ghAvailable = (): Promise<boolean> => {
@@ -204,7 +208,7 @@ export function createLadder(options: LadderOptions): Ladder {
 
   return {
     resolveRef: (repo, ref, request) =>
-      climb(warn, [
+      climb(rung, [
         ...(request.auth
           ? [
               ghRung(
@@ -226,7 +230,7 @@ export function createLadder(options: LadderOptions): Ladder {
         },
       ]),
     fetchTree: (repo, sha, destDir, request) =>
-      climb(warn, [
+      climb(rung, [
         ...(request.auth
           ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
           : []),
@@ -289,12 +293,12 @@ const FAILURE_PRIORITY: FetchFailureKind[] = ["ratelimit", "auth", "missing", "i
 
 // A rung may only end in an outcome: whatever it throws instead is a failure of that rung, never
 // the end of the ladder, because a hook that dies here loses the last-good store for nothing.
-export async function climb<T>(warn: WarnSink, rungs: Rung<T>[]): Promise<T> {
+export async function climb<T>(rung: WarnSink, rungs: Rung<T>[]): Promise<T> {
   const failures: FetchFailure[] = [];
   let previous: RungOutcome<T> | undefined;
-  for (const rung of rungs) {
-    if (rung.fallback === true && previous !== undefined && !allowsFallback(previous)) continue;
-    const outcome = await rung
+  for (const step of rungs) {
+    if (step.fallback === true && previous !== undefined && !allowsFallback(previous)) continue;
+    const outcome = await step
       .run()
       .catch(
         (cause: unknown): RungOutcome<T> =>
@@ -303,7 +307,7 @@ export async function climb<T>(warn: WarnSink, rungs: Rung<T>[]): Promise<T> {
     previous = outcome;
     if (outcome.kind === "ok") return outcome.value;
     if (outcome.kind === "skipped") continue;
-    warn(outcome.failure.message);
+    rung(outcome.failure.message);
     failures.push(outcome.failure);
   }
   const kind = FAILURE_PRIORITY.find((candidate) => failures.some((f) => f.kind === candidate));

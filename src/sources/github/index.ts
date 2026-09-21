@@ -18,6 +18,7 @@ export type GithubSourceFrom = Extract<SourceFrom, { type: "github" }>;
 
 export type GithubResolverOptions = {
   warn: WarnSink;
+  rung: WarnSink;
   runner?: Runner;
   env?: NodeJS.ProcessEnv;
 };
@@ -49,6 +50,7 @@ export function createGithubResolver(options: GithubResolverOptions): GithubReso
         runner,
         endpoints: endpointsFor(host),
         warn: options.warn,
+        rung: options.rung,
         timeoutMs,
         token: tokenFor(env, host),
       });

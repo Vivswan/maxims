@@ -15,6 +15,7 @@ export type GitSourceFrom = Extract<SourceFrom, { type: "git" }>;
 
 export type GitResolverOptions = {
   warn: WarnSink;
+  rung: WarnSink;
   runner?: Runner;
   env?: NodeJS.ProcessEnv;
 };
@@ -49,7 +50,7 @@ export function createGitResolver(options: GitResolverOptions): GitResolver {
     const ref = pin ?? from.ref;
     if (FULL_SHA.test(ref)) return ref.toLowerCase();
     return withoutRateLimitClass(
-      climb(options.warn, [lsRemoteRung(runner, from.url, ref, inherited)]),
+      climb(options.rung, [lsRemoteRung(runner, from.url, ref, inherited)]),
     );
   };
   return {
@@ -62,7 +63,7 @@ export function createGitResolver(options: GitResolverOptions): GitResolver {
         ...inherited,
         ...(sparsePath === undefined ? {} : { sparsePath }),
       });
-      await withoutRateLimitClass(climb(options.warn, [clone]));
+      await withoutRateLimitClass(climb(options.rung, [clone]));
       const tree = await readMemoryTree(treeDir, opts, options.warn);
       return { sha, memoryPath: opts.memoryPath, files: tree.files };
     },

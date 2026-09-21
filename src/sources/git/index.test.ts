@@ -49,6 +49,7 @@ describe("createGitResolver", () => {
       const resolver = createGitResolver({
         runner,
         warn: (m) => warnings.push(m),
+        rung: () => {},
         env: { GITHUB_TOKEN: "secret", GH_TOKEN: "secret" },
       });
       const result = await resolver.fetch(FROM, {
@@ -80,7 +81,7 @@ describe("createGitResolver", () => {
         }),
         fetch: () => httpResponse(200, SHA),
       });
-      const resolver = createGitResolver({ runner, warn: () => {}, env: {} });
+      const resolver = createGitResolver({ runner, warn: () => {}, rung: () => {}, env: {} });
       const error = await failure(
         resolver.fetch(FROM, { memoryPath: "memories", fullDepth: false, tempDir, auth: false }),
       );
@@ -91,7 +92,7 @@ describe("createGitResolver", () => {
 
   test("a full sha pin resolves without a rung", async () => {
     const runner = scriptedRunner();
-    const resolver = createGitResolver({ runner, warn: () => {}, env: {} });
+    const resolver = createGitResolver({ runner, warn: () => {}, rung: () => {}, env: {} });
     expect(await resolver.resolveRef(FROM, SHA.toUpperCase())).toBe(SHA);
     expect(runner.calls).toEqual([]);
   });
@@ -101,6 +102,7 @@ describe("createGitResolver", () => {
     const resolver = createGitResolver({
       runner: scriptedRunner(),
       warn: (m) => warnings.push(m),
+      rung: () => {},
       env: {},
     });
     await resolver.resolveRef(
@@ -117,6 +119,7 @@ describe("createGitResolver", () => {
     const warnings: string[] = [];
     const resolver = createGitResolver({
       warn: (m) => warnings.push(m),
+      rung: () => {},
       env: { ...process.env, GIT_TRACE: "1", GIT_TRACE_CURL: "1", GIT_CURL_VERBOSE: "1" },
     });
     const error = await failure(
@@ -141,7 +144,7 @@ describe("createGitResolver", () => {
       const repo = await createFixtureRepo(join(dir, "repo"));
       const from = { type: "git" as const, url: repo.url, ref: "v1" };
       const runner = scriptedRunner({ git: simpleGitRunner() });
-      const resolver = createGitResolver({ runner, warn: () => {}, env: {} });
+      const resolver = createGitResolver({ runner, warn: () => {}, rung: () => {}, env: {} });
       expect(await resolver.resolveRef(from, "HEAD")).toBe(repo.head);
       const tempDir = join(dir, "temp");
       const result = await resolver.fetch(from, {
@@ -163,6 +166,7 @@ describe("createGitResolver", () => {
       const resolver = createGitResolver({
         runner: scriptedRunner({ git: simpleGitRunner() }),
         warn: () => {},
+        rung: () => {},
         env: {},
       });
       const result = await resolver.fetch(

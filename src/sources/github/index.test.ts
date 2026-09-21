@@ -22,7 +22,7 @@ function authorizationOf(init: RequestInit | undefined): string | undefined {
 describe("resolveRef", () => {
   test("a full sha, in any case, resolves without touching a rung", async () => {
     const runner = scriptedRunner();
-    const resolver = createGithubResolver({ runner, warn: () => {}, env: NO_ENV });
+    const resolver = createGithubResolver({ runner, warn: () => {}, rung: () => {}, env: NO_ENV });
     expect(await resolver.resolveRef({ ...FROM, ref: SHA.toUpperCase() })).toBe(SHA);
     expect(await resolver.resolveRef(FROM, SHA)).toBe(SHA);
     expect(runner.calls).toEqual([]);
@@ -39,6 +39,7 @@ describe("resolveRef", () => {
     const resolver = createGithubResolver({
       runner,
       warn: () => {},
+      rung: () => {},
       env: { GITHUB_TOKEN: "secret" },
     });
     expect(await resolver.resolveRef(FROM, "v2")).toBe(SHA);
@@ -86,6 +87,7 @@ describe("fetch", () => {
       const resolver = createGithubResolver({
         runner,
         warn: (m) => warnings.push(m),
+        rung: () => {},
         env: { GITHUB_TOKEN: "secret" },
       });
       const result = await resolver.fetch(FROM, {
@@ -122,7 +124,12 @@ describe("fetch", () => {
             : exited(0, cleanTarball()),
         ),
       });
-      const resolver = createGithubResolver({ runner, warn: () => {}, env: NO_ENV });
+      const resolver = createGithubResolver({
+        runner,
+        warn: () => {},
+        rung: () => {},
+        env: NO_ENV,
+      });
       const first = await resolver.fetch(FROM, {
         memoryPath: "memories",
         fullDepth: false,
@@ -158,7 +165,12 @@ describe("fetch", () => {
           return httpResponse(200, cleanTarball());
         },
       });
-      const resolver = createGithubResolver({ runner, warn: () => {}, env: { GH_TOKEN: "t0k" } });
+      const resolver = createGithubResolver({
+        runner,
+        warn: () => {},
+        rung: () => {},
+        env: { GH_TOKEN: "t0k" },
+      });
       await resolver.fetch(
         { ...FROM, ref: SHA },
         { memoryPath: "memories", fullDepth: false, tempDir, auth: true },
@@ -200,6 +212,7 @@ describe("fetch", () => {
       const resolver = createGithubResolver({
         runner,
         warn: () => {},
+        rung: () => {},
         env: ghHost === "" ? {} : { GH_HOST: ghHost },
       });
       const from = host === undefined ? { ...FROM, ref: SHA } : { ...FROM, ref: SHA, host };
@@ -236,6 +249,7 @@ describe("fetch", () => {
       const resolver = createGithubResolver({
         runner,
         warn: () => {},
+        rung: () => {},
         env: { GITHUB_TOKEN: "dotcom", GH_ENTERPRISE_TOKEN: "ghe" },
       });
       const opts = { memoryPath: "memories", fullDepth: false, tempDir, auth: true };

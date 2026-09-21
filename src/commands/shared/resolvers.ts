@@ -7,6 +7,7 @@ import type { WarnSink } from "../../sources/tree.ts";
 
 export type ResolverOptions = {
   warn: WarnSink;
+  rung: WarnSink;
   runner?: Runner;
   env: NodeJS.ProcessEnv;
 };
@@ -16,8 +17,9 @@ export type ResolverOptions = {
 // its members, which is how a variant-typed resolver serves the generic contract without a cast.
 export function createResolvers(options: ResolverOptions): ResolverFor {
   const runner = options.runner === undefined ? {} : { runner: options.runner };
-  const github = createGithubResolver({ warn: options.warn, env: options.env, ...runner });
-  const git = createGitResolver({ warn: options.warn, env: options.env, ...runner });
+  const sinks = { warn: options.warn, rung: options.rung };
+  const github = createGithubResolver({ ...sinks, env: options.env, ...runner });
+  const git = createGitResolver({ ...sinks, env: options.env, ...runner });
   const local = createLocalResolver(options.warn);
   return <F extends SourceFrom>(from: F): SourceResolver<F> => {
     if (from.type === "github") {

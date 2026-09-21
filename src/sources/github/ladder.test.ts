@@ -48,6 +48,7 @@ const INHERITED = { credentials: { kind: "inherited" } } as const;
 type LadderSetup = {
   endpoints?: Partial<Endpoints>;
   warnings?: string[];
+  rungs?: string[];
   token?: string;
   timeoutMs?: number;
 };
@@ -57,6 +58,7 @@ function ladder(runner: Runner, setup: LadderSetup = {}) {
     runner,
     endpoints: { ...endpointsFor("github.com"), ...setup.endpoints },
     warn: (m) => setup.warnings?.push(m),
+    rung: (m) => setup.rungs?.push(m),
     timeoutMs: setup.timeoutMs ?? 60_000,
     token: setup.token,
   });
@@ -164,14 +166,18 @@ describe("resolveRef without auth", () => {
     "%s from ls-remote reaches the API: %p",
     async (_label, message, reachesApi, kind) => {
       const warnings: string[] = [];
+      const rungs: string[] = [];
       const runner = scriptedRunner({
         git: scriptedGit({ lsRemote: () => ({ kind: "failed", message }) }),
         fetch: () => httpResponse(404),
       });
-      const error = await failure(ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON));
+      const error = await failure(
+        ladder(runner, { warnings, rungs }).resolveRef(REPO, "HEAD", ANON),
+      );
       expect(runner.calls.some((c) => c.startsWith("fetch "))).toBe(reachesApi);
       expect(error.kind).toBe(kind);
-      expect(warnings[0]).toBe(`git ls-remote: ${message}`);
+      expect(rungs[0]).toBe(`git ls-remote: ${message}`);
+      expect(warnings).toEqual([]);
     },
   );
 
@@ -193,11 +199,11 @@ describe("resolveRef without auth", () => {
   });
 
   test("a body that dies after a 200 is a network failure, not an escaped exception", async () => {
-    const warnings: string[] = [];
+    const rungs: string[] = [];
     const runner = scriptedRunner({ fetch: () => brokenBodyResponse() });
-    const error = await failure(ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON));
+    const error = await failure(ladder(runner, { rungs }).resolveRef(REPO, "HEAD", ANON));
     expect(error.kind).toBe("network");
-    expect(warnings).toEqual([
+    expect(rungs).toEqual([
       "https://api.github.com/repos/example-user/rules/commits/HEAD: terminated",
     ]);
   });
@@ -215,13 +221,14 @@ describe("resolveRef with auth", () => {
 
   test("an unauthenticated gh is skipped silently and ls-remote carries the token header", async () => {
     const warnings: string[] = [];
+    const rungs: string[] = [];
     const runner = scriptedRunner({
       exec: ghScript(() => exited(0, SHA), false),
       git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${SHA}\tHEAD\n` }) }),
     });
-    const climb = ladder(runner, { warnings, token: "secret" });
+    const climb = ladder(runner, { warnings, rungs, token: "secret" });
     expect(await climb.resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
-    expect(warnings).toEqual([]);
+    expect({ warnings, rungs }).toEqual({ warnings: [], rungs: [] });
     expect(runner.calls).toEqual([
       "exec gh auth status --hostname github.com",
       `git ls-remote ${GIT_URL} HEAD HEAD^{} [header=Authorization: Bearer secret]`,
@@ -249,17 +256,21 @@ describe("resolveRef with auth", () => {
     expect(capture.headers[0]?.Authorization).toBeUndefined();
   });
 
-  test("gh encodes the ref too, and a gh failure warns then falls through", async () => {
+  test("gh encodes the ref too, and a gh failure is a rung line, never a warning", async () => {
     const warnings: string[] = [];
+    const rungs: string[] = [];
     const runner = scriptedRunner({
       exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
       fetch: () => httpResponse(200, SHA),
     });
-    expect(await ladder(runner, { warnings }).resolveRef(REPO, "release#1", AUTH)).toBe(SHA);
+    expect(await ladder(runner, { warnings, rungs }).resolveRef(REPO, "release#1", AUTH)).toBe(SHA);
     expect(runner.calls[1]).toBe(
       "exec gh api --hostname github.com repos/example-user/rules/commits/release%231 --jq .sha",
     );
-    expect(warnings).toEqual(["gh api: gh: Not Found (HTTP 404)"]);
+    expect({ rungs, warnings }).toEqual({
+      rungs: ["gh api: gh: Not Found (HTTP 404)"],
+      warnings: [],
+    });
   });
 
   test("when every rung fails the most actionable failure is thrown and Retry-After survives", async () => {
@@ -348,13 +359,13 @@ describe("fetchTree", () => {
 
   test("a rung that failed half-way leaves nothing for the next rung to merge into", async () => {
     await withTempDir(async (dir) => {
-      const warnings: string[] = [];
+      const rungs: string[] = [];
       const runner = scriptedRunner({
         exec: ghScript(() => exited(0, corruptAfterOneFileTarball())),
         fetch: () => httpResponse(200, cleanTarball()),
       });
-      await ladder(runner, { warnings }).fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
-      expect(warnings).toEqual([expect.stringMatching(/^tarball could not be extracted: /)]);
+      await ladder(runner, { rungs }).fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
+      expect(rungs).toEqual([expect.stringMatching(/^tarball could not be extracted: /)]);
       expect(readdirSync(join(dir, "tree", "memories")).sort()).toEqual([
         "commit-review.md",
         "tests-first.md",
@@ -364,7 +375,7 @@ describe("fetchTree", () => {
 
   test("a rung that throws is that rung's failure, and the ladder goes on", async () => {
     await withTempDir(async (dir) => {
-      const warnings: string[] = [];
+      const rungs: string[] = [];
       const runner = scriptedRunner({
         git: scriptedGit({
           shallowClone: () => {
@@ -373,8 +384,8 @@ describe("fetchTree", () => {
         }),
         fetch: () => httpResponse(200, cleanTarball()),
       });
-      await ladder(runner, { warnings }).fetchTree(REPO, SHA, join(dir, "tree"), ANON);
-      expect(warnings).toEqual(["ENOSPC: no space left on device"]);
+      await ladder(runner, { rungs }).fetchTree(REPO, SHA, join(dir, "tree"), ANON);
+      expect(rungs).toEqual(["ENOSPC: no space left on device"]);
       expect(readdirSync(join(dir, "tree"))).toContain("README.md");
     });
   });
@@ -995,12 +1006,13 @@ describe("git rung against a file:// fixture repo", () => {
 
   test("a git binary that does not exist drops the rung silently", async () => {
     const warnings: string[] = [];
+    const rungs: string[] = [];
     const runner = scriptedRunner({
       git: simpleGitRunner({ binary: "/nonexistent/maxims-test-git" }),
       fetch: () => httpResponse(200, SHA),
     });
-    expect(await ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
-    expect(warnings).toEqual([]);
+    expect(await ladder(runner, { warnings, rungs }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
+    expect({ warnings, rungs }).toEqual({ warnings: [], rungs: [] });
   });
 
   // Each runtime spells a failed spawn differently, and only the host's spelling ever runs above.

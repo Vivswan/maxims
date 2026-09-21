@@ -21,8 +21,10 @@ export type RealWorld = {
   cwd: string;
   projectRoot: string | null;
   runner: ScriptedRunner;
-  // Resolver warnings, the lines an interactive run would print as `maxims: ...` on stderr.
+  // Resolver warnings, the lines an interactive run would print as `maxims: ...` on stderr, and
+  // the rung diagnostics the bin keeps off it.
   warnings: string[];
+  rungs: string[];
   clock: { now: Date };
 };
 
@@ -57,6 +59,7 @@ export async function withRealWorld<T>(
       projectRoot: options.project === true ? cwd : null,
       runner: options.runner ?? scriptedRunner(),
       warnings: [],
+      rungs: [],
       clock: { now: options.now ?? NOW },
     });
   });
@@ -85,6 +88,7 @@ export async function runReal(
         ...bundle,
         resolvers: createResolvers({
           warn: (line) => world.warnings.push(line),
+          rung: (line) => world.rungs.push(line),
           env,
           runner: world.runner,
         }),

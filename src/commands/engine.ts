@@ -40,8 +40,11 @@ export async function createEngine(options: EngineOptions): Promise<EngineBundle
     ? () => undefined
     : (line: string) => process.stderr.write(`maxims: ${line}\n`);
   const harnesses = [...HARNESSES, ...(await loadUserDefinedHarnesses(maximsHome(options.env)))];
+  // Which rung failed is the engine's to record beside the failure it keeps; printed here it would
+  // stand beside the run's own line about the same fetch.
   const resolvers = createResolvers({
     warn,
+    rung: () => undefined,
     env: options.env,
     ...(options.runner === undefined ? {} : { runner: options.runner }),
   });
