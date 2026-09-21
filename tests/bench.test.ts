@@ -337,16 +337,21 @@ interface GitFailure {
   fragments: string[];
 }
 
-// A copy of the bench in a plain directory asks git about a checkout that is not one. The ceiling
-// keeps git from adopting a repository that happens to enclose the OS tmpdir. With an empty PATH
-// only git goes missing: the bench and its child are named by absolute path.
+// A copy of the bench in a checkout whose own .git is damaged asks git about a repository it
+// cannot read, while that checkout's linked worktrees may still exist. The ceiling keeps git from
+// adopting a repository that happens to enclose the OS tmpdir. With an empty PATH only git goes
+// missing: the bench and its child are named by absolute path.
 const gitFailures: [string, (dir: string) => GitFailure][] = [
   [
-    "a checkout git does not recognize",
+    "a checkout whose own .git is damaged",
     (dir) => {
-      mkdirSync(join(dir, "fixture"));
+      const fixture = join(dir, "fixture");
+      mkdirSync(fixture);
+      const init = Bun.spawnSync(["git", "-C", fixture, "init", "--quiet"], { stderr: "pipe" });
+      if (init.exitCode !== 0) throw new Error(init.stderr.toString());
+      rmSync(join(fixture, ".git", "HEAD"));
       return {
-        bench: copyBenchInto(join(dir, "fixture")),
+        bench: copyBenchInto(fixture),
         env: { GIT_CEILING_DIRECTORIES: dirname(dir) },
         fragments: ["not a git repository", "git worktree list exited with 128"],
       };

@@ -2,11 +2,14 @@
 // left lexical, a missing tail dropped, a relative spelling resolved against the wrong base, or a
 // dangling link followed instead of refused would each let one of the scripts compare two paths
 // that differ in spelling only, and write where its guard should have said no. Also fails if
-// isInside starts judging by string prefix instead of by path segment.
+// isInside starts judging by string prefix instead of by path segment, or if outsideCheckouts
+// stops refusing a path inside a copy of the repository that carries no .git (the container tier
+// runs the scripts from one) or starts guessing at the set of checkouts when git fails for any
+// other reason.
 import { expect, test } from "bun:test";
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join, parse, relative, resolve } from "node:path";
-import { isInside, whereBytesLand } from "../scripts/lib/paths.ts";
+import { isInside, outsideCheckouts, whereBytesLand } from "../scripts/lib/paths.ts";
 import { withTempDir } from "./shared/temp_dir.ts";
 
 const refuse = (message: string): never => {
@@ -98,4 +101,95 @@ const containments: [string, string, boolean][] = [
 
 test.each(containments)("isInside(%p, %p) is %p", (inside, path, expected) => {
   expect(isInside(inside, path)).toBe(expected);
+});
+
+// A copy of the repository with no .git is what the container tier runs the scripts from; git
+// finds no repository above it, which leaves the copy itself as the only checkout. Every other
+// failure leaves the set of checkouts unknown, so refuse: a gitfile git cannot read, one pointing
+// at a primary that has moved away (the primary is a checkout), and a primary whose own .git is
+// damaged, which git skips and then reports as nothing found while its linked worktrees remain.
+interface Listing {
+  arrange: (root: string) => void;
+  target: (dir: string, root: string) => string;
+  expected: { path: (dir: string) => string } | { refusal: string };
+}
+
+const checkoutListings: [string, Listing][] = [
+  [
+    "a path inside a copy without .git is refused",
+    {
+      arrange: () => {},
+      target: (_dir, root) => join(root, "out", "bench.json"),
+      expected: { refusal: "refusing to write measured data inside the repository: " },
+    },
+  ],
+  [
+    "a path beside a copy without .git is allowed",
+    {
+      arrange: () => {},
+      target: (dir) => join(dir, "bench.json"),
+      expected: { path: (dir) => join(realpathSync.native(dir), "bench.json") },
+    },
+  ],
+  [
+    "a linked worktree whose primary moved away is refused before the path is judged",
+    {
+      arrange: (root) => writeFileSync(join(root, ".git"), `gitdir: ${join(root, "..", "gone")}\n`),
+      target: (dir) => join(dir, "bench.json"),
+      expected: {
+        refusal: "cannot list the repository's checkouts: git worktree list exited with 128",
+      },
+    },
+  ],
+  [
+    "a checkout whose own .git is damaged is refused before the path is judged",
+    {
+      arrange: (root) => {
+        const init = Bun.spawnSync(["git", "-C", root, "init", "--quiet"], { stderr: "pipe" });
+        if (init.exitCode !== 0) throw new Error(init.stderr.toString());
+        rmSync(join(root, ".git", "HEAD"));
+      },
+      target: (dir) => join(dir, "bench.json"),
+      expected: {
+        refusal: "cannot list the repository's checkouts: git worktree list exited with 128",
+      },
+    },
+  ],
+  [
+    "any other git failure is refused before the path is judged",
+    {
+      arrange: (root) => writeFileSync(join(root, ".git"), "garbage\n"),
+      target: (dir) => join(dir, "bench.json"),
+      expected: {
+        refusal: "cannot list the repository's checkouts: git worktree list exited with 128",
+      },
+    },
+  ],
+];
+
+// The ceiling keeps git from adopting a repository that happens to enclose the fixture directory
+// (a TMPDIR inside a checkout); the helper spawns git with this process's environment.
+test.each(checkoutListings)("outsideCheckouts: %s", async (_name, listing) => {
+  await withTempDir((dir) => {
+    const ceiling = process.env.GIT_CEILING_DIRECTORIES;
+    process.env.GIT_CEILING_DIRECTORIES = dir;
+    try {
+      const root = join(dir, "copy");
+      mkdirSync(root);
+      writeFileSync(join(root, "package.json"), "{}\n");
+      listing.arrange(root);
+      const out = listing.target(dir, root);
+      const { expected } = listing;
+      if ("path" in expected) {
+        expect(outsideCheckouts(out, root, "measured data", refuse)).toBe(expected.path(dir));
+      } else {
+        expect(() => outsideCheckouts(out, root, "measured data", refuse)).toThrow(
+          expected.refusal,
+        );
+      }
+    } finally {
+      if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+      else process.env.GIT_CEILING_DIRECTORIES = ceiling;
+    }
+  });
 });
