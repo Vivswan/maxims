@@ -36,14 +36,18 @@ const FAKE_DOCKER = [
 
 const PROBE_OUTPUT = "home-is-expected\nhome-empty\nwork-copied\nhome-writable\nnetwork-none\n";
 
-// The job log is read by a process slower than the tier's writes. A reader that starts only
-// after the tier has exited is the same condition at its limit: everything the tier queued
-// instead of writing is gone. Both streams go to the one log, so both are read as one here.
+// Both streams go to the one job log, so both are read as one here. The verdict cases read the
+// tier directly; only the truncation case reads it the way the job does: through a process slower
+// than the tier's writes, where a reader that starts only after the tier has exited is the same
+// condition at its limit, since everything the tier queued instead of writing is gone. The pipe
+// hides the tier's exit, so that reader leaves it in a file.
+const DIRECT_READER = 'exec "$@" 2>&1';
 const SLOW_READER = '{ "$@" 2>&1; echo "$?" > "$MAXIMS_TIER_EXIT_FILE"; } | { sleep 2; cat; }';
+type Reader = "direct" | "slow";
 
 type TierRun = { exitCode: number; log: string };
 
-function runTier(dir: string, suiteStderr: string): TierRun {
+function runTier(dir: string, suiteStderr: string, reader: Reader): TierRun {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "docker"), FAKE_DOCKER);
@@ -52,7 +56,14 @@ function runTier(dir: string, suiteStderr: string): TierRun {
   writeFileSync(captured, suiteStderr);
   const exitFile = join(dir, "tier-exit");
   const proc = Bun.spawnSync(
-    ["sh", "-c", SLOW_READER, "sh", process.execPath, "scripts/container_tests.ts"],
+    [
+      "sh",
+      "-c",
+      reader === "slow" ? SLOW_READER : DIRECT_READER,
+      "sh",
+      process.execPath,
+      "scripts/container_tests.ts",
+    ],
     {
       cwd: REPO_ROOT,
       env: {
@@ -67,7 +78,7 @@ function runTier(dir: string, suiteStderr: string): TierRun {
     },
   );
   return {
-    exitCode: Number(readFileSync(exitFile, "utf8").trim()),
+    exitCode: reader === "slow" ? Number(readFileSync(exitFile, "utf8").trim()) : proc.exitCode,
     log: `${proc.stdout.toString()}${proc.stderr.toString()}`,
   };
 }
@@ -198,15 +209,15 @@ const cases: Case[] = [
   },
 ];
 
-// The fake runtime is a POSIX sh script found through a colon-joined PATH, and the slow reader
-// is a sh pipeline; neither runs on a Windows host.
+// The fake runtime is a POSIX sh script found through a colon-joined PATH, and both readers are
+// sh command lines; none of them runs on a Windows host.
 const hostSh = test.skipIf(WINDOWS);
 
 hostSh.each(cases)(
   "the tier's verdict on the smoke rows: $name",
   async ({ suite, exitCode, afterSuite, tail }) => {
     await withTempDir((dir) => {
-      const run = runTier(dir, suite);
+      const run = runTier(dir, suite, "direct");
       expect({ exitCode: run.exitCode, log: withoutSeconds(run.log) }).toEqual({
         exitCode,
         log: expectedLog(suite, afterSuite, tail),
@@ -232,7 +243,7 @@ hostSh(
     await withTempDir((dir) => {
       const suite = suiteOutput([filler(), smokeSection(statuses("pass"))], SUMMARY);
       expect(suite.length).toBeGreaterThan(200_000);
-      const run = runTier(dir, suite);
+      const run = runTier(dir, suite, "slow");
       expect({ exitCode: run.exitCode, log: withoutSeconds(run.log) }).toEqual({
         exitCode: 0,
         log: expectedLog(suite, [...rowLines(statuses("pass")), SUMMARY_LINE], ""),
