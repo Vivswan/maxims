@@ -10,6 +10,7 @@ import { readHookStdin } from "./stdin.ts";
 // prints nowhere and reads nothing.
 export type EngineIoOptions = {
   stdout: Sink;
+  stderr?: Sink;
   readStdin?: () => Promise<string | null>;
 };
 
@@ -19,7 +20,7 @@ export function engineIo(io: CliIo, options: EngineIoOptions): EngineIo {
   let symlink: Promise<SymlinkSupport> | null = null;
   return {
     stdout: (text) => options.stdout.write(text),
-    stderr: (text) => io.stderr.write(text),
+    stderr: (text) => (options.stderr ?? io.stderr).write(text),
     resolvers: io.resolvers,
     harnesses: io.harnesses,
     now: io.now,
@@ -33,15 +34,15 @@ export function engineIo(io: CliIo, options: EngineIoOptions): EngineIo {
   };
 }
 
-// A verb that frames its own output (add, install, update, link, disable) hands the engine a
-// sink that keeps nothing: the report carries every notice the frame prints, and the plan and
-// the `--json` document are the verb's to render once. A failure the engine printed into that
-// sink was seen by nobody, so it is rethrown as an ordinary error for the frame to print.
+// A verb that frames its own output (add, install, update, link, disable) hands the engine sinks
+// that keep nothing: the report carries every notice and failure the frame prints, and the plan
+// and the `--json` document are the verb's to render once. A failure the engine printed into
+// those sinks was seen by nobody, so it is rethrown as an ordinary error for the frame to print.
 export const SILENT: Sink = { write: () => undefined };
 
 export async function framed<T>(io: CliIo, run: (engine: EngineIo) => Promise<T>): Promise<T> {
   try {
-    return await run(engineIo(io, { stdout: SILENT }));
+    return await run(engineIo(io, { stdout: SILENT, stderr: SILENT }));
   } catch (error) {
     if (!(error instanceof ReportedMaximsError)) throw error;
     throw new MaximsError(error.code, error.message, {

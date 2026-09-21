@@ -114,6 +114,11 @@ const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
+// The failure kinds `staleNotices` says out loud the run they happen; a transient kind earns its
+// loud line only once the source is stale, and until then the engine's own word on it is the one
+// stderr summary (the resolver may have said which rung failed before it).
+const LOUD_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
+
 const STALE_REASON: Record<Staleness["kind"], string> = {
   age: "no successful fetch",
   network: "network unreachable",
@@ -916,6 +921,16 @@ async function refreshAll(
       case "no-valid":
         notices.trace(`${key}: fetch failed (${result.error.kind}): ${result.error.message}`);
         failed.push({ key, message: result.error.message, kind: result.error.kind });
+        // Until a transient failure is said out loud, the run's non-zero exit has this line to
+        // explain it.
+        if (
+          !LOUD_AT_ONCE.has(result.error.kind) &&
+          staleness(result.entry.fetched, ctx.now) === undefined
+        ) {
+          notices.aside(
+            `maxims: ${key}: fetch failed (${STALE_REASON[result.error.kind]}); kept last-good`,
+          );
+        }
         break;
       case "skipped":
       case "not-due":

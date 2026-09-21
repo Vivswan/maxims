@@ -195,6 +195,36 @@ describe("fail-soft rungs under --quiet", () => {
     });
   });
 
+  // A non-zero exit with no line is a defect of its own: inside the seven-day window the stale
+  // line is not yet due, so the interactive run says on stderr which source failed and how, once;
+  // the hook run stays silent, as its protocol asks.
+  const transient: [LastError["kind"], string][] = [
+    ["network", "network unreachable"],
+    ["ratelimit", "rate limited"],
+    ["auth", "authentication failed"],
+  ];
+  test.each(transient)(
+    "an interactive run names a %s failure once on stderr; a hook run says nothing",
+    async (kind, reason) => {
+      await world(async (w) => {
+        const { fake, io } = await lastGood(w, 9);
+        await runSync(SYNC, io);
+        fake.set(FROM, { kind: "fail", failure: kind });
+        io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+        io.out.length = 0;
+        io.err.length = 0;
+        const report = await runSync(SYNC, io);
+        expect(report.failed.map((failure) => failure.kind)).toEqual([kind]);
+        expect(io.out.join("")).toBe("");
+        expect(io.err.join("")).toBe(`maxims: ${KEY}: fetch failed (${reason}); kept last-good\n`);
+        io.err.length = 0;
+        io.clock.now = new Date(NOW.getTime() + 3 * DAY_MS);
+        await runSync(QUIET, io);
+        expect([io.out.join(""), io.err.join("")]).toEqual(["", ""]);
+      });
+    },
+  );
+
   test("a defect thrown mid-run exits clean and leaves its stack in the log, nowhere else", async () => {
     await world(async (w) => {
       const { fake, io } = await lastGood(w, 9);

@@ -23,7 +23,13 @@ o  Up to date: 4 memories, 4 rule lines
 
 A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), or a failed write, prints its own line instead, and the up-to-date line stays out.
 
-A failed fetch keeps it out too. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below). Until then the run prints nothing about the failure, records the reason in `log/refresh.log`, and exits non-zero as the [failure paths](guarantees.md#failure-paths) say. The same no-op run under `--quiet` prints nothing.
+A failed fetch keeps it out too. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below).
+
+Until then the run prints one line on stderr naming the source and the failure, records the reason in `log/refresh.log`, and exits non-zero as the [failure paths](guarantees.md#failure-paths) say. The same run under `--quiet` prints nothing.
+
+```text
+maxims: @Vivswan/skills: fetch failed (network unreachable); kept last-good
+```
 
 In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 

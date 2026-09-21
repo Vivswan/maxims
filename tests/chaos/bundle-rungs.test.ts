@@ -174,9 +174,14 @@ test.skipIf(gitDaemon.kind === "unavailable" || WINDOWS).each(networkRows)(
       ageFetch(world.home.maximsHome, key, ageDays, clock);
       const manual = await runMaxims(bundle, world.home, ["sync"]);
       expect(manual.code).toBe(2);
+      // The ladder says which rung failed; inside the window the run adds one line naming the
+      // source and the failure, and once the source is stale the stdout notice says it instead.
       expect(manual.stderr).toMatch(
         /^maxims: git ls-remote: fatal: unable to connect to 127\.0\.0\.1/,
       );
+      const summary = `maxims: ${key}: fetch failed (network unreachable); kept last-good\n`;
+      expect(manual.stderr.endsWith(summary)).toBe(!staleLine);
+      expect(manual.stdout.includes("has not refreshed since")).toBe(staleLine);
       expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("network");
       expect(readFileSync(rule, "utf8")).toBe(after);
       expect(storeSnapshot(world.home)).toEqual(store);
