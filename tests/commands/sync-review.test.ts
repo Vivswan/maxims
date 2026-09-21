@@ -2,7 +2,8 @@
 // or rewrites the block, a held revision the sweep deletes or a removed source's revision that
 // survives, a hold the hook path cannot hear or that goes unsaid once it stands, a remote standing
 // at the held sha fetched again, a hold kept after upstream returned to the installed revision,
-// and an unmarked source that stops applying at once.
+// an up-to-date line printed beside a standing hold, and an unmarked source that stops applying
+// at once.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -104,7 +105,7 @@ describe("a reviewed source", () => {
         "+ new-rule",
       ]);
       expect(fetchedAt(w.home)).toBe(now);
-      expect(io.out.join("")).toContain(`${heldForReview(KEY, 2)}\n`);
+      expect(io.out.join("")).toBe(`${heldForReview(KEY, 2)}\n`);
       const log = readFileSync(homePaths(w.home).log, "utf8");
       expect(log).toContain(`${KEY}: held + new-rule\n`);
       expect(log).toMatch(/@acme\/rules: held ~ always-review \([0-9a-f]{7} -> [0-9a-f]{7}\)\n/);
@@ -146,7 +147,7 @@ describe("a reviewed source", () => {
       expect(fake.calls).toEqual([`resolveRef ${KEY}`]);
       expect(third.held).toEqual([KEY]);
       expect(third.upstreamChanges).toEqual({ [KEY]: ["+ third-rule"] });
-      expect(io.out.join("")).toContain(`${heldForReview(KEY, 1)}\n`);
+      expect(io.out.join("")).toBe(`${heldForReview(KEY, 1)}\n`);
       expect(readFileSync(homePaths(w.home).state, "utf8")).toBe(stateBytes);
       fake.set(FROM, { kind: "dir", dir: a });
       fake.calls.length = 0;
