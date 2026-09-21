@@ -220,6 +220,7 @@ export async function planSync(
           fetched: refreshed.fetchedKeys,
           held: attempt.awaitingReview.map((source) => source.key),
           heldFiles: attempt.heldFiles,
+          stale: attempt.stale,
           upstreamChanges: Object.fromEntries([
             ...refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
             ...attempt.awaitingReview.map((source) => [source.key, source.summary]),
@@ -265,6 +266,7 @@ type Attempt = {
   // stale source.
   awaitingReview: { key: string; summary: string[] }[];
   heldFiles: string[];
+  stale: string[];
   hookRun: boolean;
   sources: number;
   memories: number;
@@ -293,6 +295,7 @@ async function planInstall(
   // the held revision would replace, so the hold is as live for it as for an admitted one.
   const awaitingReview: Attempt["awaitingReview"] = [];
   const heldFiles: string[] = [];
+  const stale: string[] = [];
   for (const [key, entry] of Object.entries(refreshed.sources)) {
     if (!actsHere(entry, ctx) || !isFetchedEntry(entry) || entry.pending === undefined) continue;
     awaitingReview.push({ key, summary: entry.pending.summary });
@@ -405,6 +408,7 @@ async function planInstall(
       notices.notice(`maxims: ${key}: ${selection.hiddenInternal} internal, hidden`);
     }
     for (const memory of work.tree.memories) knownCopies.add(memory.memory.contentHash);
+    if (work.stale !== undefined) stale.push(key);
     staleNotices(work, notices);
     const slug = sourceSlug(intent.from);
     const resolved =
@@ -784,6 +788,7 @@ async function planInstall(
     failed: read.failed,
     awaitingReview,
     heldFiles,
+    stale,
     hookRun,
     sources: works.length,
     memories,

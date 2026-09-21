@@ -72,6 +72,8 @@ export type SyncReport = {
   held: string[];
   // Shared files this run left as they were because a removal in them would pair stray markers.
   heldFiles: string[];
+  // Sources whose stale line this run rendered; the run is not up to date while one stands.
+  stale: string[];
   upstreamChanges: Record<string, string[]>;
   failed: { key: string; message: string; kind: LastError["kind"] }[];
   changed: string[];

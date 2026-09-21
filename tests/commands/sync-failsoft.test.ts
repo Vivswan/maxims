@@ -410,6 +410,30 @@ describe("staleness", () => {
     });
   }
 
+  // The stale line is the run's word on that source, so the up-to-date line stays out beside it,
+  // as it does beside a failed fetch; the same source with no failure on record earns the line.
+  const standing: [LastError | null, string][] = [
+    [
+      { kind: "missing", message: "404", at: NOW.toISOString() },
+      `!  maxims: ${KEY} has not refreshed since 2026-09-19 (source repository gone or unreadable); rules may be out of date\n`,
+    ],
+    [null, "o  Up to date: 2 memories, 2 rule lines\n"],
+  ];
+  test.each(standing)(
+    "a run that fetched nothing prints the stale line or the up-to-date line, never both (%j)",
+    async (lastError, stdout) => {
+      await world(async (w) => {
+        const { io } = await lastGood(w, 1, lastError);
+        await runSync({ ...SYNC, fetch: "none" }, io);
+        io.out.length = 0;
+        io.clock.now = new Date(NOW.getTime() + 1000);
+        const report = await runSync({ ...SYNC, fetch: "none" }, io);
+        expect(io.out.join("")).toBe(stdout);
+        expect(report.stale).toEqual(lastError === null ? [] : [KEY]);
+      });
+    },
+  );
+
   // The notice carries a timestamp the run that drops it never knew, so it is recognized by its
   // shape; an edited tail no longer has that shape.
   const recoveries: [string, (notice: string) => string, boolean][] = [

@@ -23,7 +23,7 @@ o  Up to date: 4 memories, 4 rule lines
 
 A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), a file held because [stray marker lines surround a block](troubleshooting.md#exit-4-stray-marker-lines-surround-the-block-to-remove), or a failed write, prints its own line instead, and the up-to-date line stays out.
 
-A failed fetch keeps it out too. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below).
+A failed fetch keeps it out too, and so does a source standing stale, whose stale line is the run's word on it. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below).
 
 Until then the run prints one line on stderr naming the source and the failure, records the reason in `log/refresh.log`, and exits non-zero as the [failure paths](guarantees.md#failure-paths) say. The same run under `--quiet` prints nothing.
 

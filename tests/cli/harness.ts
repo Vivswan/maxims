@@ -115,6 +115,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     fetched: options.syncReport?.fetched ?? [],
     held: options.syncReport?.held ?? [],
     heldFiles: [],
+    stale: [],
     upstreamChanges: options.syncReport?.upstreamChanges ?? {},
     failed: [...(options.syncReport?.failed ?? [])],
     changed: [],

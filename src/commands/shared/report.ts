@@ -18,6 +18,7 @@ export const EMPTY_REPORT: SyncReport = {
   fetched: [],
   held: [],
   heldFiles: [],
+  stale: [],
   upstreamChanges: {},
   failed: [],
   changed: [],
@@ -130,7 +131,8 @@ function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {
     outcome.failures.length === 0 &&
     report.failed.length === 0 &&
     report.held.length === 0 &&
-    report.heldFiles.length === 0
+    report.heldFiles.length === 0 &&
+    report.stale.length === 0
   );
 }
 
