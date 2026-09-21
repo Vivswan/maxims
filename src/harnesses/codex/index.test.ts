@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withTempDir } from "../../../tests/shared/temp_dir.ts";
+import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import { type HarnessContext, scopeRoot } from "../contract.ts";
 import { hasHook, planHookRegistryWrite } from "../hook-writer.ts";
@@ -56,9 +57,57 @@ test.each(layers)(
 test("achievedTier surfaces a config.toml it cannot read instead of counting it absent", async () => {
   await withTempDir(async (dir) => {
     mkdirSync(join(dir, ".codex", "config.toml"), { recursive: true });
-    await expect(achievedTier({ home: dir, projectRoot: null, env: {} })).rejects.toThrow(/EISDIR/);
+    const refused = await achievedTier({ home: dir, projectRoot: null, env: {} }).catch((e) => e);
+    expect(refused).toBeInstanceOf(MaximsError);
+    expect({ code: refused.code, message: refused.message }).toEqual({
+      code: ExitCode.DestinationWriteFailed,
+      message: expect.stringMatching(/^cannot read .*config\.toml: EISDIR/),
+    });
   });
 });
+
+// The wording is what a user reads when Codex's own config refuses to load: the file, the reason
+// and where, with the excerpt smol-toml appends left out.
+const malformed: [string, string, string][] = [
+  [
+    "a bare key",
+    "hooks\n",
+    "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
+  ],
+  [
+    "a date at the top level",
+    "1979-05-27T07:32:00Z",
+    "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
+  ],
+  [
+    'hooks = "true"',
+    '[features]\nhooks = "true"\n',
+    "features.hooks: Invalid input: expected boolean, received string",
+  ],
+  [
+    "hooks as a table",
+    "[features.hooks]\n",
+    "features.hooks: Invalid input: expected boolean, received object",
+  ],
+];
+
+test.each(malformed)(
+  "achievedTier refuses a config.toml it cannot read a hooks flag from with exit 4 (%s)",
+  async (_, toml, reason) => {
+    await withTempDir(async (dir) => {
+      mkdirSync(join(dir, ".codex"), { recursive: true });
+      const path = join(dir, ".codex", "config.toml");
+      writeFileSync(path, toml);
+      const refused = await achievedTier({ home: dir, projectRoot: null, env: {} }).catch((e) => e);
+      expect(refused).toBeInstanceOf(MaximsError);
+      expect({ code: refused.code, message: refused.message, hint: refused.hint }).toEqual({
+        code: ExitCode.DestinationWriteFailed,
+        message: `cannot read ${path}: ${reason}`,
+        hint: "fix the file by hand, then run maxims sync",
+      });
+    });
+  },
+);
 
 test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
   await withTempDir(async (dir) => {

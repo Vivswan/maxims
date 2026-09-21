@@ -229,23 +229,26 @@ function contextAt(home: string): HarnessContext {
   return { home, projectRoot: null, env: {} };
 }
 
-// The probe hands smol-toml's TomlError and zod's ZodError straight up: a config.toml a user
-// mistyped, or one with `hooks = "true"`, crashes a non-quiet sync with a stack instead of the
-// exit-4 refusal every other user-owned config gets.
-test.todo('codex.achievedTier throws TomlError on config.toml "hooks" and ZodError on [features] hooks = "true": expected 1 | 2 or exit 4', async () => {
-  const probe = codex.achievedTier;
-  if (probe === undefined) throw new Error("codex declares a tier probe");
-  await withTempDir(async (home) => {
-    mkdirSync(join(home, ".codex"));
-    const configPath = join(home, ".codex", "config.toml");
-    await fuzz("codex tier probe", tomlText, async (text) => {
-      writeFileSync(configPath, text);
-      const result = await asyncOutcome(() => probe(contextAt(home)));
-      if (result.kind === "threw") return refusal(result.error);
-      expect([1, 2]).toContain(result.value);
+// A config.toml a user mistyped, or one with `hooks = "true"`, is a user-owned config like the
+// registries above: a library error escaping the probe would crash a sync with a stack.
+test(
+  "codex.achievedTier answers 1, 2 or an exit-4 refusal for any config.toml bytes",
+  async () => {
+    const probe = codex.achievedTier;
+    if (probe === undefined) throw new Error("codex declares a tier probe");
+    await withTempDir(async (home) => {
+      mkdirSync(join(home, ".codex"));
+      const configPath = join(home, ".codex", "config.toml");
+      await fuzz("codex tier probe", tomlText, async (text) => {
+        writeFileSync(configPath, text);
+        const result = await asyncOutcome(() => probe(contextAt(home)));
+        if (result.kind === "threw") return refusal(result.error);
+        expect([1, 2]).toContain(result.value);
+      });
     });
-  });
-});
+  },
+  PROPERTY_TIMEOUT_MS,
+);
 
 // dsh's patch layer as a user writes it: block and flow sequences, our row id, its plugin name,
 // anchors, tags, document markers and the indentation the splice keys on.
