@@ -81,7 +81,7 @@ function goldenName(variant: HookStdout): string {
 
 // A file hook or a registry hook declares how its harness reads stdout; a custom hook and a
 // harness with no hook have no channel, so the run stays silent whatever stdin says.
-function variantOf(def: HarnessDefinition): HookStdout | "none" {
+function variantOf(def: HarnessDefinition): HookStdout {
   return def.hook.kind === "registry" || def.hook.kind === "file" ? def.hook.stdout : "none";
 }
 

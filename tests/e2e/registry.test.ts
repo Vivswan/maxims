@@ -12,6 +12,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -22,7 +23,7 @@ import { targetPath } from "../../src/commands/shared/sources.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
-  HOOK_COMMAND,
+  HOOK_COMMAND_PREFIX,
   hookSpecFor,
   type RegistryHook,
   type Scope,
@@ -30,6 +31,7 @@ import {
 } from "../../src/harnesses/contract.ts";
 import { hasHook, hookPath } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
+import type { Destination } from "../../src/state/schema.ts";
 import type { Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
@@ -42,7 +44,7 @@ import {
   type Run,
   runMaxims,
 } from "./binary.ts";
-import { fixtureRepo, harnessFixture } from "./fixtures.ts";
+import { fixtureDescriptions, fixtureRepo, harnessFixture, ruleDescriptions } from "./fixtures.ts";
 
 let bundleDir = "";
 let bundle: Bundle;
@@ -59,7 +61,6 @@ afterAll(() => {
 });
 
 const SCOPES: Scope[] = ["global", "project"];
-const SKILL_NAMES = 4;
 
 function ok(run: Run): Run {
   expect({ code: run.code, stderr: run.stderr }).toEqual({ code: ExitCode.Ok, stderr: "" });
@@ -118,29 +119,59 @@ function prepareRoots(def: HarnessDefinition, scope: Scope, ctx: HarnessContext)
 
 type Handler = Record<string, unknown>;
 
-function registryHandlers(hook: RegistryHook, text: string): Handler[] {
-  let node: unknown = JSON.parse(text);
-  for (const key of hook.eventPath) {
-    if (typeof node !== "object" || node === null || Array.isArray(node)) return [];
-    node = (node as Record<string, unknown>)[key];
-  }
-  if (!Array.isArray(node)) return [];
-  const handlers = hook.grouped
-    ? node.flatMap((group) => {
-        const list = (group as { hooks?: unknown }).hooks;
-        return Array.isArray(list) ? list : [];
-      })
-    : node;
-  return handlers.filter(
-    (handler): handler is Handler =>
-      typeof handler === "object" && handler !== null && !Array.isArray(handler),
-  );
+function isHandler(value: unknown): value is Handler {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function ourHandlers(hook: RegistryHook, text: string): Handler[] {
-  return registryHandlers(hook, text).filter(
-    (handler) => handler[hook.commandKey] === HOOK_COMMAND,
-  );
+// The event list as the file spells it: the groups of a grouped registry, else the handlers.
+function eventEntries(hook: RegistryHook, text: string): unknown[] {
+  let node: unknown = JSON.parse(text);
+  for (const key of hook.eventPath) {
+    if (!isHandler(node)) return [];
+    node = node[key];
+  }
+  return Array.isArray(node) ? node : [];
+}
+
+function groupHandlers(group: unknown): Handler[] {
+  const list = isHandler(group) ? group.hooks : undefined;
+  return Array.isArray(list) ? list.filter(isHandler) : [];
+}
+
+function registryHandlers(hook: RegistryHook, text: string): Handler[] {
+  const entries = eventEntries(hook, text);
+  return hook.grouped ? entries.flatMap(groupHandlers) : entries.filter(isHandler);
+}
+
+function commandOf(hook: RegistryHook, handler: Handler): string {
+  const command = handler[hook.commandKey];
+  return typeof command === "string" ? command : "";
+}
+
+function isOurs(hook: RegistryHook, handler: Handler): boolean {
+  return commandOf(hook, handler).startsWith(HOOK_COMMAND_PREFIX);
+}
+
+// An install adds exactly one handler to what the user had, and it is the only one carrying the
+// maxims prefix under any flag set. In a grouped registry it sits in a group of its own with no
+// matcher: Gemini compares a lifecycle matcher with `===` against the source, so a group given one
+// would fire for no start.
+function expectRegistryHandler(
+  hook: RegistryHook,
+  text: string,
+  seededText: string | null,
+  handler: Handler,
+): void {
+  const handlers = registryHandlers(hook, text);
+  const seededCount = seededText === null ? 0 : registryHandlers(hook, seededText).length;
+  expect(handlers).toHaveLength(seededCount + 1);
+  expect(handlers.filter((entry) => isOurs(hook, entry))).toEqual([handler]);
+  if (hook.grouped) {
+    const groups = eventEntries(hook, text).filter((group) =>
+      groupHandlers(group).some((entry) => isOurs(hook, entry)),
+    );
+    expect(groups).toEqual([{ hooks: [handler] }]);
+  }
 }
 
 // A plan the disk already carries out: every write finds its bytes in place, every delete finds
@@ -173,11 +204,13 @@ async function expectHookInstalled(
   def: HarnessDefinition,
   scope: Scope,
   ctx: HarnessContext,
+  seeded: Seeded | null,
 ): Promise<void> {
   const spec = hookSpecFor(def);
   if (hasHook(def, "registry")) {
     const path = hookPath(def, scope, ctx);
-    expect(ourHandlers(def.hook, readFileSync(path, "utf8"))).toEqual([def.hook.handler(spec)]);
+    const seededText = seeded !== null && seeded.path === path ? seeded.text : null;
+    expectRegistryHandler(def.hook, readFileSync(path, "utf8"), seededText, def.hook.handler(spec));
   } else if (hasHook(def, "file")) {
     const path = hookPath(def, scope, ctx);
     expect(readFileSync(path, "utf8")).toBe(def.hook.render(spec));
@@ -246,7 +279,11 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
       const seeded = seedFixture(def, scope, ctx);
       const source = fixtureRepo(dir, "skills");
       const slug = sourceSlug({ type: "local", path: source });
-      const target = targetPath(def, { scope }, ctx, slug);
+      const destination: Destination =
+        scope === "project"
+          ? { scope: "project", root: realpathSync(home.project) }
+          : { scope: "global" };
+      const target = targetPath(def, destination, ctx, slug);
       if (target === null) throw new Error("the row was derived from a non-null target");
       const scopeFlag = scope === "global" ? "-g" : "-p";
       const argv = ["add", source, scopeFlag, "--rule", "--add-hook", "-a", def.id, "-y"];
@@ -258,8 +295,8 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
       const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
       expect(text.startsWith(preamble)).toBe(true);
       expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
-      expect(text.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(SKILL_NAMES);
-      await expectHookInstalled(def, scope, ctx);
+      expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("skills").sort());
+      await expectHookInstalled(def, scope, ctx, seeded);
       // A fixture that is no hook's registry and no quirk's file (an MCP config) is never touched.
       const hookArtifact =
         hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;

@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -18,7 +19,9 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
-import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
+import { type HarnessId, HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
+import { hasHook } from "../../src/harnesses/hook-writer.ts";
+import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
 import { serializeState } from "../../src/state/store.ts";
@@ -31,12 +34,14 @@ import { type Bundle, buildBundle, type Home, makeHome, type Run, runMaxims } fr
 import {
   CLAUDE_SETTINGS,
   CODEX_HOOKS,
+  fixtureDescriptions,
   fixtureRepo,
   harnessFixture,
   hookPayload,
   installDotfiles,
   memoriesRepo,
   redact,
+  ruleDescriptions,
   snapshot,
 } from "./fixtures.ts";
 
@@ -108,17 +113,17 @@ function strings(value: unknown, into: string[] = []): string[] {
   return into;
 }
 
-type Handler = Record<string, unknown>;
+// The one group an install appends to a grouped registry: our handler alone, under no matcher.
+function appendedGroup(id: HarnessId): { hooks: Record<string, unknown>[] } {
+  const def = HARNESSES.find((entry) => entry.id === id);
+  if (def === undefined || !hasHook(def, "registry")) throw new Error(`${id} has no registry hook`);
+  return { hooks: [def.hook.handler(hookSpecFor(def))] };
+}
 
-// Every handler under `hooks.SessionStart[*].hooks[*]`, the grouped registry shape Claude Code
-// and Codex share, split into ours and the user's.
-function sessionStartHandlers(text: string): { ours: Handler[]; theirs: Handler[] } {
-  const registry = JSON.parse(text) as { hooks?: { SessionStart?: { hooks?: Handler[] }[] } };
-  const handlers = (registry.hooks?.SessionStart ?? []).flatMap((group) => group.hooks ?? []);
-  return {
-    ours: handlers.filter((handler) => handler.command === HOOK_COMMAND),
-    theirs: handlers.filter((handler) => handler.command !== HOOK_COMMAND),
-  };
+// The entries that differ between two snapshots of the same root, by their `/` paths.
+function touched(before: Map<string, string>, after: Map<string, string>): string[] {
+  const keys = new Set([...before.keys(), ...after.keys()]);
+  return [...keys].filter((key) => before.get(key) !== after.get(key)).sort();
 }
 
 function withoutStamp(home: Home): void {
@@ -184,23 +189,22 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
       link: false,
     });
     const ruleText = readFileSync(installed.ruleFile, "utf8");
-    expect(ruleText.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(1);
+    expect(ruleDescriptions(ruleText)).toEqual(fixtureDescriptions("dotfiles"));
     expect(ruleText).toContain(`<!-- maxims:begin ${installed.source} sha=`);
     expect(readFileSync(installed.block, "utf8")).toContain(
       `<!-- maxims:begin ${installed.source} sha=`,
     );
 
-    for (const [path, fixture] of [
-      [installed.registries.claude, CLAUDE_SETTINGS],
-      [installed.registries.codex, CODEX_HOOKS],
+    // The whole file is the user's fixture plus one appended group: a second handler of ours
+    // anywhere, or a matcher on our group, changes the comparison.
+    for (const [id, path, fixture] of [
+      ["claude-code", installed.registries.claude, CLAUDE_SETTINGS],
+      ["codex", installed.registries.codex, CODEX_HOOKS],
     ] as const) {
-      const written = sessionStartHandlers(readFileSync(path, "utf8"));
-      expect(written.ours).toHaveLength(1);
-      expect(written.theirs).toEqual(sessionStartHandlers(fixture).theirs);
       const registry = JSON.parse(readFileSync(path, "utf8")) as {
         hooks: { SessionStart: unknown[] };
       };
-      registry.hooks.SessionStart.pop();
+      expect(registry.hooks.SessionStart.pop()).toEqual(appendedGroup(id));
       expect(registry).toEqual(JSON.parse(fixture));
     }
 
@@ -294,19 +298,19 @@ test("3c: a held lock turns a manual add into exit 5 naming the holder, with not
   });
 }, 20_000);
 
-test("3d: a held lock makes a hook run exit 0 at once, with nothing written", async () => {
+test("3d: a held lock makes a hook run exit 0 at once, writing only the stamp and the log", async () => {
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
     ok((await installDotfiles(bundle, dir, home)).run);
     withoutStamp(home);
     await withLock(homePaths(home.maximsHome).lock, { staleMs: 60_000 }, async () => {
-      const before = homeSnapshot(home);
+      const before = snapshot(home.root);
       const started = Date.now();
       const run = ok(await runMaxims(bundle, home, ["sync", "--quiet"]));
       const elapsed = Date.now() - started;
       expect(run.stdout).toBe("");
       expect(elapsed).toBeLessThan(2000);
-      expect(homeSnapshot(home)).toEqual(before);
+      expect(touched(before, snapshot(home.root))).toEqual([...SYNC_TOUCHES].sort());
       expect(readFileSync(homePaths(home.maximsHome).log, "utf8")).toContain(
         "sync --quiet: skipped, store is locked by",
       );
@@ -407,11 +411,9 @@ test("7: a project install writes under the project and nothing under the user h
       file: true,
       link: false,
     });
-    expect(
-      readFileSync(ruleFile, "utf8")
-        .split("\n")
-        .filter((line) => line.startsWith("- ")),
-    ).toHaveLength(4);
+    expect(ruleDescriptions(readFileSync(ruleFile, "utf8")).sort()).toEqual(
+      fixtureDescriptions("skills").sort(),
+    );
     const bodies = join(home.project, ".agents", "memories");
     const store = storePathFor(home.maximsHome, { type: "local", path: source });
     for (const name of [
@@ -424,7 +426,10 @@ test("7: a project install writes under the project and nothing under the user h
       expect(resolve(bodies, readlinkSync(link))).toBe(join(store, "memories", `${name}.md`));
     }
     const [, entry] = onlyEntry(readState(home));
-    expect(entry.intent.destination).toEqual({ scope: "project" });
+    expect(entry.intent.destination).toEqual({
+      scope: "project",
+      root: realpathSync(home.project),
+    });
     expect(existsSync(join(home.root, ".claude"))).toBe(false);
   });
 });
