@@ -143,6 +143,8 @@ const installs: [string, string | null, "dir" | "file", boolean][] = [
   ["a Documents directory alone", "Documents", "dir", false],
   ["Documents/Cline", "Documents/Cline", "dir", true],
   ["a .cline directory", ".cline", "dir", true],
+  ["a Cline/Rules directory", "Cline/Rules", "dir", true],
+  ["a Cline directory alone", "Cline", "dir", false],
   ["a stray file named .cline", ".cline", "file", false],
 ];
 

@@ -2,6 +2,9 @@ import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cline rules without frontmatter are always active, so the file is the block and nothing more.
+// Cline reads workspace rules from .clinerules and from .cline/rules. Its own Rules panel creates
+// new ones in .clinerules. Global rules default to Documents/Cline/Rules; Cline also searches
+// ~/.cline/rules and ~/Cline/Rules.
 // Cline reads the hook's stdout as one JSON object, so sync's own output is discarded and the
 // script answers for it; stdin carries task metadata sync never needs, and closing it keeps a
 // session start from hanging on a reader. The hook only runs once the user turns on "Enable Hooks"
@@ -25,7 +28,7 @@ export const spec = {
         contentHash: contentHashLiteral(
           "sha256:8f388c3e9aa9be79c98e90a88c8df8639a3175e6a3478fea44db49a3302c9d88",
         ),
-        note: ".clinerules and Documents/Cline/Rules",
+        note: ".clinerules as where new workspace rules go and Documents/Cline/Rules as the global default; .cline/rules, ~/.cline/rules and ~/Cline/Rules also searched",
       },
     ],
   },
@@ -36,7 +39,7 @@ export const spec = {
   bodiesDir: { project: ".agents/memories", global: null },
   markers: "counted",
   expands: [],
-  detect: { dirs: ["Documents/Cline", ".cline"] },
+  detect: { dirs: ["Documents/Cline", ".cline", "Cline/Rules"] },
   hook: {
     kind: "file",
     path: { project: ".clinerules/hooks/TaskStart", global: "Documents/Cline/Hooks/TaskStart" },
