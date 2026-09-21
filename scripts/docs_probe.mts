@@ -4,6 +4,7 @@
 //   a paragraph or list item over the word cap (default 70)  -> finding, exit 1
 //   a table cell over the cell cap (default 15)              -> finding, exit 1
 //   a repository path the prose names that does not exist    -> finding, exit 1
+//   a link whose #anchor names no heading or id on its target -> finding, exit 1
 // Block structure and line numbers come from micromark's tokens, so what
 // counts as prose is what CommonMark parses as a paragraph or a tight list
 // item, and a GFM table contributes its cells, each against the cell cap:
@@ -15,10 +16,14 @@
 // trailing slash), or a relative link destination; placeholders (<...>),
 // globs, owner/repo slugs, and bare file names are left alone, since a page
 // may name files the reader will create.
+// An anchor is judged against the ids the target page renders: each heading's
+// slug as GitHub and the docs site make it (github-slugger, repeats numbered)
+// and an `id` or `name` attribute on a tag; a comment renders no tag.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import GithubSlugger from "github-slugger";
 import { parse, postprocess, preprocess } from "micromark";
 import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
 import { gfmTable } from "micromark-extension-gfm-table";
@@ -59,6 +64,8 @@ export interface Scan {
   readonly units: Unit[];
   readonly codespans: { readonly text: string; readonly line: number }[];
   readonly links: { readonly href: string; readonly line: number }[];
+  /** Every id the rendered page answers a fragment with: heading slugs and tag ids. */
+  readonly anchors: Set<string>;
 }
 
 /** The page with front matter blanked, line for line, so line numbers still match the file. */
@@ -78,6 +85,9 @@ function decodeCharacterReference(reference: string): string {
   if (numeric) return decodeNumericCharacterReference(numeric[2] ?? "", numeric[1] ? 16 : 10);
   return decodeNamedCharacterReference(reference.slice(1, -1)) || reference;
 }
+
+/** An `id` or `name` attribute inside a tag opening; text that merely spells one renders no anchor. */
+const TAG_ID = /<[a-zA-Z][^<>]*?\s(?:id|name)="([^"]+)"/g;
 
 /** Only the documented marker comment, with its name, opens or closes a generated region. */
 const REGION_MARKER = /^\s*<!-- (BEGIN|END) GENERATED: (\S+)/;
@@ -207,6 +217,13 @@ export function scanPage(text: string): Scan {
   const units: MutableUnit[] = [];
   const codespans: Scan["codespans"] = [];
   const links: Scan["links"] = [];
+  const anchors = new Set<string>();
+  // One slugger per page: GitHub numbers a repeated heading in document order, and so does the site.
+  const slugger = new GithubSlugger();
+  const tagIds = (html: string) => {
+    const tags = html.replace(/<!--[\s\S]*?-->/g, "").matchAll(TAG_ID);
+    for (const m of tags) if (m[1] !== undefined) anchors.add(m[1]);
+  };
   const pendingLinks: Media[] = [];
   // A definition's line is where a reference link's destination is written, and where it is fixed.
   const definitions = new Map<string, { href: string; line: number }>();
@@ -270,9 +287,12 @@ export function scanPage(text: string): Scan {
       else if (type === "resource") {
         // `[a]()` is an inline link with an empty destination, not a reference.
         if (target) target.href = "";
-      } else if (type === "htmlText") {
-        // A comment says nothing; a tag is at most a break between words.
-        append(source().startsWith("<!--") ? "" : " ", null);
+      } else if (type === "htmlFlow") tagIds(source());
+      else if (type === "htmlText") {
+        // A comment says nothing; a tag is at most a break between words, and may carry an id.
+        const html = source();
+        tagIds(html);
+        append(html.startsWith("<!--") ? "" : " ", null);
       } else if (type === "characterReference")
         append(decodeCharacterReference(source()), token.start.line);
       else if (type === "lineEnding") append("\n", null);
@@ -302,7 +322,10 @@ export function scanPage(text: string): Scan {
     const c = collectors.pop();
     if (c === undefined) return;
     if (type === "paragraph") emitParagraph(c);
-    else if (type === "tableHeader" || type === "tableData") {
+    else if (type === "atxHeading" || type === "setextHeading") {
+      // The rendered text is slugged, so a tag's break and a wrapped line are one space each.
+      anchors.add(slugger.slug(c.text.replace(/\s+/g, " ").trim()));
+    } else if (type === "tableHeader" || type === "tableData") {
       if (c.line !== null && !overflow && !isHidden(c.line))
         units.push({ kind: "cell", line: c.line, text: c.text });
       overflow = false;
@@ -335,7 +358,7 @@ export function scanPage(text: string): Scan {
       if (defined !== undefined) links.push(defined);
     }
   }
-  return { units, codespans, links };
+  return { units, codespans, links, anchors };
 }
 
 export function wordCount(text: string): number {
@@ -446,7 +469,46 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
       findings.push({ file, line, message: `link target ${target} does not exist` });
     }
   }
+  // A fragment is judged on the ids the target page renders. A target that is missing or outside
+  // the repository was reported above, and a fragment on a file that is not markdown (a line
+  // number in a source file) names nothing a heading could answer.
+  const anchorsOf = new Map<string, Set<string>>();
+  for (const { href, line } of scan.links) {
+    const hash = href.indexOf("#");
+    if (hash === -1) continue;
+    const fragment = linkFragment(href.slice(hash + 1));
+    const target = linkPath(href);
+    if (fragment === "" || SCHEME.test(target) || isAbsolute(target)) continue;
+    let anchors = scan.anchors;
+    if (target !== "") {
+      const resolved = resolve(pageDir, target);
+      if (!MARKDOWN.test(resolved) || !withinRoot(options.root, resolved) || !existsSync(resolved))
+        continue;
+      anchors =
+        anchorsOf.get(resolved) ??
+        (() => {
+          const scanned = scanPage(readFileSync(resolved, "utf8")).anchors;
+          anchorsOf.set(resolved, scanned);
+          return scanned;
+        })();
+    }
+    if (!anchors.has(fragment)) {
+      const page = target === "" ? file : target;
+      findings.push({ file, line, message: `anchor #${fragment} not found on ${page}` });
+    }
+  }
   return findings.sort((a, b) => a.line - b.line);
+}
+
+const MARKDOWN = /\.(?:md|markdown)$/i;
+
+/** The fragment as the browser matches it against an id: percent-escapes decoded when they are valid. */
+function linkFragment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 const USAGE = [
@@ -454,7 +516,7 @@ const USAGE = [
   "  --root             the repository root paths resolve against (default: cwd)",
   "  --max-words        the cap on a paragraph or list item (default: 70)",
   "  --max-cell-words   the cap on a table cell (default: 15)",
-  "  --shape-only       word counts only; skip the check that named paths exist",
+  "  --shape-only       word counts only; skip the checks that named paths, link targets, and anchors exist",
   "exit 0: every page is clean; 1: findings, one per line as page:line: message; 2: usage or an unreadable page",
 ].join("\n");
 

@@ -5,14 +5,21 @@
 // paragraph after a fence quoting an earlier line, a paragraph after a badge line or a comment
 // continued across lines, or a punctuation-only code span or link would then be reported on the
 // line of the text that happened to match first. Also fails if list tightness stops following
-// CommonMark: a tight item would be reported as a paragraph, or a loose one as a list item.
+// CommonMark: a tight item would be reported as a paragraph, or a loose one as a list item. Also
+// fails if a link's #anchor stops being judged against the target page's heading slugs and ids:
+// a renamed heading would leave every link to it dead on GitHub and on the site while the probe
+// stayed clean.
+
 import { expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   DEFAULT_MAX_CELL_WORDS,
   DEFAULT_MAX_WORDS,
   probePage,
   scanPage,
 } from "../scripts/docs_probe.mts";
+import { withTempDir } from "./shared/temp_dir.ts";
 
 const words = (count: number) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
 const page = (paragraph: string) => `# Title\n\n${paragraph}\n`;
@@ -442,4 +449,81 @@ const itemWordCases: [name: string, text: string, findings: ReturnType<typeof pa
 
 test.each(itemWordCases)("%s", (_name, text, expected) => {
   expect(probePage(text, "page.md", { ...options, maxWords: 2 })).toEqual(expected);
+});
+
+// A fragment is judged against the ids the target page renders: each heading's slug as GitHub
+// and the docs site (github-slugger) make it, with a repeat numbered, and any explicit id on an
+// HTML tag outside a comment. A `{#id}` suffix is heading text: the fleet writes its links for
+// GitHub, which renders no custom ids. A fragment on a page that does not exist is not judged
+// twice, and one on a file that is not markdown is not judged at all.
+const TARGET_PAGE = [
+  "# Title",
+  "",
+  "## Exit 8: the file is over the reader's byte budget",
+  "",
+  "## `--quiet` printed nothing",
+  "",
+  "## Same",
+  "",
+  "## Same",
+  "",
+  '<a id="custom"></a>',
+  "",
+  "## AT&amp;T *bold* [link](https://example.com)",
+  "",
+  "## Named {#explicit}",
+  "",
+  "## Use <em>text</em>",
+  "",
+  '<!-- <a id="ghost"></a> -->',
+  "",
+  '<div>plain id="spelled"</div>',
+  "",
+].join("\n");
+
+const anchorCases: [name: string, href: string, message: string | null][] = [
+  ["a heading slug", "target.md#exit-8-the-file-is-over-the-readers-byte-budget", null],
+  ["a code span heading keeps its hyphens", "target.md#--quiet-printed-nothing", null],
+  ["a repeated heading is numbered", "target.md#same-1", null],
+  ["an explicit id on a tag", "target.md#custom", null],
+  ["a heading's text is decoded and stripped of markup", "target.md#att-bold-link", null],
+  [
+    "a heading with a custom-id suffix slugs as GitHub renders it",
+    "target.md#named-explicit",
+    null,
+  ],
+  ["a tag inside a heading is at most one space", "target.md#use-text", null],
+  ["a percent-encoded fragment", "target.md#%2D%2Dquiet-printed-nothing", null],
+  ["a same-page anchor", "#own-heading", null],
+  ["a fragment on a file that is not markdown", "target.txt#L3", null],
+  ["a fragment on a page that does not exist", "gone.md#x", "link target gone.md does not exist"],
+  ["a heading that is not there", "target.md#exit-8", "anchor #exit-8 not found on target.md"],
+  [
+    "a heading's third copy that is not there",
+    "target.md#same-2",
+    "anchor #same-2 not found on target.md",
+  ],
+  ["a same-page anchor that is not there", "#missing", "anchor #missing not found on page.md"],
+  ["an anchor on a relative path", "./target.md#nope", "anchor #nope not found on ./target.md"],
+  [
+    "a tag inside a comment renders no id",
+    "target.md#ghost",
+    "anchor #ghost not found on target.md",
+  ],
+  [
+    "text spelling an attribute renders no id",
+    "target.md#spelled",
+    "anchor #spelled not found on target.md",
+  ],
+];
+
+test.each(anchorCases)("%s", async (_name, href, message) => {
+  await withTempDir((dir) => {
+    writeFileSync(join(dir, "target.md"), TARGET_PAGE);
+    writeFileSync(join(dir, "target.txt"), "one\ntwo\nthree\n");
+    const text = `# Own heading\n\n[a](${href}) words\n`;
+    writeFileSync(join(dir, "page.md"), text);
+    const findings = probePage(text, "page.md", { ...options, root: dir, paths: true });
+    expect(findings).toEqual(message === null ? [] : [{ file: "page.md", line: 3, message }]);
+  });
 });
