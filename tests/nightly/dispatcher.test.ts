@@ -1,7 +1,7 @@
 // Fails if the failure report leaves the layout the tracking-issue action reads (heading on line
 // 1, the replay block right under it), if the step summary stops reaching the file GitHub reads
-// or stdout when there is none, if a passing category's summary stops reaching the job log ahead
-// of its status line, if the dispatcher accepts a category it has no module for, a flag the
+// or lands on stdout when there is none, if a passing category's summary stops reaching the job
+// log ahead of its status line, if the dispatcher accepts a category it has no module for, a flag the
 // category ignores, or a report or trend path inside the repository, or if a category that throws
 // stops leaving a report behind for the issue.
 import { describe, expect, test } from "bun:test";
@@ -55,19 +55,26 @@ describe("writeStepSummary", () => {
     });
   });
 
-  test("prints to stdout when no summary file is set", () => {
+  // Callers print the log copy themselves, so a job with no summary file (the variable unset, or
+  // empty as a workflow's `env:` line leaves it) must see the markdown once, not twice.
+  const noFile: [string, Record<string, string>][] = [
+    ["unset", {}],
+    ["empty", { GITHUB_STEP_SUMMARY: "" }],
+  ];
+  test.each(noFile)("writes nothing and prints nothing when the variable is %s", (_name, env) => {
     const script =
       'import { writeStepSummary } from "./scripts/nightly/report.ts";' +
-      'writeStepSummary("## nightly\\n", { GITHUB_STEP_SUMMARY: "" });';
+      `writeStepSummary("## nightly\\n", ${JSON.stringify(env)});`;
     const proc = Bun.spawnSync(["bun", "-e", script], {
       cwd: repoRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
-    expect({ exitCode: proc.exitCode, stdout: proc.stdout.toString() }).toEqual({
-      exitCode: 0,
-      stdout: "## nightly\n",
-    });
+    expect({
+      exitCode: proc.exitCode,
+      stdout: proc.stdout.toString(),
+      stderr: proc.stderr.toString(),
+    }).toEqual({ exitCode: 0, stdout: "", stderr: "" });
   });
 });
 

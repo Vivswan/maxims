@@ -11,10 +11,12 @@ export type Outcome =
   | { status: "pass"; summary: string }
   | { status: "fail"; summary: string; report: FailureReport };
 
+// Callers print their own log copy, so a job with no summary file gets nothing here; a workflow's
+// `env:` line can leave the variable set but empty.
 export function writeStepSummary(markdown: string, env: NodeJS.ProcessEnv): void {
   const path = env.GITHUB_STEP_SUMMARY;
-  if (path === undefined || path === "") process.stdout.write(markdown);
-  else appendFileSync(path, markdown);
+  if (path === undefined || path === "") return;
+  appendFileSync(path, markdown);
 }
 
 // The replay block sits right under the heading because the action keeps only a report's head

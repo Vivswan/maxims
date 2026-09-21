@@ -52,9 +52,7 @@ const buildSeconds = report(`image build (${IMAGE})`, started, build);
 if (build.exitCode !== 0) process.exit(build.exitCode);
 const bytes = imageSize(runtime, IMAGE);
 process.stdout.write(`container tier: image size ${iec(bytes)} (${bytes} bytes)\n`);
-if (process.env.GITHUB_STEP_SUMMARY) {
-  writeStepSummary(renderBuildSummary(buildSeconds, bytes), process.env);
-}
+writeStepSummary(renderBuildSummary(buildSeconds, bytes), process.env);
 
 started = performance.now();
 const suite = runInContainer(runtime, {

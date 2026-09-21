@@ -154,11 +154,10 @@ function didNotComplete(category: Category, error: unknown): Outcome {
 }
 
 // The log carries the summary for every outcome, so a passing run shows which rungs ran without
-// opening the step summary; the summary file gets the same markdown only when the job has one,
-// since writeStepSummary otherwise prints to stdout and the log would carry it twice.
+// opening the step summary.
 export function announce(category: Category, outcome: Outcome, env: NodeJS.ProcessEnv): void {
   process.stdout.write(outcome.summary);
-  if (env.GITHUB_STEP_SUMMARY) writeStepSummary(outcome.summary, env);
+  writeStepSummary(outcome.summary, env);
   process.stdout.write(`nightly ${category}: ${outcome.status}\n`);
 }
 
