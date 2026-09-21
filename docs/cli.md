@@ -9,6 +9,8 @@ The lookup page for `npx -y @vivswan/maxims`: every verb, every flag, and every 
 
 The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Command shapes mirror `npx skills`, same flags, same short forms, same prompts, so a person running both never remembers two spellings; the [parity page](parity.md) has the matches and the divergences.
 
+The `next` dist-tag carries a pre-release built from main. A `next` build appears when a merge changes what the package ships (the bundled code, its dependencies, the README, the license), not on every merge.
+
 ## Verbs
 
 | verb | alias | what it does | network | owner |
