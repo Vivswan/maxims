@@ -25,12 +25,14 @@ import {
   classifyGit,
   classifyResponse,
   createLadder,
+  credentialConfig,
   type Endpoints,
   endpointsFor,
   FetchFailure,
   type FetchFailureKind,
   type GitCredentials,
   gitEnvironment,
+  isAbsentBinary,
   type Runner,
   simpleGitRunner,
   systemRunner,
@@ -986,4 +988,80 @@ describe("git rung against a file:// fixture repo", () => {
     expect(await ladder(runner, { warnings }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
     expect(warnings).toEqual([]);
   });
+
+  // Each runtime spells a failed spawn differently, and only the host's spelling ever runs above.
+  // A spelling the classifier misses fails the rung loudly instead of dropping it; a match loose
+  // enough to fire on a repository path drops a rung that should have warned. simple-git hands over
+  // the error's whole `Error:` line and stack, so every row carries that shape.
+  const traced = (line: string): string => `Error: ${line}\n    at spawn (node:child_process:1:1)`;
+  const spawnFailures: [string, string, string, boolean][] = [
+    ["node", "/nonexistent/maxims-test-git", "spawn /nonexistent/maxims-test-git ENOENT", true],
+    [
+      "bun on linux or macos",
+      "/nonexistent/maxims-test-git",
+      "ENOENT: no such file or directory, posix_spawn '/nonexistent/maxims-test-git'",
+      true,
+    ],
+    [
+      "bun on windows",
+      "/nonexistent/maxims-test-git",
+      "ENOENT: no such file or directory, uv_spawn '/nonexistent/maxims-test-git'",
+      true,
+    ],
+    [
+      "bun on windows with a backslash path",
+      "C:\\tools\\git.exe",
+      "ENOENT: no such file or directory, uv_spawn 'C:\\tools\\git.exe'",
+      true,
+    ],
+    ["bun with a bare name off PATH", "git", 'Executable not found in $PATH: "git"', true],
+    [
+      "git about a repository path containing ENOENT",
+      "git",
+      "fatal: '/nonexistent/ENOENT-repo' does not appear to be a git repository",
+      false,
+    ],
+    [
+      "git about a repository path spelled like a spawn failure",
+      "git",
+      "fatal: repository 'file:///nonexistent/uv_spawn 'git' ENOENT-repo' does not exist",
+      false,
+    ],
+    [
+      "git about a repository path holding a spawn failure on its own line",
+      "git",
+      "fatal: '/nonexistent/\nspawn git ENOENT\n/rules' does not appear to be a git repository",
+      false,
+    ],
+    ["node about some other binary", "git", "spawn /nonexistent/other ENOENT", false],
+  ];
+  test.each(spawnFailures)(
+    "a spawn failure spelled by %s classifies the git binary as absent: %p",
+    (_label, binary, message, absent) => {
+      expect(isAbsentBinary(binary, traced(message))).toBe(absent);
+    },
+  );
+
+  // The anonymous config file pins the remote onto itself; a remote git cannot read back from that
+  // file (a Windows path's backslashes, a quote) fails the rung on the file, never on the network.
+  const awkwardRemotes = ["C:\\repos\\rules", 'file:///tmp/quo"ted/rules', GIT_URL];
+  test.each(awkwardRemotes)(
+    "git reads the anonymous config back verbatim for %s",
+    async (remote) => {
+      await withTempDir(async (dir) => {
+        const file = join(dir, "config");
+        writeFileSync(file, credentialConfig(GIT_URL, remote, { kind: "none" }));
+        const listing = await simpleGit(dir).raw(["config", "--file", file, "--list"]);
+        const scopes = remote === GIT_URL ? [GIT_URL] : [GIT_URL, remote];
+        expect(listing.split("\n")).toEqual([
+          ...scopes.flatMap((scope) => [
+            `http.${scope}.extraheader=`,
+            `credential.${scope}.helper=`,
+          ]),
+          `url.${remote}.insteadof=${remote}`,
+          "",
+        ]);
+      });
+    },
+  );
 });

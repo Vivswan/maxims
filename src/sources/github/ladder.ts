@@ -780,24 +780,40 @@ async function withCredentials<T>(
   if (credentials.kind === "inherited") return action([], env);
   const dir = await mkdtemp(join(tmpdir(), "maxims-git-"));
   try {
-    const lines = [...new Set([url, remote])].flatMap((scope) => [
-      `[http ${JSON.stringify(scope)}]`,
-      "\textraheader =",
-      ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
-      `[credential ${JSON.stringify(scope)}]`,
-      "\thelper =",
-    ]);
-    if (credentials.kind === "none") {
-      lines.push(`[url ${JSON.stringify(remote)}]`, `\tinsteadOf = ${remote}`);
-    }
-    lines.push("");
     const file = join(dir, "config");
-    await writeFile(file, lines.join("\n"), { mode: 0o600 });
+    await writeFile(file, credentialConfig(url, remote, credentials), { mode: 0o600 });
     const callEnv = credentials.kind === "none" ? await privateHome(env, join(dir, "home")) : env;
     return await action([`include.path=${file}`], callEnv);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+export function credentialConfig(
+  url: string,
+  remote: string,
+  credentials: Exclude<GitCredentials, { kind: "inherited" }>,
+): string {
+  const lines = [...new Set([url, remote])].flatMap((scope) => [
+    `[http ${gitConfigString(scope)}]`,
+    "\textraheader =",
+    ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
+    `[credential ${gitConfigString(scope)}]`,
+    "\thelper =",
+  ]);
+  if (credentials.kind === "none") {
+    lines.push(`[url ${gitConfigString(remote)}]`, `\tinsteadOf = ${gitConfigString(remote)}`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+// Quoting is what lets a remote carry a backslash or a quote: unquoted, a backslash starts an
+// escape git may not know (the `\r` of a Windows path) and the whole file is refused, and `#` or
+// `;` would start a comment. Backslash and double quote are the escapes a subsection name and a
+// quoted value both need.
+function gitConfigString(value: string): string {
+  return `"${value.replace(/[\\"]/g, "\\$&")}"`;
 }
 
 // HOME is libcurl's only pointer to `.netrc`, and also git's for `~/.gitconfig`, `~/.config`, every
@@ -820,8 +836,6 @@ async function privateHome(
 
 const NETRC_FILES: ReadonlySet<string> = new Set([".netrc", "_netrc"]);
 
-// A missing executable surfaces as the spawn failure naming the binary; an ENOENT anywhere else in
-// git's own output (a repository path, a remote URL) is a failure of the command, not an absent git.
 async function gitAttempt(
   binary: string,
   action: () => Promise<string>,
@@ -830,9 +844,25 @@ async function gitAttempt(
     return { kind: "ok", value: await action() };
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    const escaped = binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const spawnFailed = new RegExp(`spawn ${escaped} ENOENT|posix_spawn '${escaped}'`);
-    if (spawnFailed.test(message)) return { kind: "absent" };
+    if (isAbsentBinary(binary, message)) return { kind: "absent" };
     return { kind: "failed", message };
   }
+}
+
+// A missing executable surfaces as the runtime's spawn failure naming the binary, which simple-git
+// hands over as the error's `Error:` line followed by its stack. Only that first line is matched,
+// and only whole, so an ENOENT or a spawn-like phrase inside git's own output (a repository path,
+// a remote URL, even one carrying a newline) stays a failure of the command, not an absent git.
+//   node                     spawn <binary> ENOENT
+//   bun, path given          ENOENT: no such file or directory, posix_spawn '<binary>'
+//                            (uv_spawn on Windows)
+//   bun, bare name off PATH  Executable not found in $PATH: "<binary>"
+export function isAbsentBinary(binary: string, message: string): boolean {
+  const escaped = binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const spellings = [
+    `spawn ${escaped} ENOENT`,
+    `ENOENT: no such file or directory, (posix|uv)_spawn '${escaped}'`,
+    `Executable not found in \\$PATH: "${escaped}"`,
+  ];
+  return new RegExp(`^(Error: )?(${spellings.join("|")})(\n|$)`).test(message);
 }
