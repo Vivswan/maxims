@@ -45,7 +45,7 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | `list`, `ls` | `list`, `ls` | same | the read command for state |
 | `experimental_install`, `i` | `install`, `i` | analog | both replay a committed record into a fresh checkout; maxims reads its own project lock |
 | `experimental_sync` | `sync` | same name | same verb, same instinct |
-| none | `doctor`, `lint` | maxims-only | checking what a harness loads and linting a source folder have no skills concept |
+| none | `show`, `doctor`, `lint` | maxims-only | no skills concept covers printing a memory, checking a harness, or linting a folder |
 | none | `link`, `unlink`, `disable`, `enable` | maxims-only | editing one intent field has no skills concept |
 | none | `config` | maxims-only | user defaults have no skills concept |
 | none | `share`, `unshare` | maxims-only | the project lock has no skills concept |

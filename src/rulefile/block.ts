@@ -103,7 +103,7 @@ function assertMarkerField(field: string, value: string): void {
   }
 }
 
-function renderRuleLine(line: RuleLine, expands: readonly ExpansionSyntax[]): string {
+export function renderRuleLine(line: RuleLine, expands: readonly ExpansionSyntax[]): string {
   const description = truncate(oneLine(line.description));
   const body = `${description} (detail: ${oneLine(line.detailPath)}, ${line.shortHash})`;
   return `- ${escapeText(body, expands)}`;

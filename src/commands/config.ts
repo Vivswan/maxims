@@ -9,13 +9,7 @@ import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { configWrite } from "./shared/cli-context.ts";
-import {
-  type Command,
-  closestHarnessId,
-  INTEGER,
-  integerOrUsage,
-  usage,
-} from "./shared/options.ts";
+import { type Command, closestName, INTEGER, integerOrUsage, usage } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 
 type ConfigKey = keyof UserConfig;
@@ -28,7 +22,7 @@ function harnessIdOrUsage(raw: string): HarnessId {
   if (isBuiltInHarnessId(raw)) return raw;
   const user = parseUserHarnessId(raw);
   if (user !== null) return user;
-  const closest = closestHarnessId(raw, HARNESS_IDS);
+  const closest = closestName(raw, HARNESS_IDS);
   throw usage(invalidAgents([raw], HARNESS_IDS, closest));
 }
 

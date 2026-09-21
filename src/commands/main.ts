@@ -67,6 +67,12 @@ const VERBS: readonly VerbEntry[] = [
     load: () => import("./engine-verbs.ts").then((m) => m.list),
   },
   {
+    name: "show",
+    aliases: [],
+    hidden: false,
+    load: () => import("./show.ts").then((m) => m.show),
+  },
+  {
     name: "install",
     aliases: ["i"],
     hidden: false,

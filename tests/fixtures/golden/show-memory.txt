@@ -1,0 +1,18 @@
+|
+o  skip-unfit-skills
+   source: @Vivswan/skills
+   revision: a8d5fe2
+   disabled: no
+   held: no
+   rule: - The agent may skip an invoked skill that does not fit the task, but must say why (detail: <HOME>/.agents/maxims/store/vivswan/skills/memories/skip-unfit-skills.md, 8a205e7)
+|
+---
+name: skip-unfit-skills
+description: The agent may skip an invoked skill that does not fit the task, but must say why
+metadata:
+  node_type: memory
+  type: feedback
+  internal: false
+---
+
+**Why:** a skill applied where it does not fit produces confident nonsense.

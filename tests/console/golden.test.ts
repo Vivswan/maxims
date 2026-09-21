@@ -110,6 +110,16 @@ const goldens: Golden[] = [
     },
   ],
   [
+    "show-memory",
+    { github: { "vivswan/skills": SKILLS } },
+    async (scenario) => {
+      await runCli(scenario, ["add", "@Vivswan/skills", "-g", "--rule", "-a", "codex"]);
+      const run = await runCli(scenario, ["show", "skip-unfit-skills"]);
+      expect(run.code).toBe(0);
+      return redacted(run.stdout, scenario);
+    },
+  ],
+  [
     "usage-errors",
     {},
     async (scenario) => {

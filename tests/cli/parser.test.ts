@@ -71,6 +71,11 @@ const refusals: [string, string[], string][] = [
     ["constructor"],
     "Unknown command: constructor\nTip: Run maxims --help for usage.",
   ],
+  ["show without name", ["show"], "show needs a memory name\nTip: maxims show <memory>"],
+  ["show bad name", ["show", "Not_Kebab"], '"Not_Kebab" is not a kebab-case memory name'],
+  ["show with out", ["show", "x", "-o", "dir"], "unknown option: -o"],
+  ["show two scopes", ["show", "x", "-g", "-p"], "two destinations given"],
+  ["show with nothing installed", ["show", "x"], "x is not installed"],
 ];
 
 test.each(refusals)(
@@ -124,6 +129,7 @@ const VERBS = [
   "update",
   "remove",
   "list",
+  "show",
   "install",
   "link",
   "unlink",

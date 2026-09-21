@@ -124,6 +124,12 @@ export const FLAGS = {
     placeholder: "<name or @owner/repo/name>",
     summary: "assert this memory has a rule line (repeatable)",
   },
+  source: {
+    name: "source",
+    kind: "value",
+    placeholder: "<key>",
+    summary: "the source to read the memory from, when several provide the name",
+  },
 } as const satisfies Record<string, FlagSpec>;
 
 // What `add` records for a source when no flag says otherwise; the project manifest omits an
@@ -316,25 +322,25 @@ export function harnessIdsOrUsage<Id extends string>(
     else if (!ids.includes(id)) ids.push(id);
   }
   if (invalid.length > 0) {
-    const closest = closestHarnessId(invalid[0] ?? "", known);
+    const closest = closestName(invalid[0] ?? "", known);
     throw usage(invalidAgents(invalid, known, closest));
   }
   return ids;
 }
 
-// Did-you-mean over the harness ids: the closest by edit distance, offered only when it is close
-// enough to be a typo rather than a different word.
-export function closestHarnessId<Id extends string>(
+// Did-you-mean over a set of names (harness ids, installed memories): the closest by edit
+// distance, offered only when it is close enough to be a typo rather than a different word.
+export function closestName<Name extends string>(
   candidate: string,
-  known: readonly Id[],
-): Id | null {
-  let best: { id: Id; distance: number } | null = null;
-  for (const id of known) {
-    const distance = editDistance(candidate.toLowerCase(), id);
-    if (best === null || distance < best.distance) best = { id, distance };
+  known: Iterable<Name>,
+): Name | null {
+  let best: { name: Name; distance: number } | null = null;
+  for (const name of known) {
+    const distance = editDistance(candidate.toLowerCase(), name);
+    if (best === null || distance < best.distance) best = { name, distance };
   }
   if (best === null || best.distance > Math.max(2, Math.floor(candidate.length / 3))) return null;
-  return best.id;
+  return best.name;
 }
 
 function editDistance(a: string, b: string): number {
