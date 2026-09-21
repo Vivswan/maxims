@@ -488,7 +488,7 @@ export function parseSourceSelector(
     return { from: github(arg, arg, enterpriseHost(options)), memory: null };
   }
   if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
-  const path = resolve(cwd, arg);
+  const path = storable(AbsolutePath, resolve(cwd, arg), arg);
   return {
     from: arg === "." ? { type: "local", path, live: true } : { type: "local", path },
     memory: null,
@@ -522,8 +522,17 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
       `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>`,
     );
   }
-  const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
+  const ref = isTreeUrl ? storable(GitRefSchema, rest[0] ?? DEFAULT_GIT_REF, arg) : DEFAULT_GIT_REF;
   return github(repo, arg, host, ref);
+}
+
+// The grammar mints what the state file stores, so a field is parsed by its own state schema here
+// and refused as usage; written unchecked, it would be quarantined on the next read. The argument
+// is echoed escaped because the refused characters are the invisible ones.
+function storable<T>(schema: z.ZodType<T>, value: string, arg: string): T {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw usage(`${JSON.stringify(arg)}: ${flattenIssues(parsed.error.issues).join("; ")}`);
 }
 
 // github.com is the default and carries no host field, so `GH_HOST=github.com` is the same as

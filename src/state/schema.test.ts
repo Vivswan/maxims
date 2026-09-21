@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join, resolve } from "node:path";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
-import { ExitCode, type MaximsError } from "../util/exit-codes.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   CURRENT_STATE_VERSION,
   canonicalSourceKey,
@@ -883,6 +883,42 @@ describe("parseSourceArgument", () => {
       caught = error;
     }
     expect((caught as MaximsError).code).toBe(ExitCode.Usage);
+  });
+
+  // The refusal wording is what a user reads at the door; the fuzz property pins only the refusal.
+  const unstorable: [string, string][] = [
+    [
+      "a\n",
+      '"a\\n": a path cannot contain a line break; a path cannot start or end with whitespace',
+    ],
+    ["\0", '"\\u0000": a path cannot contain NUL'],
+    ["a ", '"a ": a path cannot start or end with whitespace'],
+    ["a-->", '"a-->": a path cannot contain -->'],
+    [
+      "https://github.com/example-user/rules/tree/-->",
+      '"https://github.com/example-user/rules/tree/-->": a ref cannot contain -->',
+    ],
+    [
+      "https://github.com/example-user/rules/tree/a%20",
+      '"https://github.com/example-user/rules/tree/a%20": a ref cannot start or end with whitespace',
+    ],
+    [
+      "https://github.com/example-user/rules/tree/a%0Ab",
+      '"https://github.com/example-user/rules/tree/a%0Ab": a ref cannot contain a line break',
+    ],
+  ];
+  test.each(unstorable)("refuses %j with the state schema's reason", (arg, message) => {
+    let caught: unknown;
+    try {
+      parseSourceArgument(arg, cwd);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(MaximsError);
+    expect({
+      code: (caught as MaximsError).code,
+      message: (caught as MaximsError).message,
+    }).toEqual({ code: ExitCode.Usage, message });
   });
 });
 

@@ -1890,7 +1890,7 @@ test.skipIf(WINDOWS)(
         "--share",
       ]);
       expect(run.code).toBe(1);
-      expect(run.stderr).toContain("cannot be written into");
+      expect(run.stderr).toContain("a path cannot contain -->");
       expect(await snapshot(scenario.root)).toBe(before);
     });
   },

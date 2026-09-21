@@ -160,17 +160,20 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// Two paths mint a source without the marker and NUL rules the state schema applies to the same
-// value: a local argument is resolved against the cwd as typed, and a GitHub `/tree/<ref>` URL's
-// decoded segment becomes the ref as typed. `add` would write a state file the next read refuses.
-test.todo('parseSourceSelector returns what AbsolutePath and GitRefSchema refuse: local "a\\n", "\\0", "a ", "a-->" and https://github.com/owner/repo/tree/--> (also /tree/a%20, /tree/a%0Ab): expected a usage refusal', async () => {
-  await fuzz("parseSourceSelector storable", selectorInput, ({ arg, ghHost }) => {
-    const options = ghHost === undefined ? {} : { ghHost };
-    const result = outcome(() => parseSourceSelector(arg, CWD, options));
-    if (result.kind === "threw") return usageOnly(result.error);
-    expectStorable(result.value.from);
-  });
-});
+// The local path and the `/tree/<ref>` ref are the two grammar paths that reach a stored field;
+// either one drifting past its state schema lets `add` write a state the next read quarantines.
+test(
+  "parseSourceSelector answers only a source the state schema stores, for any argument and GH_HOST",
+  async () => {
+    await fuzz("parseSourceSelector storable", selectorInput, ({ arg, ghHost }) => {
+      const options = ghHost === undefined ? {} : { ghHost };
+      const result = outcome(() => parseSourceSelector(arg, CWD, options));
+      if (result.kind === "threw") return usageOnly(result.error);
+      expectStorable(result.value.from);
+    });
+  },
+  PROPERTY_TIMEOUT_MS,
+);
 
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 
