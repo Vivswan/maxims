@@ -4,6 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { bunTestArgs } from "./lib/test_timeout.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const home = mkdtempSync(join(tmpdir(), "maxims-test-home-"));
@@ -35,7 +36,7 @@ const removeHome = (): void => rmSync(home, { recursive: true, force: true });
 // remove the HOME too.
 let exitCode = 1;
 try {
-  const proc = Bun.spawn(["bun", "test", ...process.argv.slice(2)], {
+  const proc = Bun.spawn(["bun", "test", ...bunTestArgs(process.platform, process.argv.slice(2))], {
     cwd: repoRoot,
     env,
     stdio: ["inherit", "inherit", "inherit"],

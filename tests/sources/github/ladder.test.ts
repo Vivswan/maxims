@@ -608,11 +608,16 @@ describe("systemRunner", () => {
   });
 });
 
+// The fixture repository and the two clones run about twenty-five short git processes in a row,
+// which is what the launcher's Windows budget (scripts/lib/test_timeout.ts) is sized for. A git
+// child silent for this long is killed by the runner, and the failure names the git rung.
+const GIT_STALL_MS = 20_000;
+
 describe("git rung against a file:// fixture repo", () => {
   test("resolves HEAD and an annotated tag, then sparse-clones the pinned commit", async () => {
     await withTempDir(async (dir) => {
       const repo = await createFixtureRepo(join(dir, "repo"));
-      const runner = scriptedRunner({ git: simpleGitRunner() });
+      const runner = scriptedRunner({ git: simpleGitRunner({ timeoutMs: GIT_STALL_MS }) });
       const climb = ladder(runner, { endpoints: { gitUrl: () => repo.url } });
       expect(await climb.resolveRef(REPO, "HEAD", ANON)).toBe(repo.head);
       expect(await climb.resolveRef(REPO, "v1", ANON)).toBe(repo.tagged);

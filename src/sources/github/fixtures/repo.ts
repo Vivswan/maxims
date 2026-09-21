@@ -9,6 +9,9 @@ export type FixtureRepo = {
   tagged: string;
 };
 
+// A fixture command silent for this long is killed, and the failure names the command.
+const FIXTURE_GIT_STALL_MS = 20_000;
+
 // Two commits, an annotated tag on the first, an unrelated `src/` tree beside `memories/`, and a
 // folder whose name starts like an option, so a sparse checkout has something to leave behind, a
 // tag pin has something to differ from, and a memory path can look like a flag.
@@ -20,7 +23,7 @@ export async function createFixtureRepo(dir: string): Promise<FixtureRepo> {
   writeFileSync(join(dir, "-dashed", "odd-rule.md"), "odd\n");
   writeFileSync(join(dir, "src", "deep", "unrelated.txt"), "not a memory\n");
   writeFileSync(join(dir, "README.md"), "# fixture\n");
-  const git = simpleGit(dir);
+  const git = simpleGit({ baseDir: dir, timeout: { block: FIXTURE_GIT_STALL_MS } });
   await git.raw(["init", "--quiet", "-b", "main"]);
   await git.add(".");
   await git.commit("one");
