@@ -80,6 +80,9 @@ labels:
     - name: nightly-property-deep
       color: D93F0B
       description: The deep property run failed
+    - name: nightly-published-smoke
+      color: D93F0B
+      description: The published next package failed its smoke run
     - name: release-blocker
       color: B60205
       description: Blocks releases while open - release-health fails release PRs and
