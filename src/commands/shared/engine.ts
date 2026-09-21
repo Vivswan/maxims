@@ -37,7 +37,12 @@ import { parseRuleBlocks } from "./blocks.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
-import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import {
+  type FetchedEntry,
+  refreshSource,
+  storeEntryPresent,
+  withoutAbsentDeletes,
+} from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { hookedAt, planHooks } from "./hooks.ts";
 import {
@@ -1044,7 +1049,7 @@ async function readTrees(
 
 function liveStoreChanges(from: LocalSourceFrom, storeEntry: string, home: string): Change[] {
   if (currentLinkTarget(storeEntry) === resolve(from.path)) return [];
-  return materializeLocal(from, home, []);
+  return withoutAbsentDeletes(materializeLocal(from, home, []));
 }
 
 // `cause` classifies an unreadable source the way a failed fetch is classified, so the report

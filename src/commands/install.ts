@@ -114,8 +114,9 @@ export const install: Command = {
     const harnesses = [...new Set(prepared.flatMap((item) => item.harnesses.ids))];
     const names = prepared.flatMap((item) => item.names);
     const report = await syncCommitted(ctx, commit, commit.harnesses);
-    const lines = [installed(names.length, report.rules, report.tokens)];
-    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND));
+    const planned = ctx.global.dryRun;
+    const lines = [installed(names.length, report.rules, report.tokens, planned)];
+    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND, planned));
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],

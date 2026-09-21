@@ -62,7 +62,7 @@ import {
   withDisabled,
 } from "./shared/cli-context.ts";
 import { framed } from "./shared/engine-io.ts";
-import { swapStoreEntry } from "./shared/fetch.ts";
+import { swapStoreEntry, withoutAbsentDeletes } from "./shared/fetch.ts";
 import { prunedHooks, withHooks } from "./shared/hooks.ts";
 import {
   type AgentSelection,
@@ -198,8 +198,9 @@ export const add: Command = {
     const { prepared } = outcome;
     const commit = await commitAdd([prepared], ctx, { writeManifest: true });
     const report = await syncCommitted(ctx, commit, commit.harnesses);
-    const lines = [installed(prepared.names.length, report.rules, report.tokens)];
-    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND));
+    const planned = ctx.global.dryRun;
+    const lines = [installed(prepared.names.length, report.rules, report.tokens, planned)];
+    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND, planned));
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],
@@ -676,9 +677,10 @@ function sameDestination(a: Destination, b: Destination): boolean {
 }
 
 // The store entry a fetched tree lands in: a local directory through the local materializer (a
-// live one becomes a link), a remote through the same swap every refresh plans.
+// live one becomes a link), a remote through the same swap every refresh plans. A first install
+// has no entry to replace, so no deletion of one is planned.
 function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeFile[]): Change[] {
-  if (from.type === "local") return materializeLocal(from, home, [...files]);
+  if (from.type === "local") return withoutAbsentDeletes(materializeLocal(from, home, [...files]));
   return swapStoreEntry(storePathFor(home, from), [...files]);
 }
 
@@ -1038,6 +1040,7 @@ async function chooseHarnesses(
   return { ids: withTarget(chosen, warnings), warnings, remember: answer.kind === "chosen" };
 }
 
+// One line per destination: two harnesses reading one file or folder are one place the memories go.
 function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): string {
   const ctx = harnessContext(io);
   const slug = sourceSlug(request.from);
@@ -1053,7 +1056,7 @@ function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): st
           : (def.bodiesDir(destination.scope, ctx) ?? targetPath(def, destination, ctx, slug));
     return `${sourceTitle(request.from)} -> ${tildify(path ?? "(no target)", io.userHome)}`;
   });
-  return lines.join("\n");
+  return [...new Set(lines)].join("\n");
 }
 
 // `Vivswan/skills` reads as `Vivswan Skills` on the plan screen, as `skills` titles a source.

@@ -60,12 +60,19 @@ export function selected(names: readonly string[]): string {
   return `Selected ${memories(names.length)}: ${names.join(", ")}`;
 }
 
-export function installed(memoryCount: number, ruleCount: number, tokens: number): string {
-  return `Installed ${memories(memoryCount)}, ${ruleLines(ruleCount)} (~${tokens} tokens)`;
+export function installed(
+  memoryCount: number,
+  ruleCount: number,
+  tokens: number,
+  planned = false,
+): string {
+  const verb = planned ? "Would install" : "Installed";
+  return `${verb} ${memories(memoryCount)}, ${ruleLines(ruleCount)} (~${tokens} tokens)`;
 }
 
-export function hookRegistered(command: string): string {
-  return `Hook registered: SessionStart -> ${command}`;
+export function hookRegistered(command: string, planned = false): string {
+  const lead = planned ? "Would register hook" : "Hook registered";
+  return `${lead}: SessionStart -> ${command}`;
 }
 
 export function unknownCommand(verb: string): string {

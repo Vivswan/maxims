@@ -1,3 +1,4 @@
+import { lstatSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
+import { isAbsent } from "./rules.ts";
 import { inSelect } from "./select.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -242,6 +244,22 @@ export function withoutPending(entry: FetchedEntry): FetchedEntry {
   return rest;
 }
 
+// A deletion of a path that is not there is a no-op the apply skips; a plan is what the run would
+// do, so it carries none. A path that cannot be inspected keeps its deletion for the apply to
+// report.
+export function withoutAbsentDeletes(changes: readonly Change[]): Change[] {
+  return changes.filter((change) => change.kind !== "delete" || !absentPath(change.path));
+}
+
+function absentPath(path: string): boolean {
+  try {
+    lstatSync(path);
+    return false;
+  } catch (error) {
+    return isAbsent(error);
+  }
+}
+
 // The rule `selectMemories` installs by, asked of one memory: in the selection, and not an
 // internal memory hidden behind a `*` selection without MAXIMS_INSTALL_INTERNAL=1.
 function isVisible(memory: SourceMemory, select: Select, installInternal: boolean): boolean {
@@ -374,10 +392,10 @@ function classifyFetchError(error: unknown, at: string): LastError | null {
 // `fetched.memoryPath` finds the files there and a memory deleted upstream leaves nothing behind.
 // A file's path is asserted against the entry because `relPath` comes from the source tree.
 export function swapStoreEntry(entry: RootedPath, files: TreeFile[]): Change[] {
-  const changes: Change[] = [
+  const changes: Change[] = withoutAbsentDeletes([
     { kind: "delete", path: entry },
     { kind: "mkdir", path: entry },
-  ];
+  ]);
   for (const file of files) {
     changes.push({
       kind: "write",

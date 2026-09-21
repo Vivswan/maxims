@@ -849,6 +849,37 @@ test("add with a hook then remove --all returns a hookless settings file byte fo
   });
 });
 
+// A dry run is the plan the user reads before committing to it, so it must be what the run would
+// do: one destination line per destination file, no deletion of a store entry that is not there,
+// and a summary in the conditional, not the past tense.
+test("add --dry-run into an -o folder prints one truthful plan", async () => {
+  const fake = fakeResolvers();
+  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+    const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
+    const out = join(scenario.root, "team-rules");
+    const before = await snapshot(scenario.root);
+    const run = await runCli(scenario, [
+      "add",
+      source,
+      "-o",
+      out,
+      "--rule",
+      "-a",
+      "claude-code,codex",
+      "--dry-run",
+      "-y",
+    ]);
+    expect([run.code, run.stderr]).toEqual([0, ""]);
+    const lines = run.stdout.split("\n");
+    expect(lines.filter((line) => line.includes(` -> ${out}`))).toEqual([`   Src -> ${out}`]);
+    expect(lines.filter((line) => line.startsWith("delete "))).toEqual([]);
+    expect(lines.filter((line) => line.startsWith("write "))).not.toEqual([]);
+    expect(run.stdout).toMatch(/^o {2}Would install 2 memories, 2 rule lines \(~\d+ tokens\)$/m);
+    expect(run.stdout).not.toContain("Installed ");
+    expect(await snapshot(scenario.root)).toBe(before);
+  });
+});
+
 // A teammate's checkout has no path to a directory outside the project, so such a source is
 // refused at the moment it would be shared rather than dropped from the lock in silence.
 test("a local source outside the project cannot be shared", async () => {
