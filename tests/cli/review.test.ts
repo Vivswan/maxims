@@ -3,8 +3,8 @@
 // `add --review` whose own first fetch is held instead of applied, an `unreview` that lifts the
 // mark and leaves the held revision behind, a `--json` document whose `accepted` disagrees with
 // what landed, an intent edit (`link`, `share`) that drops the held revision, a hand-deleted
-// held revision that crashes `accept`, and a held tree missing a file that `accept` records as
-// the whole revision.
+// held revision that crashes `accept`, a held tree missing a file that `accept` records as the
+// whole revision, and an `accept --dry-run` plan naming the pending directory's removal twice.
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +19,14 @@ import {
   writeSource,
 } from "../engine/harness.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
-import { readState, realEngineBundle, runCli, type Scenario, withScenario } from "./harness.ts";
+import {
+  readState,
+  realEngineBundle,
+  runCli,
+  type Scenario,
+  snapshot,
+  withScenario,
+} from "./harness.ts";
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
@@ -142,6 +149,24 @@ test("a held revision deleted by hand is forgotten by accept and held again by t
     expect(recorded(scenario).pending).toBeUndefined();
     expect(readFileSync(rulesFile(scenario), "utf8")).toContain("Never merge red.");
     expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
+    expect(recorded(scenario).pending?.summary).toHaveLength(2);
+  });
+});
+
+// The dry-run sync plans against the state accept would have written, in which nothing holds the
+// revision, so the sweep of the pending root finds the directory too; the plan must still name
+// its removal once.
+test("accept --dry-run plans the pending directory's removal once and writes nothing", async () => {
+  await heldScenario(async (scenario) => {
+    expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
+    const pending = pendingPathFor(scenario.home, FROM);
+    const before = await snapshot(scenario.home);
+    const dry = await runCli(scenario, ["accept", KEY, "--dry-run"]);
+    expect(dry.code).toBe(0);
+    const deletes = dry.stdout.split("\n").filter((line) => line === `delete  ${pending}`);
+    expect(deletes).toHaveLength(1);
+    expect(dry.stdout).toContain("o  Accepted @acme/rules (2 changed lines)\n");
+    expect(await snapshot(scenario.home)).toBe(before);
     expect(recorded(scenario).pending?.summary).toHaveLength(2);
   });
 });

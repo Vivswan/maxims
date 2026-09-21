@@ -74,8 +74,9 @@ async function namedSource(
 
 type Acceptance = { entry: SourceEntry; changes: Change[]; line: string; applied: boolean };
 
-// The held revision becomes the fetch record and the store copy in one plan: the same swap a
-// refresh lands, plus the pending directory's removal. The recorded sha names the revision as
+// The held revision becomes the fetch record and the store copy in one plan, the same swap a
+// refresh lands; the pending directory is swept by the sync that follows, since no entry holds
+// it any more, so it is not planned here as well. The recorded sha names the revision as
 // fetched, so the tree is accepted only while its diff against the installed record is still
 // the one the hold recorded; a tree that is gone or has lost a file is forgotten instead. The
 // cooldown still runs from the hold, so `update` is the way to fetch it again, and the line
@@ -100,10 +101,7 @@ async function acceptHeld(key: string, held: Held, home: string): Promise<Accept
   const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
   return {
     entry: next,
-    changes: [
-      ...swapStoreEntry(storePathFor(home, from), files),
-      { kind: "delete", path: pendingEntry },
-    ],
+    changes: swapStoreEntry(storePathFor(home, from), files),
     line: accepted(key, pending.summary.length),
     applied: true,
   };
