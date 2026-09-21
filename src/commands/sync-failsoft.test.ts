@@ -318,6 +318,22 @@ describe("staleness", () => {
     });
   }
 
+  test("a block that gains its staleness line as its source crosses seven days is not a local edit", async () => {
+    await world(async (w) => {
+      const down: LastError = { kind: "network", message: "down", at: NOW.toISOString() };
+      const { io, rules } = await lastGood(w, 6, down);
+      await runSync({ ...SYNC, fetch: "none" }, io);
+      expect(readFileSync(rules, "utf8")).not.toContain("have not refreshed since");
+      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+      const report = await runSync({ ...SYNC, fetch: "none" }, io);
+      expect(readFileSync(rules, "utf8")).toContain("have not refreshed since");
+      expect(report.notices.filter((line) => line.includes("local edit"))).toEqual([]);
+      expect(
+        report.notices.filter((line) => line.includes("has not refreshed since")),
+      ).toHaveLength(1);
+    });
+  });
+
   test("a tier-2 harness gets the self-refresh line once per file however many sources are stale", async () => {
     await world(async (w) => {
       const tierTwo: HarnessDefinition = { ...rulesDirHarness, tier: 2, hook: { kind: "none" } };

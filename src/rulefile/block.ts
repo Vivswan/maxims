@@ -7,6 +7,9 @@ const ELLIPSIS = "...";
 // dotAll: a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
 const BEGIN_LINE = /^<!-- maxims:begin (.+) sha=(\S+) -->$/s;
 const END_LINE = /^<!-- maxims:end (.+) -->$/s;
+const MANAGED_PREFIX = "<!-- managed by maxims: ";
+const UPDATE_PREFIX = `<!-- update: ${PACKAGE_COMMAND} add `;
+const STALE_PREFIX = "- maxims: the rules below from ";
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
 
 const STALE_REASON: Record<Staleness["kind"], string> = {
@@ -25,19 +28,33 @@ export function renderBlock(input: BlockInput): string {
   const lines = [`<!-- maxims:begin ${source} sha=${sha} -->`];
   if (input.markers === "stripped") {
     lines.push(
-      `<!-- managed by maxims: ${source} - edits will be overwritten -->`,
-      `<!-- update: ${PACKAGE_COMMAND} add ${source} | remove: ${PACKAGE_COMMAND} remove ${source} -->`,
+      `${MANAGED_PREFIX}${source} - edits will be overwritten -->`,
+      `${UPDATE_PREFIX}${source} | remove: ${PACKAGE_COMMAND} remove ${source} -->`,
     );
   }
   if (input.stale !== undefined) {
-    const notice = `maxims: the rules below from ${source} have not refreshed since ${input.stale.since} (${STALE_REASON[input.stale.kind]}) and may be out of date.`;
-    lines.push(`- ${escapeText(notice, expands)}`);
+    const notice = `${source} have not refreshed since ${input.stale.since} (${STALE_REASON[input.stale.kind]}) and may be out of date.`;
+    lines.push(`${STALE_PREFIX}${escapeText(notice, expands)}`);
     if (input.selfRefresh) lines.push(SELF_REFRESH_LINE);
   }
   for (const line of input.lines) lines.push(renderRuleLine(line, expands));
   lines.push(`<!-- maxims:end ${source} -->`);
   const block = `${lines.join("\n")}\n`;
   return input.frontmatter === undefined ? block : withNewline(input.frontmatter) + block;
+}
+
+// A line the renderer writes on its own, whatever the rules: the marker pair, the provenance pair,
+// the staleness notice and the self-refresh line. A block on disk holding one this run does not
+// render (a notice that appeared or went) was still written by maxims, not by hand.
+export function isOwnLine(line: string): boolean {
+  return (
+    BEGIN_LINE.test(line) ||
+    END_LINE.test(line) ||
+    line.startsWith(MANAGED_PREFIX) ||
+    line.startsWith(UPDATE_PREFIX) ||
+    line.startsWith(STALE_PREFIX) ||
+    line === SELF_REFRESH_LINE
+  );
 }
 
 // A source or sha that could break or end its own marker has no valid rendering; both come from

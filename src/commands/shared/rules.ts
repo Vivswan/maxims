@@ -5,12 +5,19 @@ import { achievedTier } from "../../harnesses/hook-writer.ts";
 import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-target.ts";
 import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
 import { planSharedBlockRemove } from "../../harnesses/strategies/shared-block.ts";
-import { parseBlocks, renderBlock, replaceBlock } from "../../rulefile/block.ts";
+import {
+  isOwnLine,
+  markdownLines,
+  parseBlocks,
+  renderBlock,
+  replaceBlock,
+} from "../../rulefile/block.ts";
 import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
+import { parseRuleLines, ruleLineName } from "./blocks.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realDirOf, realKeyOf } from "./destination.ts";
 
@@ -20,7 +27,8 @@ export type BlockRequest = {
   lines: RuleLine[];
   stale: Staleness | undefined;
   // Diff lines for a block whose rule set changed because upstream changed this run; empty when
-  // the fetch facts are unchanged, in which case a differing block on disk was a local edit.
+  // the fetch facts are unchanged, in which case a differing block on disk is judged for a local
+  // edit.
   changeLines: string[];
   paths: string[] | undefined;
 };
@@ -203,8 +211,8 @@ function rulesDirContent(
 }
 
 // The block on disk is compared with the fresh rendering: a difference explained by this run's
-// fetch is reported as rule-line changes, one not explained by any fetch (same sha, same facts)
-// was a hand edit inside the markers, which the regeneration discards.
+// fetch is reported as rule-line changes; one not explained by any fetch (same sha, same facts)
+// is judged for a hand edit inside the markers, which the regeneration discards.
 function blockChangeNotices(
   path: string,
   block: BlockRequest,
@@ -214,10 +222,34 @@ function blockChangeNotices(
   if (current === null) return block.changeLines;
   const span = parseBlocks(current).blocks.find((candidate) => candidate.source === block.key);
   if (span === undefined) return block.changeLines;
-  if (current.slice(span.start, span.end) === rendered) return [];
+  const onDisk = current.slice(span.start, span.end);
+  if (onDisk === rendered) return [];
   if (block.changeLines.length > 0) return block.changeLines;
-  if (span.sha !== block.sha) return [];
+  if (span.sha !== block.sha || !handEdited(onDisk, rendered)) return [];
   return [`maxims: local edit in ${path} discarded (the block is regenerated from ${block.key})`];
+}
+
+// A hand edit is a line inside the markers maxims could not have written: a rule line whose text
+// differs from this run's rendering of the same memory, or a line that is neither a rule line
+// nor one of maxims's own. A rule line for a memory this run does not render, or one this run
+// renders that the file lacks, follows an intent change (a memory disabled, deselected or
+// renamed) as readily as a hand deletion, so it earns no notice; the regeneration settles both.
+// A rule line is judged as one before the own-line test, since a description may open like the
+// staleness notice.
+function handEdited(onDisk: string, rendered: string): boolean {
+  const renderedLines = new Set(markdownLines(rendered).map((line) => line.text));
+  const renderedByName = new Map(parseRuleLines(rendered).map((line) => [line.name, line.text]));
+  for (const { text } of markdownLines(onDisk)) {
+    if (renderedLines.has(text)) continue;
+    const name = ruleLineName(text);
+    if (name === null) {
+      if (isOwnLine(text)) continue;
+      return true;
+    }
+    const fresh = renderedByName.get(name);
+    if (fresh !== undefined && fresh !== text) return true;
+  }
+  return false;
 }
 
 export type RulesDirSweepInput = {

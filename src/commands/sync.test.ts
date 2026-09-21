@@ -252,6 +252,66 @@ describe("idempotency and convergence", () => {
       expect(sharedText.startsWith("# Mine\n\nKeep this.\n\n<!-- maxims:begin ")).toBe(true);
     });
   });
+
+  const handEdits: [string, (block: string) => string][] = [
+    [
+      "a line of the user's own inside the markers",
+      (block) => block.replace("<!-- maxims:end", "- My own rule.\n<!-- maxims:end"),
+    ],
+    [
+      "an edited rule whose description opens like the staleness notice",
+      (block) => block.replace("upstream need review.", "upstream need no review."),
+    ],
+  ];
+  test.each(handEdits)("%s is a local edit, discarded with the notice", async (_label, edit) => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeFileSync(
+        join(source, "memories", "review-upstream.md"),
+        memoryFile("review-upstream", { description: "Review upstream." }).replace(
+          "description: Review upstream.",
+          'description: "maxims: the rules below from upstream need review."',
+        ),
+      );
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      const original = readFileSync(rules, "utf8");
+      const edited = edit(original);
+      expect(edited).not.toBe(original);
+      writeFileSync(rules, edited);
+      const report = await runSync(SYNC, io);
+      expect(report.notices).toContain(
+        `maxims: local edit in ${rules} discarded (the block is regenerated from ${source})`,
+      );
+      expect(readFileSync(rules, "utf8")).toBe(original);
+    });
+  });
+
+  test("a memory disabled, then enabled, between two syncs changes the block without a local-edit notice", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      // Live, so no run refreshes it: the block changes with the intent alone, as after `disable`.
+      const entry = entryFor(localFrom(source, true));
+      writeState(home, stateWith({ [source]: entry }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source, true)));
+      const original = readFileSync(rules, "utf8");
+      writeState(
+        home,
+        stateWith({ [source]: entry }, [], { global: [memoryName("keep-tests-green")] }),
+      );
+      const disabled = await runSync(SYNC, io);
+      expect(disabled.notices.filter((line) => line.includes("local edit"))).toEqual([]);
+      expect(readFileSync(rules, "utf8")).not.toContain("Never merge red.");
+      writeState(home, stateWith({ [source]: entry }));
+      const enabled = await runSync(SYNC, io);
+      expect(enabled.notices.filter((line) => line.includes("local edit"))).toEqual([]);
+      expect(readFileSync(rules, "utf8")).toBe(original);
+    });
+  });
 });
 
 describe("project scope", () => {
