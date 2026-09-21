@@ -25,8 +25,22 @@ const FETCH = /\b(?:curl|wget|iwr|invoke-webrequest)\b/i;
 // Invoke-Expression, the canonical Windows one-liner. The sudo flags and the python version are
 // bounded because every backtrack into them re-runs the trailing lookahead over the rest of the
 // line: "python1.1.1...", unbounded, went quadratic.
-const PIPE_INTO =
-  /(?<!\|)\|(?!\|)\s*["']?(?:sudo(?:\s+-\S+){0,3}\s+)?(?:(?:[\w./-]*\/)?env\s+)?(?:[\w./-]*\/)?(sh|bash|zsh|powershell|pwsh|python\d?(?:\.\d+)?|node|iex|invoke-expression)\b(?![\w.-]*\/)/i;
+//
+// sudo's short flags that take an argument always consume the next token, so "sudo -u bash tee"
+// names a user, not a shell; a flag free to drop its argument would fire on it. The other flags
+// never take one, so "sudo -E bash now" still fires, also when clustered ahead of an argument flag
+// ("sudo -Eu root bash"). Under the i flag -a, -h and -p would swallow the bare -A, -H and -P, so
+// those three read as bare: "sudo -H bash" fires, "sudo -h host bash" does not.
+const SUDO_ARG_FLAGS = "cdgrtu";
+const SUDO_BARE_FLAGS = [..."abcdefghijklmnopqrstuvwxyz"]
+  .filter((letter) => !SUDO_ARG_FLAGS.includes(letter))
+  .join("");
+const SUDO_ARG_CLUSTER = `-[${SUDO_BARE_FLAGS}]*[${SUDO_ARG_FLAGS}]\\s`;
+const SUDO_FLAGS = `(?:\\s+${SUDO_ARG_CLUSTER}+[^\\s-]\\S*|\\s+(?!${SUDO_ARG_CLUSTER})-\\S+){0,3}`;
+const PIPE_INTO = new RegExp(
+  `(?<!\\|)\\|(?!\\|)\\s*["']?(?:sudo${SUDO_FLAGS}\\s+)?(?:(?:[\\w./-]*\\/)?env\\s+)?(?:[\\w./-]*\\/)?(sh|bash|zsh|powershell|pwsh|python\\d?(?:\\.\\d+)?|node|iex|invoke-expression)\\b(?![\\w.-]*\\/)`,
+  "i",
+);
 const PWSH = /\b(?:powershell|pwsh)\b/i;
 const ENC_FLAG = /-(?:enc|encodedcommand)\b/i;
 const SHELL_DASH_C = /\b(?:sh|bash|zsh|pwsh|powershell)\b\s+-c\b/i;
@@ -60,21 +74,40 @@ function shellPipe(line: string): Hit | null {
 // Finding a URL is a regex job, but naming its host is not: any hand-rolled authority parsing
 // disagrees with the real parser somewhere, and a "trusted@evil.example" a browser resolves to
 // evil.example must never read as trusted. So each "://" candidate hands its authority to the WHATWG
-// URL parser rather than a regex; a bare "https://" names no host. The character that opens a URL
-// says where markup closes it: a quoted href ends at the same quote, an unquoted one at ">", an
-// autolink at ">". Nothing else closes it early, so a quote or bracket glued inside an unopened
-// authority ('trusted.example"@evil.example') stays the userinfo the parser resolves past.
+// URL parser rather than a regex; a bare "https://" names no host.
 const SCHEME = /https?:\/\//gi;
 const AUTHORITY_END = /[\s\\/?#]/;
-const CLOSERS: Readonly<Record<string, string>> = { '"': '"', "'": "'", "=": ">", "<": ">" };
+
+// The character that opens a URL says where its markup closes it (the keys are openers, the values
+// closers); an unquoted href value ("=") ends at the tag's ">". A code span is not an opener but a
+// region: its own end bounds any URL inside it (codeSpans). Nothing else closes a URL early, so a
+// quote or bracket glued inside an unopened authority ('trusted.example"@evil.example') stays the
+// userinfo the parser resolves past. Code spans are read without HTML tag precedence, so a backtick
+// inside a tag's attribute opens one. Three shapes are the recorded price of those rules:
+//
+//   [docs](https://user:p)w@example.com)                  -> no url (")" in userinfo ends the link)
+//   destination=https://trusted.example>@evil.example/x   -> trusted.example (">" ends the href)
+//   <a title="`" href="https://trusted.example`@evil.example">  -> trusted.example (span in a tag)
+const CLOSERS: Readonly<Record<string, string>> = {
+  '"': '"',
+  "'": "'",
+  "=": ">",
+  "<": ">",
+  "(": ")",
+};
 
 function url(line: string): Hit | null {
+  const spans = codeSpans(line);
+  let cursor = 0;
   for (const match of line.matchAll(SCHEME)) {
-    const closer = CLOSERS[line[match.index - 1] ?? ""] ?? null;
+    let span = spans[cursor];
+    while (span !== undefined && span.end <= match.index) span = spans[++cursor];
+    const limit = span !== undefined && span.start <= match.index ? span.end : line.length;
+    const closer = CLOSERS[openerBefore(line, match.index)] ?? null;
     let start = match.index + match[0].length;
     while (line[start] === "/" || line[start] === "\\") start++;
     let end = start;
-    while (end < line.length && !endsAuthority(line[end] ?? "", closer)) end++;
+    while (end < limit && !endsAuthority(line[end] ?? "", closer)) end++;
     const host = hostOf(`${match[0]}${line.slice(start, end)}`);
     if (host !== null) return { column: match.index, detail: host };
   }
@@ -85,12 +118,80 @@ function endsAuthority(char: string, closer: string | null): boolean {
   return AUTHORITY_END.test(char) || char === closer;
 }
 
+// CommonMark allows blanks between a link destination's "(" and the URL, so "(" is looked for past
+// them; no other opener is, since a blank after a quote or "=" is prose, not an attribute value.
+function openerBefore(line: string, at: number): string {
+  let index = at - 1;
+  while (line[index] === " " || line[index] === "\t") index--;
+  const char = line[index] ?? "";
+  return index === at - 1 || char === "(" ? char : "";
+}
+
+// CommonMark code spans: a run of N backticks opens a span that the NEXT run of exactly N closes;
+// runs of any other length in between are literal, and a run with no partner is literal, so the
+// lone backticks in ``prefix `https://trusted.example`@evil.example`` are text and the span's end
+// is what bounds the URL. A backslash escapes the first backtick of a run only in text, never
+// inside a span. The partner search is a binary search over that length's run positions, so a
+// line of many unpaired runs stays near linear.
+type Span = { start: number; end: number };
+type Run = { at: number; length: number };
+const BACKTICK = "`".charCodeAt(0);
+const BACKSLASH = "\\".charCodeAt(0);
+
+function codeSpans(line: string): Span[] {
+  const runs = backtickRuns(line);
+  const runsOfLength = new Map<number, number[]>();
+  runs.forEach((run, index) => {
+    const same = runsOfLength.get(run.length);
+    if (same === undefined) runsOfLength.set(run.length, [index]);
+    else same.push(index);
+  });
+  const spans: Span[] = [];
+  for (let index = 0; index < runs.length; index++) {
+    const open = runs[index];
+    if (open === undefined) break;
+    const escapes = escapedAt(line, open.at) ? 1 : 0;
+    const closeIndex = firstAfter(runsOfLength.get(open.length - escapes) ?? [], index);
+    const close = closeIndex === undefined ? undefined : runs[closeIndex];
+    if (closeIndex === undefined || close === undefined) continue;
+    spans.push({ start: open.at + open.length, end: close.at });
+    index = closeIndex;
+  }
+  return spans;
+}
+
+function backtickRuns(line: string): Run[] {
+  const runs: Run[] = [];
+  for (let at = line.indexOf("`"); at !== -1; at = line.indexOf("`", at)) {
+    let end = at + 1;
+    while (line.charCodeAt(end) === BACKTICK) end++;
+    runs.push({ at, length: end - at });
+    at = end;
+  }
+  return runs;
+}
+
+function escapedAt(line: string, at: number): boolean {
+  let slashes = 0;
+  while (line.charCodeAt(at - 1 - slashes) === BACKSLASH) slashes++;
+  return slashes % 2 === 1;
+}
+
+function firstAfter(sorted: readonly number[], index: number): number | undefined {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if ((sorted[mid] ?? -1) <= index) low = mid + 1;
+    else high = mid;
+  }
+  return sorted[low];
+}
+
 // Prose wraps a URL in punctuation, markdown emphasis included, and may follow the wrapper with a
-// colon ("[guide](https://example.com:443): more"); all of it trails and is stripped. A colon is
-// stripped only after a wrapper: a bare trailing colon is a dangling port the parser tolerates, and
-// inside an IPv6 literal whose "]" was just stripped, "::" is address syntax. Stripping removes
-// that "]", so one is restored, but only after the stripped form fails to parse, leaving a "["
-// inside userinfo for the parser.
+// colon ("[guide](https://example.com:443): more"); all of it trails and is stripped. A bare
+// trailing colon stays: it is a dangling port the parser tolerates, and inside an IPv6 literal
+// whose "]" was just stripped, "::" is address syntax.
 const TRAILING_WRAPPERS = ").,;!?}]'\"`>*_";
 const WRAPPER_CHAR = /["'<>`|]/;
 
@@ -104,11 +205,21 @@ function hostOf(token: string): string | null {
   return cut > 0 ? parseAuthority(token.slice(0, cut)) : null;
 }
 
+// Stripping may take an IPv6 literal's "]", so one is restored once the stripped form fails,
+// leaving a "[" inside userinfo for the parser. A prose colon after an explicit port
+// ("https://example.com:8080: the docs") is the one colon the parser rejects, so a failed parse
+// retries once without it: once, never per colon, so a colon flood stays linear.
 function parseAuthority(candidate: string): string | null {
   const trimmed = trimTrailing(candidate);
-  const host = tryHost(trimmed);
+  const host = tryBracketed(trimmed);
+  if (host !== null || !trimmed.endsWith(":")) return host;
+  return tryBracketed(trimmed.slice(0, -1));
+}
+
+function tryBracketed(text: string): string | null {
+  const host = tryHost(text);
   if (host !== null) return host;
-  return hasOpenBracket(trimmed) ? tryHost(`${trimmed}]`) : null;
+  return hasOpenBracket(text) ? tryHost(`${text}]`) : null;
 }
 
 function hasOpenBracket(text: string): boolean {
