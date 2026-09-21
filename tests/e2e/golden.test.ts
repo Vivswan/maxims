@@ -1,6 +1,5 @@
-// Fails if the frame a user sees from the bundle drifts: the console goldens are captured
-// through an in-process fake engine, so a real install's stdout through node, with the engine's
-// notices folded into the frame, is pinned only here.
+// Fails if the frame a user sees from the bundle drifts: the console goldens run in process, so a
+// real install's stdout through node, the bundle a user runs, is pinned only here.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

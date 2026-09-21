@@ -5,7 +5,7 @@ group: Start here
 
 # Quickstart
 
-One command installs a source's one-liners into your agent's always-loaded layer and registers the hook that keeps them fresh. This page is that command and what it writes; every console block on it is the specified output the code is built against, not a capture from a running build.
+One command installs a source's one-liners into your agent's always-loaded layer and registers the hook that keeps them fresh. This page is that command and what it writes; the console block below is captured from the built CLI.
 
 ## Install a source
 
@@ -19,26 +19,51 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 
 The [flag reference](cli.md#flags) has the full table. Run from inside an agent session, the plan is applied without a prompt; in a terminal, a "Proceed with installation?" confirm appears before the install line, and a refusal prints "Installation cancelled".
 
+The output with stdout piped, as an agent or a log sees it. On a terminal inside an agent session the frame opens with `o   claude-code  Agent detected - installing non-interactively` and the item list folds to one entry plus `... 3 more`.
+
 ```text
-|
-o   claude-code  Agent detected - installing non-interactively
 |
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
+!  README.md is not a memory: filename stem "README" is not kebab-case
 o  Found 4 memories
+o  First source from github.com/vivswan
+   https://github.com/Vivswan/skills.git
+   commit 77769dc, not pinned (tracks HEAD)
+   4 memories
 |
 o  Memories to install
    Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md
 |
+|    fire-relevant-skills-and-memories
+|
+|      Use before any consequential action - commit, merge, push, delete,
+|      report, spawn - stop and enumerate which skills and memories trigger at
+|      that moment, then apply them
+|
+|    gate-exit-conditions-the-merge
+|
+|      Use when landing a change after a gate (review, CI, tests) - never chain
+|      the merge or push in the same compound command as reading the gate's log;
+|      land in a separate command only after the gate's exit code and verdict
+|      are read
+|
+|    no-sleep-waiting-on-subagents
+|
+|      Use when tempted to sleep, poll, or busy-wait on a background subagent -
+|      its completion notification re-invokes the session on its own; launch
+|      synchronously instead when the result gates everything else
+|
 |    rubber-duck-before-every-commit
 |
-|      Use when about to commit or merge ANY change, however trivial - the
-|      rubber-duck review WITH CODEX must run and converge first
+|      Use before every commit or merge, however trivial - a cross-model
+|      rubber-duck review must run and converge on the exact final content
+|      first; exceptions and reviewer coverage never transfer between gates
 |
-|    ... 3 more
-|
-o  Installed 4 memories, 4 rule lines (~103 tokens)
+o  Installed 4 memories, 4 rule lines (~325 tokens)
 o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
+!  ~325 tokens in /home/user/.claude/rules/maxims-vivswan-skills.md
+!  maxims: registered the maxims hook in /home/user/.claude/settings.json
 |
 ```
 

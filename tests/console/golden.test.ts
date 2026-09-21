@@ -1,7 +1,9 @@
 // Fails if the frame drifts from the mirrored `npx skills` shape: the golden files under
 // tests/fixtures/golden are the bytes a user sees at width 80 with color off, and the clack
 // renderer must draw the same lines as the plain one once glyphs and ANSI are folded away, so
-// one string table serves both.
+// one string table serves both. The install golden runs the real engine, so the notices the
+// engine folds into the frame are pinned with it; the other goldens pin the frame alone over a
+// recording engine.
 import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -10,7 +12,14 @@ import { createClackConsole } from "../../src/console/clack.ts";
 import type { Console, ConsoleMode } from "../../src/console/contract.ts";
 import { agentIdFrom, consoleMode } from "../../src/console/mode.ts";
 import { createPlainConsole } from "../../src/console/plain.ts";
-import { FIXTURES, runCli, type Scenario, withScenario } from "../cli/harness.ts";
+import {
+  FIXTURES,
+  fixtureResolvers,
+  realEngineBundle,
+  runCli,
+  type Scenario,
+  withScenario,
+} from "../cli/harness.ts";
 
 const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
 const SKILLS = join(FIXTURES, "skills");
@@ -26,13 +35,9 @@ type Golden = [string, Parameters<typeof withScenario>[0], (scenario: Scenario) 
 const goldens: Golden[] = [
   [
     "add-install",
-    {
-      tty: true,
-      agent: "claude-code",
-      github: { "vivswan/skills": SKILLS },
-      syncReport: { rules: 4, tokens: 103 },
-    },
+    { tty: true, agent: "claude-code", github: { "vivswan/skills": SKILLS } },
     async (scenario) => {
+      scenario.options.bundle = realEngineBundle(fixtureResolvers(() => scenario));
       const run = await runCli(scenario, [
         "add",
         "@Vivswan/skills",
@@ -43,7 +48,7 @@ const goldens: Golden[] = [
         "claude-code",
       ]);
       expect(run.code).toBe(0);
-      return run.stdout;
+      return redacted(run.stdout, scenario);
     },
   ],
   [
@@ -120,6 +125,16 @@ const goldens: Golden[] = [
     },
   ],
 ];
+
+// The run-specific values a real engine prints: the user home a notice names in full (with the
+// separator of the machine that printed it; the golden holds the forward-slash spelling), and a
+// token estimate that follows the path lengths.
+function redacted(text: string, scenario: Scenario): string {
+  return text
+    .replaceAll(scenario.userHome, "<HOME>")
+    .replace(/<HOME>\S*/g, (path) => path.replaceAll("\\", "/"))
+    .replace(/~\d+ tokens/g, "~N tokens");
+}
 
 // MAXIMS_UPDATE_GOLDEN=1 rewrites the fixtures from the current output; the diff is then reviewed
 // like any other change to what the user sees.

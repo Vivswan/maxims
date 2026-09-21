@@ -56,19 +56,18 @@ A shell-rc line, an OS scheduler, an editor folder-open task, and a git hook wer
 npx -y @vivswan/maxims update
 ```
 
-`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` lines above; in a terminal it follows the `npx skills update` frame, which the specification leaves to be mirrored:
+`update` refetches every source whatever the cooldown says, then runs the same sync. In quiet mode its output is the `sync` lines above; in a terminal it follows the `npx skills update` frame. Captured from the built CLI against a local source directory whose memory `alpha-rule` changed, cut before the trailing `~N tokens in <rule file>` line:
 
 ```text
 |
 o  Checking for memory updates...
 o  Found 1 update(s)
-|  Updating @Vivswan/skills...
-|    ok Updated @Vivswan/skills
-o  ok Updated 1 source(s)
-|
+o  Updated /home/user/skills (+0 -0 rule)
+!  maxims: /home/user/skills refreshed (1688bf4)
+!  ~ alpha-rule (05baca3 -> 94f250b)
 ```
 
-With nothing to fetch the frame is one line, "ok All sources are up to date".
+The count in parentheses is memories the refresh added and removed within the selection; a changed memory is neither and earns the `~` line instead. With nothing to fetch the frame ends with one line, `o  All memories are up to date`.
 
 ## How a source is fetched
 
