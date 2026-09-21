@@ -264,6 +264,18 @@ describe("readState", () => {
       fixture: "v1-corrupt-project-without-root.json",
       issue: /intent\.destination\.root: Invalid input: expected string, received undefined$/,
     },
+    {
+      fixture: "v1-corrupt-pending-unreviewed.json",
+      issue: /pending: a held revision needs the source marked for review$/,
+    },
+    {
+      fixture: "v1-corrupt-pending-at-installed-sha.json",
+      issue: /pending\.sha: the held revision is the installed one$/,
+    },
+    {
+      fixture: "v1-corrupt-pending-without-fetched.json",
+      issue: /pending: a held revision needs an installed revision behind it$/,
+    },
   ];
   test.each(hostile)(
     "$fixture is moved aside, reported, and never rebuilt",

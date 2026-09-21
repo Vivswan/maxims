@@ -98,7 +98,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`fetched.at` and `fetched.sha`** drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record.
 - **`fetched.memories`** holds a content hash and a description hash per memory, so a body-only edit skips the rule rewrite.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.
-- **`pending`** is the revision held for review: its `sha`, `at`, and `summary`, the diff against `fetched.memories`. It is absent while nothing waits, and a live source never has one, since its directory is read in place.
+- **`pending`** is the revision held for review: its `sha`, `at`, and `summary`, the diff against `fetched.memories`. It is absent while nothing waits, and a live source never has one, since its directory is read in place. A `pending` on a source without `intent.review`, without a `fetched` block, or at the installed sha is corrupt.
 - **`addedAt`** is provenance; there is no `updatedAt`.
 - **`disabled`** holds the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a copy of its own root's list.
 

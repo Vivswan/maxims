@@ -258,19 +258,44 @@ const CopiedLocalPending = pendingSchema(ContentHashSchema);
 /** @public */
 export type Pending = z.infer<typeof RemotePending> | z.infer<typeof CopiedLocalPending>;
 
+// A hold is what `review` makes of a refresh, parked behind the installed revision until `accept`
+// lands it: without the mark no verb would ever apply it, without an installed revision there is
+// nothing to keep behind, and at the installed sha there is nothing to land.
+function pendingIsHeld(ctx: {
+  value: { intent: { review?: true }; fetched?: { sha: string }; pending?: { sha: string } };
+  issues: z.core.$ZodRawIssue[];
+}): void {
+  const { intent, fetched, pending } = ctx.value;
+  if (pending === undefined) return;
+  const refuse = (path: string[], message: string): void => {
+    ctx.issues.push({ code: "custom", input: pending, path, message });
+  };
+  if (intent.review !== true)
+    refuse(["pending"], "a held revision needs the source marked for review");
+  if (fetched === undefined) {
+    refuse(["pending"], "a held revision needs an installed revision behind it");
+  } else if (pending.sha === fetched.sha) {
+    refuse(["pending", "sha"], "the held revision is the installed one");
+  }
+}
+
 export const SourceEntrySchema = z.union([
-  z.strictObject({
-    intent: RemoteIntent,
-    fetched: RemoteFetched.optional(),
-    pending: RemotePending.optional(),
-    addedAt: IsoTimestamp,
-  }),
-  z.strictObject({
-    intent: CopiedLocalIntent,
-    fetched: CopiedLocalFetched.optional(),
-    pending: CopiedLocalPending.optional(),
-    addedAt: IsoTimestamp,
-  }),
+  z
+    .strictObject({
+      intent: RemoteIntent,
+      fetched: RemoteFetched.optional(),
+      pending: RemotePending.optional(),
+      addedAt: IsoTimestamp,
+    })
+    .check(pendingIsHeld),
+  z
+    .strictObject({
+      intent: CopiedLocalIntent,
+      fetched: CopiedLocalFetched.optional(),
+      pending: CopiedLocalPending.optional(),
+      addedAt: IsoTimestamp,
+    })
+    .check(pendingIsHeld),
   z.strictObject({ intent: LiveIntent, addedAt: IsoTimestamp }),
 ]);
 /** @public */

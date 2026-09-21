@@ -202,7 +202,7 @@ describe("parseState", () => {
   // A held revision records the sha of the variant it belongs to: a commit id for a remote, a
   // content hash for a copied directory, and nothing at all for a live source, whose tree is the
   // record. A `pending` on the wrong variant or with the other brand is a hand edit the file
-  // refuses whole.
+  // refuses whole. Every row marks the source for review, so the verdict is the variant's alone.
   const pendingShapes: [string, string, unknown, "parsed" | "corrupt"][] = [
     [
       "a commit sha on a remote entry",
@@ -243,7 +243,9 @@ describe("parseState", () => {
   ];
   test.each(pendingShapes)("pending: %s", (_title, key, pending, verdict) => {
     const json = clone(VALID);
-    (json.sources[key as keyof typeof json.sources] as Record<string, unknown>).pending = pending;
+    const source = json.sources[key as keyof typeof json.sources] as Record<string, unknown>;
+    source.intent = { ...(source.intent as Record<string, unknown>), review: true };
+    source.pending = pending;
     const result = parseState(json);
     expect(result.ok).toBe(verdict);
     if (result.ok !== "parsed") return;

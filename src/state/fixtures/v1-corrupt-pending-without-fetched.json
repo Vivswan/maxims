@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": ["codex"],
+  "sources": {
+    "@example-user/rules": {
+      "intent": {
+        "from": {
+          "type": "github",
+          "repo": "example-user/rules",
+          "ref": "HEAD"
+        },
+        "select": "*",
+        "rename": {},
+        "rule": true,
+        "destination": {
+          "scope": "global"
+        },
+        "copy": false,
+        "harnesses": ["codex"],
+        "review": true
+      },
+      "pending": {
+        "sha": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "at": "2026-09-03T04:12:09.113Z",
+        "summary": ["+ new-rule"]
+      },
+      "addedAt": "2026-08-20T08:38:04.471Z"
+    }
+  }
+}
