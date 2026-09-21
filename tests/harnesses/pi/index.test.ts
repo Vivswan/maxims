@@ -2,8 +2,11 @@
 // export takes the extension API, `session_start` runs the sync through `pi.exec` with an argv
 // (not a shell string) and a millisecond timeout inside a try, and the global AGENTS.md and the
 // extension both follow the overridden directory, while the variable alone never counts as an
-// install. Also guards that a directory's `AGENTS.override.md` receives the block, since Pi loads
-// it instead of AGENTS.md.
+// install. Also guards that a directory's one context file receives the block, since Pi reads
+// only the first it finds of AGENTS.override.md, AGENTS.md and CLAUDE.md (the last two also
+// spelled `.MD`, which a case-insensitive filesystem cannot tell apart, so only the lower-case
+// names are driven here): a block in AGENTS.md beside AGENTS.override.md would never load, and
+// creating AGENTS.md beside a lone CLAUDE.md would drop the user's file from Pi's context.
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -77,13 +80,19 @@ test("detection follows the config directory, not the exported variable", async 
   });
 });
 
-test("AGENTS.override.md receives the block in a directory that has one", async () => {
-  const target = pi.targets.project;
-  if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-  await withTempDir((repo) => {
-    writeFileSync(join(repo, "AGENTS.md"), "");
-    expect(sharedBlockFile(target, repo)).toBe("AGENTS.md");
-    writeFileSync(join(repo, "AGENTS.override.md"), "");
-    expect(sharedBlockFile(target, repo)).toBe("AGENTS.override.md");
-  });
-});
+test.each(["project", "global"] as const)(
+  "the %s directory's one context file receives the block, in Pi's reading order",
+  async (scope) => {
+    const target = pi.targets[scope];
+    if (target?.kind !== "shared-block") throw new Error("expected a shared block");
+    await withTempDir((dir) => {
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.md");
+      writeFileSync(join(dir, "CLAUDE.md"), "");
+      expect(sharedBlockFile(target, dir)).toBe("CLAUDE.md");
+      writeFileSync(join(dir, "AGENTS.md"), "");
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.md");
+      writeFileSync(join(dir, "AGENTS.override.md"), "");
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
+    });
+  },
+);

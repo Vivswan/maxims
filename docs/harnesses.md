@@ -28,7 +28,7 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 | `zed` | Zed | 2 | `AGENTS.md` block, written into the first existing of `.rules`, `.cursorrules`, `.windsurfrules`, `.clinerules`, `.github/copilot-instructions.md`, `AGENT.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | `~/.config/zed/AGENTS.md` block | B | none | - | `.zed/settings.json` or `~/.config/zed/settings.json` | counted | - |
 | `amp` | Amp | 1 | `AGENTS.md` block, written into the first existing of `AGENTS.md`, `AGENT.md`, `CLAUDE.md` | `~/.config/amp/AGENTS.md` block | B | maxims-owned file `.amp/plugins/maxims.ts` or `~/.config/amp/plugins/maxims.ts` | `none` | `.amp/settings.json` or `~/.config/amp/settings.json` | counted | - |
 | `warp` | Warp | 2 | `AGENTS.md` block, written into the first existing of `WARP.md`, `AGENTS.md` | none | B | none | - | `~/.warp/.mcp.json` | counted | - |
-| `pi` | Pi | 1 | `AGENTS.md` block, written into the first existing of `AGENTS.override.md`, `AGENTS.md` | `~/.pi/agent/AGENTS.md` block, written into the first existing of `~/.pi/agent/AGENTS.override.md`, `~/.pi/agent/AGENTS.md` | B | maxims-owned file `.pi/extensions/maxims.ts` or `~/.pi/agent/extensions/maxims.ts` | `none` | - | counted | - |
+| `pi` | Pi | 1 | `AGENTS.md` block, written into the first existing of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | `~/.pi/agent/AGENTS.md` block, written into the first existing of `~/.pi/agent/AGENTS.override.md`, `~/.pi/agent/AGENTS.md`, `~/.pi/agent/AGENTS.MD`, `~/.pi/agent/CLAUDE.md`, `~/.pi/agent/CLAUDE.MD` | B | maxims-owned file `.pi/extensions/maxims.ts` or `~/.pi/agent/extensions/maxims.ts` | `none` | - | counted | - |
 
 <!-- END GENERATED: harness-matrix -->
 

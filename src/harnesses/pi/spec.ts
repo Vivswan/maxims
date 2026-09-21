@@ -1,11 +1,13 @@
 import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Pi loads `~/.pi/agent/AGENTS.md` and every AGENTS.md from the parents down to the working
-// directory, and a directory's `AGENTS.override.md` replaces its AGENTS.md outright. The config
-// directory moves with `PI_CODING_AGENT_DIR`. Pi has no hook registry and no MCP: an extension file
-// in its extensions directory receives `session_start` and runs the sync through `pi.exec`, which
-// takes an argv rather than a shell string and a timeout in milliseconds.
+// Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
+// working directory: AGENTS.override.md, else AGENTS.md or AGENTS.MD, else CLAUDE.md or CLAUDE.MD,
+// so a block written into AGENTS.md beside AGENTS.override.md would never load and creating
+// AGENTS.md beside a lone CLAUDE.md would stop Pi reading the user's file. The config directory
+// moves with `PI_CODING_AGENT_DIR`. Pi has no hook registry and no MCP: an extension file in its
+// extensions directory receives `session_start` and runs the sync through `pi.exec`, which takes
+// an argv rather than a shell string and a timeout in milliseconds.
 export const spec = {
   id: "pi",
   displayName: "Pi",
@@ -14,7 +16,7 @@ export const spec = {
     url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
     date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:c5e45089edb276477447ebeedfe6c3c23bfb4f2c32ccbec4de76bfb51d0eabf8",
+      "sha256:ce5720e9742e4fae7fb926aa09ca485caadd7be063b732f998c7b471373d39f8",
     ),
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },
@@ -22,12 +24,12 @@ export const spec = {
     project: {
       kind: "shared-block",
       file: "AGENTS.md",
-      precedence: ["AGENTS.override.md", "AGENTS.md"],
+      precedence: ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"],
     },
     global: {
       kind: "shared-block",
       file: "AGENTS.md",
-      precedence: ["AGENTS.override.md", "AGENTS.md"],
+      precedence: ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"],
     },
   },
   bodiesDir: { project: ".agents/memories", global: null },
