@@ -40,7 +40,7 @@
     "lint:arch": "bun scripts/arch_lint.mts --root .",
     "docs:arch": "bun scripts/render_architecture_map.mts --page docs/architecture.md",
     "docs:arch:check": "bun scripts/render_architecture_map.mts --page docs/architecture.md --check",
-    "test:arch": "bun scripts/check_architecture_page.mts --page docs/architecture.md --repo-url https://github.com/Vivswan/maxims/blob/main/ --expect-diagrams 7"
+    "test:arch": "bun scripts/check_architecture_page.mts --page docs/architecture.md --repo-url https://github.com/Vivswan/maxims/blob/main/ --expect-diagrams 14"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.11",

@@ -7,7 +7,9 @@ group: Behind the design
 
 How maxims is arranged on disk and in code: what lives where, who writes it, and how a memory travels from a source to a rule line, one diagram per concept. The checks behind the page prove existence only: every path a box names exists, every symbol after a path is exported by that file, and every `Demonstrated by:` link resolves. No check tests the claim a diagram makes.
 
-A cylinder is a file or directory on this machine, a double-edged box is a process, and a plain box is code, named by its file and the exported symbols it means. The sections follow the path a byte takes: disk, then intent, then a fetched source, then the rendered rule line, then the harness that receives it, then the write itself, then the hook that starts the next run.
+A cylinder is a file or directory on this machine, a double-edged box is a process, and a plain box is code, named by its file and the exported symbols it means.
+
+The sections follow the path a byte takes: disk, then intent, then a fetched source, then the rendered rule line, then the harness that receives it, then the write itself, then the hook that starts the next run. The verbs come last, one flow each, as the command line runs them.
 
 ## What lives on disk
 
@@ -266,10 +268,278 @@ flowchart LR
 ```
 
 - **The command carries no source, no filter and no version pin:** intent supplies the first two, and the missing pin lets a fix reach hooked sessions without a re-add.
-- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](keep-fresh.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
-- **The verbs are not drawn yet.** `src/commands/` holds their option and report types; each verb's flow joins this page as the verb lands there.
+- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](harnesses.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
 
 Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
+
+## A verb runs: add
+
+```mermaid
+flowchart LR
+  bin[["maxims add: the bin entry hands real streams and an engine loader to main"]]
+  main["src/commands/main.ts<br>main() CliDeps"]
+  options["src/commands/shared/options.ts<br>parseVerbArgs() GLOBAL_FLAGS FLAGS parseDestination() parseSelect() parseAgents()"]
+  engine["src/commands/engine.ts<br>createEngine()<br>src/commands/shared/resolvers.ts<br>createResolvers()"]
+  console["src/console/mode.ts<br>consoleMode()<br>src/console/contract.ts<br>createConsole() promptsAllowed()"]
+  add["src/commands/add.ts<br>add parseAddRequest() prepareAdd() stageAdd() planAdd()"]
+  temp[("the fetch's temporary directory, removed on every path")]
+  intent["src/commands/shared/cli-context.ts<br>loadIntentFor() peekIntent()"]
+  commit["src/commands/add.ts<br>commitAdd() admitIntent()"]
+  update["src/commands/shared/cli-context.ts<br>updateIntent()<br>src/state/store.ts<br>withStateLock()"]
+  riders["src/commands/shared/fetch.ts<br>swapStoreEntry()<br>src/sources/local.ts<br>materializeLocal()<br>src/commands/shared/project-lock-io.ts<br>projectLockChange()<br>src/commands/shared/cli-context.ts<br>configWrite()"]
+  apply["src/util/change.ts<br>applyChanges()"]
+  written[("intent: state.json, the store entry, config.json, the manifest")]
+  after["src/commands/add.ts<br>syncCommitted()<br>src/commands/shared/engine-io.ts<br>framed()<br>src/commands/sync.ts<br>runSync()"]
+  finish["src/commands/shared/output.ts<br>finish() mergePlans()"]
+  bin --> main
+  main -->|"-h, -v, --quiet, --json and --dry-run are read off argv before any verb module loads"| options
+  main -->|"loaded once a verb is about to run, never for help, the version or an unknown verb"| engine
+  main -->|"openConsole(yes): -y, --all or config yes; a prompt needs a TTY on both ends and no agent"| console
+  options --> add
+  add -->|"step 1: the resolver fetches at the pin"| temp
+  add -->|"step 2: the intent as it is; lock-free under --list and --dry-run"| intent
+  add -->|"steps 3 and 4: hidden characters, wikilinks, the collision walk, the harness choice, the confirm"| commit
+  commit -->|"steps 5 and 6: one function under one lock"| update
+  update -->|"the store swap or the local link, the lock projection, the config, in the same plan"| riders
+  update -->|"admitIntent(): the sync planned dry against the state about to land; a refusal writes nothing"| apply
+  riders --> apply
+  apply -->|"the riders first; state.json last, mode 0600"| written
+  commit -->|"fetch none: the commit just fetched; the engine's own lines go nowhere, its report is what is shown"| after
+  after -->|"the verb's lines, the plan under --dry-run, one document under --json"| finish
+```
+
+- **One commit point.** Steps 1 to 4 write nothing, so a failure there (exit 2, 3, 6, 7 or 8) leaves the machine as it was, apart from a corrupt state file the locking read has already moved aside; steps 5 and 6 are one state write with the store swap, the manifest and the config in the same plan, and then the sync every other verb ends in runs.
+- **`-y` changes the console, not the flow.** The same code runs; `promptsAllowed()` is false, so the confirm answers its silent default and the harness prompt falls back to the remembered answer. `--json` needs `-y` or `--all`, since a prompt would break the one document.
+- **The harness choice has an order:** `-a` as typed (every harness with a target under `--all`), else the harnesses detected on this machine, else `config.agents`, else a prompt pre-filled with the last answer. A harness with no target at the destination's scope is skipped with a warning, never silently.
+- **`--list` stops before validation,** so a source whose install would be refused can still be seen and narrowed; it fetches unless `--no-fetch` walks the store copy, and it never writes.
+
+Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/cli/parser.test.ts](../tests/cli/parser.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
+
+## A verb runs: sync
+
+```mermaid
+flowchart LR
+  verb["src/commands/engine-verbs.ts<br>sync"]
+  persist["src/commands/shared/cli-context.ts<br>cooldownCapConfig() persistConfig()"]
+  io["src/commands/shared/engine-io.ts<br>engineIo() exitForFailed()"]
+  runsync["src/commands/sync.ts<br>runSync()"]
+  context["src/commands/shared/context.ts<br>loadContext() findProjectRoot() EngineContext"]
+  preview["src/commands/shared/report.ts<br>previewState()"]
+  lock["src/commands/shared/debounce.ts<br>stampLastSync()<br>src/state/store.ts<br>withStateLock()"]
+  plan["src/commands/shared/engine.ts<br>planSync() SyncOutcome SyncExtras"]
+  refresh["src/commands/shared/fetch.ts<br>refreshSource() isDue() FAILED_FETCH_RETRY_MS"]
+  select["src/commands/shared/select.ts<br>selectMemories() disabledNames()<br>src/rulefile/dedupe.ts<br>buildNameIndex() resolveSourceCandidates()"]
+  writers["src/commands/shared/bodies.ts<br>planBodies() planBodySweep()<br>src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep()<br>src/commands/shared/hooks.ts<br>planHooks()<br>src/commands/shared/orphans.ts<br>planOrphanSweep()"]
+  builder["src/commands/shared/plan.ts<br>PlanBuilder ChangeCategory<br>src/commands/shared/notices.ts<br>Notices"]
+  finish["src/commands/shared/report.ts<br>finishSync() summaryLine()"]
+  apply["src/util/change.ts<br>applyChanges()"]
+  log["src/util/log.ts<br>appendRefreshLog()"]
+  disk[("destinations, the store, state.json, the log")]
+  verb -->|"--cooldown and --cap land in config.json before the engine runs"| persist
+  verb -->|"fetch due, or none under --no-fetch or when -a names harnesses; -a narrows the run"| io
+  io --> runsync
+  runsync -->|"stdin never read: the invoker is a person and the project root is the cwd's"| context
+  runsync -->|"--dry-run: read lock-free, quarantine nothing, print the plan"| preview
+  runsync -->|"the stamp, then manual mode: wait up to 5 s, then exit 5 naming the holder"| lock
+  lock -->|"lock.read(): a quarantine or migration happens here; an unusable file is one line and exit 0"| plan
+  preview --> plan
+  plan -->|"step 2: every fetched source that acts here, due by cooldown or forced by update"| refresh
+  plan -->|"step 3: disabled names out, installed names first; a collision or the cap refuses the source whole"| select
+  plan -->|"steps 4 and 5: bodies, blocks compared against the file, hooks, the sweeps"| writers
+  writers --> builder
+  builder -->|"the state write only when the state changed"| finish
+  finish --> apply
+  apply --> disk
+  finish -->|"refreshed keys, every change, the trace lines"| log
+  finish -->|"the first failure, printed, then ReportedMaximsError; failed sources map to exit 2 or 3"| io
+```
+
+- **A refused fresh refresh is rolled back.** `planSync()` loops: the source's last-good copy is restored and the whole installation is planned again from it, so what the retained rules point at is what the name index and the sweeps see. The refusal's own lines are carried over once.
+- **A failed fetch is a report, not a stop.** The other sources land; the failure is logged, shown at once when the source is gone or its content invalid, otherwise once the source counts as stale; and the verb exits 2, or 3 when every failure is a source with nothing valid to install.
+
+Demonstrated by: [src/commands/sync.test.ts](../src/commands/sync.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+
+## A hook runs: sync --quiet
+
+```mermaid
+flowchart LR
+  hook[["the harness's hook: maxims sync --quiet, the event payload on stdin"]]
+  main["src/commands/main.ts<br>main()"]
+  runsync["src/commands/sync.ts<br>runSync()"]
+  stdin["src/commands/shared/stdin.ts<br>readHookStdin() classifyInvoker() stdoutVariantFor() HOOK_STDIN_FIRST_CHUNK_MS"]
+  context["src/commands/shared/context.ts<br>loadContext()"]
+  debounce["src/commands/shared/debounce.ts<br>isDebounced() stampLastSync() QUIET_DEBOUNCE_MS"]
+  stamp[("the quiet-mode stamp: last-sync")]
+  lock["src/state/store.ts<br>withStateLock() HookLockOutcome"]
+  plan["src/commands/shared/engine.ts<br>planSync()"]
+  builder["src/commands/shared/plan.ts<br>PlanBuilder"]
+  finish["src/commands/shared/report.ts<br>finishSync() EMPTY_REPORT"]
+  render["src/commands/shared/stdin.ts<br>renderHookStdout()"]
+  log["src/util/log.ts<br>appendRefreshLog()"]
+  session[["the session that started: stdout in the harness's protocol, exit 0 always"]]
+  hook -->|"--quiet is read off argv first: a usage error is one log line and exit 0"| main
+  main --> runsync
+  runsync -->|"a TTY is never read; a pipe gets 200 ms for the first chunk, 1 s in all, or until one JSON value parses"| stdin
+  stdin -->|"the field only that harness sends names it; the project root is found from its cwd; unknown JSON means silence"| context
+  runsync -->|"a stamp younger than 60 s: exit 0 before state is read"| debounce
+  debounce -->|"written before the lock, best effort"| stamp
+  runsync -->|"hook mode never waits: held means one log line and exit 0"| lock
+  lock -->|"an unusable state file: one log line, nothing emptied"| plan
+  plan -->|"deferDeletions: removals, orphans and every delete outside the store swap wait for an interactive run"| builder
+  builder --> finish
+  finish -->|"a write that fails is one loud notice; every earlier change stays applied"| render
+  finish --> log
+  render -->|"nothing to say prints nothing, whatever the envelope"| session
+  runsync -->|"whatever else is thrown: the stack goes to the log, the report is empty"| log
+```
+
+- **A hook run may not take anything away.** A partial read must never empty a machine, so `PlanBuilder.build()` holds back the removal and orphan categories whole, and every other delete except the store swap's, until an interactive run.
+- **One stamp debounces every hook on the machine,** since each runs the same command; an interactive run is never debounced but writes the stamp too.
+- **Notices reach the session only in its protocol.** `stdoutVariantFor()` reads the definition's declared stdout shape; a harness this build does not know gets silence, since plain text into a JSON-only reader is a hook error at every session start.
+
+Demonstrated by: [src/commands/sync-failsoft.test.ts](../src/commands/sync-failsoft.test.ts), [src/commands/shared/stdin.test.ts](../src/commands/shared/stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+
+## A verb runs: remove
+
+```mermaid
+flowchart LR
+  verb["src/commands/engine-verbs.ts<br>remove removeOptions()"]
+  options["src/commands/shared/options.ts<br>parseDestination() parseSelect() parseAgents()"]
+  lookup["src/commands/shared/sources.ts<br>lookupSource() resolveMemoryName() installedElsewhere()"]
+  console["src/console/contract.ts<br>promptsAllowed()<br>src/console/strings.ts<br>STRINGS"]
+  runremove["src/commands/remove.ts<br>runRemove()"]
+  lock["src/state/store.ts<br>withStateLock()<br>src/commands/shared/report.ts<br>previewState()"]
+  installed["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames()<br>src/commands/shared/select.ts<br>selectMemories()"]
+  lockio["src/commands/shared/project-lock-io.ts<br>projectLockChange()"]
+  plan["src/commands/shared/engine.ts<br>planSync() SyncExtras"]
+  sweeps["src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep() claimedByMaxims()<br>src/commands/shared/bodies.ts<br>planBodySweep()<br>src/commands/shared/hooks.ts<br>planHooks()"]
+  finish["src/commands/shared/report.ts<br>finishSync()"]
+  disk[("rule files, body links and copies, the store entry, registries, the manifest, state.json")]
+  verb -->|"one target: every source that acts here under --all, a source key, or memories of one source"| options
+  options -->|"a source first; a bare name when no recorded source answers; another project's is refused"| lookup
+  verb -->|"without -y or --all: a confirm on a terminal; anywhere else exit 1 before the engine"| console
+  lookup --> runremove
+  runremove -->|"manual mode; a dry run reads lock-free and settles nothing"| lock
+  lock -->|"the installed picture: the tree, or the names its retained blocks still hold"| installed
+  installed -->|"a * selection becomes the explicit rest, so a refresh cannot bring the memory back"| plan
+  runremove -->|"a project entry changed: this machine's lock entries rewritten, a teammate's kept"| lockio
+  lockio --> plan
+  plan -->|"verb remove, fetch none: the same convergence that installs, with the entry gone"| sweeps
+  sweeps -->|"deletions apply even under --quiet; only the sync verb defers them"| finish
+  finish --> disk
+```
+
+- **There is no unsync path.** The entry leaves intent and the same convergence removes what no intent derives: a file is ours to delete only while it carries a managed block, a rules directory holding nothing but such files goes with them, and a hook is wanted at a scope only while a source there lists its harness.
+- **`-a` on a source drops that harness's artifacts and keeps the entry while another harness remains;** on a memory or a narrowed selection it is refused, since a memory has no per-harness half.
+- **A bare name two sources provide is refused** with both qualified forms and no change; a name nobody provides is a usage error before the engine runs.
+
+Demonstrated by: [src/commands/remove.test.ts](../src/commands/remove.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+
+## Two read-only verbs: list and doctor
+
+```mermaid
+flowchart LR
+  listverb["src/commands/engine-verbs.ts<br>list"]
+  runlist["src/commands/list.ts<br>runList() renderList()<br>src/commands/types.ts<br>ListReport ListedSource ListedHarness"]
+  doctor["src/commands/doctor.ts<br>doctor"]
+  inspect["src/state/store.ts<br>inspectState()<br>src/commands/shared/report.ts<br>previewState()<br>src/commands/shared/cli-context.ts<br>peekIntent()"]
+  statefile[("intent: state.json, read without the lock")]
+  trees["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
+  derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/commands/shared/hooks.ts<br>planHookAlone()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
+  blocks["src/commands/shared/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
+  manifest["src/commands/shared/project-lock-io.ts<br>readProjectLock()"]
+  disk[("the store, the rule files, the registries, the manifest, the stamp")]
+  stdout[["stdout: the listing, or the ok, warn and x lines; one document under --json"]]
+  listverb --> runlist
+  runlist -->|"previewState(): a corrupt or outdated file is named, never moved or migrated; the notice says which locking verb settles it"| inspect
+  doctor -->|"peekIntent(): the same lock-free read; a corrupt or migratable file is an empty intent plus the notice"| inspect
+  inspect --> statefile
+  runlist -->|"per source: the store tree, or the names the retained blocks hold"| trees
+  runlist -->|"tier, hook presence, collisions and token cost from disk, never from state"| derived
+  runlist -->|"lock entries this machine never installed are listed as lock-only"| manifest
+  doctor -->|"per harness and scope: this source's block is in the file, the preamble is what the writer put there"| blocks
+  doctor -->|"the hook alone, the tier; --expect: a rule line in every file its source targets"| derived
+  trees --> disk
+  derived --> disk
+  blocks --> disk
+  manifest --> disk
+  runlist --> stdout
+  doctor -->|"exit 1 on any x line"| stdout
+```
+
+- **`list` reports what state asks for,** with everything past intent re-derived on the spot: a hook the user deleted reads absent, a tier the config demoted reads 2, a rename whose collision is gone reads unneeded.
+- **`doctor` goes file by file.** A rule file counts as present only when the engine's own parser finds this source's block in it; each `x` line is one thing a harness will not load as state asks (a block, a preamble, a hook, an `--expect` name), and `--expect` is the CI assertion.
+
+Demonstrated by: [src/commands/list.test.ts](../src/commands/list.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
+
+## The lock projection: add --share, share and unshare
+
+```mermaid
+flowchart LR
+  verb["src/commands/share.ts<br>share unshare"]
+  options["src/commands/shared/options.ts<br>parseDestination()"]
+  find["src/commands/shared/sources.ts<br>findInstalledSource() installedElsewhere() withShared()"]
+  intent["src/commands/shared/cli-context.ts<br>loadIntentFor() updateIntent()"]
+  shareable["src/commands/add.ts<br>assertShareable()<br>src/commands/shared/project-lock-io.ts<br>insideProject()"]
+  schema["src/state/schema.ts<br>SourceIntent"]
+  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange() readProjectLock()"]
+  plock["src/state/project-lock.ts<br>serializeProjectLock() parseProjectLock() lockSourceKey() PROJECT_LOCK_RELATIVE_PATH"]
+  manifest[("the committed manifest: maxims.lock under the agents folder")]
+  statefile[("intent: state.json")]
+  after["src/commands/add.ts<br>syncCommitted()<br>src/commands/sync.ts<br>runSync()"]
+  finish["src/commands/shared/output.ts<br>finish()"]
+  verb -->|"-g is refused: a user-scope source has no lock to enter"| options
+  verb -->|"the source key, exact or GitHub case-folded; a source recorded for another project is refused"| find
+  find --> intent
+  intent -->|"share only: a local source must sit inside the checkout, judged on real paths"| shareable
+  intent -->|"shared true, or the field absent, never false; the schema allows it at project scope alone"| schema
+  intent -->|"under the lock, in the same plan as the state write"| lockio
+  lockio -->|"this machine's entries by source identity; a teammate's kept as the file holds them"| plock
+  lockio -->|"the bytes read back through the parser before they are planned"| plock
+  plock -->|"sorted keys, fixed field order; deleted when it names nothing; no change when the bytes match"| manifest
+  intent --> statefile
+  intent -->|"fetch none, every harness: the same convergence; the edit itself installs nothing new"| after
+  after --> finish
+```
+
+- **The lock is a projection of intent, never a second store.** `shared` is one field of a project-scope entry; every verb that edits a project entry's intent (`add --share`, `share`, `unshare`, `remove`, `link`, `update`, `disable`) recomputes the file from state through `projectLockChange()`, and `sync` never writes it.
+- **This machine edits only its own entries.** A clone that has not replayed the lock holds none of the team's entries in state, so a teammate's entries and disabled names stay as the file has them; the last unshare deletes the file.
+- **Of the project's disabled names, the lock carries those a shared source provides;** a private source providing a name a teammate switched off says nothing about the teammate's choice.
+
+Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [src/commands/shared/select.test.ts](../src/commands/shared/select.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
+
+## A verb runs: install
+
+```mermaid
+flowchart LR
+  manifest[("the committed manifest: maxims.lock under the agents folder")]
+  lockio["src/commands/shared/project-lock-io.ts<br>readProjectLock() projectLockPath() sourceFromLock()"]
+  plock["src/state/project-lock.ts<br>ProjectLockSchema parseProjectLock()"]
+  install["src/commands/install.ts<br>install"]
+  stage["src/commands/add.ts<br>stageAdd() hookWanted()"]
+  plan["src/commands/add.ts<br>planAdd()"]
+  wikilinks["src/memory/wikilinks.ts<br>resolveWikilinks()"]
+  commit["src/commands/add.ts<br>commitAdd()<br>src/commands/shared/cli-context.ts<br>updateIntent() withDisabled()"]
+  statefile[("intent: state.json and the store entries")]
+  after["src/commands/add.ts<br>syncCommitted()<br>src/commands/sync.ts<br>runSync()"]
+  finish["src/commands/shared/output.ts<br>finish() mergePlans()"]
+  manifest --> lockio
+  lockio -->|"a shape error, an entry leaving the checkout, or two entries naming one source stops the replay whole"| plock
+  plock --> install
+  install -->|"every entry staged first: fetched and scanned, project scope, shared, the pin as the ref"| stage
+  stage -->|"then planned against its siblings' names; a rename answered at one prompt binds the next"| plan
+  plan -->|"the batch once more: distinct local names and every wikilink met, before anything is written"| wikilinks
+  wikilinks --> commit
+  commit -->|"one write: every entry plus the manifest's disabled names as project-scope disables; the manifest is not rewritten"| statefile
+  commit -->|"one sync, reaching every harness the entries list; every harness when a disable landed"| after
+  after --> finish
+```
+
+- **The batch lands whole or not at all.** A declined or refused entry stops before the write, so the machine gains nothing and the manifest is untouched, apart from a corrupt state file the locking read has already moved aside.
+- **The manifest is input here, never output.** The lock is how a fresh clone learns what to add, and state stays the only thing `sync` reads: `sync` never installs from the lock; once state exists it prints one notice naming the lock-only sources and says to run `install`.
+- **Replayed entries are `shared`,** so the machine that installed from the lock writes the same entries back when it edits them; a field the lock omits is recorded at `add`'s default, and the entry's `pin` is the ref state records.
+
+Demonstrated by: [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
 
 ## The module map
 
