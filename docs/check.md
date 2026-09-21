@@ -5,7 +5,7 @@ group: Guides
 
 # Check an install
 
-Three verbs that never write into a harness: `list` reports what state asks for, `show` prints one installed memory from the store, and `doctor` checks what each harness will load against the files on disk. The [quickstart](quickstart.md) is the install path these verbs check.
+Three verbs that never write into a harness: `list` reports what state asks for, `show` prints one memory or one source from the store, and `doctor` checks what each harness will load against the files on disk. The [quickstart](quickstart.md) is the install path these verbs check.
 
 ## See what is installed: list
 
@@ -23,7 +23,7 @@ The specification fixes what `list` reports and leaves the layout to mirror `npx
 | live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |
 | the tier each harness achieves, and the rule file token estimate | the harness configs and rule files on disk |
 
-## Read one memory: show
+## Read one memory or source: show
 
 ```bash
 npx -y @vivswan/maxims show skip-unfit-skills
@@ -49,6 +49,10 @@ description: The agent may skip an invoked skill that does not fit the task, but
 `<HOME>` in the sample stands for your home directory; the real line carries the absolute path.
 
 A name two sources provide exits 1 and lists them; `--source <key>`, `-g` or `-p` picks one. `--json` prints the same facts as one document with the file under `body`.
+
+`show <source>` takes a source as `remove` and `update` spell it and prints its facts: revision and whether it tracks or pins, scope, agents, selection, renames, disabled names, and the review mark.
+
+When a revision is [held for review](keep-fresh.md#hold-changes-for-review), a second block lists the rule lines it adds (`+`), removes (`-`) and changes (`~`), names the bodies that differ, and prints a unified diff of each. `--json` carries them under `held`.
 
 ## doctor: what each harness loads
 

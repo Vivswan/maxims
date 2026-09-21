@@ -179,7 +179,7 @@ describe("list", () => {
       await runList({ quiet: false, dryRun: false, json: false }, io);
       const text = io.out.join("");
       expect(text).toMatch(
-        /@acme\/rules {2}[0-9a-f]{7} {2}fetched 2026-09-19 {2}ok {2}held \(2 changed lines; run maxims accept @acme\/rules\)\n/,
+        /@acme\/rules {2}[0-9a-f]{7} {2}fetched 2026-09-19 {2}ok {2}held \(2 changed lines; run maxims show @acme\/rules\)\n/,
       );
       expect(text).toMatch(/@acme\/other {2}[0-9a-f]{7} {2}fetched 2026-09-19 {2}ok {2}review\n/);
     });

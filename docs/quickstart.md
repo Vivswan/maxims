@@ -66,7 +66,7 @@ o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
 |
 ```
 
-`add @Vivswan/skills --list` previews the source and writes nothing; [what gets installed](install.md#what-gets-installed) shows its output.
+`add @Vivswan/skills --list` previews the source and writes nothing; [what gets installed](install.md#what-gets-installed) shows its output. After the install, `maxims show <memory>` prints [one memory in full](check.md#read-one-memory-or-source-show).
 
 ## What it writes
 

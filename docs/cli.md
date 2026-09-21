@@ -20,7 +20,7 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 | `update` | `check`, `upgrade` | refetch every source into the store, ignoring the cooldown, then sync | always | [keep fresh](keep-fresh.md#refresh-now-update) |
 | `remove <source or name>` | `rm`, `r` | take a source or one memory out of state, then sync | no | [remove](move-or-uninstall.md#remove-a-source-or-a-memory) |
 | `list` | `ls` | what state holds per source and per harness, everything past intent re-derived | no | [check](check.md#see-what-is-installed-list) |
-| `show <memory>` | | one installed memory in full: its source, revision, flags, rule line, then its file | no | [check](check.md#read-one-memory-show) |
+| `show <memory or source>` | | one memory in full, or a source's facts and the changes it holds for review | no | [check](check.md#read-one-memory-or-source-show) |
 | `install` | `i` | replay the project lock: add every source it names at project scope, then sync | yes | [share](share.md#the-project-manifest) |
 | `share <source>`, `unshare <source>` | | put a project-scope source into the project lock, or take it out | no | [share](share.md#sharing-a-source) |
 | `link <source> -a <harness>` | | add a harness to a source's recorded list without a refetch, then sync | no | below |
@@ -38,7 +38,7 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 - **Two scopes exist,** project (`-p`) and user (`-g`). `-o` is an output folder for a rule file no harness owns, and it is neither scope.
 - **No source argument.** `sync`, `update`, `install`, and `doctor` read state or the lock instead.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
-- **`show` takes a bare memory name.** A name two sources provide exits 1 and lists them; `--source <key>`, `-g` or `-p` picks one.
+- **`show` takes a bare memory name or a source.** A name two sources provide exits 1 and lists them; `--source <key>`, `-g` or `-p` picks one. An argument that is both is read as the memory, with a tip naming the source.
 - **`share` and `unshare` touch the lock only,** never what is installed.
 - **`link` and `unlink` change one field,** the source's harness list, and never refetch. `add -a` on an installed source still replaces the whole list, as it replaces the selection.
 - **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state.md#the-schema) owns where the list is kept. A source whose every memory is disabled at a scope has no rule file and no block there until one is enabled again.
@@ -99,7 +99,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--cooldown <days>` | add, sync, update | 7 | days between refreshes, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
 | `--cap <n>` | add, sync, update, lint | 25 | most rule lines per source, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
 | `--expect <name or @owner/repo/name>` | doctor | off | assert this memory has a rule line, repeatable; [the CI one-liner](check.md#the-ci-one-liner) |
-| `--source <key>` | show | off | the source to read the memory from, when several provide the name; [read one memory](check.md#read-one-memory-show) |
+| `--source <key>` | show | off | the source to read the memory from, when several provide the name; [read one memory](check.md#read-one-memory-or-source-show) |
 
 - **`-a` on `sync`** limits the run to the named harnesses and fetches nothing; `-a '*'` names them all and fetches as a plain `sync` does.
 - **`-a` on `update`** still refreshes every source, and a refreshed source is written for every harness that reads it; the filter narrows only the untouched sources.

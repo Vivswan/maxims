@@ -2,6 +2,7 @@ import { lstatSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { heldRevisionAltered, heldRevisionGone } from "../../console/strings.ts";
 import type { LastError } from "../../contracts/last-error.ts";
 import {
   contentHashOf,
@@ -15,6 +16,7 @@ import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
 import {
   type Fetched,
+  type Pending,
   parseGitSha,
   type RenameMap,
   type Select,
@@ -31,6 +33,7 @@ import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { isAbsent } from "./rules.ts";
 import { inSelect } from "./select.ts";
+import { storeTree } from "./sources.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last
@@ -164,11 +167,11 @@ export async function refreshSource(
       at: now,
     };
     const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
-    const visible = (memory: SourceMemory): boolean =>
-      isVisible(memory, entry.intent.select, ctx.env.MAXIMS_INSTALL_INTERNAL === "1");
-    const changeLines = diffLines(
-      await visibleFacts(entry.fetched, entryPath, entry.intent, visible),
-      memoryFacts(memories.filter(visible)),
+    const changeLines = await visibleChangeLines(
+      entry,
+      memories,
+      entryPath,
+      ctx.env.MAXIMS_INSTALL_INTERNAL === "1",
     );
     if (entry.intent.review === true && lastGood !== undefined) {
       const summary = changeLines;
@@ -352,6 +355,54 @@ function heldEntry(
   }
   const parsed = parseContentHash(sha);
   return parsed === null ? null : { ...current, pending: { sha: parsed, at, summary } };
+}
+
+// The change lines a refresh reports and a hold records: the fetched memories against the
+// installed record, both narrowed to what the user can see.
+async function visibleChangeLines(
+  entry: FetchedEntry,
+  memories: readonly SourceMemory[],
+  storeEntry: string,
+  installInternal: boolean,
+): Promise<string[]> {
+  const visible = (memory: SourceMemory): boolean =>
+    isVisible(memory, entry.intent.select, installInternal);
+  return diffLines(
+    await visibleFacts(entry.fetched, storeEntry, entry.intent, visible),
+    memoryFacts(memories.filter(visible)),
+  );
+}
+
+export type HeldRevision =
+  | { kind: "memories"; memories: SourceMemory[] }
+  | { kind: "forgotten"; line: string };
+
+// The held tree as `accept` would land it and `show` reads it. The recorded sha names the
+// revision as fetched, so the tree counts only while it still produces the summary the hold
+// recorded; a tree that is gone or has lost a file is forgotten, and the line says `update` is
+// the way to fetch it again. The summary was narrowed to the selection in force at the hold and
+// the selection may have narrowed since (`remove <memory>`), so the tree is intact when every
+// recorded line is still in its full diff and every line visible now was recorded: a file edited
+// or added by hand fails the first, one deleted by hand fails the second.
+export async function readHeldRevision(
+  key: string,
+  entry: FetchedEntry,
+  pending: Pending,
+  home: string,
+  installInternal: boolean,
+): Promise<HeldRevision> {
+  const { from } = entry.intent;
+  const tree = await storeTree(pendingPathFor(home, from), entry.intent);
+  const memories = tree === null ? [] : validateMemoryFiles(tree.files).memories;
+  if (memories.length === 0) return { kind: "forgotten", line: heldRevisionGone(key) };
+  const full = new Set(diffLines(entry.fetched?.memories ?? {}, memoryFacts(memories)));
+  const recorded = new Set(pending.summary);
+  const storeEntry = storePathFor(home, from);
+  const visible = await visibleChangeLines(entry, memories, storeEntry, installInternal);
+  const intact =
+    pending.summary.every((line) => full.has(line)) && visible.every((line) => recorded.has(line));
+  if (!intact) return { kind: "forgotten", line: heldRevisionAltered(key) };
+  return { kind: "memories", memories };
 }
 
 // The memories a revision adds (`+ name`), removes (`- name`) or changes (`~ name (old -> new)`)

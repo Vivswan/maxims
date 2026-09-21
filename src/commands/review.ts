@@ -1,8 +1,6 @@
 import {
   accepted,
   alreadyReviewing,
-  heldRevisionAltered,
-  heldRevisionGone,
   nothingHeld,
   notReviewing,
   reviewing,
@@ -12,19 +10,17 @@ import {
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { pendingPathFor, storePathFor } from "../util/home.ts";
+import { storePathFor } from "../util/home.ts";
 import { admitIntent, syncCommitted } from "./add.ts";
 import { type Intent, loadIntentFor, updateIntent } from "./shared/cli-context.ts";
 import { isFetchedEntry } from "./shared/engine.ts";
 import {
-  diffLines,
   type FetchedEntry,
   fetchedFactsFor,
-  memoryFacts,
+  readHeldRevision,
   swapStoreEntry,
   withoutPending,
 } from "./shared/fetch.ts";
-import { validateMemoryFiles } from "./shared/memories.ts";
 import {
   type Args,
   type Command,
@@ -33,7 +29,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
-import { findInstalledSource, sourcesHere, storeTree, withIntent } from "./shared/sources.ts";
+import { findInstalledSource, sourcesHere, withIntent } from "./shared/sources.ts";
 import type { CliIo } from "./types.ts";
 
 // `review` marks a source as reviewed-before-apply: from then on a refresh is held under pending
@@ -76,32 +72,28 @@ type Acceptance = { entry: SourceEntry; changes: Change[]; line: string; applied
 
 // The held revision becomes the fetch record and the store copy in one plan, the same swap a
 // refresh lands; the pending directory is swept by the sync that follows, since no entry holds
-// it any more, so it is not planned here as well. The recorded sha names the revision as
-// fetched, so the tree is accepted only while its diff against the installed record is still
-// the one the hold recorded; a tree that is gone or has lost a file is forgotten instead. The
-// cooldown still runs from the hold, so `update` is the way to fetch it again, and the line
-// says so.
-async function acceptHeld(key: string, held: Held, home: string): Promise<Acceptance> {
+// it any more, so it is not planned here as well. A forgotten revision (gone, or altered since
+// the hold) drops `pending`; the cooldown still runs from the hold, so `update` fetches again.
+async function acceptHeld(key: string, held: Held, io: CliIo): Promise<Acceptance> {
   const { entry, pending } = held;
   const { from, memoryPath } = entry.intent;
-  const pendingEntry = pendingPathFor(home, from);
-  const tree = await storeTree(pendingEntry, entry.intent);
-  const memories = tree === null ? [] : validateMemoryFiles(tree.files).memories;
-  const forgotten = (line: string): Acceptance => ({
-    entry: withoutPending(entry),
-    changes: [],
-    line,
-    applied: false,
-  });
-  if (memories.length === 0) return forgotten(heldRevisionGone(key));
-  const found = diffLines(entry.fetched?.memories ?? {}, memoryFacts(memories));
-  if (found.join("\n") !== pending.summary.join("\n")) return forgotten(heldRevisionAltered(key));
+  const revision = await readHeldRevision(
+    key,
+    entry,
+    pending,
+    io.home,
+    io.env.MAXIMS_INSTALL_INTERNAL === "1",
+  );
+  if (revision.kind === "forgotten") {
+    return { entry: withoutPending(entry), changes: [], line: revision.line, applied: false };
+  }
+  const { memories } = revision;
   const next = fetchedFactsFor(entry, memories, memoryPath, { sha: pending.sha, at: pending.at });
   if (next === null) throw new Error("unreachable: a pending sha carries its variant's brand");
   const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
   return {
     entry: next,
-    changes: swapStoreEntry(storePathFor(home, from), files),
+    changes: swapStoreEntry(storePathFor(io.home, from), files),
     line: accepted(key, pending.summary.length),
     applied: true,
   };
@@ -139,7 +131,7 @@ async function applyHeld(
         const held = heldOf(existing);
         let entry = existing;
         if (held !== null) {
-          const acceptance = await acceptHeld(key, held, io.home);
+          const acceptance = await acceptHeld(key, held, io);
           entry = acceptance.entry;
           changes.push(...acceptance.changes);
           lines.push(acceptance.line);

@@ -86,7 +86,7 @@ test("update holds the revision, list and doctor show it, accept lands it in one
     expect(readFileSync(rules, "utf8")).toBe(block);
     expect(treeDigest(pendingPathFor(scenario.home, FROM))).toBe(treeDigest(b));
     const list = await runCli(scenario, ["list"]);
-    expect(list.stdout).toContain("  held (2 changed lines; run maxims accept @acme/rules)\n");
+    expect(list.stdout).toContain("  held (2 changed lines; run maxims show @acme/rules)\n");
     const listed: ListReport = JSON.parse((await runCli(scenario, ["list", "--json"])).stdout);
     expect(listed.sources[0]).toMatchObject({
       key: KEY,

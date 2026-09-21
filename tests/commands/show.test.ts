@@ -33,7 +33,7 @@ const NOW = new Date("2026-09-20T12:00:00.000Z");
 const NAME = memoryName("skip-unfit-skills");
 const FILE = readFileSync(join(SKILLS, "memories", `${NAME}.md`), "utf8");
 
-type Document = ShownMemory & { ok: boolean; notices: string[] };
+type Document = ShownMemory & { ok: boolean; kind: "memory"; notices: string[] };
 
 async function add(scenario: Scenario, source: string, ...flags: string[]): Promise<void> {
   const run = await runCli(scenario, ["add", source, "-a", "codex", ...flags]);
@@ -60,12 +60,23 @@ describe("show", () => {
       const storeFile = join(homePaths(scenario.home).store, "a", "b", "memories", `${NAME}.md`);
       expect(frame).toMatch(
         new RegExp(
-          `^\\|\\no  ${NAME}\\n   source: @a/b\\n   revision: [0-9a-f]{7}\\n   disabled: no\\n   held: no\\n   rule: - The agent may skip an invoked skill that does not fit the task, but must say why \\(detail: ${regexLiteral(storeFile)}, [0-9a-f]{7}\\)\\n\\|\\n$`,
+          [
+            "^\\|",
+            `o  ${NAME}`,
+            "   source: @a/b",
+            "   revision: [0-9a-f]{7}",
+            "   disabled: no",
+            "   held: no",
+            `   rule: - ${regexLiteral(FILE.split("\n")[2]?.slice("description: ".length) ?? "")} \\(detail: ${regexLiteral(storeFile)}, [0-9a-f]{7}\\)`,
+            "\\|",
+            "$",
+          ].join("\\n"),
         ),
       );
       const document = await shown(scenario, NAME);
       expect(document).toEqual({
         ok: true,
+        kind: "memory",
         name: NAME,
         upstreamName: NAME,
         source: "@a/b",
@@ -171,7 +182,7 @@ describe("show", () => {
     });
   });
 
-  test("a held revision is reported with the accept hint while the installed body still prints", async () => {
+  test("a held revision is reported with the show hint while the installed body still prints", async () => {
     await withScenario({}, async (scenario) => {
       const from = githubFrom("acme/rules");
       seedStore(scenario.home, from, SKILLS);
@@ -190,7 +201,7 @@ describe("show", () => {
       const document = await shown(scenario, NAME);
       expect(document).toMatchObject({ held: true, sha: facts.sha, body: FILE });
       const run = await runCli(scenario, ["show", NAME]);
-      expect(run.stdout).toContain("   held: yes (run maxims accept @acme/rules)\n");
+      expect(run.stdout).toContain("   held: yes (run maxims show @acme/rules)\n");
     });
   });
 

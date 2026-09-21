@@ -154,9 +154,10 @@ export function heldUpdate(key: string, changed: number): string {
   return `Held ${key} (${changedLines(changed)}); run maxims accept ${key}`;
 }
 
-// The `list` token beside a source with a revision waiting; a reviewed source with none says `review`.
+// The `list` token beside a source with a revision waiting; a reviewed source with none says
+// `review`. It points at `show`, which prints the held lines, where `accept` would apply them.
 export function heldToken(key: string, changed: number): string {
-  return `held (${changedLines(changed)}; run maxims accept ${key})`;
+  return `held (${changedLines(changed)}; run maxims show ${key})`;
 }
 
 export function heldFinding(key: string, changed: number): string {

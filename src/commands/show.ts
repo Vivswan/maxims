@@ -1,7 +1,8 @@
 import { join } from "node:path";
+import type { Console } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
 import type { Scope } from "../harnesses/contract.ts";
-import type { MemoryName } from "../memory/contract.ts";
+import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { renderRuleLine } from "../rulefile/block.ts";
 import { shortHash } from "../rulefile/dedupe.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
@@ -14,16 +15,22 @@ import { ReportedMaximsError } from "./shared/errors.ts";
 import {
   type Args,
   type Command,
+  type CommandContext,
   closestName,
   FLAGS,
   type FlagSpec,
-  memoryNameOrUsage,
   projectDestination,
   usage,
 } from "./shared/options.ts";
 import { errorDocument } from "./shared/report.ts";
 import { disabledNames, type SelectedMemory, selectMemories } from "./shared/select.ts";
-import { findInstalledSource } from "./shared/sources.ts";
+import {
+  findInstalledSource,
+  installedElsewhere,
+  lookupSource,
+  type SourceLookup,
+} from "./shared/sources.ts";
+import { heldLines, sourceFactLines, sourceFacts } from "./show-source.ts";
 import type { CliIo } from "./types.ts";
 
 const SHOW_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.source];
@@ -57,48 +64,64 @@ export type ShowLookup = { notices: string[] } & (
 // destination, so what prints is what the next sync would install. It never takes the lock and
 // never settles the state file.
 export const show: Command = {
-  summary: "print one installed memory in full: its facts, then its file",
-  usage: "show <memory>",
+  summary: "print one installed memory in full, or a source's facts and held changes",
+  usage: "show <memory or source>",
   arity: 1,
   flags: SHOW_FLAGS,
   async run(args, ctx) {
     const { io } = ctx;
     const positional = args.positionals[0];
     if (positional === undefined) {
-      throw usage("show needs a memory name", { hint: "maxims show <memory>" });
+      throw usage("show needs a memory or source name", { hint: "maxims show <memory or source>" });
     }
-    const name = memoryNameOrUsage(positional);
     const scope = scopeFlag(args, io.projectRoot);
+    const source = args.value(FLAGS.source) ?? null;
     const { state, notices } = await peekIntent(io.home);
     const [unusable] = notices;
     if (unusable !== undefined) throw usage(unusable);
-    const request: ShowRequest = {
-      name,
-      source: args.value(FLAGS.source) ?? null,
-      scope,
-    };
-    const lookup = await lookupMemory(state, io, request);
     const console = await ctx.openConsole(true);
-    for (const line of lookup.notices) console.warn(line);
-    if (lookup.kind !== "found") {
-      const failure = lookupFailure(lookup, request);
-      if (!ctx.global.json) throw failure;
-      // The `--json` document is the one place the store warnings can reach a caller, and a name
-      // "not installed" beside an unreadable source is a different fact from one nobody provides.
-      io.stdout.write(errorDocument(failure, { notices: lookup.notices }));
-      throw new ReportedMaximsError(failure.code, failure.message, { hint: failure.hint });
+    const name = parseMemoryName(positional);
+    const request: ShowRequest | null = name === null ? null : { name, source, scope };
+    const lookup = request === null ? null : await lookupMemory(state, io, request);
+    // A memory name wins over a source spelled the same; the source's own refusals (recorded for
+    // another project, a path that cannot be looked at) wait until no memory answers.
+    if (lookup !== null && request !== null && lookup.kind !== "absent") {
+      const alias = lookup.kind === "found" ? sourceAlias(state, positional, io) : null;
+      if (alias !== null) {
+        console.warn(`${positional} also names a source; maxims show ${alias} prints it`);
+      }
+      return printMemory(lookup, request, ctx, console);
     }
-    const { memory } = lookup;
+    const recorded = recordedSource(state, positional, io, name !== null);
+    if (recorded.kind === "absent") {
+      if (lookup !== null && request !== null) return printMemory(lookup, request, ctx, console);
+      throw usage(`${positional} is not installed`);
+    }
+    if (recorded.kind === "elsewhere") throw installedElsewhere(recorded.key, recorded.root);
+    if (scope !== null) throw usage(`${recorded.key} has one recorded destination; drop -g or -p`);
+    if (source !== null) {
+      throw usage(`--source narrows a memory lookup; ${recorded.key} is a source`);
+    }
+    const found = await sourceFacts(state, io, recorded.key, recorded.entry);
+    for (const line of found.notices) console.warn(line);
     if (ctx.global.json) {
-      const body = { ok: true, ...memory, notices: lookup.notices };
+      const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
       io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
       return ExitCode.Ok;
     }
     if (ctx.global.quiet) return ExitCode.Ok;
     console.intro();
-    console.note(factLines(memory).join("\n"), memory.name);
-    console.gap();
-    io.stdout.write(memory.body);
+    console.note(sourceFactLines(found.facts).join("\n"), found.facts.key);
+    const { held } = found.facts;
+    if (held !== null && "unreadable" in held) console.warn(held.unreadable);
+    if (held !== null && !("unreadable" in held)) {
+      const title = `Held changes: ${shortSha(found.facts.sha ?? "")} -> ${shortSha(held.sha)}`;
+      console.note(heldLines(held).join("\n"), title);
+      for (const body of held.bodies) {
+        console.gap();
+        io.stdout.write(`--- ${body.name}\n${body.diff}`);
+      }
+    }
     return ExitCode.Ok;
   },
 };
@@ -117,6 +140,75 @@ function scopeFlag(args: Args, projectRoot: string | null): Scope | null {
   return global ? "global" : null;
 }
 
+type RecordedSource =
+  | { kind: "here"; key: string; entry: SourceEntry }
+  | { kind: "elsewhere"; key: string; root: string }
+  | { kind: "absent" };
+
+// A bare memory name also parses as a relative directory, so for one the lookup's refusal of the
+// spelling reads as "no source"; any other spelling is a source or nothing, and its refusal (a
+// GH_HOST that is not a hostname, a path the state cannot hold) is the answer.
+function recordedSource(
+  state: State,
+  arg: string,
+  io: CliIo,
+  memoryShaped: boolean,
+): RecordedSource {
+  let found: SourceLookup;
+  try {
+    found = lookupSource(state, arg, io);
+  } catch (error) {
+    if (memoryShaped && error instanceof MaximsError && error.code === ExitCode.Usage) {
+      return { kind: "absent" };
+    }
+    throw error;
+  }
+  if (found.kind !== "here") return found;
+  const entry = state.sources[found.key];
+  return entry === undefined ? { kind: "absent" } : { kind: "here", key: found.key, entry };
+}
+
+// The key of a source this run acts on that the printed memory's name also spells, for the tip
+// alone: a spelling that is no source, or one that cannot be looked at, is no tip.
+function sourceAlias(state: State, arg: string, io: CliIo): string | null {
+  try {
+    const found = lookupSource(state, arg, io);
+    return found.kind === "here" ? found.key : null;
+  } catch {
+    return null;
+  }
+}
+
+function printMemory(
+  lookup: ShowLookup,
+  request: ShowRequest,
+  ctx: CommandContext,
+  console: Console,
+): number {
+  const { io } = ctx;
+  for (const line of lookup.notices) console.warn(line);
+  if (lookup.kind !== "found") {
+    const failure = lookupFailure(lookup, request);
+    if (!ctx.global.json) throw failure;
+    // The `--json` document is the one place the store warnings can reach a caller, and a name
+    // "not installed" beside an unreadable source is a different fact from one nobody provides.
+    io.stdout.write(errorDocument(failure, { notices: lookup.notices }));
+    throw new ReportedMaximsError(failure.code, failure.message, { hint: failure.hint });
+  }
+  const { memory } = lookup;
+  if (ctx.global.json) {
+    const body = { ok: true, kind: "memory", ...memory, notices: lookup.notices };
+    io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+    return ExitCode.Ok;
+  }
+  if (ctx.global.quiet) return ExitCode.Ok;
+  console.intro();
+  console.note(factLines(memory).join("\n"), memory.name);
+  console.gap();
+  io.stdout.write(memory.body);
+  return ExitCode.Ok;
+}
+
 function factLines(memory: ShownMemory): string[] {
   const upstream =
     memory.upstreamName === memory.name ? "" : ` (upstream name ${memory.upstreamName})`;
@@ -124,7 +216,7 @@ function factLines(memory: ShownMemory): string[] {
     `source: ${memory.source}${upstream}`,
     `revision: ${memory.sha === null ? "-" : shortSha(memory.sha)}`,
     `disabled: ${memory.disabled ? "yes" : "no"}`,
-    `held: ${memory.held ? `yes (run maxims accept ${memory.source})` : "no"}`,
+    `held: ${memory.held ? `yes (run maxims show ${memory.source})` : "no"}`,
     `rule: ${memory.ruleLine ?? "none (the source publishes no rule lines)"}`,
   ];
 }

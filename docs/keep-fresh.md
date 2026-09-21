@@ -127,7 +127,7 @@ maxims: @acme/rules has 2 changed lines held for review; run maxims accept @acme
 | upstream returns to the installed revision | the hold is withdrawn |
 | `maxims unreview <source>` | lifts the mark and applies whatever is held |
 
-The held files sit under `pending/` in the [canonical home](files.md#the-canonical-home), laid out like the store. Each logged line is `+ name`, `- name` or `~ name (old -> new)`, the same diff `update` prints for an applied refresh.
+The held files sit under `pending/` in the [canonical home](files.md#the-canonical-home), laid out like the store. Each logged line is `+ name`, `- name` or `~ name (old -> new)`, the same diff `update` prints for an applied refresh. `maxims show <source>` prints the held lines with their descriptions and a diff of each body that changed; [check](check.md#read-one-memory-or-source-show) owns it.
 
 The first fetch of a source is never held: `add` installs what it fetched, and the mark applies from the next refresh on. A live directory is read in place and cannot be reviewed. The mark is this machine's choice and is not written into the [project lock](share.md#the-project-manifest).
 
