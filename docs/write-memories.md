@@ -43,9 +43,9 @@ The `description` is the one-liner that reaches the rule file. Everything below 
 
 The name is the identity everywhere. `metadata.internal` hides a memory from every `add` and refresh, for a source repo's own maintainers. `**Why:**` and `**How to apply:**` are conventions maxims preserves verbatim and never parses.
 
-A file that fails the contract is skipped with one warning line, never fatally. A source repo that gains a README must not break every session's hook.
+A file that fails the contract is skipped with one warning line, never fatally. A source repo that gains a stray file must not break every session's hook.
 
-`MEMORY.md` is reserved and is never a memory. It is the index the auto-memory format keeps beside its files, and it is skipped by name.
+Two files are reserved and are never memories, skipped by name with no warning: `MEMORY.md`, the index the auto-memory format keeps beside its files, and `README.md`, the folder's own readme, matched in any letter case (`readme.md`, `Readme.MD`). Only `.md` files are read at all, so a `readme.txt` or an extensionless `README` is never looked at, and `readme` is not a memory name.
 
 ## Hidden characters are refused
 
@@ -74,6 +74,7 @@ Resolution runs through the rename map, so a memory renamed locally after a [nam
 `-- memories/
     |-- gate-exit-conditions-the-merge.md
     |-- rubber-duck-before-every-commit.md
+    |-- README.md                          # reserved, skipped
     `-- MEMORY.md                          # reserved, skipped
 ```
 
@@ -112,7 +113,7 @@ npx -y @vivswan/maxims lint            # checks memories/ under the current dire
 npx -y @vivswan/maxims lint path/to/folder --full-depth --cap 30
 ```
 
-`lint` is the source repo's check. It reads every `.md` in the folder and prints one `path:line: reason` per problem, so an editor can jump to it. It never writes into a harness.
+`lint` is the source repo's check. It reads every `.md` in the folder but the two reserved files, and prints one `path:line: reason` per problem, so an editor can jump to it. It never writes into a harness.
 
 | check | problem it reports |
 | --- | --- |

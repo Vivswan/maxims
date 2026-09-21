@@ -49,7 +49,6 @@ The output of `add @Vivswan/skills --list`, captured from the built CLI:
 |
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
-!  README.md is not a memory: filename stem "README" is not kebab-case
 o  Found 4 memories
 |
 o  Available Memories

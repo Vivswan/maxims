@@ -25,7 +25,6 @@ The output with stdout piped, as an agent or a log sees it. On a terminal inside
 |
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
-!  README.md is not a memory: filename stem "README" is not kebab-case
 o  Found 4 memories
 o  First source from github.com/vivswan
    https://github.com/Vivswan/skills.git
