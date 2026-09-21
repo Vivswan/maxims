@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
-import { withLock } from "../../src/util/lock.ts";
+import { DEFAULT_LOCK_WAIT_MS, withLock } from "../../src/util/lock.ts";
 import {
   type Bundle,
   buildBundle,
@@ -34,7 +34,7 @@ import {
   memoryFile,
   writeMemories,
 } from "./shared/fixture-repo.ts";
-import { type GitDaemon, withGitDaemon } from "./shared/git-daemon.ts";
+import { type GitDaemon, probeGitDaemon, withGitDaemon } from "./shared/git-daemon.ts";
 import { expectRuleFile, staleLines, withoutStaleLine } from "./shared/rule-file.ts";
 import {
   ageFetch,
@@ -52,7 +52,17 @@ import {
 let bundleDir = "";
 let bundle: Bundle;
 
+// Every row here fetches over git://, so a machine without the daemon helper skips them all, with
+// the reason printed once, rather than failing each on the same missing binary. Git for Windows
+// and Apple's git are not verified to ship it.
+const gitDaemon = probeGitDaemon();
+const row = test.skipIf(gitDaemon.kind === "unavailable");
+
 beforeAll(() => {
+  if (gitDaemon.kind === "unavailable") {
+    console.warn(`skipping the bundle rows: ${gitDaemon.reason}`);
+    return;
+  }
   const home = process.env.HOME;
   if (home === undefined) throw new Error("the test launcher must set HOME");
   bundleDir = mkdtempSync(join(home, "maxims-chaos-bundle-"));
@@ -60,7 +70,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  rmSync(bundleDir, { recursive: true, force: true });
+  if (bundleDir !== "") rmSync(bundleDir, { recursive: true, force: true });
 });
 
 const RULES: Record<string, MemorySpec> = {
@@ -134,7 +144,7 @@ const networkRows: NetworkRow[] = [
   { label: "eight days old", ageDays: 8, cooldownDays: 7, staleLine: true },
 ];
 
-test.each(networkRows)(
+row.each(networkRows)(
   "network: the remote gone, a fetch $label keeps the block; --quiet exits 0, sync exits 2",
   async ({ ageDays, cooldownDays, staleLine }) => {
     await withWorld(async (world) => {
@@ -178,7 +188,7 @@ const missingRows: MissingRow[] = [
   { label: "a port nobody listens on", stopDaemon: true },
 ];
 
-test.each(missingRows)(
+row.each(missingRows)(
   "missing remote: a fresh add of $label exits 2 and writes nothing",
   async ({ stopDaemon }) => {
     await withWorld(async (world) => {
@@ -199,7 +209,7 @@ test.each(missingRows)(
   SLOW_ROW_MS,
 );
 
-test(
+row(
   "corrupt state: a quiet sync quarantines the file and exits 0; the manual sync after it deletes nothing",
   async () => {
     await withWorld(async (world) => {
@@ -239,26 +249,37 @@ test(
   SLOW_ROW_MS,
 );
 
-test(
-  "lock busy: add waits five seconds then exits 5; sync --quiet exits 0 at once with one log line",
+// The lock, the debounce stamp and the log are a run's own records; every other byte under the
+// home is what a run that cannot take the lock must leave alone.
+const LOCK_ROW_RECORDS = [
+  ".agents/maxims/state.json.lock",
+  ".agents/maxims/last-sync",
+  ".agents/maxims/log",
+];
+
+row(
+  "lock busy: add waits five seconds then exits 5, sync --quiet exits 0 at once with one log line, and neither touches the installed bytes",
   async () => {
     await withWorld(async (world) => {
+      const { run } = await install(world, "rules", RULES);
+      expectClean(run);
+      fixtureRepo(join(world.remotes, "other"), OTHER);
       const paths = homePaths(world.home.maximsHome);
-      const before = snapshot(world.home.root, [".agents/maxims/state.json.lock"]);
-      const repo = fixtureRepo(join(world.remotes, "rules"), RULES).dir;
-      expect(existsSync(repo)).toBe(true);
+      clearDebounce(world.home.maximsHome);
+      const before = snapshot(world.home.root, LOCK_ROW_RECORDS);
+      const logBefore = refreshLog(world.home.maximsHome);
       await withLock(paths.lock, {}, async () => {
         const started = Date.now();
         const add = await runMaxims(bundle, world.home, [
           "add",
-          world.daemon.url("rules"),
+          world.daemon.url("other"),
           ...ADD_FLAGS,
         ]);
         const waited = Date.now() - started;
         expect(add.code).toBe(5);
         expect(add.stderr).toMatch(/^ ERROR {2}store is locked by "/);
         expect(waited).toBeGreaterThanOrEqual(4500);
-        expect(snapshot(world.home.root, [".agents/maxims/state.json.lock"])).toEqual(before);
+        expect(snapshot(world.home.root, LOCK_ROW_RECORDS)).toEqual(before);
         const quietStart = Date.now();
         const quiet = await runMaxims(bundle, world.home, ["sync", "--quiet"]);
         expect({ code: quiet.code, stdout: quiet.stdout, stderr: quiet.stderr }).toEqual({
@@ -266,8 +287,13 @@ test(
           stdout: "",
           stderr: "",
         });
-        expect(Date.now() - quietStart).toBeLessThan(3000);
-        expect(refreshLog(world.home.maximsHome).trimEnd().split("\n")).toEqual([
+        // The hook path never waits on the lock: a quiet run that sat out the manual wait cannot
+        // finish inside it, while a slow runner's process start has the whole window.
+        expect(Date.now() - quietStart).toBeLessThan(DEFAULT_LOCK_WAIT_MS);
+        expect(snapshot(world.home.root, LOCK_ROW_RECORDS)).toEqual(before);
+        const log = refreshLog(world.home.maximsHome);
+        expect(log.slice(0, logBefore.length)).toBe(logBefore);
+        expect(log.slice(logBefore.length).trimEnd().split("\n")).toEqual([
           expect.stringMatching(/^\S+ sync --quiet: skipped, store is locked by "/),
         ]);
       });
@@ -276,7 +302,7 @@ test(
   SLOW_ROW_MS,
 );
 
-test(
+row(
   "unparsable harness config: add --add-hook exits 4 and leaves the registry and the home as they were",
   async () => {
     await withWorld(async (world) => {
@@ -298,9 +324,9 @@ test(
 );
 
 const CAP_HINT =
-  "Tip: narrow the source with --memory <name>..., or raise the cap (currently 25) with --cap <n> for this run or `maxims config set ruleCap <n>` to keep it\n";
+  "Tip: narrow the source with --memory <name>..., or raise the cap (currently 25) with --cap <n>, which saves ruleCap to config.json as `maxims config set ruleCap <n>` does\n";
 
-test(
+row(
   "cap on add: a source of 26 rule lines exits 8 with the --memory hint and writes nothing",
   async () => {
     await withWorld(async (world) => {
@@ -316,7 +342,7 @@ test(
   SLOW_ROW_MS,
 );
 
-test(
+row(
   "cap on refresh: an installed source grown to 26 rule lines is refused whole and keeps last-good",
   async () => {
     await withWorld(async (world) => {
@@ -352,7 +378,7 @@ test(
 // Mode bits mean nothing to root and nothing on Windows, so the row has no failure to observe there.
 const cannotObserveReadOnly = process.platform === "win32" || process.getuid?.() === 0;
 
-test.skipIf(cannotObserveReadOnly)(
+test.skipIf(gitDaemon.kind === "unavailable" || cannotObserveReadOnly)(
   "read-only destination: the second add exits 4 with its intent and store copy recorded; the next sync writes only the missing file",
   async () => {
     await withWorld(async (world) => {
@@ -408,9 +434,16 @@ test.skipIf(cannotObserveReadOnly)(
   SLOW_ROW_MS,
 );
 
-test(
-  "zero valid memories: a remote rewound to a README alone exits 3, keeps the block and says so once",
-  async () => {
+type ZeroValidRow = { label: string; argv: string[]; code: number; quiet: boolean };
+
+const zeroValidRows: ZeroValidRow[] = [
+  { label: "sync", argv: ["sync"], code: 3, quiet: false },
+  { label: "sync --quiet", argv: ["sync", "--quiet"], code: 0, quiet: true },
+];
+
+row.each(zeroValidRows)(
+  "zero valid memories: a remote rewound to a README alone under $label exits $code, keeps the block and says so once",
+  async ({ argv, code, quiet }) => {
     await withWorld(async (world) => {
       const { key, repo, run } = await install(world, "rules", RULES);
       expectClean(run);
@@ -421,24 +454,27 @@ test(
       commitAll(repo, "layout changed");
       setCooldownDays(world.home.maximsHome, 1);
       ageFetch(world.home.maximsHome, key, 2);
-      const manual = await runMaxims(bundle, world.home, ["sync"]);
-      expect(manual.code).toBe(3);
-      const lines = manual.stdout.split("\n");
+      clearDebounce(world.home.maximsHome);
+      const result = await runMaxims(bundle, world.home, argv);
+      expect({ code: result.code, stderr: result.stderr }).toEqual({ code, stderr: "" });
+      expect(readFileSync(rule, "utf8")).toBe(before);
+      expect(storeSnapshot(world.home)).toEqual(store);
+      expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("invalid");
+      const lines = result.stdout.split("\n");
       expect(lines.filter((line) => line.includes("no valid memories"))).toEqual([
         `maxims: ${key}: no valid memories at memories (layout probably changed upstream); kept last-good`,
       ]);
-      expect(lines.filter((line) => line.includes("skipped memories/README.md"))).toEqual([
-        `${key}: skipped memories/README.md: filename stem "README" is not kebab-case`,
-      ]);
-      expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("invalid");
-      expect(readFileSync(rule, "utf8")).toBe(before);
-      expect(storeSnapshot(world.home)).toEqual(store);
+      expect(lines.filter((line) => line.includes("skipped memories/README.md"))).toEqual(
+        quiet
+          ? []
+          : [`${key}: skipped memories/README.md: filename stem "README" is not kebab-case`],
+      );
     });
   },
   SLOW_ROW_MS,
 );
 
-test(
+row(
   "partially valid: the valid memories install and every bad file earns one warning",
   async () => {
     await withWorld(async (world) => {

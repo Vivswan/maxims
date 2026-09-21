@@ -2,6 +2,8 @@
 // base path, so the bundle's fetch ladder (ls-remote, then the sparse shallow clone) runs against
 // a remote the row can stop, empty or rewind. `git://` is the one transport git serves without a
 // web server or ssh, and the ladder admits it (GIT_ALLOW_PROTOCOL lists it).
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { Subprocess } from "bun";
 
 export type GitDaemon = {
@@ -9,6 +11,32 @@ export type GitDaemon = {
   url(name: string): string;
   stop(): Promise<void>;
 };
+
+export type GitDaemonProbe = { kind: "available" } | { kind: "unavailable"; reason: string };
+
+// `git daemon` is a separate helper binary some distributions leave out of the git package, so a
+// suite that needs it asks once, up front, and skips with the reason instead of failing every row.
+// Only a confirmed absence skips: a git that cannot be asked, or a helper path that cannot be
+// inspected, is a broken machine and throws rather than passing as a skip.
+export function probeGitDaemon(): GitDaemonProbe {
+  const result = Bun.spawnSync(["git", "--exec-path"], { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `git --exec-path exited ${result.exitCode}: ${result.stderr.toString().trim()}`,
+    );
+  }
+  const execPath = result.stdout.toString("utf8").trim();
+  const helper = join(execPath, process.platform === "win32" ? "git-daemon.exe" : "git-daemon");
+  try {
+    statSync(helper);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { kind: "unavailable", reason: `${helper} is not installed` };
+    }
+    throw error;
+  }
+  return { kind: "available" };
+}
 
 const HOST = "127.0.0.1";
 const BIND_ATTEMPTS = 5;

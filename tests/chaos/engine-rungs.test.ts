@@ -399,6 +399,8 @@ test("mcp stub: a second start inside the debounce window answers the protocol a
     });
     expect(networkCalls(world)).toHaveLength(calls + 1);
     expect(readFileSync(stamp, "utf8")).toBe(stamped);
+    // Judged before the third start, which rebuilds the copy and would rewrite the file anyway.
+    expect(readFileSync(rule, "utf8")).toBe(before);
     advanceClock(world, 61_000);
     const third = await runReal(world, ["mcp-serve"], { stdin: `${INITIALIZE}\n` });
     expect({ code: third.code, stderr: third.stderr }).toEqual({ code: 0, stderr: "" });
