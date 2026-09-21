@@ -153,9 +153,19 @@ test(
       const result = await asyncOutcome(() => read);
       if (result.kind === "threw") throw new Error(`rejected ${describeError(result.error)}`);
       const text = result.value;
+      // A pipe that failed before any byte is not a terminal: its text names the failure, so the
+      // caller reads an unknown invoker and stays silent instead of printing into the harness.
       if (played.tty) expect(text).toBeNull();
-      else if (played.chunks.length === 0 && played.ending !== "error") expect(text).toBeNull();
-      else expect(text).not.toBe("");
+      else if (decoded(played.chunks) === "") {
+        if (played.ending !== "error") expect(text).toBeNull();
+        else {
+          expect(text).not.toBeNull();
+          expect(classifyInvoker(text)).toEqual({ kind: "unknown-json" });
+        }
+      } else {
+        expect(text).not.toBeNull();
+        expect(text).not.toBe("");
+      }
       expectClassification(text);
       expectDetached(stream);
     });

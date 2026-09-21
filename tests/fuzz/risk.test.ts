@@ -149,7 +149,7 @@ function check(text: string): void {
     expect(Number.isInteger(warning.column)).toBe(true);
     expect(warning.column).toBeGreaterThanOrEqual(previous);
     expect(warning.column).toBeLessThan(text.length);
-    expect(text[warning.column]).not.toBe("\n");
+    expect(["\n", "\r"]).not.toContain(text[warning.column]);
     previous = warning.column;
   }
   if (text === "") expect(warnings).toEqual([]);

@@ -20,10 +20,16 @@ function fixture(name: string): unknown {
 const VALID_STATE = fixture("v1-valid.json");
 const ODD_PRECISION_STATE = fixture("v1-valid-odd-precision.json");
 
-function validState(): State {
+// Parsed once here, not inside an arbitrary: a parser that breaks on the fixture fails this file
+// at load with this message, where a throw inside a generator has no counterexample to replay.
+const PARSED_VALID_STATE: State = (() => {
   const parsed = parseState(VALID_STATE);
   if (parsed.ok !== "parsed") throw new Error("the valid fixture parses");
-  return structuredClone(parsed.state);
+  return parsed.state;
+})();
+
+function validState(): State {
+  return structuredClone(PARSED_VALID_STATE);
 }
 
 // Every spelling a hand edit or another writer's clock library produces for one instant, plus the
