@@ -18,6 +18,9 @@ repository:
 # nightly category, matching the tuple each report job in nightly.yml files
 # its issue with; nothing gates a release on them.
 labels:
+  - name: nightly-property-deep
+    color: "D93F0B"
+    description: The deep property run failed
   - name: nightly-parity-drift
     color: "D93F0B"
     description: npx skills --help drifted from the parity fixture

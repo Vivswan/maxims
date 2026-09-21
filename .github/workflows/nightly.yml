@@ -63,10 +63,10 @@ jobs:
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
-          label: nightly-failure
-          title: Nightly deep property run failed
+          label: nightly-property-deep
+          title: The deep property run failed
           label-color: D93F0B
-          label-description: Automated nightly CI failure
+          label-description: The deep property run failed
           stream: generic
           artifacts-dir: nightly-report
           artifact-name: nightly-property-deep
@@ -74,7 +74,7 @@ jobs:
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
-          label: nightly-failure
+          label: nightly-property-deep
           stream: generic
 
   # `npx skills@latest --help` re-captured and diffed against the committed parity fixture.
