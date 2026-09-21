@@ -59,10 +59,10 @@ The tier a harness achieves is a sync-time result that `list` reports. It is not
 
 ## The rule file
 
-Generated on every sync, compared to what is on disk, and written only on a difference. Hand edits inside the block are overwritten by design; `--dry-run` shows what would be lost, and the marker text says where the real edit belongs.
+Generated on every sync, compared to what is on disk, and written only on a difference. Hand edits inside the block are overwritten by design; `--dry-run` shows what would be lost, and the marker text says where the real edit belongs. The block below carries an illustrative revision.
 
 ```markdown
-<!-- maxims:begin @Vivswan/skills sha=fc67557 -->
+<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 - Codex rubber-duck review before EVERY commit, however trivial. (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
 <!-- maxims:end @Vivswan/skills -->
 ```
@@ -70,6 +70,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 - **The rule file is a real file on every harness, never a symlink.** A rule file that silently never loads is the failure maxims exists to prevent; the [design decision](design-decisions.md#harnesses) records the reported Claude Code behavior behind it.
 - **Strategy A writes one file per source, `maxims-<source>` plus the harness's suffix; strategy B writes one block per source.** Removal is a file delete or a block cut, provenance is visible, and two sources never fight over one file.
 - **Markers are HTML comments matched at line start only.** Every target is markdown; a marker quoted inside someone's fenced code block is not a marker.
+- **The begin marker carries the revision installed, whole.** A GitHub or git source's is its 40-hex commit id; a local directory's is `sha256:` and the 64-hex hash of its tree.
 - **Everything outside the marker pair is preserved byte for byte.** A user may keep hand-written rules in the same file.
 - **Rule lines are sorted by memory name.** Two machines with the same source produce the same file, and "nothing changed" is detectable.
 - **`-->` in a description is escaped, and a token a harness would expand (Claude Code's and Gemini's `@path` imports) is wrapped in backticks.** An unescaped one would end the comment early or read a file into context; an undocumented syntax is escaped conservatively.

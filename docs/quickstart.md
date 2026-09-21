@@ -80,10 +80,10 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 | hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
 | state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
 
-The rule file for that install, cut to two of its four rule lines. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
+The rule file for that install, cut to two of its four rule lines, with illustrative hashes. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
 
 ```markdown
-<!-- maxims:begin @Vivswan/skills sha=fc67557 -->
+<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
 - Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: /home/user/.agents/maxims/store/vivswan/skills/gate-exit-conditions-the-merge.md, 0f0f0f0)

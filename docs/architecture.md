@@ -163,10 +163,10 @@ flowchart LR
   block -->|"replaceBlock() over the current text: every byte outside the pair survives"| shared
 ```
 
-The block `renderBlock()` produces for two rule lines under stripped markers, as [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins it:
+The block `renderBlock()` produces for two rule lines under stripped markers, in the shape [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins, with an illustrative revision:
 
 ```text
-<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->
+<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
 - Codex rubber-duck review before EVERY commit, however trivial (detail: /home/user/.agents/maxims/store/Vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
