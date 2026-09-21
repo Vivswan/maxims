@@ -313,26 +313,35 @@ export function markdownLines(fileText: string): MarkdownLine[] {
   return scanLines(fileText).lines;
 }
 
-// A leading byte order mark is not part of the first line: Markdown parsers drop it, so the line
-// behind it opens a block as if it were at column 0, and the mark stays outside any block's span.
 export function scanLines(fileText: string): { lines: MarkdownLine[]; open: OpenLeaf | null } {
   const lines: MarkdownLine[] = [];
   const scanner = newScanner();
-  let start = fileText.startsWith(BOM) ? BOM.length : 0;
-  while (start < fileText.length) {
-    LINE_ENDING.lastIndex = start;
-    const ending = LINE_ENDING.exec(fileText);
-    const textEnd = ending === null ? fileText.length : ending.index;
-    const end = ending === null ? fileText.length : ending.index + ending[0].length;
-    const text = fileText.slice(start, textEnd);
-    lines.push({ text, start, end, kind: scanLine(scanner, text) });
-    start = end;
+  for (
+    let line = nextLine(fileText, scanner, 0);
+    line !== null;
+    line = nextLine(fileText, scanner, line.end)
+  ) {
+    lines.push(line);
   }
   const open =
     scanner.leaf === null
       ? null
       : { block: scanner.leaf, column: contentColumn(scanner, scanner.items.length) };
   return { lines, open };
+}
+
+// The line beginning at `start`, read into the scanner, or null past the end of the text. A byte
+// order mark leading the text is not part of the first line: Markdown parsers drop it, so the line
+// behind it opens a block as if it were at column 0, and the mark stays outside any block's span.
+function nextLine(fileText: string, scanner: Scanner, start: number): MarkdownLine | null {
+  const from = start === 0 && fileText.startsWith(BOM) ? BOM.length : start;
+  if (from >= fileText.length) return null;
+  LINE_ENDING.lastIndex = from;
+  const ending = LINE_ENDING.exec(fileText);
+  const textEnd = ending === null ? fileText.length : ending.index;
+  const end = ending === null ? fileText.length : ending.index + ending[0].length;
+  const text = fileText.slice(from, textEnd);
+  return { text, start: from, end, kind: scanLine(scanner, text) };
 }
 
 // A level's reading of its part of the line, or the blockquote the rest of the line belongs to.
@@ -711,30 +720,35 @@ export function parseBlocks(fileText: string): ParsedBlocks {
 
 // Every well-formed pair in document order, a hand-duplicated source's later pairs included.
 function blockSpans(fileText: string): ParsedBlock[] {
-  const lines = markdownLines(fileText);
   const spans: ParsedBlock[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const begin = lines[i].kind === "comment" ? BEGIN_LINE.exec(lines[i].text) : null;
-    if (begin === null) {
-      i += 1;
-      continue;
-    }
-    const [, source, sha] = begin;
-    let j = i + 1;
-    while (j < lines.length && !isMarker(lines[j])) j += 1;
-    if (j === lines.length || lines[j].text !== `<!-- maxims:end ${source} -->`) {
-      i += 1;
-      continue;
-    }
-    spans.push({ source, sha, start: lines[i].start, end: lines[j].end });
-    i = j + 1;
+  const pair = markerPairing();
+  for (const line of markdownLines(fileText)) {
+    const span = pair(line);
+    if (span !== null) spans.push(span);
   }
   return spans;
 }
 
-function isMarker(line: MarkdownLine): boolean {
-  return line.kind === "comment" && (BEGIN_LINE.test(line.text) || END_LINE.test(line.text));
+// Reads the lines of one text in order and returns the pair each marker line completes. A BEGIN
+// pairs only with the very next marker line, and only when that is its own END (see
+// `parseBlocks`); a BEGIN met while one is pending replaces it, any other END drops it.
+function markerPairing(): (line: MarkdownLine) => ParsedBlock | null {
+  let pending: Pick<ParsedBlock, "source" | "sha" | "start"> | null = null;
+  return (line) => {
+    if (line.kind !== "comment") return null;
+    const begin = BEGIN_LINE.exec(line.text);
+    if (begin !== null) {
+      pending = { source: begin[1], sha: begin[2], start: line.start };
+      return null;
+    }
+    if (!END_LINE.test(line.text)) return null;
+    const span =
+      pending !== null && line.text === `<!-- maxims:end ${pending.source} -->`
+        ? { ...pending, end: line.end }
+        : null;
+    pending = null;
+    return span;
+  };
 }
 
 // Appending closes a block the file left open at its end: a fence, comment or raw HTML block runs
@@ -785,7 +799,8 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
 // join can pair them, or open a fence or raw HTML block over a kept block; the next sweep would
 // then take the user's lines. A closing counts only when the result reads back as the kept
 // blocks, and only them, where they were placed. The last slot goes first because an add opened
-// it, so add-then-remove gives the user's bytes back.
+// it, so add-then-remove gives the user's bytes back. A refusal names the pair the block's own
+// slot exposes, the one around the removed block, before whatever another slot's closing exposed.
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
   const spans = blockSpans(fileText);
   const own = spans.findIndex((span) => span.source === source);
@@ -794,14 +809,9 @@ export function stripBlock(fileText: string, source: string): { text: string; em
   let strays: string[] = [];
   for (const closed of new Set([spans.length - 1, own, ...spans.keys()])) {
     const { text, placed } = deal(fileText, spans, kept, closed);
-    const found = blockSpans(text);
-    const exposed = found
-      .filter((span) => !placed.some((at) => at.start === span.start && at.end === span.end))
-      .map((span) => span.source);
-    if (exposed.length === 0 && found.length === placed.length) {
-      return { text, emptied: text.trim() === "" };
-    }
-    if (strays.length === 0) strays = exposed;
+    const exposed = exposedBy(text, placed, closed);
+    if (exposed === null) return { text, emptied: text.trim() === "" };
+    if (exposed.length > 0 && (closed === own || strays.length === 0)) strays = exposed;
   }
   throw new MaximsError(
     ExitCode.DestinationWriteFailed,
@@ -810,6 +820,35 @@ export function stripBlock(fileText: string, source: string): { text: string; em
       hint: 'edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry',
     },
   );
+}
+
+// The sources of the pairs a dealt text holds besides its placed blocks, or null when it reads
+// back as exactly those blocks. A marker line is recognized only at column 0 outside any
+// blockquote, where it ends every open item and leaf and closes its own comment, so the scanner
+// leaves it in its starting state; a gap between slots is then read the same whatever block
+// precedes it, and a kept block the same wherever it lands. Only the gap the closing joined can
+// read differently, together with whatever a fence or raw HTML block it opens swallows, so the
+// scan starts at that gap and ends at the kept block behind it: found intact, the rest reads as
+// the file did; passed without being found, it was swallowed and the text is refused.
+function exposedBy(text: string, placed: readonly Span[], closed: number): string[] | null {
+  const from = closed === 0 ? 0 : placed[closed - 1].end;
+  const next: Span | undefined = placed[closed];
+  const scanner = newScanner();
+  const pair = markerPairing();
+  const exposed: string[] = [];
+  for (
+    let line = nextLine(text, scanner, from);
+    line !== null && (next === undefined || line.start < next.end);
+    line = nextLine(text, scanner, line.end)
+  ) {
+    const span = pair(line);
+    if (span === null) continue;
+    if (next !== undefined && span.start === next.start && span.end === next.end) {
+      return exposed.length === 0 ? null : exposed;
+    }
+    exposed.push(span.source);
+  }
+  return next === undefined && exposed.length === 0 ? null : exposed;
 }
 
 function dealOrder(contents: readonly Occupant[]): Occupant[] {

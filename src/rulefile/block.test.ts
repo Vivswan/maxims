@@ -5,7 +5,14 @@
 import { describe, expect, test } from "bun:test";
 import type { MemoryName } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { ownLineMatcher, parseBlocks, renderBlock, replaceBlock, stripBlock } from "./block.ts";
+import {
+  ownLineMatcher,
+  parseBlocks,
+  renderBlock,
+  replaceBlock,
+  scanLines,
+  stripBlock,
+} from "./block.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
 const SOURCE = "@Vivswan/skills";
@@ -593,7 +600,9 @@ describe("replaceBlock and stripBlock", () => {
   // pair is the one the parser keeps, so the second pass would overwrite the duplicate the user made.
   test("a duplicated pair keeps its slot and its text through a re-sort, and a second pass changes nothing", () => {
     const stale = renderBlock(input({ markers: "counted", source: OTHER_SOURCE, sha: "old" }));
-    const duplicate = renderBlock(input({ markers: "counted", source: OTHER_SOURCE, sha: "dup" }));
+    const duplicate = renderBlock(
+      input({ markers: "counted", source: "@example-user/rules", sha: "dup" }),
+    );
     const once = replaceBlock(`${stale}\n${duplicate}\n${BLOCK}`, OTHER_SOURCE, OTHER);
     expect(once).toBe(`${BLOCK}\n${OTHER}\n${duplicate}`);
     expect(replaceBlock(once, OTHER_SOURCE, OTHER)).toBe(once);
@@ -682,19 +691,28 @@ describe("replaceBlock and stripBlock", () => {
 
   // No slot can close without pairing the user's markers, or without a fence the join opens
   // swallowing a kept block: the removal is refused rather than written, since the next sync
-  // would take the user's lines with the pair it made or the block it lost.
+  // would take the user's lines with the pair it made or the block it lost. The refusal names
+  // the pair around the removed block, the one the user has to edit, not whichever pair the
+  // closing of another slot happened to expose.
   const USER_OTHER = `<!-- maxims:begin ${OTHER_SOURCE} sha=user -->\nKEEP USER TEXT\n<!-- maxims:end ${OTHER_SOURCE} -->\n`;
+  const INNER_BEGIN = "<!-- maxims:begin @inner/notes sha=old -->\n";
+  const INNER_END = "<!-- maxims:end @inner/notes -->\n";
   const refusals: [string, string, string][] = [
     ["a stray pair around the only block", `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}`, STRAY],
     [
       "stray pairs nested around the only block",
-      `${STRAY_BEGIN}<!-- maxims:begin @inner/notes sha=old -->\nKEEP ME\n${BLOCK}<!-- maxims:end @inner/notes -->\n${STRAY_END}`,
+      `${STRAY_BEGIN}${INNER_BEGIN}KEEP ME\n${BLOCK}${INNER_END}${STRAY_END}`,
       "@inner/notes",
     ],
     [
       "two stray pairs interleaved around two blocks",
-      `${STRAY_BEGIN}KEEP ME\n${BLOCK}${STRAY_END}<!-- maxims:begin @inner/notes sha=old -->\nAND ME\n${OTHER}<!-- maxims:end @inner/notes -->\n`,
-      "@inner/notes",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}${STRAY_END}${INNER_BEGIN}AND ME\n${OTHER}${INNER_END}`,
+      STRAY,
+    ],
+    [
+      "two stray pairs, one around each of two blocks",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}${INNER_BEGIN}AND ME\n${OTHER}\n${INNER_END}`,
+      STRAY,
     ],
     [
       "a stray END hidden in a lone-tag HTML block that the join turns into paragraph text",
@@ -710,6 +728,11 @@ describe("replaceBlock and stripBlock", () => {
       "a fence the join opens over the kept block, with a user pair under its key past the fence",
       `notes\n${BLOCK}<span>\n~~~\n\n${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}~~~\n${USER_OTHER}`,
       STRAY,
+    ],
+    [
+      "a fence the join opens over the next block, with a later block intact behind a stray pair",
+      `notes\n${BLOCK}<span>\n~~~\n\n${STRAY_BEGIN}${OTHER}${STRAY_END}<span>\n~~~\n\n${INNER_BEGIN}${ZETA}${INNER_END}`,
+      "@inner/notes",
     ],
   ];
   test.each(refusals)(
@@ -1011,6 +1034,69 @@ describe("replaceBlock and stripBlock", () => {
     expect(stripped).toEqual({ text: `${OTHER}${run}notes\n`, emptied: false });
     expect(elapsed).toBeLessThan(50);
   });
+
+  // A refusal once validated every candidate slot with a scan of the whole file: a file of many
+  // blocks that no closing can leave intact cost one full scan per block, and a session-start
+  // hook removing one of them ran past the hook timeout with a megabyte of user notes in the file.
+  // Around each block, a stray pair pairs up when its slot closes; behind each block, a lone tag
+  // and a fence swallow the next block when its slot closes, whether a later fence line closes
+  // that fence (the one after reads back intact) or an info string keeps it open to the end.
+  const fenced = (opener: string) => (blocks: string[], notes: string) =>
+    blocks
+      .map((block, index) =>
+        index === blocks.length - 1
+          ? `<!-- maxims:begin @stray/last sha=old -->\nnotes\n${block}<!-- maxims:end @stray/last -->\n`
+          : `notes\n${block}<span>\n${opener}\n\n`,
+      )
+      .join("") + notes;
+  const wrappedIn: [string, (blocks: string[], notes: string) => string, string][] = [
+    [
+      "a stray pair around every block, with the notes above",
+      (blocks, notes) =>
+        notes +
+        blocks
+          .map(
+            (block, index) =>
+              `<!-- maxims:begin @stray/s${index} sha=old -->\nKEEP ${index}\n${block}\n<!-- maxims:end @stray/s${index} -->\n`,
+          )
+          .join(""),
+      "@stray/s0",
+    ],
+    [
+      "a lone tag and a fence behind every block, a stray pair around the last, the notes below",
+      fenced("~~~"),
+      "@stray/last",
+    ],
+    [
+      "a lone tag and a fence with an info string behind every block, which no later line closes",
+      fenced("~~~ info"),
+      "@stray/last",
+    ],
+  ];
+  test.each(wrappedIn)(
+    "a refusal that tries every slot of a large file with %s finishes in one pass",
+    (_label, build, named) => {
+      const blocks = Array.from({ length: 100 }, (_, index) => {
+        const source = `@user/rules${String(index).padStart(3, "0")}`;
+        return renderBlock(input({ markers: "counted", source, lines: [], sha: "c" }));
+      });
+      const text = build(blocks, "- note\n".repeat(150_000));
+      const started = performance.now();
+      let caught: unknown;
+      try {
+        stripBlock(text, "@user/rules000");
+      } catch (error) {
+        caught = error;
+      }
+      const elapsed = performance.now() - started;
+      expect(caught).toBeInstanceOf(MaximsError);
+      if (!(caught instanceof MaximsError)) return;
+      expect(caught.message).toBe(
+        `removing the @user/rules000 block would pair the stray maxims markers for ${named} around it into a managed block`,
+      );
+      expect(elapsed).toBeLessThan(1500);
+    },
+  );
 });
 
 // mulberry32: a tiny seeded generator so a failing case is reproducible from its seed alone.
@@ -1211,6 +1297,81 @@ describe("properties over arbitrary description bytes", () => {
       expect(
         parseBlocks(withFences).blocks.filter((block) => block.source === SOURCE),
       ).toHaveLength(1);
+    },
+  );
+
+  // The removal validates a closing by scanning only the joined gap and what it swallows, on the
+  // premise that a marker line leaves the scanner in its starting state. A scanner change that
+  // broke the premise would let a removal through whose full read-back pairs a user's markers or
+  // loses a kept block; the oracle here is that full read-back, restated from the marker grammar.
+  const pairsOf = (fileText: string): string[] => {
+    const pairs: string[] = [];
+    let begin: { source: string; start: number } | null = null;
+    for (const line of scanLines(fileText).lines) {
+      if (line.kind !== "comment" || !/^<!-- maxims:(begin|end) /.test(line.text)) continue;
+      const opened = /^<!-- maxims:begin (.+) sha=\S+ -->$/s.exec(line.text);
+      if (opened !== null) {
+        begin = { source: opened[1], start: line.start };
+        continue;
+      }
+      if (begin !== null && line.text === `<!-- maxims:end ${begin.source} -->`) {
+        pairs.push(fileText.slice(begin.start, line.end).replace(/(\r\n|\r|\n)$/, "\n"));
+      }
+      begin = null;
+    }
+    return pairs;
+  };
+  const strayMarkers = ["@stray/notes", "@inner/notes", "@example-user/rules"].flatMap((key) => [
+    `<!-- maxims:begin ${key} sha=old -->\n`,
+    `<!-- maxims:end ${key} -->\n`,
+  ]);
+  const gaps = [
+    "\n",
+    "\n",
+    "\r\n",
+    "KEEP ME\n",
+    "<span>\n",
+    "~~~\n",
+    "```\n",
+    "<pre>\n",
+    "</pre>\n",
+    ...strayMarkers,
+  ];
+  const rendered = [
+    BLOCK,
+    OTHER,
+    ZETA,
+    renderBlock(input({ markers: "counted", source: "@example-user/rules", sha: "dup" })),
+  ];
+  test.each(cases)(
+    "case %i: an accepted removal reads back in full as exactly the kept pairs",
+    (i) => {
+      const spread = (count: number): string =>
+        Array.from({ length: count }, () => pick(random, gaps)).join("");
+      const blocks = Array.from({ length: 1 + Math.floor(random() * 4) }, () =>
+        pick(random, rendered),
+      );
+      const ending = pick(random, ["\n", "\r\n", "\r"]);
+      const before = blocks
+        .map((block) => `${spread(Math.floor(random() * 4))}${block.replaceAll("\n", ending)}`)
+        .join("")
+        .concat(spread(Math.floor(random() * 3)));
+      const pairs = pairsOf(before);
+      if (pairs.length === 0) return;
+      const sources = pairs.map(
+        (pair) => /^<!-- maxims:begin (.+) sha=\S+ -->/.exec(pair)?.[1] ?? "",
+      );
+      const source = pick(random, sources);
+      let stripped: string | null = null;
+      try {
+        stripped = stripBlock(before, source).text;
+      } catch (error) {
+        expect(error, `seed case ${i}`).toBeInstanceOf(MaximsError);
+      }
+      if (stripped === null) return;
+      const kept = [...pairs];
+      kept.splice(sources.indexOf(source), 1);
+      expect(pairsOf(stripped).sort(), `seed case ${i}`).toEqual(kept.sort());
     },
   );
 });
