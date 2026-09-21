@@ -51,16 +51,40 @@ describe("materializeLocal", () => {
         const planA = materializeLocal({ type: "local", path: a }, home, files);
         const planB = materializeLocal({ type: "local", path: b }, home, files);
         const store = homePaths(home).store;
-        expect(planA.map((c) => c.kind)).toEqual(["delete", "mkdir", "write"]);
+        expect(planA.map((c) => c.kind)).toEqual(["mkdir", "write"]);
         expect(dirname(planA[0]?.path ?? "")).toBe(join(store, "_local"));
         expect(basename(planA[0]?.path ?? "")).toMatch(/^memories-[0-9a-f]{8}$/);
         expect(planA[0]?.path).not.toBe(planB[0]?.path);
         await applyChanges({ changes: [...planA, ...planB], notices: [] }, { dryRun: false });
-        const written = [planA[2], planB[2]].map((c) =>
+        const written = [planA[1], planB[1]].map((c) =>
           c === undefined ? "" : readFileSync(c.path, "utf8"),
         );
         expect(written).toEqual([MEMORY, MEMORY]);
         expect(lstatSync(planA[0]?.path ?? "").isSymbolicLink()).toBe(false);
+      });
+    });
+  });
+
+  // The plan is what the run would do: a first install has no entry to replace, so it plans no
+  // deletion, and a dry run of it shows none; a second materialization replaces the entry whole.
+  test("the entry's deletion is planned only once the entry exists", async () => {
+    await withTempHome(async (home) => {
+      await withTempDir(async (dir) => {
+        seedSource(dir);
+        const copied = { type: "local" as const, path: dir };
+        const files = [{ relPath: "memories/a-rule.md", text: MEMORY }];
+        const first = materializeLocal(copied, home, files);
+        expect(first.map((c) => c.kind)).toEqual(["mkdir", "write"]);
+        await applyChanges({ changes: first, notices: [] }, { dryRun: false });
+        const entry = first[0]?.path ?? "";
+        expect(materializeLocal(copied, home, files)).toEqual([
+          { kind: "delete", path: entry },
+          ...first,
+        ]);
+        expect(materializeLocal({ ...copied, live: true }, home, []).map((c) => c.kind)).toEqual([
+          "delete",
+          "symlink",
+        ]);
       });
     });
   });
@@ -100,10 +124,7 @@ describe("materializeLocal", () => {
         const entry = plan[0]?.path ?? "";
         expect(basename(dirname(entry))).toBe("_local");
         expect(basename(entry)).toMatch(/^[^/\\]+-[0-9a-f]{8}$/);
-        expect(plan).toEqual([
-          { kind: "delete", path: entry },
-          { kind: "symlink", path: entry, target: dir },
-        ]);
+        expect(plan).toEqual([{ kind: "symlink", path: entry, target: dir }]);
         await applyChanges({ changes: plan, notices: [] }, { dryRun: false });
         expect(readlinkSync(entry)).toBe(dir);
         expect(readFileSync(join(entry, "memories", "a-rule.md"), "utf8")).toBe(MEMORY);

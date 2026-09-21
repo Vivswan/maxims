@@ -63,7 +63,7 @@ import {
   withDisabled,
 } from "./shared/cli-context.ts";
 import { framed } from "./shared/engine-io.ts";
-import { swapStoreEntry, withoutAbsentDeletes } from "./shared/fetch.ts";
+import { swapStoreEntry } from "./shared/fetch.ts";
 import { prunedHooks, withHooks } from "./shared/hooks.ts";
 import {
   type AgentSelection,
@@ -683,10 +683,9 @@ function sameDestination(a: Destination, b: Destination): boolean {
 }
 
 // The store entry a fetched tree lands in: a local directory through the local materializer (a
-// live one becomes a link), a remote through the same swap every refresh plans. A first install
-// has no entry to replace, so no deletion of one is planned.
+// live one becomes a link), a remote through the same swap every refresh plans.
 function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeFile[]): Change[] {
-  if (from.type === "local") return withoutAbsentDeletes(materializeLocal(from, home, [...files]));
+  if (from.type === "local") return materializeLocal(from, home, [...files]);
   return swapStoreEntry(storePathFor(home, from), [...files]);
 }
 
