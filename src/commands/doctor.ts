@@ -239,26 +239,34 @@ function preambleCheck(
   return { ok: false, lost: target.frontmatter === undefined ? "path-scope" : "always-on" };
 }
 
+// A shared file is checked once per source it should carry and reported once as a file: one ok
+// line when every block is in place, otherwise a fail line naming each source whose block is not.
 function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
   const findings: Finding[] = [];
   const prefix = `${def.id}:`;
+  const byPath = new Map<string, RuleFileReport[]>();
   for (const file of report.ruleFiles) {
-    const shown = tildify(file.path, userHome);
-    if (!file.present) {
-      const what =
-        def.targets[report.scope]?.kind === "shared-block"
-          ? `${shown} has no block for ${file.source}`
-          : `${shown} is missing`;
-      findings.push({ kind: "fail", text: `${prefix} ${what}` });
-    } else if (file.preamble !== null && !file.preamble.ok) {
-      findings.push({
-        kind: "fail",
-        text:
+    byPath.set(file.path, [...(byPath.get(file.path) ?? []), file]);
+  }
+  for (const [path, files] of byPath) {
+    const shown = tildify(path, userHome);
+    const failed = files.flatMap((file) => {
+      if (!file.present) {
+        return def.targets[report.scope]?.kind === "shared-block"
+          ? [`${shown} has no block for ${file.source}`]
+          : [`${shown} is missing`];
+      }
+      if (file.preamble !== null && !file.preamble.ok) {
+        return [
           file.preamble.lost === "always-on"
-            ? `${prefix} ${shown} lacks the frontmatter ${def.displayName} needs to load it every session`
-            : `${prefix} ${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`,
-      });
-    } else findings.push({ kind: "ok", text: `${prefix} ${shown}` });
+            ? `${shown} lacks the frontmatter ${def.displayName} needs to load it every session`
+            : `${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`,
+        ];
+      }
+      return [];
+    });
+    for (const what of failed) findings.push({ kind: "fail", text: `${prefix} ${what}` });
+    if (failed.length === 0) findings.push({ kind: "ok", text: `${prefix} ${shown}` });
   }
   if (report.hook === "current") {
     findings.push({ kind: "ok", text: `${prefix} SessionStart hook current` });

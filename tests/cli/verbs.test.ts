@@ -919,6 +919,31 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
   );
 });
 
+// A shared file is one file however many sources it carries: doctor says it loads once, and names
+// the source only where a block is missing.
+test("doctor reports a shared rule file once for the sources it carries", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS, "a/r": RISKY } },
+    async (scenario) => {
+      expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--rule"])).code).toBe(0);
+      expect((await runCli(scenario, ["add", "@a/r", "-p", "-a", "codex", "--rule"])).code).toBe(0);
+      const shared = join(scenario.cwd, "AGENTS.md");
+      const both = `${block("@a/b", ["skip-unfit-skills"])}\n${block("@a/r", ["plain-rule"])}`;
+      writeFileSync(shared, both);
+      const healthy = await runCli(scenario, ["doctor"]);
+      expect(healthy.code).toBe(0);
+      expect(healthy.stdout.split("\n").filter((line) => line.startsWith("ok  codex:"))).toEqual([
+        `ok  codex: ${shared}`,
+      ]);
+      writeFileSync(shared, block("@a/b", ["skip-unfit-skills"]));
+      const missing = await runCli(scenario, ["doctor"]);
+      expect(missing.code).toBe(1);
+      const codexLines = missing.stdout.split("\n").filter((line) => line.includes("codex:"));
+      expect(codexLines).toEqual([`x   codex: ${shared} has no block for @a/r`]);
+    },
+  );
+});
+
 test("link adds harnesses with a target and syncs them; unlink is the remove -a path", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
