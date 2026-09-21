@@ -161,11 +161,11 @@ export function reviewing(key: string): string {
 }
 
 export function alreadyReviewing(key: string): string {
-  return `${key} is already held for review`;
+  return `${key} is already marked for review`;
 }
 
 export function notReviewing(key: string): string {
-  return `${key} was not held for review`;
+  return `${key} was not marked for review`;
 }
 
 export function unreviewed(key: string): string {

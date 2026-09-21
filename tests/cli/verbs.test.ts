@@ -969,6 +969,9 @@ test("review and unreview flip the mark and sync once without a fetch; accept sa
     expect(intentOf()?.review).toBe(true);
     expect(lastSyncCall(scenario)).toMatchObject({ fetch: "none" });
     expect(Object.keys(lastSyncCall(scenario))).not.toContain("agents");
+    const standing = await runCli(scenario, ["review", "@a/b"]);
+    expect(standing.code).toBe(0);
+    expect(standing.stdout).toContain("o  @a/b is already marked for review\n");
     const again = await runCli(scenario, ["review", "@A/B", "--json"]);
     expect(again.code).toBe(0);
     expect(JSON.parse(again.stdout)).toMatchObject({
@@ -981,9 +984,13 @@ test("review and unreview flip the mark and sync once without a fetch; accept sa
     const nothing = await runCli(scenario, ["accept", "@a/b"]);
     expect(nothing.code).toBe(0);
     expect(nothing.stdout).toContain("o  @a/b has nothing held for review\n");
+    const syncsBefore = scenario.engine.calls.sync.length;
     const none = await runCli(scenario, ["accept", "--all"]);
     expect(none.code).toBe(0);
     expect(none.stdout).toContain("o  nothing held for review\n");
+    expect(scenario.engine.calls.sync.slice(syncsBefore)).toMatchObject([
+      { dryRun: false, fetch: "none" },
+    ]);
     const both = await runCli(scenario, ["accept", "@a/b", "--all"]);
     expect(both.code).toBe(1);
     expect(both.stderr).toContain("--all accepts every held source; drop the source name");
@@ -993,8 +1000,8 @@ test("review and unreview flip the mark and sync once without a fetch; accept sa
     expect(intentOf()?.review).toBeUndefined();
     const not = await runCli(scenario, ["unreview", "@a/b"]);
     expect(not.code).toBe(0);
-    expect(not.stdout).toContain("o  @a/b was not held for review\n");
-    expect(scenario.engine.calls.sync.filter((call) => !call.dryRun)).toHaveLength(6);
+    expect(not.stdout).toContain("o  @a/b was not marked for review\n");
+    expect(scenario.engine.calls.sync.filter((call) => !call.dryRun)).toHaveLength(8);
   });
 });
 

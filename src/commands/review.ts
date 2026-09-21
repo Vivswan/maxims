@@ -270,9 +270,10 @@ export const accept: Command = {
     const { state, notices } = await loadIntentFor(io.home, ctx.global.dryRun);
     const keys = all ? heldKeys(state, io) : [findInstalledSource(state, positional ?? "", io)];
     if (keys.length === 0) {
+      const report = await syncCommitted(ctx, { state, config: ctx.config, changes: [] }, []);
       return finish(ctx, console, {
-        plan: { changes: [], notices: [] },
-        notices,
+        plan: report.plan,
+        notices: [...notices, ...report.notices],
         json: { sources: [], accepted: false, held: 0 },
         lines: [STRINGS.nothingHeld],
       });
