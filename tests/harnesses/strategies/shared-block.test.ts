@@ -27,7 +27,7 @@ const def: HarnessDefinition = {
   markers: "counted",
   expands: ["none"],
   detect: () => false,
-  verifiedAgainst: { url: "https://example.com/docs", date: "2026-09-20" },
+  verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs" }] },
 };
 
 const blockFor = (source: string, body: string) =>

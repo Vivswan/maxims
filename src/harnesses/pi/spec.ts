@@ -13,11 +13,15 @@ export const spec = {
   displayName: "Pi",
   tier: 1,
   verifiedAgainst: {
-    url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:ce5720e9742e4fae7fb926aa09ca485caadd7be063b732f998c7b471373d39f8",
-    ),
+    pages: [
+      {
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
+        contentHash: contentHashLiteral(
+          "sha256:ce5720e9742e4fae7fb926aa09ca485caadd7be063b732f998c7b471373d39f8",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },
   targets: {

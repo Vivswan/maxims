@@ -11,11 +11,15 @@ export const spec = {
   displayName: "Warp",
   tier: 2,
   verifiedAgainst: {
-    url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:cd2feee9ff5f88c387142d089900a2868fd66edfaec14651e7dcb0b69a9cab1d",
-    ),
+    pages: [
+      {
+        url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
+        contentHash: contentHashLiteral(
+          "sha256:cd2feee9ff5f88c387142d089900a2868fd66edfaec14651e7dcb0b69a9cab1d",
+        ),
+      },
+    ],
   },
   targets: {
     project: { kind: "shared-block", file: "AGENTS.md", precedence: ["WARP.md", "AGENTS.md"] },

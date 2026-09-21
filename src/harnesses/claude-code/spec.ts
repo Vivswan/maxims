@@ -11,11 +11,15 @@ export const spec = {
   displayName: "Claude Code",
   tier: 1,
   verifiedAgainst: {
-    url: "https://code.claude.com/docs/en/memory",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:5ac1259e5fadcc1f608831d2351ab2b1a2d112669c2a4670601884cec1ca192c",
-    ),
+    pages: [
+      {
+        url: "https://code.claude.com/docs/en/memory",
+        contentHash: contentHashLiteral(
+          "sha256:5ac1259e5fadcc1f608831d2351ab2b1a2d112669c2a4670601884cec1ca192c",
+        ),
+      },
+    ],
   },
   targets: {
     project: { kind: "rules-dir", dir: ".claude/rules", fileName: "maxims-{{slug}}.md" },

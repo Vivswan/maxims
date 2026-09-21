@@ -13,11 +13,15 @@ export const spec = {
   displayName: "Amp",
   tier: 1,
   verifiedAgainst: {
-    url: "https://ampcode.com/docs/customize/plugins",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:d6a8aa88f4b283e6206e2686005f3a0532a887fd9d3d5371e5f722aa931d9d68",
-    ),
+    pages: [
+      {
+        url: "https://ampcode.com/docs/customize/plugins",
+        contentHash: contentHashLiteral(
+          "sha256:d6a8aa88f4b283e6206e2686005f3a0532a887fd9d3d5371e5f722aa931d9d68",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".config/amp" },
   targets: {

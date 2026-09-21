@@ -13,11 +13,15 @@ export const spec = {
   displayName: "Cursor",
   tier: 1,
   verifiedAgainst: {
-    url: "https://cursor.com/docs/context/rules",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:05781c233f0a2302f7cefa20f960849b3f53a1ee14423fa81e4bea8041621f9e",
-    ),
+    pages: [
+      {
+        url: "https://cursor.com/docs/context/rules",
+        contentHash: contentHashLiteral(
+          "sha256:05781c233f0a2302f7cefa20f960849b3f53a1ee14423fa81e4bea8041621f9e",
+        ),
+      },
+    ],
   },
   targets: {
     project: {

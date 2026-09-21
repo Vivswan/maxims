@@ -152,6 +152,12 @@ export type HarnessFixtures = {
   hookStdin?: string;
 };
 
+// The vendor pages the definition's facts were read from. One page rarely states every fact
+// (Pi's context-file order is in its README and resource loader, not its extensions page), so each
+// page names the fact it justifies and the nightly drift check re-hashes every one of them.
+export type VerifiedPage = { url: string; contentHash?: ContentHash; note?: string };
+export type VerifiedAgainst = { date: string; pages: readonly [VerifiedPage, ...VerifiedPage[]] };
+
 export interface HarnessDefinition {
   id: HarnessId;
   displayName: string;
@@ -165,7 +171,7 @@ export interface HarnessDefinition {
   detect: (ctx: HarnessContext) => boolean;
   achievedTier?: (ctx: HarnessContext) => Promise<AchievedTier>;
   scopeFrontmatter?: (globs: string[]) => string | null;
-  verifiedAgainst: { url: string; date: string; contentHash?: ContentHash };
+  verifiedAgainst: VerifiedAgainst;
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
   mcp?: McpRegistry;

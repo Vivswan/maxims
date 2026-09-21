@@ -11,11 +11,15 @@ export const spec = {
   displayName: "Devin Local",
   tier: 1,
   verifiedAgainst: {
-    url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:ddcc12d78830e91999967374782f31b25a4a7c1866aca086225fa6cd8fa612ec",
-    ),
+    pages: [
+      {
+        url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
+        contentHash: contentHashLiteral(
+          "sha256:ddcc12d78830e91999967374782f31b25a4a7c1866aca086225fa6cd8fa612ec",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".config/devin" },
   targets: {

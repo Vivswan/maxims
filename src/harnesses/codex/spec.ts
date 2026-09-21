@@ -9,11 +9,15 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    url: "https://learn.chatgpt.com/docs/hooks",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:66f02af8596752fcac908982eab4e3cd81f14d29a10e546ec5bb1803185a8afd",
-    ),
+    pages: [
+      {
+        url: "https://learn.chatgpt.com/docs/hooks",
+        contentHash: contentHashLiteral(
+          "sha256:66f02af8596752fcac908982eab4e3cd81f14d29a10e546ec5bb1803185a8afd",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".codex", env: { name: "CODEX_HOME" } },
   targets: {

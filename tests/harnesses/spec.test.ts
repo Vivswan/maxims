@@ -11,7 +11,7 @@ function base(): Record<string, unknown> {
     id: "example",
     displayName: "Example",
     tier: 1,
-    verifiedAgainst: { url: "https://example.com/docs/hooks", date: "2026-09-20" },
+    verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs/hooks" }] },
     globalRoot: { default: "~/.example", env: { name: "EXAMPLE_HOME" } },
     targets: {
       project: {
@@ -169,8 +169,16 @@ const refusals: [string, Mutation, string][] = [
   ],
   [
     "a content hash that is not a sha256 digest",
-    at(["verifiedAgainst", "contentHash"], "abc123"),
-    "verifiedAgainst.contentHash: expected a sha256:<64 hex digits> digest",
+    at(
+      ["verifiedAgainst", "pages"],
+      [{ url: "https://example.com/docs/hooks", contentHash: "abc123" }],
+    ),
+    "verifiedAgainst.pages.0.contentHash: expected a sha256:<64 hex digits> digest",
+  ],
+  [
+    "a definition verified against no page",
+    at(["verifiedAgainst", "pages"], []),
+    "verifiedAgainst.pages: at least one page justifies the definition",
   ],
   [
     "a fixture name with a path",

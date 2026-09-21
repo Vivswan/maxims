@@ -19,7 +19,10 @@ function acme(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     id: "acme",
     displayName: "Acme Agent",
     tier: 1,
-    verifiedAgainst: { url: "https://example.com/acme/docs/hooks", date: "2026-09-20" },
+    verifiedAgainst: {
+      date: "2026-09-20",
+      pages: [{ url: "https://example.com/acme/docs/hooks" }],
+    },
     globalRoot: { default: ".acme", env: { name: "ACME_HOME" } },
     targets: {
       project: { kind: "shared-block", file: "AGENTS.md" },

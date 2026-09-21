@@ -1,7 +1,8 @@
-// Re-fetches every harness definition's verified documentation page and compares its content hash
+// Re-fetches every page a harness definition was verified against and compares each content hash
 // with the one the definition recorded, so a page that moved is dated to a 24-hour window instead
 // of waiting for someone to look.
 import { HTMLElement, type Node, parse } from "node-html-parser";
+import type { VerifiedPage } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -95,29 +96,34 @@ export async function fetchPageHash(url: string, fetchImpl: typeof fetch): Promi
 
 export type Verdict = "match" | "DRIFT" | "unverifiable";
 
-export type VerifiedPage = {
+export type VerifiedDefinition = {
   id: string;
-  verifiedAgainst: { url: string; contentHash?: ContentHash };
+  verifiedAgainst: { pages: readonly VerifiedPage[] };
 };
 
 export type Row = {
   id: string;
   url: string;
+  note: string;
   verdict: Verdict;
   stored: string;
   fetched: string;
 };
 
+export type Judged = { id: string; verdict: Verdict; rows: readonly Row[] };
+
 const NO_HASH = "(none)";
+const NO_NOTE = "-";
 
 // A missing stored hash still reports the fetched one, which is what a definition's author pastes
-// into `verifiedAgainst.contentHash`.
-export function judgeDefinition(def: VerifiedPage, fetched: Fetched): Row {
-  const { url, contentHash } = def.verifiedAgainst;
+// into that page's `contentHash`.
+export function judgePage(id: string, page: VerifiedPage, fetched: Fetched): Row {
+  const { url, contentHash, note } = page;
   const stored = contentHash ?? NO_HASH;
   const row = (verdict: Verdict, fetchedText: string): Row => ({
-    id: def.id,
+    id,
     url,
+    note: note ?? NO_NOTE,
     verdict,
     stored,
     fetched: fetchedText,
@@ -135,28 +141,48 @@ export function judgeDefinition(def: VerifiedPage, fetched: Fetched): Row {
   }
 }
 
+export function judgeDefinition(id: string, rows: readonly Row[]): Judged {
+  const has = (verdict: Verdict): boolean => rows.some((row) => row.verdict === verdict);
+  const verdict = has("DRIFT") ? "DRIFT" : has("unverifiable") ? "unverifiable" : "match";
+  return { id, verdict, rows };
+}
+
 export function renderRows(rows: readonly Row[]): string {
   return markdownTable(
-    ["id", "url", "verdict", "stored", "fetched"],
-    rows.map((row) => [row.id, row.url, row.verdict, row.stored, row.fetched]),
+    ["id", "url", "note", "verdict", "stored", "fetched"],
+    rows.map((row) => [row.id, row.url, row.note, row.verdict, row.stored, row.fetched]),
   );
 }
 
 const FIX = [
-  "To clear a DRIFT row: open the page, re-verify the definition against it, then set that",
-  "definition's `verifiedAgainst.date` to today and `verifiedAgainst.contentHash` to the fetched",
+  "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set",
+  "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched",
   "value above. An unverifiable row never fails the run: either this run could not read the page,",
-  "or the definition records no hash yet and the fetched value is the one to record.",
+  "or the definition records no hash for it yet and the fetched value is the one to record.",
 ].join(" ");
 
-export function summarize(rows: readonly Row[]): Outcome {
-  const count = (verdict: Verdict): number => rows.filter((row) => row.verdict === verdict).length;
-  const drift = count("DRIFT");
-  const headline =
-    `${rows.length} definitions: ${count("match")} match, ${drift} drift, ` +
-    `${count("unverifiable")} unverifiable`;
+function tally(label: string, verdicts: readonly Verdict[]): string {
+  const count = (verdict: Verdict): number => verdicts.filter((v) => v === verdict).length;
+  return (
+    `${verdicts.length} ${label}: ${count("match")} match, ${count("DRIFT")} drift, ` +
+    `${count("unverifiable")} unverifiable`
+  );
+}
+
+export function summarize(judged: readonly Judged[]): Outcome {
+  const rows = judged.flatMap((entry) => entry.rows);
+  const headline = [
+    tally(
+      "definitions",
+      judged.map((entry) => entry.verdict),
+    ),
+    tally(
+      "pages",
+      rows.map((row) => row.verdict),
+    ),
+  ].join("\n");
   const summary = `## Harness documentation drift\n\n${headline}\n\n${renderRows(rows)}\n`;
-  if (drift === 0) return { status: "pass", summary };
+  if (!judged.some((entry) => entry.verdict === "DRIFT")) return { status: "pass", summary };
   return {
     status: "fail",
     summary,
@@ -168,13 +194,20 @@ export function summarize(rows: readonly Row[]): Outcome {
 }
 
 export async function runHarnessDrift(
-  definitions: readonly VerifiedPage[] = HARNESSES,
+  definitions: readonly VerifiedDefinition[] = HARNESSES,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Outcome> {
-  const rows = await Promise.all(
+  const judged = await Promise.all(
     definitions.map(async (def) =>
-      judgeDefinition(def, await fetchPageHash(def.verifiedAgainst.url, fetchImpl)),
+      judgeDefinition(
+        def.id,
+        await Promise.all(
+          def.verifiedAgainst.pages.map(async (page) =>
+            judgePage(def.id, page, await fetchPageHash(page.url, fetchImpl)),
+          ),
+        ),
+      ),
     ),
   );
-  return summarize(rows);
+  return summarize(judged);
 }

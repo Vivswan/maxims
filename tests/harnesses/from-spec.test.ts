@@ -24,7 +24,7 @@ const rendering = specOf({
   id: "example",
   displayName: "Example",
   tier: 1,
-  verifiedAgainst: { url: "https://example.com/docs/hooks", date: "2026-09-20" },
+  verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs/hooks" }] },
   globalRoot: { default: "~/.config/example", env: { name: "XDG_CONFIG_HOME", subdir: "example" } },
   targets: {
     project: {
@@ -158,6 +158,20 @@ test("the global root joins the env override with its subdirectory and strips ~/
   expect(def.mcp?.path("global", { home, projectRoot: null, env: {} })).toBe(
     resolve("/home/user/.config/example/mcp.json"),
   );
+});
+
+// The nightly drift check reads the pages off the compiled definition, so a compiler that kept
+// only the first page, or dropped a hash or note, would silently stop watching the rest.
+test("every verified page reaches the definition with its hash and note", () => {
+  const hash = `sha256:${"ab".repeat(32)}`;
+  const pages = [
+    { url: "https://example.com/docs/hooks", contentHash: hash, note: "hook shape" },
+    { url: "https://example.com/docs/rules", note: "rules directory" },
+  ];
+  const def = toDefinition(
+    specOf({ ...rendering, verifiedAgainst: { date: "2026-09-21", pages } }),
+  );
+  expect<unknown>(def.verifiedAgainst).toEqual({ date: "2026-09-21", pages });
 });
 
 test("a reconcile quirk becomes the custom hook of a spec that declares none", () => {

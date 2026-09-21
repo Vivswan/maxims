@@ -12,11 +12,15 @@ export const spec = {
   displayName: "GitHub Copilot",
   tier: 1,
   verifiedAgainst: {
-    url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:8545296cf84c29c08444895aae788b9646184a91394dcb0b96245ad7336294b3",
-    ),
+    pages: [
+      {
+        url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
+        contentHash: contentHashLiteral(
+          "sha256:8545296cf84c29c08444895aae788b9646184a91394dcb0b96245ad7336294b3",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".copilot", env: { name: "COPILOT_HOME" } },
   targets: {

@@ -4,7 +4,7 @@ import { HARNESS_ID_PATTERN, type HarnessId } from "../contracts/harness-id.ts";
 import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ByteBudget, ConfigFormat, HookStdout } from "./contract.ts";
+import type { ByteBudget, ConfigFormat, HookStdout, VerifiedPage } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -301,19 +301,27 @@ const Mcp = z.strictObject({
   serversPath: z.array(z.string().min(1)).min(1),
 });
 
+const VerifiedPageField = z.strictObject({
+  url: z.url(),
+  contentHash: z
+    .custom<ContentHash>((value) => typeof value === "string" && parseContentHash(value) !== null, {
+      error: "expected a sha256:<64 hex digits> digest",
+    })
+    .optional(),
+  note: z.string().min(1).optional(),
+});
+
 const SPEC_SHAPE = {
   id: HarnessIdField,
   displayName: z.string().min(1),
   tier: z.literal([1, 2]),
   verifiedAgainst: z.strictObject({
-    url: z.url(),
     date: z.iso.date(),
-    contentHash: z
-      .custom<ContentHash>(
-        (value) => typeof value === "string" && parseContentHash(value) !== null,
-        { error: "expected a sha256:<64 hex digits> digest" },
-      )
-      .optional(),
+    // `min(1)` is what makes the tuple cast true; the definition then carries a first page by type.
+    pages: z
+      .array(VerifiedPageField)
+      .min(1, { error: "at least one page justifies the definition" })
+      .transform((pages) => pages as [VerifiedPage, ...VerifiedPage[]]),
   }),
   globalRoot: GlobalRoot.optional(),
   targets: perScope(Target.nullable()),

@@ -62,6 +62,7 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
   const scopeFrontmatter = compileScopeFrontmatter(spec.scopeFrontmatter);
+  const [first, ...rest] = spec.verifiedAgainst.pages;
 
   return {
     id: spec.id,
@@ -87,7 +88,10 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
       );
     },
     ...(scopeFrontmatter === undefined ? {} : { scopeFrontmatter }),
-    verifiedAgainst: { ...spec.verifiedAgainst },
+    verifiedAgainst: {
+      date: spec.verifiedAgainst.date,
+      pages: [{ ...first }, ...rest.map((page) => ({ ...page }))],
+    },
     ...(spec.fixtures === undefined ? {} : { fixtures: { ...spec.fixtures } }),
     ...roots,
     ...(spec.mcp === undefined

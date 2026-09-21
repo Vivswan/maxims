@@ -4,6 +4,7 @@ import {
   type HarnessDefinition,
   type Scope,
   scopeRoot,
+  type VerifiedAgainst,
 } from "../../src/harnesses/contract.ts";
 
 // Three hand-written harness shapes the CLI tests run against: a rules-dir harness with both
@@ -14,7 +15,10 @@ function detects(id: string): (ctx: HarnessContext) => boolean {
   return (ctx) => (ctx.env.FIXTURE_DETECT ?? "").split(",").includes(id);
 }
 
-const verifiedAgainst = { url: "https://example.com/docs", date: "2026-09-20" };
+const verifiedAgainst: VerifiedAgainst = {
+  date: "2026-09-20",
+  pages: [{ url: "https://example.com/docs" }],
+};
 
 function registryHook(dir: (scope: Scope, ctx: HarnessContext) => string) {
   return {

@@ -45,7 +45,7 @@ const base: Omit<HarnessDefinition, "hook"> = {
   markers: "counted",
   expands: ["none"],
   detect: () => false,
-  verifiedAgainst: { url: "https://example.com/docs", date: "2026-09-20" },
+  verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs" }] },
 };
 
 function registryDef(hook: Partial<RegistryHook> = {}): HarnessWithHook<"registry"> {

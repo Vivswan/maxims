@@ -16,11 +16,15 @@ export const spec = {
   displayName: "DeepSeek Harness",
   tier: 1,
   verifiedAgainst: {
-    url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:9d379117eb80609f7859f2881f7e94d771c5dfed4560562d3420ec75097066a1",
-    ),
+    pages: [
+      {
+        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
+        contentHash: contentHashLiteral(
+          "sha256:9d379117eb80609f7859f2881f7e94d771c5dfed4560562d3420ec75097066a1",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".dsh", env: { name: "DSH_HOME" } },
   targets: {

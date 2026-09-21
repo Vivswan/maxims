@@ -16,7 +16,7 @@ Every path is relative to its scope root: the project root for a project install
 | `id` | kebab-case id, what `--agent` accepts and the folder name of a built-in |
 | `displayName` | the name shown in output |
 | `tier` | `1` when a hook refreshes the rules by itself, `2` when nothing does |
-| `verifiedAgainst` | `{ url, date, contentHash? }`: the vendor page every fact was checked against |
+| `verifiedAgainst` | `{ date, pages }`: the vendor pages the facts were checked against; see below |
 | `globalRoot` | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and its relocating variable |
 | `targets` | per scope, a `rules-dir`, a `shared-block`, or `null` when that scope has no always-loaded file |
 | `bodiesDir` | per scope, where memory bodies land, or `null` to leave them in the store |
@@ -80,7 +80,10 @@ The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON w
   "id": "codex",
   "displayName": "Codex",
   "tier": 1,
-  "verifiedAgainst": { "url": "https://learn.chatgpt.com/docs/hooks", "date": "2026-09-20" },
+  "verifiedAgainst": {
+    "date": "2026-09-20",
+    "pages": [{ "url": "https://learn.chatgpt.com/docs/hooks", "note": "hooks.json and SessionStart" }]
+  },
   "globalRoot": { "default": ".codex", "env": { "name": "CODEX_HOME" } },
   "targets": {
     "project": { "kind": "shared-block", "file": "AGENTS.md" },
@@ -139,9 +142,11 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 3. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
 4. Write `tests/harnesses/<id>/index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 
-The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current page before encoding it, and record that page in `verifiedAgainst`.
+The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current pages before encoding it.
 
-`contentHash` is the `sha256:<hex>` of the page's text as the nightly drift check reads it, in `scripts/nightly/harness_drift.ts`; one normalization stands behind every stored hash.
+Each page goes into `verifiedAgainst.pages` as `{ url, contentHash?, note? }`. One page rarely states every fact: Pi's context-file order is in its README, not its extensions page. A page's `note` names the fact it justifies, so a drift row says what to re-check.
+
+A page's `contentHash` is the `sha256:<hex>` of its text as the nightly drift check reads it, in `scripts/nightly/harness_drift.ts`; one normalization stands behind every stored hash. The nightly re-hashes every page and reads the definition as drift when any one of them moved.
 
 | the page's media type | what is hashed |
 | --- | --- |
@@ -149,4 +154,12 @@ The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles
 | HTML, inside a `footer` element | build stamps such as `Last updated: Sep 21, 2026` are dropped first |
 | anything else, such as a raw markdown file | the whole body |
 
-Both branches collapse each whitespace run to one space and trim the result; the HTML branch also drops the doctype and the `script`, `style`, and `noscript` bodies. To record a hash by hand, run `bun scripts/nightly.ts harness-drift`: its table prints each definition's stored hash beside the fetched one, and the fetched value is what the definition records.
+Both branches collapse each whitespace run to one space and trim the result; the HTML branch also drops the doctype and the `script`, `style`, and `noscript` bodies.
+
+To take a hash, record the page without one and run `bun scripts/nightly.ts harness-drift --report-dir <dir>`. The page's row reads unverifiable and its `fetched` cell is the hash to paste in:
+
+```text
+| id | url | note | verdict | stored | fetched |
+|---|---|---|---|---|---|
+| codex | https://learn.chatgpt.com/docs/hooks | hooks.json and SessionStart | unverifiable | (none) | sha256:66f0...8afd |
+```

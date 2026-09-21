@@ -1,16 +1,18 @@
-// Fails if a definition lands without its baseline hash, so the nightly could never see its page
-// move, or if the normalization behind every stored hash changes, which would repaint all
-// fourteen as drift in one night, or if it misreads markup so a page's own words go missing or
-// unseen script text gets counted, or if a site's per-deploy build stamp or its sidebar comes back
-// into the hash so a redeploy with no word of the page changed reports drift; also if a fetch
-// failure or a missing hash turns the table the issue shows red instead of unverifiable, or if the
-// fill instruction stops showing the fetched hash an author pastes in.
+// Each drift below would be silent without this file, since nothing else reads a page's hash.
+//
+//   a definition lands without a page's hash     -> the nightly never sees that page move
+//   the one normalization behind the hashes moves -> all fourteen definitions read as drift at once
+//   markup is misread                             -> a page's words go missing, or script text counts
+//   a build stamp or sidebar leaks into the hash  -> a redeploy with no word changed reads as drift
+//   a fetch fails or a hash is missing            -> the table turns red instead of unverifiable
+//   one page of several moves                     -> its definition still counts as a match
+//   the fill instruction changes                  -> the fetched hash an author pastes in disappears
 import { describe, expect, test } from "bun:test";
 import {
   mediaOf,
   normalizeDocument,
   runHarnessDrift,
-  type VerifiedPage,
+  type VerifiedDefinition,
 } from "../../scripts/nightly/harness_drift.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
@@ -204,44 +206,62 @@ const timeoutError = (): never => {
 };
 
 describe("runHarnessDrift", () => {
-  const page = (id: string, contentHash?: ContentHash): VerifiedPage => ({
+  type Page = [name: string, contentHash?: ContentHash, note?: string];
+  const url = (name: string): string => `https://example.com/${name}`;
+  const def = (id: string, ...pages: Page[]): VerifiedDefinition => ({
     id,
-    verifiedAgainst: { url: `https://example.com/${id}`, contentHash },
+    verifiedAgainst: {
+      pages: pages.map(([name, contentHash, note]) => ({ url: url(name), contentHash, note })),
+    },
   });
   const answers = {
-    "https://example.com/stable": () => new Response(PAGE, HTML),
-    "https://example.com/raw": () => new Response(RAW, TEXT),
-    "https://example.com/moved": () => new Response("<p>moved page</p>", HTML),
-    "https://example.com/gone": () => new Response("", { status: 503 }),
-    "https://example.com/slow": timeoutError,
-    "https://example.com/unrecorded": () => new Response("<p>moved page</p>", HTML),
+    [url("stable")]: () => new Response(PAGE, HTML),
+    [url("raw")]: () => new Response(RAW, TEXT),
+    [url("moved")]: () => new Response("<p>moved page</p>", HTML),
+    [url("gone")]: () => new Response("", { status: 503 }),
+    [url("slow")]: timeoutError,
+    [url("unrecorded")]: () => new Response("<p>moved page</p>", HTML),
   };
   const table = (rows: string[]): string =>
-    ["| id | url | verdict | stored | fetched |", "|---|---|---|---|---|", ...rows].join("\n");
-  const row = (id: string, verdict: string, stored: string, fetched: string): string =>
-    `| ${id} | https://example.com/${id} | ${verdict} | ${stored} | ${fetched} |`;
-  const stableRow = row("stable", "match", PAGE_HASH, PAGE_HASH);
-  const rawRow = row("raw", "match", RAW_HASH, RAW_HASH);
-  const movedRow = row("moved", "DRIFT", STORED, OTHER);
+    ["| id | url | note | verdict | stored | fetched |", "|---|---|---|---|---|---|", ...rows].join(
+      "\n",
+    );
+  const row = (
+    id: string,
+    name: string,
+    verdict: string,
+    stored: string,
+    fetched: string,
+    note = "-",
+  ) => `| ${id} | ${url(name)} | ${note} | ${verdict} | ${stored} | ${fetched} |`;
+  const stableRow = row("stable", "stable", "match", PAGE_HASH, PAGE_HASH);
+  const rawRow = row("raw", "raw", "match", RAW_HASH, RAW_HASH);
+  const goneRow = row("gone", "gone", "unverifiable", STORED, "HTTP 503");
 
   // Every way a page can be unverifiable, as the rows the issue and the summary show: the
   // unrecorded page's row carries the hash an author pastes into the definition.
   const unverifiable = [
-    page("gone", STORED),
-    page("slow", STORED),
-    page("offline", STORED),
-    page("unrecorded"),
+    def("gone", ["gone", STORED]),
+    def("slow", ["slow", STORED]),
+    def("offline", ["offline", STORED]),
+    def("unrecorded", ["unrecorded"]),
   ];
   const unverifiableRows = [
-    row("gone", "unverifiable", STORED, "HTTP 503"),
-    row("slow", "unverifiable", STORED, "timeout after 20 s"),
-    row("offline", "unverifiable", STORED, "network error: getaddrinfo ENOTFOUND example.com"),
-    row("unrecorded", "unverifiable", "(none)", OTHER),
+    goneRow,
+    row("slow", "slow", "unverifiable", STORED, "timeout after 20 s"),
+    row(
+      "offline",
+      "offline",
+      "unverifiable",
+      STORED,
+      "network error: getaddrinfo ENOTFOUND example.com",
+    ),
+    row("unrecorded", "unrecorded", "unverifiable", "(none)", OTHER),
   ];
 
   test("matches and unverifiable pages pass with the table in the summary", async () => {
     const outcome = await runHarnessDrift(
-      [page("stable", PAGE_HASH), page("raw", RAW_HASH), ...unverifiable],
+      [def("stable", ["stable", PAGE_HASH]), def("raw", ["raw", RAW_HASH]), ...unverifiable],
       fakeFetch(answers),
     );
     expect(outcome).toEqual({
@@ -250,6 +270,7 @@ describe("runHarnessDrift", () => {
         "## Harness documentation drift",
         "",
         "6 definitions: 2 match, 0 drift, 4 unverifiable",
+        "6 pages: 2 match, 0 drift, 4 unverifiable",
         "",
         table([stableRow, rawRow, ...unverifiableRows]),
         "",
@@ -257,13 +278,24 @@ describe("runHarnessDrift", () => {
     });
   });
 
-  test("one drifted page fails with the table and the two fields to set", async () => {
+  test("one drifted page fails the definition and its row carries the note to re-check", async () => {
     const outcome = await runHarnessDrift(
-      [page("stable", PAGE_HASH), page("moved", STORED), page("gone", STORED)],
+      [
+        def("multi", ["stable", PAGE_HASH], ["moved", STORED, "context-file order"]),
+        def("partial", ["raw", RAW_HASH], ["gone", STORED]),
+      ],
       fakeFetch(answers),
     );
-    const headline = "3 definitions: 1 match, 1 drift, 1 unverifiable";
-    const rows = table([stableRow, movedRow, row("gone", "unverifiable", STORED, "HTTP 503")]);
+    const headline = [
+      "2 definitions: 0 match, 1 drift, 1 unverifiable",
+      "4 pages: 2 match, 1 drift, 1 unverifiable",
+    ].join("\n");
+    const rows = table([
+      row("multi", "stable", "match", PAGE_HASH, PAGE_HASH),
+      row("multi", "moved", "DRIFT", STORED, OTHER, "context-file order"),
+      row("partial", "raw", "match", RAW_HASH, RAW_HASH),
+      row("partial", "gone", "unverifiable", STORED, "HTTP 503"),
+    ]);
     expect(outcome).toEqual({
       status: "fail",
       summary: `## Harness documentation drift\n\n${headline}\n\n${rows}\n`,
@@ -274,10 +306,10 @@ describe("runHarnessDrift", () => {
           "",
           rows,
           "",
-          "To clear a DRIFT row: open the page, re-verify the definition against it, then set that " +
-            "definition's `verifiedAgainst.date` to today and `verifiedAgainst.contentHash` to the fetched " +
+          "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set " +
+            "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched " +
             "value above. An unverifiable row never fails the run: either this run could not read the page, " +
-            "or the definition records no hash yet and the fetched value is the one to record.",
+            "or the definition records no hash for it yet and the fetched value is the one to record.",
           "",
         ].join("\n"),
       },
@@ -286,9 +318,11 @@ describe("runHarnessDrift", () => {
 });
 
 // Every page resolved when the hashes were recorded, so no definition is excused here.
-test("every registered definition records the hash of its verified page", () => {
-  const missing = HARNESSES.filter((def) => def.verifiedAgainst.contentHash === undefined).map(
-    (def) => def.id,
+test("every registered definition records the hash of each verified page", () => {
+  const missing = HARNESSES.flatMap((def) =>
+    def.verifiedAgainst.pages
+      .filter((page) => page.contentHash === undefined)
+      .map((page) => `${def.id}: ${page.url}`),
   );
   expect(missing).toEqual([]);
 });

@@ -12,11 +12,15 @@ export const spec = {
   displayName: "Cline",
   tier: 1,
   verifiedAgainst: {
-    url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:afeb7a02b27409a0c4f9e910d17f64fef8e16d97e5fddfc5728db82aa4c9e87e",
-    ),
+    pages: [
+      {
+        url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
+        contentHash: contentHashLiteral(
+          "sha256:afeb7a02b27409a0c4f9e910d17f64fef8e16d97e5fddfc5728db82aa4c9e87e",
+        ),
+      },
+    ],
   },
   targets: {
     project: { kind: "rules-dir", dir: ".clinerules", fileName: "maxims-{{slug}}.md" },

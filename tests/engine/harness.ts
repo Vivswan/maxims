@@ -92,7 +92,7 @@ export const rulesDirHarness: HarnessDefinition = {
   markers: "stripped",
   expands: ["at-import"],
   detect: () => true,
-  verifiedAgainst: { url: "https://example.com/fixture", date: "2026-01-01" },
+  verifiedAgainst: { date: "2026-01-01", pages: [{ url: "https://example.com/fixture" }] },
 };
 
 export const sharedBlockHarness: HarnessDefinition = {
@@ -117,7 +117,7 @@ export const sharedBlockHarness: HarnessDefinition = {
   markers: "counted",
   expands: [],
   detect: () => true,
-  verifiedAgainst: { url: "https://example.com/fixture", date: "2026-01-01" },
+  verifiedAgainst: { date: "2026-01-01", pages: [{ url: "https://example.com/fixture" }] },
 };
 
 export const FIXTURE_CONFIG_CONTENT = '{"instructions":["rules"]}\n';

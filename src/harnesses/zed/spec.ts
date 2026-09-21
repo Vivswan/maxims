@@ -11,11 +11,15 @@ export const spec = {
   displayName: "Zed",
   tier: 2,
   verifiedAgainst: {
-    url: "https://zed.dev/docs/ai/instructions",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:976301e2dfd5df76250ed3874de47f34f0db1c957d47928eb84cbe5cc3562797",
-    ),
+    pages: [
+      {
+        url: "https://zed.dev/docs/ai/instructions",
+        contentHash: contentHashLiteral(
+          "sha256:976301e2dfd5df76250ed3874de47f34f0db1c957d47928eb84cbe5cc3562797",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },
   targets: {

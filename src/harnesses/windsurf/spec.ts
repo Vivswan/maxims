@@ -16,11 +16,15 @@ export const spec = {
   displayName: "Windsurf Cascade",
   tier: 1,
   verifiedAgainst: {
-    url: "https://docs.devin.ai/desktop/cascade/hooks",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:28cfdfa697c05f2c70b36e5719d401dfe4c2c2757ae122af0632758983eecae1",
-    ),
+    pages: [
+      {
+        url: "https://docs.devin.ai/desktop/cascade/hooks",
+        contentHash: contentHashLiteral(
+          "sha256:28cfdfa697c05f2c70b36e5719d401dfe4c2c2757ae122af0632758983eecae1",
+        ),
+      },
+    ],
   },
   globalRoot: { default: ".codeium/windsurf" },
   targets: {

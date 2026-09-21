@@ -10,11 +10,15 @@ export const spec = {
   displayName: "Gemini CLI",
   tier: 1,
   verifiedAgainst: {
-    url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
     date: "2026-09-21",
-    contentHash: contentHashLiteral(
-      "sha256:a7489955249081d1b6064eab80f46e9d736c93cb1404c400411e76453ef7a2d3",
-    ),
+    pages: [
+      {
+        url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
+        contentHash: contentHashLiteral(
+          "sha256:a7489955249081d1b6064eab80f46e9d736c93cb1404c400411e76453ef7a2d3",
+        ),
+      },
+    ],
   },
   targets: {
     project: { kind: "shared-block", file: "GEMINI.md" },
