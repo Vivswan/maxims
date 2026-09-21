@@ -48,7 +48,7 @@ function isMarkerSafe(value: string): boolean {
 
 // A NUL would reach the filesystem calls as ERR_INVALID_ARG_VALUE long after parsing, so the state
 // boundary refuses it here with the other shape errors.
-const AbsolutePath = markerSafe(
+export const AbsolutePathSchema = markerSafe(
   z
     .string()
     .refine((value) => isAbsolute(value), { message: "expected an absolute path" })
@@ -106,12 +106,12 @@ const GitFrom = z.strictObject({
 });
 const CopiedLocalFrom = z.strictObject({
   type: z.literal("local"),
-  path: AbsolutePath,
+  path: AbsolutePathSchema,
   live: z.literal(false).optional(),
 });
 const LiveLocalFrom = z.strictObject({
   type: z.literal("local"),
-  path: AbsolutePath,
+  path: AbsolutePathSchema,
   live: z.literal(true),
 });
 // A live source is split from the fetched sources at the schema level so that `SourceEntry` is a
@@ -128,8 +128,8 @@ export type SourceFrom = z.infer<typeof SourceFromSchema>;
 // until it is removed there.
 export const DestinationSchema = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("global") }),
-  z.strictObject({ scope: z.literal("project"), root: AbsolutePath }),
-  z.strictObject({ scope: z.literal("out"), path: AbsolutePath }),
+  z.strictObject({ scope: z.literal("project"), root: AbsolutePathSchema }),
+  z.strictObject({ scope: z.literal("out"), path: AbsolutePathSchema }),
 ]);
 /** @public */
 export type Destination = z.infer<typeof DestinationSchema>;
@@ -173,7 +173,7 @@ function sortedUniqueList<T extends z.ZodType<string>>(item: T) {
 function scopedLists<L extends z.ZodType>(list: L) {
   return z.strictObject({
     global: list.optional(),
-    project: z.record(AbsolutePath, list).optional(),
+    project: z.record(AbsolutePathSchema, list).optional(),
   });
 }
 
@@ -488,7 +488,7 @@ export function parseSourceSelector(
     return { from: github(arg, arg, enterpriseHost(options)), memory: null };
   }
   if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
-  const path = storable(AbsolutePath, resolve(cwd, arg), arg);
+  const path = resolve(cwd, arg);
   return {
     from: arg === "." ? { type: "local", path, live: true } : { type: "local", path },
     memory: null,
@@ -526,10 +526,12 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
   return github(repo, arg, host, ref);
 }
 
-// The grammar mints what the state file stores, so a field is parsed by its own state schema here
-// and refused as usage; written unchecked, it would be quarantined on the next read. The argument
-// is echoed escaped because the refused characters are the invisible ones.
-function storable<T>(schema: z.ZodType<T>, value: string, arg: string): T {
+// A field the state file stores is parsed by its own state schema at the door that mints its
+// final value and refused as usage; written unchecked, it would be quarantined on the next read.
+// The refused spelling is echoed escaped because the refused characters are the invisible ones.
+// The grammar above judges only the `/tree/<ref>` ref, which no later step rewrites; a local path
+// is judged after it is resolved to its real path, where a symlink's own name no longer matters.
+export function storable<T>(schema: z.ZodType<T>, value: string, arg: string): T {
   const parsed = schema.safeParse(value);
   if (parsed.success) return parsed.data;
   throw usage(`${JSON.stringify(arg)}: ${flattenIssues(parsed.error.issues).join("; ")}`);

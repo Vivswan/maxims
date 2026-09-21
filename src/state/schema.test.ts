@@ -886,14 +886,8 @@ describe("parseSourceArgument", () => {
   });
 
   // The refusal wording is what a user reads at the door; the fuzz property pins only the refusal.
+  // A local path is judged after it is resolved to its real path, by `realLocal`, not here.
   const unstorable: [string, string][] = [
-    [
-      "a\n",
-      '"a\\n": a path cannot contain a line break; a path cannot start or end with whitespace',
-    ],
-    ["\0", '"\\u0000": a path cannot contain NUL'],
-    ["a ", '"a ": a path cannot start or end with whitespace'],
-    ["a-->", '"a-->": a path cannot contain -->'],
     [
       "https://github.com/example-user/rules/tree/-->",
       '"https://github.com/example-user/rules/tree/-->": a ref cannot contain -->',

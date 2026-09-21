@@ -16,6 +16,7 @@ import {
 } from "../../rulefile/dedupe.ts";
 import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/tree.ts";
 import {
+  AbsolutePathSchema,
   canonicalSourceKey,
   type Destination,
   parseSourceArgument,
@@ -25,6 +26,7 @@ import {
   type SourceFrom,
   type SourceIntent,
   type State,
+  storable,
 } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
@@ -229,10 +231,14 @@ export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOut
 // A source argument on `remove`, `update`, `link` and `unlink` is either a recorded key as
 // `list` prints it (`@owner/repo#v1` included) or a source spelling that parses to one.
 // A local source's identity is its real path, at every door: `add` records it that way, so a
-// lookup typed through a symlink must resolve the same way to find it.
+// lookup typed through a symlink must resolve the same way to find it. The real path is what the
+// state schema constrains, so it is judged here and not as typed: `alias-->` may point at a
+// directory the schema accepts. A NUL is the one shape no lookup can resolve (the filesystem
+// refuses to look), so it goes to the schema's own refusal as typed.
 export function realLocal<F extends SourceFrom>(from: F): F {
   if (from.type !== "local") return from;
-  return { ...from, path: realpathOfExistingPrefix(from.path) };
+  const path = from.path.includes("\0") ? from.path : realpathOfExistingPrefix(from.path);
+  return { ...from, path: storable(AbsolutePathSchema, path, path) };
 }
 
 export type SourceLookup =

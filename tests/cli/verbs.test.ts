@@ -1896,6 +1896,27 @@ test.skipIf(WINDOWS)(
   },
 );
 
+// The state schema constrains the recorded path, and `add` records a directory by its real path,
+// so a symlink whose own name the schema refuses is a fine way to spell a directory it accepts.
+test.skipIf(WINDOWS)(
+  "a directory reached through an alias the schema would refuse is recorded by its clean real path",
+  async () => {
+    await withScenario({}, async (scenario) => {
+      mkdirSync(join(scenario.cwd, "clean", "memories"), { recursive: true });
+      writeFileSync(
+        join(scenario.cwd, "clean", "memories", "own-rule.md"),
+        "---\nname: own-rule\ndescription: Ours\n---\n",
+      );
+      symlinkSync(join(scenario.cwd, "clean"), join(scenario.cwd, "alias-->"));
+      const run = await runCli(scenario, ["add", "./alias-->", "-g", "-a", "codex"]);
+      expect({ code: run.code, stderr: run.stderr }).toEqual({ code: 0, stderr: "" });
+      expect(Object.keys((readState(scenario) as { sources: object }).sources)).toEqual([
+        join(scenario.cwd, "clean"),
+      ]);
+    });
+  },
+);
+
 test("a project source added through an alias symlink is recorded by its real path in the checkout", async () => {
   await withScenario({ project: true }, async (scenario) => {
     mkdirSync(join(scenario.cwd, "rules", "memories"), { recursive: true });

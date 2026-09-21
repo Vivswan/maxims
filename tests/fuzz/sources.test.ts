@@ -160,16 +160,18 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// The local path and the `/tree/<ref>` ref are the two grammar paths that reach a stored field;
-// either one drifting past its state schema lets `add` write a state the next read quarantines.
+// The `/tree/<ref>` ref is the one grammar field that reaches state as parsed; drifting past its
+// state schema lets `add` write a state the next read quarantines. A local path is judged only
+// after it is resolved to its real path (a symlink's own name may be unstorable while its target
+// is not), by `realLocal`, whose own tests pin that door.
 test(
-  "parseSourceSelector answers only a source the state schema stores, for any argument and GH_HOST",
+  "parseSourceSelector answers only a remote source the state schema stores, for any argument and GH_HOST",
   async () => {
     await fuzz("parseSourceSelector storable", selectorInput, ({ arg, ghHost }) => {
       const options = ghHost === undefined ? {} : { ghHost };
       const result = outcome(() => parseSourceSelector(arg, CWD, options));
       if (result.kind === "threw") return usageOnly(result.error);
-      expectStorable(result.value.from);
+      if (result.value.from.type !== "local") expectStorable(result.value.from);
     });
   },
   PROPERTY_TIMEOUT_MS,
