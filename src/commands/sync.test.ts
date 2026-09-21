@@ -1,8 +1,9 @@
 // What would drift silently: a sync that rewrites byte-identical files (mtime churn, a hook that
 // never settles), a wiped destination that is not restored from intent alone, a body link that
 // points anywhere but the store, a shared file whose user text is not preserved, a collision or
-// an over-cap source that half-installs instead of refusing, a harness written into a project
-// that has none of its config, and a `--dry-run` or `--json` that touches disk.
+// an over-cap source that half-installs instead of refusing, a shared file over a byte budget that
+// refuses every source in it instead of holding the newest, a harness written into a project that
+// has none of its config, and a `--dry-run` or `--json` that touches disk.
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -30,6 +31,7 @@ import {
   fetchedFacts,
   githubFrom,
   gitSha,
+  type IntentOverrides,
   localFrom,
   memoryFile,
   memoryName,
@@ -48,11 +50,13 @@ import { HARNESSES } from "../harnesses/registry.ts";
 import { parseBlocks } from "../rulefile/block.ts";
 import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
 import { readMemoryTree } from "../sources/tree.ts";
+import type { SourceEntry } from "../state/schema.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
 import { runRemove } from "./remove.ts";
 import { sourceSlug } from "./shared/slug.ts";
+import { renderHookStdout } from "./shared/stdin.ts";
 import { runSync } from "./sync.ts";
 import type { SyncOptions } from "./types.ts";
 
@@ -68,6 +72,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function budgetedReader(byteBudget: number): HarnessDefinition {
   return { ...sharedBlockHarness, id: "dsh", displayName: "Fixture Budgeted", byteBudget };
+}
+
+function heldHint(key: string, harness: HarnessId = "dsh"): string {
+  const reader = harness === "dsh" ? "Fixture Budgeted" : "Fixture Rules";
+  return `narrow the install with --memory or split the source, or keep ${key} off ${reader} with maxims unlink ${key} -a ${harness}`;
+}
+
+function heldLines(key: string, over: number, path: string): string[] {
+  return [`x  ${key} is ${over} bytes over the budget for ${path}`, `   ${heldHint(key)}`];
 }
 
 function fetchedOf(home: string, key: string) {
@@ -607,7 +620,11 @@ describe("shared files and dedupe", () => {
       const tiny: HarnessDefinition = { ...rulesDirHarness, byteBudget: 64 };
       writeFileSync(homePaths(home).config, JSON.stringify({ ruleCap: 30 }));
       const budgeted = fakeIo({ home, userHome, cwd: dir, harnesses: [tiny] });
-      await expectExit(runSync(SYNC, budgeted), ExitCode.RuleCapExceeded);
+      const held = await expectExit(runSync(SYNC, budgeted), ExitCode.RuleCapExceeded);
+      const file = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      expect(held.message).toStartWith(`${source} is `);
+      expect(held.message).toEndWith(` bytes over the budget for ${file}`);
+      expect(held.hint).toBe(heldHint(source, "claude-code"));
       expect(existsSync(join(userHome, ".fixture", "rules"))).toBe(false);
     });
   });
@@ -628,8 +645,11 @@ describe("shared files and dedupe", () => {
           harnesses: [sharedBlockHarness, budgetedReader(64)],
         });
         const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
-        expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
-        expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
+        const shared = join(userHome, ".fixture", "FIXTURE.md");
+        expect(error.message).toStartWith(`${source} is `);
+        expect(error.message).toEndWith(` bytes over the budget for ${shared}`);
+        expect(error.hint).toBe(heldHint(source));
+        expect(existsSync(shared)).toBe(false);
       });
     });
   }
@@ -652,8 +672,11 @@ describe("shared files and dedupe", () => {
         harnesses: [sharedBlockHarness, budgetedReader(64)],
       });
       const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
-      expect(error.message).toContain("over the 64-byte limit Fixture Budgeted loads");
-      expect(existsSync(join(userHome, ".fixture", "FIXTURE.md"))).toBe(false);
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      expect(error.message).toStartWith(`${second} is `);
+      expect(error.message).toEndWith(` bytes over the budget for ${shared}`);
+      expect(error.hint).toBe(heldHint(second));
+      expect(existsSync(shared)).toBe(false);
     });
   });
 
@@ -1271,7 +1294,9 @@ describe("what a refused or departed source leaves behind", () => {
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers, harnesses: [tiny] });
       await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
       const document = JSON.parse(io.out.join(""));
-      const reasons = document.report.notices.filter((line: string) => line.includes(" would be "));
+      const reasons = document.report.notices.filter((line: string) =>
+        line.includes(" bytes over the budget for "),
+      );
       expect(reasons).toHaveLength(1);
       expect(readFileSync(shared, "utf8")).toContain("One.");
       expect(existsSync(storePathFor(home, from))).toBe(false);
@@ -2249,16 +2274,51 @@ describe("plan surfaces", () => {
   });
 });
 
+// `count` rules of one shape; `edition` changes the text without changing its length.
+function ruleSet(prefix: string, count: number, edition = "one") {
+  return Object.fromEntries(
+    Array.from({ length: count }, (_, index) => [
+      `${prefix}-rule-${index}`,
+      { description: `Rule ${index} of ${prefix}, edition ${edition}.` },
+    ]),
+  );
+}
+
 describe("shared file byte budget", () => {
+  const shared = (userHome: string) => join(userHome, ".fixture", "FIXTURE.md");
+  const day = (n: number) => `2026-08-0${n}T00:00:00.000Z`;
+  const onDsh: IntentOverrides = { harnesses: ["dsh"] };
+  const onCodex: IntentOverrides = { harnesses: ["codex"] };
+  const dated = (path: string, addedAt: string, overrides = onDsh): SourceEntry => ({
+    ...entryFor(localFrom(path), overrides),
+    addedAt,
+  });
+  // Three two-rule sources whose keys sort in the order they are named.
+  const threeSources = (dir: string) => ({
+    alpha: writeSource(join(dir, "alpha"), ruleSet("alpha", 2)),
+    bravo: writeSource(join(dir, "bravo"), ruleSet("bravo", 2)),
+    charlie: writeSource(join(dir, "charlie"), ruleSet("charlie", 2)),
+  });
+  const withSources = (home: string, added: Record<string, SourceEntry>): void => {
+    const state = readStateFile(home);
+    writeState(home, { ...state, sources: { ...state.sources, ...added } });
+  };
+  const roomyIo = (w: { home: string; dir: string; userHome: string }) =>
+    fakeIo({ ...w, cwd: w.dir, harnesses: [sharedBlockHarness, budgetedReader(1 << 20)] });
+  const budgetedIo = (w: { home: string; dir: string; userHome: string }, budget: number) =>
+    fakeIo({ ...w, cwd: w.dir, harnesses: [sharedBlockHarness, budgetedReader(budget)] });
+  const blockKeys = (path: string) =>
+    parseBlocks(readFileSync(path, "utf8")).blocks.map((block) => block.source);
+  const blockOf = (text: string, key: string): string => {
+    const span = parseBlocks(text).blocks.find((block) => block.source === key);
+    return span === undefined ? "" : text.slice(span.start, span.end);
+  };
+  const holdLines = (notices: string[]) =>
+    notices.filter((line) => line.startsWith("x  ") || line.startsWith("   narrow"));
+
   test("the budget is judged on the finished file, not on the text between two block replacements", async () => {
     await world(async ({ home, dir, userHome }) => {
-      const rule = (prefix: string, count: number) =>
-        Object.fromEntries(
-          Array.from({ length: count }, (_, index) => [
-            `${prefix}-rule-${index}`,
-            { description: `Rule ${index} of ${prefix}.` },
-          ]),
-        );
+      const rule = ruleSet;
       // Names of one length on both sides, so the finished file is as long as the first one.
       const first = join(dir, "alpha");
       const second = join(dir, "bravo");
@@ -2371,14 +2431,249 @@ describe("shared file byte budget", () => {
         harnesses: [sharedBlockHarness, budgetedReader(limit)],
       });
       const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
-      expect(error.message).toContain(`${shared} would be`);
-      expect(error.message).toContain(`over the ${limit}-byte limit Fixture Budgeted loads`);
+      expect(error.message).toStartWith(`${codexSource} is `);
+      expect(error.message).toEndWith(` bytes over the budget for ${shared}`);
       expect(readFileSync(shared, "utf8")).toBe(before);
       // The control: the same growth with no source bringing the budgeted reader is written.
       writeState(home, stateWith({ [codexSource]: codexEntry }));
       const report = await runSync(SYNC, io);
       expect(report.rules).toBe(2);
       expect(readFileSync(shared, "utf8")).toContain("Alpha, grown past the budget.");
+    });
+  });
+
+  // Which source is held: the one installed last by `addedAt` as an instant, whatever its key
+  // sorts as, and on a tie the later key, so two machines holding the same file hold the same
+  // source. The instant matters: `...00Z` and `...00.001Z` are both valid, and the string order
+  // between them is not the time order.
+  const winners = [
+    {
+      name: "the source installed last, although its key sorts first",
+      addedAt: { alpha: day(3), bravo: day(1), charlie: day(2) },
+      held: "alpha",
+    },
+    {
+      name: "the later key when two sources were installed at the same moment",
+      addedAt: { alpha: day(1), bravo: day(2), charlie: day(2) },
+      held: "charlie",
+    },
+    {
+      name: "the later instant when the timestamps differ in precision",
+      addedAt: {
+        alpha: "2026-08-01T00:00:00Z",
+        bravo: "2026-08-01T00:00:00.001Z",
+        charlie: day(1),
+      },
+      held: "bravo",
+    },
+  ] as const;
+  for (const winner of winners) {
+    test(`over the budget, one source is held and named with its overage: ${winner.name}`, async () => {
+      await world(async (w) => {
+        const paths = threeSources(w.dir);
+        const held = paths[winner.held];
+        const others = (["alpha", "bravo", "charlie"] as const).filter((n) => n !== winner.held);
+        const file = shared(w.userHome);
+        writeState(
+          w.home,
+          stateWith(
+            Object.fromEntries(others.map((n) => [paths[n], dated(paths[n], winner.addedAt[n])])),
+          ),
+        );
+        const roomy = roomyIo(w);
+        await runSync(SYNC, roomy);
+        const fits = statSync(file).size;
+        withSources(w.home, { [held]: dated(held, winner.addedAt[winner.held]) });
+        const io = budgetedIo(w, fits);
+        await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
+        const document = JSON.parse(io.out.join(""));
+        expect(blockKeys(file)).toEqual(others.map((n) => paths[n]));
+        expect(readFileSync(file, "utf8")).not.toContain(`of ${winner.held},`);
+        const store = storePathFor(w.home, localFrom(held));
+        expect(existsSync(store)).toBe(false);
+        const changes: { path: string }[] = document.plan.changes;
+        expect(changes.filter((change) => change.path.startsWith(store))).toEqual([]);
+        // The same pick on the next run, before the roomy reader measures the overage: the text
+        // that failed is the file it then writes.
+        const again = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
+        await runSync(SYNC, roomy);
+        const over = statSync(file).size - fits;
+        expect(over).toBeGreaterThan(0);
+        expect(document.code).toBe(ExitCode.RuleCapExceeded);
+        expect(document.message).toBe(`${held} is ${over} bytes over the budget for ${file}`);
+        expect(again.message).toBe(document.message);
+        expect(document.hint).toBe(heldHint(held));
+        expect(holdLines(document.report.notices)).toEqual(heldLines(held, over, file));
+      });
+    });
+  }
+
+  test("a held source that already had a block keeps it byte-identical while the others refresh", async () => {
+    await world(async (w) => {
+      const { alpha, bravo, charlie } = threeSources(w.dir);
+      const file = shared(w.userHome);
+      writeState(
+        w.home,
+        stateWith({
+          [alpha]: dated(alpha, day(1)),
+          [bravo]: dated(bravo, day(2)),
+          [charlie]: dated(charlie, day(3)),
+        }),
+      );
+      await runSync(SYNC, roomyIo(w));
+      const before = readFileSync(file, "utf8");
+      for (const [path, name, count] of [
+        [alpha, "alpha", 2],
+        [bravo, "bravo", 2],
+        [charlie, "charlie", 4],
+      ] as const) {
+        rmSync(join(path, "memories"), { recursive: true });
+        writeSource(path, ruleSet(name, count, "two"));
+      }
+      const io = budgetedIo(w, Buffer.byteLength(before));
+      const error = await expectExit(
+        runSync({ ...SYNC, fetch: "force" }, io),
+        ExitCode.RuleCapExceeded,
+      );
+      expect(error.message).toStartWith(`${charlie} is `);
+      const after = readFileSync(file, "utf8");
+      expect(blockOf(after, charlie)).toBe(blockOf(before, charlie));
+      expect(blockOf(after, alpha)).toContain("of alpha, edition two.");
+      expect(blockOf(after, bravo)).toContain("of bravo, edition two.");
+      expect(Buffer.byteLength(after)).toBe(Buffer.byteLength(before));
+    });
+  });
+
+  test("sources are held newest first, one at a time, until the file fits", async () => {
+    await world(async (w) => {
+      const { alpha, bravo, charlie } = threeSources(w.dir);
+      const file = shared(w.userHome);
+      writeState(w.home, stateWith({ [alpha]: dated(alpha, day(1)) }));
+      const roomy = roomyIo(w);
+      await runSync(SYNC, roomy);
+      const fits = statSync(file).size;
+      withSources(w.home, { [bravo]: dated(bravo, day(2)), [charlie]: dated(charlie, day(3)) });
+      const io = budgetedIo(w, fits);
+      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
+      const document = JSON.parse(io.out.join(""));
+      expect(blockKeys(file)).toEqual([alpha]);
+      for (const key of [bravo, charlie]) {
+        expect(existsSync(storePathFor(w.home, localFrom(key)))).toBe(false);
+      }
+      // Each hold's overage is the finished text before it; the roomy reader grows the file back
+      // block by block in the same order.
+      writeState(
+        w.home,
+        stateWith({ [alpha]: dated(alpha, day(1)), [bravo]: dated(bravo, day(2)) }),
+      );
+      await runSync(SYNC, roomy);
+      const withBravo = statSync(file).size;
+      withSources(w.home, { [charlie]: dated(charlie, day(3)) });
+      await runSync(SYNC, roomy);
+      const withCharlie = statSync(file).size;
+      expect(document.message).toBe(
+        `${charlie} is ${withCharlie - fits} bytes over the budget for ${file}`,
+      );
+      expect(holdLines(document.report.notices)).toEqual([
+        ...heldLines(charlie, withCharlie - fits, file),
+        ...heldLines(bravo, withBravo - fits, file),
+      ]);
+    });
+  });
+
+  test("a reader only the held source brings still judges the finished file", async () => {
+    await world(async (w) => {
+      const { alpha, bravo, charlie } = threeSources(w.dir);
+      const file = shared(w.userHome);
+      writeState(w.home, stateWith({ [alpha]: dated(alpha, day(1), onCodex) }));
+      await runSync(SYNC, roomyIo(w));
+      const fits = statSync(file).size;
+      withSources(w.home, {
+        [bravo]: dated(bravo, day(2), onCodex),
+        [charlie]: dated(charlie, day(3), onDsh),
+      });
+      const io = budgetedIo(w, fits);
+      await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
+      const document = JSON.parse(io.out.join(""));
+      const heldKeys = holdLines(document.report.notices)
+        .filter((line) => line.startsWith("x  "))
+        .map((line) => line.slice("x  ".length, line.indexOf(" is ")));
+      expect(heldKeys).toEqual([charlie, bravo]);
+      expect(blockKeys(file)).toEqual([alpha]);
+      // The control: the same two codex sources with no dsh reader in the file are written.
+      writeState(
+        w.home,
+        stateWith({
+          [alpha]: dated(alpha, day(1), onCodex),
+          [bravo]: dated(bravo, day(2), onCodex),
+        }),
+      );
+      await runSync(SYNC, io);
+      expect(blockKeys(file)).toEqual([alpha, bravo]);
+    });
+  });
+
+  test("an -o rule file answers to no harness budget", async () => {
+    await world(async (w) => {
+      const source = writeSource(join(w.dir, "src"), ruleSet("out", 4));
+      const out = join(w.dir, "out");
+      const entry = entryFor(localFrom(source), { destination: { scope: "out", path: out } });
+      writeState(w.home, stateWith({ [source]: entry }));
+      const report = await runSync(SYNC, budgetedIo(w, 64));
+      const file = join(out, `maxims-${sourceSlug(localFrom(source))}.md`);
+      expect(report.rules).toBe(4);
+      expect(statSync(file).size).toBeGreaterThan(64);
+      expect(blockKeys(file)).toEqual([source]);
+      expect(holdLines(report.notices)).toEqual([]);
+    });
+  });
+
+  // A fresh refresh refused for the budget is planned again from last-good, which the user's own
+  // text can push over the same budget; the two refusals say the same thing, and it is said once.
+  test("a source held fresh and again from last-good says its hold once", async () => {
+    await world(async (w) => {
+      const alpha = writeSource(join(w.dir, "alpha"), ruleSet("alpha", 2));
+      const file = shared(w.userHome);
+      writeState(w.home, stateWith({ [alpha]: dated(alpha, day(1)) }));
+      await runSync(SYNC, roomyIo(w));
+      const fits = statSync(file).size;
+      rmSync(join(alpha, "memories"), { recursive: true });
+      writeSource(alpha, ruleSet("alpha", 2, "two"));
+      const mine = "Notes of my own.\n";
+      writeFileSync(file, `${mine}${readFileSync(file, "utf8")}`);
+      const io = budgetedIo(w, fits);
+      await expectExit(
+        runSync({ ...SYNC, fetch: "force", json: true }, io),
+        ExitCode.RuleCapExceeded,
+      );
+      const document = JSON.parse(io.out.join(""));
+      expect(holdLines(document.report.notices)).toEqual(heldLines(alpha, mine.length, file));
+      expect(readFileSync(file, "utf8")).toContain("of alpha, edition one.");
+    });
+  });
+
+  test("under --quiet the hold is said on the hook's stdout and the run exits clean", async () => {
+    await world(async (w) => {
+      const { alpha, bravo, charlie } = threeSources(w.dir);
+      const file = shared(w.userHome);
+      writeState(
+        w.home,
+        stateWith({ [alpha]: dated(alpha, day(1)), [bravo]: dated(bravo, day(2)) }),
+      );
+      const roomy = roomyIo(w);
+      await runSync(SYNC, roomy);
+      const fits = statSync(file).size;
+      withSources(w.home, { [charlie]: dated(charlie, day(3)) });
+      const io = budgetedIo(w, fits);
+      io.clock.now = new Date(NOW.getTime() + 5 * 60 * 1000);
+      const report = await runSync(QUIET, io);
+      expect(blockKeys(file)).toEqual([alpha, bravo]);
+      await runSync(SYNC, roomy);
+      const lines = heldLines(charlie, statSync(file).size - fits, file);
+      expect(io.out.join("")).toBe(renderHookStdout("plain", lines));
+      expect(holdLines(report.notices)).toEqual(lines);
+      const log = readFileSync(homePaths(w.home).log, "utf8");
+      for (const line of lines) expect(log).toContain(`sync --quiet: ${line}`);
     });
   });
 });

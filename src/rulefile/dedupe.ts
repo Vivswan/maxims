@@ -13,15 +13,22 @@ export type IndexedSource = {
   names: readonly MemoryName[];
 };
 
+export type Installed = Pick<IndexedSource, "key" | "addedAt">;
+
+// Installation order, the one ordering every consumer of `addedAt` shares. It compares instants,
+// not strings: `...:00Z` and `...:00.001Z` are both valid spellings and their string order is
+// not their time order. The key breaks a tie so two machines order the same.
+export function compareInstalled(a: Installed, b: Installed): number {
+  return Date.parse(a.addedAt) - Date.parse(b.addedAt) || compare(a.key, b.key);
+}
+
 // Derived on every run from intent plus each source's current memory names, which the caller
 // resolves because a live local source has no fetched record to read them from. Sources are
 // walked in installation order, so when an upstream later ships a name another source already
 // carries, the source installed first keeps it and the newer one is the one asked to rename.
 export function buildNameIndex(sources: readonly IndexedSource[]): NameIndex {
   const index = new Map<MemoryName, string>();
-  const ordered = [...sources].sort(
-    (a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || compare(a.key, b.key),
-  );
+  const ordered = [...sources].sort(compareInstalled);
   for (const source of ordered) {
     for (const name of localNames(source.intent, source.names)) {
       if (!index.has(name)) index.set(name, source.key);

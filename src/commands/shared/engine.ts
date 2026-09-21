@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HarnessId, Scope } from "../../harnesses/contract.ts";
+import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
 import {
   type ContentHash,
   contentHashOf,
@@ -9,6 +10,7 @@ import {
 } from "../../memory/contract.ts";
 import {
   buildNameIndex,
+  compareInstalled,
   type IndexedSource,
   type Resolution,
   resolveSourceCandidates,
@@ -49,6 +51,7 @@ import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
 import { readProjectLock } from "./project-lock-io.ts";
 import {
+  type BlockRequest,
   claimedByMaxims,
   isAbsent,
   planRuleFile,
@@ -165,9 +168,17 @@ export async function planSync(
       for (const key of refreshed.fetchedKeys) {
         for (const line of refreshed.lines.get(key) ?? []) notices.notice(line);
       }
-      // A reason the final attempt found again on its own is said once.
+      // A reason is said once, whether the final attempt found it again on its own or a source
+      // earned it twice (refused fresh, then again from last-good), and on the channel it was
+      // first said on: a held source's lines stay loud so a hook session hears them.
       const said = new Set(attempt.notices.user);
-      for (const line of carried.user) if (!said.has(line)) notices.notice(line);
+      const loud = new Set(carried.quietStdout);
+      for (const line of carried.user) {
+        if (said.has(line)) continue;
+        said.add(line);
+        if (loud.has(line)) notices.loud(line);
+        else notices.notice(line);
+      }
       notices.absorb(attempt.notices);
       const found = new Set(attempt.failures.map((failure) => failure.message));
       const failures = [
@@ -213,14 +224,15 @@ export async function planSync(
     for (const refusal of attempt.refusals) {
       if (!retry.includes(refusal.key) || seen.has(refusal.failure)) continue;
       seen.add(refusal.failure);
-      for (const line of refusal.lines) carried.notice(line);
+      carried.absorb(refusal.said);
       carriedFailures.push(refusal.failure);
     }
   }
 }
 
-// What one source's refusal said, kept with its key so a retry carries exactly it.
-type Refusal = { key: string; lines: string[]; failure: SyncFailure };
+// What one source's refusal said, on the channel it said it, kept with its key so a retry
+// carries exactly it.
+type Refusal = { key: string; said: Notices; failure: SyncFailure };
 
 type Attempt = {
   builder: PlanBuilder;
@@ -255,10 +267,11 @@ async function planInstall(
   const refusals: Refusal[] = [];
   const refusedFresh: string[] = [];
   const refusedKept: string[] = [];
-  const refuse = (key: string, lines: string[], failure: SyncFailure): void => {
-    for (const line of lines) notices.notice(line);
+  // A source refused whole: `said` carries its lines on the channel the reason earns.
+  const refuse = (key: string, said: Notices, failure: SyncFailure): void => {
+    notices.absorb(said);
     failures.push(failure);
-    refusals.push({ key, lines, failure });
+    refusals.push({ key, said, failure });
     if (refreshed.freshTrees.has(key)) refusedFresh.push(key);
     else refusedKept.push(key);
   };
@@ -414,8 +427,8 @@ async function planInstall(
         keepBlock(key, realKeyOf(join(intent.destination.path, `maxims-${slug}.md`)));
       }
       for (const dir of allDirs) unsweepable.add(dir.id);
-      const said = resolutionFailure(key, admission);
-      refuse(key, said.lines, said.failure);
+      const refusal = resolutionFailure(key, admission);
+      refuse(key, refusal.said, refusal.failure);
       continue;
     }
     for (const dir of allDirs) {
@@ -566,9 +579,12 @@ async function planInstall(
     keepBlock(key, target.realKey);
     addReaders(rendered, [target]);
   }
-  // A harness's byte budget is only known once a file is rendered. Over it, every source in that
-  // file is refused whole (bodies, store swap and its blocks in every other file), the same shape
-  // as the rule cap, and the remaining files are rendered again without it.
+  // A harness's byte budget is only known once a file is rendered. Over it, the source installed
+  // last is held: refused whole (bodies, store swap and its blocks in every other file), the same
+  // shape as the rule cap, while its last-good block stays where the file already carries one.
+  // The file keeps every reader and is judged again on the finished text, one hold at a time,
+  // until it fits or no source contributes to it. The lines go out loud: a hook session must
+  // hear that rules it expects are not loaded.
   let tokens = 0;
   for (;;) {
     const rendered = await renderFiles(files, ctx, keepAt);
@@ -585,29 +601,24 @@ async function planInstall(
       break;
     }
     const { error, file } = rendered;
-    const lines = [
-      `x  ${error.message}`,
-      ...(error.hint === undefined ? [] : [`   ${error.hint}`]),
-    ];
-    const failure = { code: error.code, message: error.message, hint: error.hint };
-    const refused = new Set(file.blocks.map((block) => block.key));
-    for (const line of lines) notices.notice(line);
-    failures.push(failure);
+    const newest = newestBlock(file.blocks, refreshed.sources);
+    if (newest === undefined) throw error;
+    const { key } = newest;
+    const message = `${key} is ${error.size - error.budget} bytes over the budget for ${error.path}`;
+    const hint = `${error.hint}, or keep ${key} off ${error.displayName} with maxims unlink ${key} -a ${error.harnessId}`;
+    const said = new Notices();
+    said.loud(`x  ${message}`);
+    said.loud(`   ${hint}`);
+    refuse(key, said, { code: error.code, message, hint });
+    builder.drop(key);
+    for (const dir of dirsByKey.get(key) ?? []) unsweepable.add(dir);
     for (const each of files.values()) {
       for (const block of each.blocks) {
-        if (refused.has(block.key)) keepBlock(block.key, fileIdentity(each));
+        if (block.key !== key) continue;
+        keepBlock(key, fileIdentity(each));
+        rules -= block.lines.length;
       }
-    }
-    for (const key of refused) {
-      builder.drop(key);
-      refusals.push({ key, lines, failure });
-      if (refreshed.freshTrees.has(key)) refusedFresh.push(key);
-      else refusedKept.push(key);
-      for (const dir of dirsByKey.get(key) ?? []) unsweepable.add(dir);
-    }
-    for (const each of files.values()) {
-      for (const block of each.blocks) if (refused.has(block.key)) rules -= block.lines.length;
-      each.blocks = each.blocks.filter((block) => !refused.has(block.key));
+      each.blocks = each.blocks.filter((block) => block.key !== key);
     }
   }
   builder.add(
@@ -734,9 +745,22 @@ function fileIdentity(file: RuleFile): string {
   return file.kind === "harness" ? (file.targets[0]?.realKey ?? file.path) : realKeyOf(file.path);
 }
 
+// The block whose source was installed last, so the sources that were there first keep loading.
+function newestBlock(
+  blocks: readonly BlockRequest[],
+  sources: State["sources"],
+): BlockRequest | undefined {
+  const installed = blocks.map((block) => ({
+    block,
+    key: block.key,
+    addedAt: sources[block.key]?.addedAt ?? INSTALLED_FIRST,
+  }));
+  return installed.sort(compareInstalled).at(-1)?.block;
+}
+
 type RenderedFiles =
   | { ok: true; plans: RuleFilePlan[] }
-  | { ok: false; file: RuleFile; error: MaximsError };
+  | { ok: false; file: RuleFile; error: BudgetExceeded };
 
 async function renderFiles(
   files: Map<string, RuleFile>,
@@ -749,7 +773,7 @@ async function renderFiles(
       const keep = keepAt.get(fileIdentity(file)) ?? new Set<string>();
       plans.push(await planRuleFile(file, { ctx, keep }));
     } catch (error) {
-      if (!(error instanceof MaximsError) || error.code !== ExitCode.RuleCapExceeded) throw error;
+      if (!(error instanceof BudgetExceeded)) throw error;
       return { ok: false, file, error };
     }
   }
@@ -1373,13 +1397,16 @@ function resolutionFailure(
   key: string,
   resolution: Exclude<Resolution, { ok: true }>,
 ): Omit<Refusal, "key"> {
+  const said = new Notices();
   if (resolution.code === ExitCode.NameCollision) {
     const names = resolution.collisions.map((collision) => collision.name).join(", ");
+    for (const collision of resolution.collisions) {
+      said.notice(
+        `x  ${collision.name} is owned by ${collision.ownedBy}; run maxims add ${key} --rename ${collision.name}=<new>`,
+      );
+    }
     return {
-      lines: resolution.collisions.map(
-        (collision) =>
-          `x  ${collision.name} is owned by ${collision.ownedBy}; run maxims add ${key} --rename ${collision.name}=<new>`,
-      ),
+      said,
       failure: {
         code: resolution.code,
         message: `${key}: name collision on ${names}`,
@@ -1388,10 +1415,9 @@ function resolutionFailure(
     };
   }
   const message = `${key}: ${resolution.count} rule lines exceed the cap of ${resolution.cap}`;
-  return {
-    lines: [`x  ${message}`, `   ${resolution.hint}`],
-    failure: { code: resolution.code, message, hint: resolution.hint },
-  };
+  said.notice(`x  ${message}`);
+  said.notice(`   ${resolution.hint}`);
+  return { said, failure: { code: resolution.code, message, hint: resolution.hint } };
 }
 
 // Shared files this run planned no block for may still hold blocks of sources that left intent;

@@ -6,6 +6,7 @@ import {
   byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
+  type HarnessId,
   type Scope,
   scopeRoot,
   type Target,
@@ -74,8 +75,26 @@ export function rulesDirFrontmatter(
   return declared.endsWith("\n") ? declared : `${declared}\n`;
 }
 
+// A rule file over a harness's byte budget. The planner reads the overage and the reader off it
+// to decide which source to hold and how to name the way out.
+export class BudgetExceeded extends MaximsError {
+  constructor(
+    readonly path: string,
+    readonly size: number,
+    readonly budget: number,
+    readonly displayName: string,
+    readonly harnessId: HarnessId,
+  ) {
+    super(
+      ExitCode.RuleCapExceeded,
+      `${path} would be ${size} bytes, over the ${budget}-byte limit ${displayName} loads`,
+      { hint: "narrow the install with --memory or split the source" },
+    );
+  }
+}
+
 export function assertWithinBudget(
-  def: Pick<HarnessDefinition, "byteBudget" | "displayName">,
+  def: Pick<HarnessDefinition, "byteBudget" | "displayName" | "id">,
   scope: Scope,
   path: string,
   content: string,
@@ -84,9 +103,5 @@ export function assertWithinBudget(
   if (budget === undefined) return;
   const size = Buffer.byteLength(content);
   if (size <= budget) return;
-  throw new MaximsError(
-    ExitCode.RuleCapExceeded,
-    `${path} would be ${size} bytes, over the ${budget}-byte limit ${def.displayName} loads`,
-    { hint: "narrow the install with --memory or split the source" },
-  );
+  throw new BudgetExceeded(path, size, budget, def.displayName, def.id);
 }

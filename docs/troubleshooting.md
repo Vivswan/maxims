@@ -22,11 +22,16 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 
 ## Exit 8: a rule file is over the harness's byte budget
 
-**What you see:** the writer refuses the rule file for one harness with exit 8 and names the budget. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
+**What you see:** the run names the newest source in the file and how many bytes over the budget it is, with exit 8. That source is held and every other source in the file refreshes; when the file is still over, the next newest is held too. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
 
-**What it means:** the harness loads at most that many bytes, so a larger file would lose rules silently; the specified behavior is to refuse rather than truncate. The [DeepSeek Harness catch](harnesses.md#per-harness-catches) is the case that set the rule.
+```text
+x  @you/notes is 716 bytes over the budget for /home/user/AGENTS.md
+   narrow the install with --memory or split the source, or keep @you/notes off DeepSeek Harness with maxims unlink @you/notes -a dsh
+```
 
-**What to do:** give that harness fewer rules: narrow the selection with `--memory`, or keep a source off that harness with `unlink <source> -a <id>`.
+**What it means:** the harness loads at most that many bytes, so a larger file would lose rules silently; the specified behavior is to hold a source rather than truncate. A held source keeps the rules it had on disk. The [DeepSeek Harness catch](harnesses.md#per-harness-catches) is the case that set the rule.
+
+**What to do:** give that harness fewer rules from the held source: narrow its selection with `--memory`, or keep it off that harness with `unlink <source> -a <id>`.
 
 ## Exit 5: store locked
 
@@ -93,6 +98,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 | --- | --- |
 | a source that has failed to refresh for seven days, is gone, or is invalid | one `maxims: <key> ...` line per such source, the last good copy kept |
 | a write failed | one `maxims: <message>` line per failure |
+| a source was held for a harness's byte budget (the exit 8 section above) | its two lines: the overage and the way out |
 | a file a harness reads changed | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)` |
 | none of those | nothing |
 | the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-` | nothing reaches the agent, whatever sync printed |
