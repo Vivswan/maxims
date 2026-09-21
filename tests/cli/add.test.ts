@@ -139,6 +139,35 @@ test("a refusal from the admission plan leaves nothing written", async () => {
   );
 });
 
+// `--json` promises one document whose `ok` agrees with the exit; the exit is the refusal's own
+// code. `--quiet` is the hook's mode and still wins: the document names the code, the exit is 0.
+test("a refusal under --json is one document and the exit is its code; --quiet still exits 0", async () => {
+  await withScenario(
+    { github: { "a/b": SKILLS }, refuse: { code: 8, message: "over the 6000-byte limit" } },
+    async (scenario) => {
+      const argv = ["add", "@a/b", "-g", "--rule", "-a", "codex", "-y", "--json"];
+      const run = await runCli(scenario, argv);
+      expect(run.code).toBe(8);
+      expect(run.stderr).toBe("");
+      expect(JSON.parse(run.stdout)).toEqual({
+        ok: false,
+        code: 8,
+        message: "over the 6000-byte limit",
+      });
+      const quiet = await runCli(scenario, [...argv, "--quiet"]);
+      expect(quiet.code).toBe(0);
+      expect(JSON.parse(quiet.stdout)).toEqual({
+        ok: false,
+        code: 8,
+        message: "over the 6000-byte limit",
+      });
+      expect(readFileSync(homePaths(scenario.home).log, "utf8")).toContain(
+        "add failed (exit 8): over the 6000-byte limit",
+      );
+    },
+  );
+});
+
 // A re-add replaces the harness list, so the sync after it must reach the harnesses that left
 // the list as well as the ones on it; `--quiet` on a framed verb is the frame's silence, never
 // the hook's debounce, so the engine is asked for an interactive run.
