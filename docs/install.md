@@ -38,8 +38,8 @@ A local directory source defaults to the user scope so personal text stays out o
 
 - **A `--memory` name the source lacks** is exit 3 with nothing written.
 - **`--all` is shorthand for `--memory '*' --agent '*' -y`.** On `remove` it means every installed source, with `-y` spelled out, so it is the one `remove` that needs no separate `-y`.
-- **`--list` prints the same "Found N memories" line and every item block,** then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning.
-- **`--list` never folds.** A memory is one line, so the whole list is the point: the preview is as long as the source, in a terminal too. The install plan is the one that folds in a terminal, to one entry plus `... N more`; `--verbose` shows the rest.
+- **`--list` prints the "Found N memories" line and every memory name,** one per line, then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning.
+- **`--list` never folds and prints no descriptions.** The whole list of names is the point, in a terminal too. The install plan is the one that shows descriptions and folds in a terminal, to one entry plus `... N more`; `--verbose` shows the rest.
 
 Re-running `add` with a different `--memory` list replaces the recorded one, shown in the plan first. It never unions.
 
@@ -54,29 +54,9 @@ o  Found 4 memories
 |
 o  Available Memories
 |    fire-relevant-skills-and-memories
-|
-|      Use before any consequential action - commit, merge, push, delete,
-|      report, spawn - stop and enumerate which skills and memories trigger at
-|      that moment, then apply them
-|
 |    gate-exit-conditions-the-merge
-|
-|      Use when landing a change after a gate (review, CI, tests) - never chain
-|      the merge or push in the same compound command as reading the gate's log;
-|      land in a separate command only after the gate's exit code and verdict
-|      are read
-|
 |    no-sleep-waiting-on-subagents
-|
-|      Use when tempted to sleep, poll, or busy-wait on a background subagent -
-|      its completion notification re-invokes the session on its own; launch
-|      synchronously instead when the result gates everything else
-|
 |    rubber-duck-before-every-commit
-|
-|      Use before every commit or merge, however trivial - a cross-model
-|      rubber-duck review must run and converge on the exact final content
-|      first; exceptions and reviewer coverage never transfer between gates
 |
 o  Run without --list to install
 ```

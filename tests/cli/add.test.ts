@@ -342,7 +342,7 @@ test("--allow-hidden lets the hidden character through and --rename resolves a k
   });
 });
 
-test("--list prints every item, warns on ignored flags, and never writes or syncs", async () => {
+test("--list prints every name, warns on ignored flags, and never writes or syncs", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     const before = await snapshot(scenario.root);
     const run = await runCli(scenario, ["add", "@a/b", "--list", "--rule", "-y"]);
@@ -361,30 +361,31 @@ test("--list prints every item, warns on ignored flags, and never writes or sync
   });
 });
 
-// A memory is one line, so the whole list is what `--list` is for: on a terminal it prints every
-// name and description where the install plan folds to one entry plus a count. The plan run on
-// the same terminal is the control for the fold the preview no longer has.
-test("--list on a terminal prints every memory with its description and never folds", async () => {
+// The whole list of names is what `--list` is for: on a terminal it prints every one, where the
+// install plan folds to one entry plus a count. The plan run on the same terminal is the control
+// for the fold the preview does not have, and for the descriptions it does not print.
+test("--list on a terminal prints every memory name, no description, and never folds", async () => {
   await withScenario(
     { github: { "a/b": SKILLS }, tty: true, stdinTty: false },
     async (scenario) => {
       const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
       expect([listed.code, listed.stderr]).toEqual([0, ""]);
-      expect(listed.stdout.match(/^\| {4}[a-z-]+$/gm)).toEqual([
-        "|    gate-exit-conditions-the-merge",
-        "|    no-sleep-waiting-on-subagents",
-        "|    rubber-duck-before-every-commit",
-        "|    skip-unfit-skills",
-      ]);
-      expect(listed.stdout).toContain("|      the merge on the gate's exit code\n");
-      expect(listed.stdout).toContain("|      re-invokes the session on its own\n");
       expect(listed.stdout).toContain(
-        "|      rubber-duck review WITH CODEX must run and converge first\n",
+        [
+          "o  Available Memories",
+          "|    gate-exit-conditions-the-merge",
+          "|    no-sleep-waiting-on-subagents",
+          "|    rubber-duck-before-every-commit",
+          "|    skip-unfit-skills",
+          "|",
+          "o  Run without --list to install",
+        ].join("\n"),
       );
-      expect(listed.stdout).toContain("|      say why\n");
+      expect(listed.stdout).not.toContain("|      ");
       expect(listed.stdout).not.toContain(" more\n");
       const planned = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-y"]);
       expect([planned.code, planned.stderr]).toEqual([0, ""]);
+      expect(planned.stdout).toContain("|      the merge on the gate's exit code\n");
       expect(planned.stdout).toContain("|    ... 3 more\n");
     },
   );

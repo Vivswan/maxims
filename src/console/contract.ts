@@ -49,6 +49,7 @@ export interface Console {
   line(text: string): void;
   note(body: string, title: string): void;
   item(name: string, description: string): void;
+  name(name: string): void;
   more(hidden: number): void;
   spinner(start: string): Spinner;
   confirm(message: string, whenSilent: boolean): Promise<boolean>;

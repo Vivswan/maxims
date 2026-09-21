@@ -72,6 +72,9 @@ export function createFrameConsole(
       for (const line of wrap(description, textWidth)) write(`${descriptionPrefix}${line}`);
       write(bar);
     },
+    name(name) {
+      write(`${bar}    ${name}`);
+    },
     more(hidden) {
       write(`${bar}    ${moreItems(hidden)}`);
       write(bar);

@@ -5,24 +5,9 @@ o  Found 4 memories
 |
 o  Available Memories
 |    gate-exit-conditions-the-merge
-|
-|      Never chain a merge in the same command as reading a gate log - condition
-|      the merge on the gate's exit code
-|
 |    no-sleep-waiting-on-subagents
-|
-|      Never sleep or poll waiting on a background subagent - its completion
-|      re-invokes the session on its own
-|
 |    rubber-duck-before-every-commit
-|
-|      Use when about to commit or merge ANY change, however trivial - the
-|      rubber-duck review WITH CODEX must run and converge first
-|
 |    skip-unfit-skills
-|
-|      The agent may skip an invoked skill that does not fit the task, but must
-|      say why
 |
 o  Run without --list to install
 

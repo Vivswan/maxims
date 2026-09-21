@@ -186,6 +186,7 @@ function scenarioLines(console: Console): void {
     "Use when about to commit or merge ANY change, however trivial - the rubber-duck review WITH CODEX must run and converge first",
   );
   console.more(3);
+  console.name("skip-unfit-skills");
   console.error("gate-exit-conditions-the-merge is owned by @a/b");
   console.outro("Run without --list to install");
 }
