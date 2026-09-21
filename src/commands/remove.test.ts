@@ -89,9 +89,13 @@ describe("remove", () => {
       const io = fakeIo({ home, userHome, cwd: dir });
       await runSync(SYNC, io);
       expect(treeDigest(userHome)).not.toBe(before);
+      io.out.length = 0;
       const report = await runRemove({ ...REMOVE, targets: [source] }, io);
-      expect(io.out.join("")).toContain(
-        "Memories to remove:\n  - always-review\n  - keep-tests-green\n",
+      // The removal is the verb's whole report; an installed count is the sync verb's line.
+      expect(io.out.join("")).toBe(
+        "Memories to remove:\n  - always-review\n  - keep-tests-green\n" +
+          `maxims: removed the maxims hook from ${join(userHome, ".fixture", "settings.json")}\n` +
+          "Removed 2 memories\n",
       );
       expect(report.notices).toContain("Removed 2 memories");
       expect(readFileSync(shared, "utf8")).toBe("# Mine\n\nKeep this.\n");

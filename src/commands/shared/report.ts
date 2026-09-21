@@ -84,8 +84,9 @@ async function writeLog(
 // `--json` is one value, whose `ok` agrees with the exit a manual run maps from it (a failed
 // refresh is exit 2 or 3, so it is `ok: false`); `--dry-run` is the rendered plan; a hook run
 // speaks its harness's protocol and only the lines a session should hear; an interactive run
-// prints the notices and a summary when something changed. A standing hold is the run's outcome,
-// said by its own line, so no up-to-date line is printed beside it.
+// prints the notices and, for the sync verb, a summary when something changed: a removal's own
+// notice is its report, and an installed count beside it would only say what is left. A standing
+// hold is the run's outcome, said by its own line, so no up-to-date line is printed beside it.
 function printOutcome(
   outcome: SyncOutcome,
   report: SyncReport,
@@ -114,19 +115,13 @@ function printOutcome(
     return;
   }
   for (const line of outcome.notices.user) io.stdout(`${line}\n`);
+  if (options.verb !== "sync") return;
   if (changed) io.stdout(`${summaryLine(report)}\n`);
-  else if (upToDate(outcome, report, options)) {
-    io.stdout(`o  Up to date: ${installedCounts(report)}\n`);
-  }
+  else if (upToDate(outcome, report)) io.stdout(`o  Up to date: ${installedCounts(report)}\n`);
 }
 
-function upToDate(outcome: SyncOutcome, report: SyncReport, options: FinishOptions): boolean {
-  return (
-    options.verb === "sync" &&
-    outcome.failures.length === 0 &&
-    report.failed.length === 0 &&
-    report.held.length === 0
-  );
+function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {
+  return outcome.failures.length === 0 && report.failed.length === 0 && report.held.length === 0;
 }
 
 export function summaryLine(report: SyncReport): string {
