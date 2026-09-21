@@ -18,6 +18,12 @@ import {
   runInContainer,
   skipNotice,
 } from "../tests/container/runner.ts";
+import {
+  HARNESS_SMOKE_CLIS,
+  type HarnessSmokeCli,
+  readSuiteEvidence,
+  type SmokeRowResult,
+} from "../tests/container/tier.ts";
 import { writeStepSummary } from "./nightly/report.ts";
 
 const IMAGE = "maxims-container-tier:local";
@@ -52,6 +58,41 @@ function report(step: string, started: number, result: RunResult): string {
   return seconds;
 }
 
+function rowLine(cli: HarnessSmokeCli, row: SmokeRowResult): string {
+  const time = "ms" in row && row.ms !== null ? ` in ${(row.ms / 1000).toFixed(1)}s` : "";
+  return `container tier: harness smoke ${cli} ${row.status}${time}\n`;
+}
+
+const NOT_PASSING_MEANS: Record<Exclude<SmokeRowResult["status"], "pass">, string> = {
+  skip: "skip means the tier marker did not reach the suite",
+  fail: "fail means the row ran and failed",
+  absent: "absent means bun did not collect the smoke file",
+};
+
+// The suite passing is not enough: the real-CLI rows skip by name outside the tier, and a suite
+// that never printed its summary stopped early, so both are read back out of the captured output.
+function smokeReasons(output: string): string[] {
+  const evidence = readSuiteEvidence(output);
+  for (const cli of HARNESS_SMOKE_CLIS) writeAllSync(1, rowLine(cli, evidence.rows[cli]));
+  const reasons: string[] = [];
+  const notPassing = HARNESS_SMOKE_CLIS.flatMap((cli) => {
+    const { status } = evidence.rows[cli];
+    return status === "pass" ? [] : [{ cli, status }];
+  });
+  if (notPassing.length > 0) {
+    const rows = notPassing.map(({ cli, status }) => `${cli} ${status}`).join(", ");
+    const meanings = new Set(notPassing.map(({ status }) => NOT_PASSING_MEANS[status]));
+    reasons.push(`harness smoke rows not passing: ${rows} (${[...meanings].join("; ")})`);
+  }
+  if (evidence.summary === null) {
+    reasons.push("the suite printed no summary line, so it did not run to the end");
+  } else {
+    const { tests, files } = evidence.summary;
+    writeAllSync(1, `container tier: suite ran ${tests} tests across ${files} files\n`);
+  }
+  return reasons;
+}
+
 const runtime = detectRuntime();
 if (runtime === null) {
   if (process.env[REQUIRE_RUNTIME_ENV]) {
@@ -77,6 +118,7 @@ const suite = runInContainer(runtime, {
   env: { NO_COLOR: "1" },
 });
 report("suite inside the container", started, suite);
+const reasons = smokeReasons(`${suite.stdout}${suite.stderr}`);
 
 // Two probe runs: the first writes a marker into HOME, the second must not find it.
 let hermetic = 0;
@@ -87,4 +129,5 @@ for (const run of [1, 2]) {
   report(`hermetic probe run ${run}`, started, probe);
 }
 
-process.exit(suite.exitCode !== 0 ? suite.exitCode : hermetic);
+for (const reason of reasons) writeAllSync(2, `container tier: ${reason}\n`);
+process.exit(suite.exitCode !== 0 ? suite.exitCode : reasons.length > 0 ? 1 : hermetic);

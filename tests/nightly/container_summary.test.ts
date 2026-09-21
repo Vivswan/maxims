@@ -14,6 +14,7 @@ import {
   type RunResult,
   renderBuildSummary,
 } from "../container/runner.ts";
+import { HARNESS_SMOKE_CLIS, HARNESS_SMOKE_SUITE } from "../container/tier.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const answer = (stdout: string, exitCode = 0, stderr = ""): RunResult => ({
@@ -51,13 +52,24 @@ test.each(sizes)("iec(%p) is %p", (bytes, text) => {
   expect(iec(bytes)).toBe(text);
 });
 
+// The suite run (the one `run` ending in `bun run test`) answers with the smallest output the
+// tier accepts: every smoke row passing and bun's summary line.
+const PASSING_SUITE = [
+  ...HARNESS_SMOKE_CLIS.map((cli) => `(pass) ${HARNESS_SMOKE_SUITE} > ${cli} [1.00ms]`),
+  "Ran 5 tests across 1 file. [5.00ms]",
+  "",
+];
 const FAKE_DOCKER = [
   "#!/bin/sh",
   'case "$1" in',
   "  info) exit 0 ;;",
   "  build) exit 0 ;;",
   "  image) echo 812345 ;;",
-  "  run) printf 'home-is-expected\\nhome-empty\\nwork-copied\\nhome-writable\\nnetwork-none\\n' ;;",
+  "  run)",
+  '    case "$*" in',
+  `      *"bun run test") printf '${PASSING_SUITE.join("\\n")}' >&2 ;;`,
+  "      *) printf 'home-is-expected\\nhome-empty\\nwork-copied\\nhome-writable\\nnetwork-none\\n' ;;",
+  "    esac ;;",
   '  *) echo "unexpected: $*" >&2; exit 9 ;;',
   "esac",
   "",
@@ -80,7 +92,7 @@ describe("the tier's entry with a fake runtime", () => {
       });
       expect({ exitCode: proc.exitCode, stderr: proc.stderr.toString() }).toEqual({
         exitCode: 0,
-        stderr: "",
+        stderr: PASSING_SUITE.join("\n"),
       });
       expect(proc.stdout.toString()).toMatch(
         /^container tier: image build \(maxims-container-tier:local\) exit 0 in \d+\.\ds\ncontainer tier: image size 793 KiB \(812345 bytes\)\n/,

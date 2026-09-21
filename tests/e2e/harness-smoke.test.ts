@@ -10,7 +10,12 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 import { type BuiltInHarnessId, HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { REPO_ROOT } from "../container/runner.ts";
-import { CONTAINER_TIER_ENV, inContainerTier } from "../container/tier.ts";
+import {
+  HARNESS_SMOKE_CLIS,
+  HARNESS_SMOKE_SUITE,
+  type HarnessSmokeCli,
+  inContainerTier,
+} from "../container/tier.ts";
 import { type CapturedRequest, startFakeLlm, type Wire, wireFor } from "./fake-llm.ts";
 
 const PROMPT = "Reply with the single word ok.";
@@ -25,7 +30,6 @@ const KILL_GRACE_MS = 5_000;
 const TAIL_CHARS = 800;
 
 type Row = {
-  name: string;
   command: readonly string[];
   harness: BuiltInHarnessId;
   wire: Wire;
@@ -66,7 +70,6 @@ function wholeJson(stdout: string): Record<string, unknown> | null {
 }
 
 const CLAUDE: Row = {
-  name: "claude",
   command: ["claude"],
   harness: "claude-code",
   wire: "anthropic-messages",
@@ -93,7 +96,6 @@ const CLAUDE: Row = {
 };
 
 const CODEX: Row = {
-  name: "codex",
   command: ["codex"],
   harness: "codex",
   wire: "openai-responses",
@@ -127,7 +129,6 @@ const CODEX: Row = {
 };
 
 const GEMINI: Row = {
-  name: "gemini",
   command: ["gemini"],
   harness: "gemini-cli",
   wire: "gemini",
@@ -153,7 +154,6 @@ const GEMINI: Row = {
 };
 
 const COPILOT: Row = {
-  name: "copilot",
   command: ["copilot"],
   harness: "copilot",
   wire: "openai-chat",
@@ -178,7 +178,6 @@ const COPILOT: Row = {
 // reads `npm_config_*` from the environment, so offline mode makes it give up without a request.
 // The models.dev refresh is the other request the container cannot serve.
 const OPENCODE: Row = {
-  name: "opencode",
   command: ["opencode"],
   harness: "opencode",
   wire: "openai-chat",
@@ -225,7 +224,14 @@ const OPENCODE: Row = {
     }),
 };
 
-const REAL_ROWS: readonly Row[] = [CLAUDE, CODEX, GEMINI, COPILOT, OPENCODE];
+// Keyed by the names the container tier reads back out of the suite's output.
+const REAL_ROWS: Readonly<Record<HarnessSmokeCli, Row>> = {
+  claude: CLAUDE,
+  codex: CODEX,
+  gemini: GEMINI,
+  copilot: COPILOT,
+  opencode: OPENCODE,
+};
 
 // A harness stand-in in the Claude Code shape: it runs the SessionStart hooks from the settings
 // file maxims writes, loads the rules directory maxims writes, and sends both to the Anthropic
@@ -439,8 +445,12 @@ function memoryFile(nonce: string): string {
 // One CLI run against its own fake, home and shim. The rule file and the hook registration are
 // written by the maxims CLI, never by the test, so the harness is proven to read what `sync`
 // wrote where it wrote it.
-async function smoke(row: Row, extraEnv: Record<string, string> = {}): Promise<Verdict> {
-  const dir = join(ready().root, `row-${row.name}-${randomUUID().slice(0, 8)}`);
+async function smoke(
+  name: string,
+  row: Row,
+  extraEnv: Record<string, string> = {},
+): Promise<Verdict> {
+  const dir = join(ready().root, `row-${name}-${randomUUID().slice(0, 8)}`);
   const home = join(dir, "home");
   const work = join(dir, "work");
   const bin = join(dir, "bin");
@@ -487,7 +497,7 @@ async function smoke(row: Row, extraEnv: Record<string, string> = {}): Promise<V
       { cwd: work, env },
       CLI_DEADLINE_MS,
     );
-    return judge(row, run, fake.requests(), readLog(log), nonce);
+    return judge(name, row, run, fake.requests(), readLog(log), nonce);
   } finally {
     await fake.close();
   }
@@ -507,6 +517,7 @@ function readLog(path: string): string[] {
 }
 
 function judge(
+  name: string,
   row: Row,
   run: Run,
   requests: readonly CapturedRequest[],
@@ -514,7 +525,7 @@ function judge(
   nonce: string,
 ): Verdict {
   const problems: string[] = [];
-  const cli = row.command[row.command.length - 1] ?? row.name;
+  const cli = row.command[row.command.length - 1] ?? name;
   const seen = requests.map((r) => `${r.method} ${r.path}`).join(", ");
   const captured = `${requests.length} request(s) captured: ${seen}`;
   if (run.timedOut) {
@@ -551,14 +562,14 @@ function judge(
 }
 
 function stubRow(): Row {
-  return { ...CLAUDE, name: "stub", command: [process.execPath, ready().stub] };
+  return { ...CLAUDE, command: [process.execPath, ready().stub] };
 }
 
 describe("the smoke's own logic on a stub CLI", () => {
   test(
     "a stub that runs the hook and loads the rules passes",
     async () => {
-      expect(await smoke(stubRow())).toEqual(PASSED);
+      expect(await smoke("stub", stubRow())).toEqual(PASSED);
     },
     ROW_TIMEOUT_MS,
   );
@@ -570,7 +581,7 @@ describe("the smoke's own logic on a stub CLI", () => {
   test.each(withheld)(
     "a stub that withholds its %s fails on that finding alone",
     async (step, finding) => {
-      expect(await smoke(stubRow(), { MAXIMS_STUB_WITHHOLD: step })).toEqual({
+      expect(await smoke("stub", stubRow(), { MAXIMS_STUB_WITHHOLD: step })).toEqual({
         ok: false,
         problems: [expect.stringMatching(new RegExp(`^${finding}:`))],
       });
@@ -581,24 +592,25 @@ describe("the smoke's own logic on a stub CLI", () => {
 
 const inContainer = inContainerTier(process.env);
 
-describe("installed harness CLIs against the fake endpoint", () => {
-  for (const row of REAL_ROWS) {
-    const binary = row.command[0] ?? row.name;
+// The container tier reads each row's `(pass) <suite> > <name>` line back out of the suite's
+// output, so the titles are the names alone, pass or skip.
+describe(HARNESS_SMOKE_SUITE, () => {
+  for (const name of HARNESS_SMOKE_CLIS) {
+    const row = REAL_ROWS[name];
+    const binary = row.command[0] ?? name;
     if (!inContainer) {
-      const reason = `${CONTAINER_TIER_ENV}=1 is set only by the container tier`;
-      const notice = `${row.name}: skipped, ${reason}`;
-      test.skip(notice, () => {});
+      test.skip(name, () => {});
       continue;
     }
     test(
-      row.name,
+      name,
       async () => {
         if (Bun.which(binary) === null) {
           throw new Error(
             `${binary} is not on PATH; the container image installs it, so its absence is a defect`,
           );
         }
-        expect(await smoke(row)).toEqual(PASSED);
+        expect(await smoke(name, row)).toEqual(PASSED);
       },
       ROW_TIMEOUT_MS,
     );
