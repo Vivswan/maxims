@@ -172,6 +172,11 @@ const COPILOT: Row = {
   succeeded: (stdout) => jsonLines(stdout).some((line) => line.type === "result"),
 };
 
+// Once a plugin file exists, OpenCode installs `@opencode-ai/plugin` into its config directory
+// with the npm it bundles and waits for that install before loading the plugin. With no registry
+// reachable, npm's default retry schedule held the row for about 70 s of its 90 s deadline; npm
+// reads `npm_config_*` from the environment, so offline mode makes it give up without a request.
+// The models.dev refresh is the other request the container cannot serve.
 const OPENCODE: Row = {
   name: "opencode",
   command: ["opencode"],
@@ -185,6 +190,8 @@ const OPENCODE: Row = {
     XDG_CACHE_HOME: join(home, ".cache"),
     XDG_STATE_HOME: join(home, ".local", "state"),
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    OPENCODE_DISABLE_MODELS_FETCH: "1",
+    npm_config_offline: "true",
   }),
   files: (baseUrl) => ({
     ".config/opencode/opencode.json": `${JSON.stringify(
