@@ -225,7 +225,7 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
   });
 });
 
-test("3a: a second sync changes nothing but the stamp and the log", async () => {
+test("3a: a second sync changes nothing but the stamp and the log; a quiet one says nothing", async () => {
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
@@ -233,11 +233,22 @@ test("3a: a second sync changes nothing but the stamp and the log", async () => 
     ok(await runMaxims(bundle, home, ["sync"]));
     const before = homeSnapshot(home);
     const second = ok(await runMaxims(bundle, home, ["sync"]));
-    // Both lines print although no byte moved: the summary counts every planned write, and a
-    // rules-dir file is planned on every run. Pinned as printed today.
     expect(redact(second.stdout, installed, home)).toBe(
-      "maxims: <SOURCE>: 1 internal, hidden\no  Installed 1 memory, 2 rule lines\n",
+      "maxims: <SOURCE>: 1 internal, hidden\no  Up to date: 1 memory, 2 rule lines\n",
     );
+    expect(homeSnapshot(home)).toEqual(before);
+
+    // Past the debounce window the hook run does its work: it stamps and logs, and prints nothing
+    // into the session it was started from.
+    withoutStamp(home);
+    const bare = snapshot(home.root);
+    const quiet = ok(
+      await runMaxims(bundle, home, ["sync", "--quiet"], {
+        stdin: hookPayload(CLAUDE_STDIN, home),
+      }),
+    );
+    expect(quiet.stdout).toBe("");
+    expect(touched(bare, snapshot(home.root))).toEqual([...SYNC_TOUCHES].sort());
     expect(homeSnapshot(home)).toEqual(before);
   });
 });
