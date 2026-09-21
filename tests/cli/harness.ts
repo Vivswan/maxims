@@ -55,7 +55,10 @@ export type ScenarioOptions = {
   // The registry the CLI runs against; the three fixture shapes unless a test names real ones.
   harnesses?: readonly HarnessDefinition[];
   syncReport?: Partial<
-    Pick<SyncReport, "rules" | "tokens" | "fetched" | "upstreamChanges" | "failed" | "notices">
+    Pick<
+      SyncReport,
+      "rules" | "tokens" | "fetched" | "upstreamChanges" | "failed" | "notices" | "plan"
+    >
   >;
   listReport?: ListReport;
   hookMissing?: HarnessId[];
@@ -101,7 +104,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     failed: [...(options.syncReport?.failed ?? [])],
     changed: [],
     notices: [...(options.syncReport?.notices ?? [])],
-    plan: { changes: [], notices: [] },
+    plan: options.syncReport?.plan ?? { changes: [], notices: [] },
   });
   const engine: FakeEngine = {
     calls,

@@ -118,6 +118,7 @@ npx -y @vivswan/maxims lint path/to/folder --full-depth --cap 30
 | --- | --- |
 | the [contract](#the-contract) | a file `add` would skip, with the contract's reason; a `metadata.type` warning counts |
 | [hidden characters](#hidden-characters-are-refused) | a `description` carrying one, with its code point and column |
+| [risky shapes](security.md#risky-shapes-in-descriptions) | a `description` carrying one, as `kind: detail at column N`; `add` warns about these |
 | [wikilinks](#wikilinks-are-dependencies) | a `[[link]]` that names no memory in this folder |
 | the [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | more memories than the cap allows; `--cap <n>` sets this run's threshold |
 

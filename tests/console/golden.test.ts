@@ -15,6 +15,7 @@ import { FIXTURES, runCli, type Scenario, withScenario } from "../cli/harness.ts
 const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
 const SKILLS = join(FIXTURES, "skills");
 const DOTFILES = join(FIXTURES, "dotfiles");
+const RISKY = join(FIXTURES, "risky");
 
 function golden(name: string): string {
   return readFileSync(join(GOLDEN, `${name}.txt`), "utf8");
@@ -55,6 +56,15 @@ const goldens: Golden[] = [
     { github: { "vivswan/skills": SKILLS }, syncReport: { rules: 4, tokens: 103 } },
     async (scenario) =>
       (await runCli(scenario, ["add", "@Vivswan/skills", "-g", "--rule", "-a", "codex"])).stdout,
+  ],
+  [
+    "add-risk-warnings",
+    { github: { "a/r": RISKY }, syncReport: { rules: 2, tokens: 60 } },
+    async (scenario) => {
+      const run = await runCli(scenario, ["add", "@a/r", "-g", "--rule", "-a", "codex"]);
+      expect(run.code).toBe(0);
+      return run.stdout;
+    },
   ],
   [
     "collision-error",

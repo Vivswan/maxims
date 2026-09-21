@@ -164,12 +164,13 @@ export function emptyDocument(notices: readonly string[]): string {
 }
 
 // A defect with no exit code of its own is reported as the usage code, the one every unmapped
-// failure maps to.
-export function errorDocument(error: unknown): string {
+// failure maps to. `extra` is what a verb still has to report beside the failure (the warnings
+// of the sources a partly failed update did refresh).
+export function errorDocument(error: unknown, extra: Record<string, unknown> = {}): string {
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
   const hint = error instanceof MaximsError ? (error.hint ?? null) : null;
   const message = error instanceof Error ? error.message : String(error);
-  return `${JSON.stringify({ ok: false, code, message, hint }, null, 2)}\n`;
+  return `${JSON.stringify({ ok: false, code, message, hint, ...extra }, null, 2)}\n`;
 }
 
 // Under `--json` a failure that escaped the plan is printed as the one document and rethrown as

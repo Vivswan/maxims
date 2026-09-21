@@ -85,6 +85,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--paths <glob>` | add | off | scope the rules to matching files, repeatable; [path scoping](install.md#path-scoping) |
 | `--rename <upstream>=<local>` | add | off | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames) |
 | `--allow-hidden` | add | off | accept descriptions carrying [hidden characters](write-memories.md#hidden-characters-are-refused) |
+| `--strict` | add, install, update | off | refuse a source whose descriptions carry a [risky shape](security.md#risky-shapes-in-descriptions), exit 3 |
 | `--auth` | add | off | fetch with your `gh` login; [fetching](keep-fresh.md#how-a-source-is-fetched) |
 | `--no-fetch` | sync | off | never touch the network; [fetching](keep-fresh.md#how-a-source-is-fetched) |
 | `--cooldown <days>` | add, sync, update | 7 | days between refreshes, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
@@ -94,6 +95,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 - **`-a` on `sync`** limits the run to the named harnesses and fetches nothing; `-a '*'` names them all and fetches as a plain `sync` does.
 - **`-a` on `update`** still refreshes every source, and a refreshed source is written for every harness that reads it; the filter narrows only the untouched sources.
 - **`-a` on `remove`** drops those harnesses from a whole source and is refused on a memory.
+- **`--strict` on `update`** plans the refresh first and applies it only when no warning exists.
 
 On `lint`, `--cap` is a threshold for this run only and persists nothing; the [lint section](write-memories.md#lint-a-folder-before-publishing) owns it.
 
@@ -116,7 +118,7 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
 - **Exit 1** follows an unknown flag, `-g` with `-o`, an ambiguous bare name, a non-interactive `remove` without `--yes`, or a `doctor --expect` that is not met.
 - **Exit 2** follows a repo not found, no read access, a missing local directory, a non-GitHub git URL with no `git` on PATH, or an interactive `sync` whose fetch failed.
-- **Exit 3** follows a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](write-memories.md#hidden-characters-are-refused) without `--allow-hidden`, or a `lint` that found problems.
+- **Exit 3** follows a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](write-memories.md#hidden-characters-are-refused) without `--allow-hidden`, a [risky shape](security.md#risky-shapes-in-descriptions) under `--strict`, or a `lint` that found problems.
 - **Exit 4** follows permissions, a read-only filesystem, a full disk, or an unparsable harness config.
 - **Exit 5** means another maxims process held the lock past the wait.
 - **Exit 6** means an incoming memory's name is owned by another source and no rename was chosen.

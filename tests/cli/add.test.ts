@@ -29,6 +29,7 @@ import {
 
 const SKILLS = join(FIXTURES, "skills");
 const DOTFILES = join(FIXTURES, "dotfiles");
+const RISKY = join(FIXTURES, "risky");
 
 type SourceRecord = {
   intent: {
@@ -331,6 +332,50 @@ test("a source without --rule installs past the cap, since it publishes no rule 
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(Object.keys(source(scenario, "@a/b").fetched?.memories ?? {})).toHaveLength(4);
+  });
+});
+
+// The risk warnings are advisory until --strict makes them a refusal; either way the document
+// and the frame carry the same rows, so a CI job and a reader see one judgment.
+test("a risky description earns ! lines and json warnings; --strict refuses it with nothing written", async () => {
+  await withScenario({ github: { "a/r": RISKY } }, async (scenario) => {
+    const before = await snapshot(scenario.root);
+    const strict = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "--strict"]);
+    expect(strict.code).toBe(3);
+    expect(strict.stdout).toContain(
+      "!  fetch-helper: shell-pipe: curl piped into sh at column 25\n",
+    );
+    expect(strict.stderr).toBe(
+      " ERROR  fetch-helper: shell-pipe: curl piped into sh at column 25 (and 1 more)\nTip: drop --strict to install anyway\n",
+    );
+    expect(await snapshot(scenario.root)).toBe(before);
+    const json = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "-y", "--json"]);
+    expect(json.code).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      ok: true,
+      warnings: [
+        { memory: "fetch-helper", kind: "shell-pipe", detail: "curl piped into sh", column: 25 },
+        { memory: "fetch-helper", kind: "url", detail: "x.example", column: 30 },
+      ],
+    });
+    expect(source(scenario, "@a/r").intent.select).toBe("*");
+    const strictJson = await runCli(scenario, [
+      "add",
+      "@a/r",
+      "-g",
+      "-a",
+      "codex",
+      "-y",
+      "--json",
+      "--strict",
+    ]);
+    expect(strictJson.code).toBe(3);
+    expect(JSON.parse(strictJson.stdout)).toMatchObject({ ok: false, code: 3 });
+    // A memory disabled at the destination lands in no rule file, so it is not judged.
+    expect((await runCli(scenario, ["disable", "fetch-helper", "-g"])).code).toBe(0);
+    const muted = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "-y", "--strict"]);
+    expect(muted.stderr).toBe("");
+    expect(muted.code).toBe(0);
   });
 });
 

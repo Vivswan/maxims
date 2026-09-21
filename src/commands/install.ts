@@ -41,7 +41,7 @@ import {
 } from "./shared/project-lock-io.ts";
 import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./shared/sources.ts";
 
-const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes];
+const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes, FLAGS.strict];
 
 // Replays the project's manifest: every entry is prepared (fetched, validated, shown) before any
 // is recorded, then all are recorded in one write together with the manifest's disabled names,
@@ -74,6 +74,7 @@ export const install: Command = {
       foundInManifest(entries.length, tildify(projectLockPath(io.projectRoot), io.userHome)),
     );
     const agentFilter = parseAgents(args, knownHarnessIds(ctx.io));
+    const strict = args.flag(FLAGS.strict);
     const keys = new Map<string, string>();
     for (const [lockKey, entry] of entries) {
       const key = canonicalSourceKey(sourceFromLock(entry, io.projectRoot));
@@ -87,11 +88,13 @@ export const install: Command = {
     for (const [, entry] of entries) {
       console.gap();
       const stage = await stageAdd(
-        requestFrom(entry, agentFilter, ctx, io.projectRoot),
+        requestFrom(entry, agentFilter, strict, ctx, io.projectRoot),
         ctx,
         console,
       );
-      if (stage.kind === "staged") staged.push(stage.staged);
+      if (stage.kind === "staged") {
+        staged.push({ ...stage.staged, disabledByManifest: lock.disabled ?? [] });
+      }
     }
     const prepared: PreparedAdd[] = [];
     const current = [...staged];
@@ -116,7 +119,12 @@ export const install: Command = {
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],
-      json: { sources: prepared.map((item) => item.request.key), memories: names, harnesses },
+      json: {
+        sources: prepared.map((item) => item.request.key),
+        memories: names,
+        harnesses,
+        warnings: prepared.flatMap((item) => item.warnings),
+      },
       lines,
     });
     if (!ctx.global.json && !ctx.global.quiet) console.gap();
@@ -173,6 +181,7 @@ async function assertBatchConsistent(
 function requestFrom(
   source: LockSource,
   agentFilter: ReturnType<typeof parseAgents>,
+  strict: boolean,
   ctx: CommandContext,
   projectRoot: string,
 ): AddRequest {
@@ -198,6 +207,7 @@ function requestFrom(
     auth: source.auth === true,
     agents: { kind: "ids", ids: harnesses },
     allowHidden: source.allowHidden === true,
+    strict,
     cap: ctx.config.ruleCap ?? DEFAULT_RULE_CAP,
     list: false,
     noFetch: false,

@@ -147,3 +147,7 @@ export function wasNotDisabled(name: string, scope: string): string {
 export function hiddenCharacter(memory: string, label: string, column: number): string {
   return `${memory}: ${label} at column ${column}`;
 }
+
+export function riskWarning(memory: string, kind: string, detail: string, column: number): string {
+  return `${memory}: ${kind}: ${detail} at column ${column}`;
+}

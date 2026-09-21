@@ -5,6 +5,7 @@ import { extractWikilinks } from "../memory/wikilinks.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
 import { type Command, FLAGS, type FlagSpec, parsePositiveInt } from "./shared/options.ts";
+import { riskWarningsFor } from "./shared/risk.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 
@@ -20,8 +21,8 @@ const LINT_CAP: FlagSpec = {
 const LINT_FLAGS: readonly FlagSpec[] = [FLAGS.fullDepth, LINT_CAP];
 
 // The source-repo check: every `.md` under the folder against the contract, the hidden-character
-// gate, wikilinks resolving within the folder, and the count against the cap, printed one
-// `path:line: reason` per problem so an editor can jump to it.
+// gate, the risky shapes `add` warns about, wikilinks resolving within the folder, and the count
+// against the cap, printed one `path:line: reason` per problem so an editor can jump to it.
 export const lint: Command = {
   summary: "check a folder of memory files against the contract",
   usage: "lint [path]",
@@ -73,6 +74,13 @@ export function lintFolder(
         path,
         line: keyLine(text, "description"),
         reason: `description carries ${label} at column ${first.index + 1}`,
+      });
+    }
+    for (const warning of riskWarningsFor([parsed.memory])) {
+      problems.push({
+        path,
+        line: keyLine(text, "description"),
+        reason: `${warning.kind}: ${warning.detail} at column ${warning.column}`,
       });
     }
     memories.push({ memory: parsed.memory, path });

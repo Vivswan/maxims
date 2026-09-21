@@ -77,6 +77,13 @@ import {
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
 import { insideProject, listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
+import {
+  type MemoryRiskWarning,
+  refuseRisky,
+  riskWarningsFor,
+  showRiskWarnings,
+} from "./shared/risk.ts";
+import { disabledNames } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import {
   detectedHarnesses,
@@ -115,6 +122,7 @@ export type AddRequest = {
   auth: boolean;
   agents: AgentSelection;
   allowHidden: boolean;
+  strict: boolean;
   cap: number;
   list: boolean;
   noFetch: boolean;
@@ -143,6 +151,7 @@ const ADD_FLAGS: readonly FlagSpec[] = [
   FLAGS.auth,
   FLAGS.rename,
   FLAGS.allowHidden,
+  FLAGS.strict,
   FLAGS.cooldown,
   FLAGS.cap,
   FLAGS.noFetch,
@@ -186,6 +195,7 @@ export const add: Command = {
         source: prepared.request.key,
         memories: prepared.names,
         harnesses: prepared.harnesses.ids,
+        warnings: prepared.warnings,
       },
       lines,
     });
@@ -316,6 +326,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     auth: args.flag(FLAGS.auth) || io.env.MAXIMS_AUTH === "1",
     agents: parseAgents(args, knownHarnessIds(io)),
     allowHidden: args.flag(FLAGS.allowHidden),
+    strict: args.flag(FLAGS.strict),
     cap: configChanges?.ruleCap ?? config.ruleCap ?? DEFAULT_RULE_CAP,
     list,
     noFetch: args.flag(FLAGS.noFetch),
@@ -353,6 +364,7 @@ export type PreparedAdd = {
   rename: RenameMap;
   harnesses: HarnessChoice;
   names: MemoryName[];
+  warnings: MemoryRiskWarning[];
 };
 
 export type PrepareOutcome =
@@ -369,6 +381,9 @@ export type StagedAdd = {
   memories: Memory[];
   chosen: Memory[];
   state: State;
+  // The local names the commit switches off at the project beside the ones state already holds:
+  // the manifest's `disabled` list on a replay, nothing on a plain add.
+  disabledByManifest: readonly MemoryName[];
 };
 
 export type StageOutcome = { kind: "store-empty" } | { kind: "staged"; staged: StagedAdd };
@@ -399,7 +414,14 @@ export async function stageAdd(
   if (request.select !== "*") console.step(selected(chosen.map((memory) => memory.name)));
   return {
     kind: "staged",
-    staged: { request, tree, memories: scan.memories, chosen, state: intent.state },
+    staged: {
+      request,
+      tree,
+      memories: scan.memories,
+      chosen,
+      state: intent.state,
+      disabledByManifest: [],
+    },
   };
 }
 
@@ -408,7 +430,9 @@ export async function stageAdd(
 // real run's locking read has already moved aside. `--list` stops before validation: a preview
 // exists so the user can see and narrow a source whose install would be refused. `siblings` are
 // the other sources staged in the same run: their names satisfy wikilinks and take part in the
-// collision walk as if they were already recorded.
+// collision walk as if they were already recorded. The risk warnings sit above the plan, so the
+// reader judges the one-liners with the shapes named; `--strict` turns them into the refusal. A
+// memory disabled at the destination lands in no rule file, so its description is not judged.
 export async function planAdd(
   staged: StagedAdd,
   ctx: CommandContext,
@@ -435,6 +459,15 @@ export async function planAdd(
   if (existing !== undefined && !sameSelect(existing.intent.select, request.select)) {
     console.step(replacedSelection(showSelect(existing.intent.select), showSelect(request.select)));
   }
+  const disabled = new Set([
+    ...disabledNames(staged.state, request.destination.scope, io.projectRoot),
+    ...staged.disabledByManifest,
+  ]);
+  const warnings = riskWarningsFor(
+    chosen.filter((memory) => !disabled.has(renamed(rename, memory.name))),
+  );
+  showRiskWarnings(console, warnings);
+  if (request.strict) refuseRisky(warnings);
   console.note(planBody(request, harnesses.ids, io), STRINGS.memoriesToInstall);
   if (
     request.from.type === "local" &&
@@ -462,6 +495,7 @@ export async function planAdd(
       rename,
       harnesses,
       names: chosen.map((memory) => renamed(rename, memory.name)).sort(),
+      warnings,
     },
   };
 }

@@ -20,6 +20,7 @@ import {
   updateIntent,
 } from "./shared/cli-context.ts";
 import { exitForFailed, framed } from "./shared/engine-io.ts";
+import { ReportedMaximsError } from "./shared/errors.ts";
 import {
   agentsFilter,
   type Command,
@@ -33,6 +34,8 @@ import {
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 import { lockChanges } from "./shared/project-lock-io.ts";
+import { errorDocument } from "./shared/report.ts";
+import { refreshWarnings, refuseRisky, riskLine, showRiskWarnings } from "./shared/risk.ts";
 import {
   findInstalledSource,
   installedSources,
@@ -43,11 +46,20 @@ import {
 } from "./shared/sources.ts";
 import type { SyncOptions, SyncPreview } from "./types.ts";
 
-const UPDATE_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.rename, FLAGS.cooldown, FLAGS.cap];
+const UPDATE_FLAGS: readonly FlagSpec[] = [
+  FLAGS.agent,
+  FLAGS.rename,
+  FLAGS.cooldown,
+  FLAGS.cap,
+  FLAGS.strict,
+];
 
 // `update` is `sync` with the refresh forced: every fetched source, or the one named, is fetched
 // again whatever the cooldown says, and whatever `-a` limits the writes to. The lines afterwards
-// come from the engine's report: what was fetched, what each refresh changed, what failed.
+// come from the engine's report: what was fetched, what each refresh changed, what failed, and
+// which refreshed descriptions carry a risky shape. The engine does the fetching, so `--strict`
+// plans the refresh first, at the price of a second fetch, and persists nothing (not the --cap
+// beside it) when a warning exists.
 export const update: Command = {
   summary: "refetch every source, ignoring the cooldown, then sync",
   usage: "update [source]",
@@ -58,6 +70,7 @@ export const update: Command = {
     const console = await ctx.openConsole(true);
     const renames = parseRenames(args);
     const selection = parseAgents(args, knownHarnessIds(ctx.io));
+    const strict = args.flag(FLAGS.strict);
     // Every flag is parsed before the first state read: on a real run that read settles a corrupt
     // file, which a request that turns out malformed must not have done.
     const nextConfig = cooldownCapConfig(args, ctx.config);
@@ -65,16 +78,42 @@ export const update: Command = {
     if (Object.keys(renames).length > 0 && only === undefined) {
       throw usage("--rename on update needs the source it applies to");
     }
+    const before = await loadIntentFor(io.home, ctx.global.dryRun);
+    const base: SyncOptions = {
+      ...commonOptions(ctx.global),
+      quiet: false,
+      fetch: "force",
+      ...agentsFilter(selection.kind === "ids" ? selection.ids : []),
+      ...(only === undefined ? {} : { only }),
+    };
+    // The strict refusal comes before anything persists, planned against what the run would
+    // persist (the --cap and --rename typed beside it) without writing it: a refused refresh
+    // leaves neither behind, and a rename that resolves a collision still counts.
+    if (strict && !ctx.global.dryRun) {
+      const config = nextConfig ?? ctx.config;
+      const proposed =
+        Object.keys(renames).length > 0
+          ? await recordRenames(only?.[0] ?? "", renames, ctx, config, true)
+          : { state: before.state, config, changes: [] };
+      const planned = await framed(io, (engine) =>
+        ctx.engine.runSync({ ...base, dryRun: true, json: false, preview: proposed }, engine),
+      );
+      refuseRisky(await refreshWarnings(planned.plan, proposed.state, io));
+    }
     const persisted = await persistConfig(ctx, nextConfig);
     let preview: SyncPreview | undefined;
     if (Object.keys(renames).length > 0) {
-      preview = await recordRenames(only?.[0] ?? "", renames, ctx, persisted.config);
+      preview = await recordRenames(
+        only?.[0] ?? "",
+        renames,
+        ctx,
+        persisted.config,
+        ctx.global.dryRun,
+      );
       preview = { ...preview, changes: [...persisted.changes, ...preview.changes] };
     } else if (persisted.changes.length > 0) {
-      const { state } = await loadIntentFor(io.home, ctx.global.dryRun);
-      preview = { state, config: persisted.config, changes: persisted.changes };
+      preview = { state: before.state, config: persisted.config, changes: persisted.changes };
     }
-    const before = await loadIntentFor(io.home, ctx.global.dryRun);
     console.intro();
     console.step(STRINGS.checkingUpdates);
     const liveKeys = Object.entries(before.state.sources)
@@ -87,14 +126,14 @@ export const update: Command = {
       .map(([key]) => key);
     for (const key of liveKeys) console.step(isLive(key));
     const options: SyncOptions = {
-      ...commonOptions(ctx.global),
-      quiet: false,
-      fetch: "force",
-      ...agentsFilter(selection.kind === "ids" ? selection.ids : []),
-      ...(only === undefined ? {} : { only }),
+      ...base,
       ...(ctx.global.dryRun && preview !== undefined ? { preview } : {}),
     };
     const report = await framed(io, (engine) => ctx.engine.runSync(options, engine));
+    // The scan judges the state this run recorded: a rename moves a memory's local name, which
+    // is the name the disabled list knows it by.
+    const warnings = await refreshWarnings(report.plan, preview?.state ?? before.state, io);
+    if (strict) refuseRisky(warnings);
     const lines = report.fetched.map((key) => {
       const changes = report.upstreamChanges[key] ?? [];
       const added = changes.filter((line) => line.startsWith("+ ")).length;
@@ -102,11 +141,19 @@ export const update: Command = {
       return updated(key, added, removed);
     });
     if (report.failed.length > 0) {
+      showRiskWarnings(console, warnings);
       for (const line of lines) console.step(line);
       const failures = report.failed.map((failure) => failedToUpdate(failure.key, failure.message));
-      throw new MaximsError(exitForFailed(report.failed), failures.join("\n"), {
+      const error = new MaximsError(exitForFailed(report.failed), failures.join("\n"), {
         hint: "the last good copy of each failed source stays installed",
       });
+      // The refreshed sources' warnings ride in the failure document; a quiet run has no reader
+      // for them and keeps the log line the frame's error path writes.
+      if (ctx.global.json && !ctx.global.quiet) {
+        io.stdout.write(errorDocument(error, { warnings }));
+        throw new ReportedMaximsError(error.code, error.message, { hint: error.hint });
+      }
+      throw error;
     }
     const summary =
       report.fetched.length === 0 ? STRINGS.allUpToDate : foundUpdates(report.fetched.length);
@@ -115,8 +162,8 @@ export const update: Command = {
         changes: [...(preview?.changes ?? persisted.changes), ...report.plan.changes],
         notices: [],
       },
-      notices: report.notices,
-      json: { fetched: report.fetched, upstreamChanges: report.upstreamChanges },
+      notices: [...warnings.map(riskLine), ...report.notices],
+      json: { fetched: report.fetched, upstreamChanges: report.upstreamChanges, warnings },
       lines: [summary, ...lines],
     });
   },
@@ -135,16 +182,18 @@ async function onlySource(
 // checked against the name index with the same walk `add` runs, then joins the source's rename
 // map before the forced refetch applies it. An upstream name the last fetch did not see is the
 // usual case (the memory that just appeared), so it is checked as incoming rather than refused;
-// a pair whose LOCAL name collides is refused before anything is written.
+// a pair whose LOCAL name collides is refused before anything is written. `dryRun` computes the
+// edit without writing it, for the run's own preview as well as the strict preflight's.
 async function recordRenames(
   key: string,
   renames: RenameMap,
   ctx: CommandContext,
   config: UserConfig,
+  dryRun: boolean,
 ): Promise<SyncPreview> {
   const update = await updateIntent(
     ctx.io.home,
-    ctx.global.dryRun,
+    dryRun,
     async (current) => {
       const existing = current.state.sources[key];
       if (existing === undefined) throw new MaximsError(ExitCode.Usage, `${key} is not installed`);
@@ -187,7 +236,7 @@ async function recordRenames(
       const changes = await lockChanges(existing, current.state, next, ctx.io);
       return { state: next, changes, notices: current.notices };
     },
-    (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
+    (plan) => applyChanges(plan, { dryRun }),
   );
   return { state: update.state, config, changes: update.changes };
 }

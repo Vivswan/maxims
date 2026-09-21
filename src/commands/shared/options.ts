@@ -112,6 +112,11 @@ export const FLAGS = {
     summary: "most rule lines per source, saved to config.json",
   },
   noFetch: { name: "no-fetch", kind: "boolean", summary: "never touch the network" },
+  strict: {
+    name: "strict",
+    kind: "boolean",
+    summary: "refuse a source whose descriptions carry a risky shape",
+  },
   expect: {
     name: "expect",
     kind: "list",

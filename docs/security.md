@@ -35,8 +35,31 @@ Each entry below is one entry point: the scenario first, then the mitigation, th
 - **The list of repos you follow** goes nowhere over the wire; `state.json` is local and inherits its directory's permissions.
 - **A memory naming an internal system** could be pushed to a public source repo by its author. Out of scope for the tool; that is the source repo's review gate.
 
+## Risky shapes in descriptions
+
+`add`, `install`, and `update` scan every incoming description and print one `!` line per shape found, as `memory: kind: detail at column N`. `--json` carries them as `warnings`, and `lint` reports them as problems.
+
+| verb | where the lines sit | what is scanned |
+| --- | --- | --- |
+| `add`, `install` | above the plan | the memories the selection installs |
+| `update` | among the notices | the descriptions the refresh brought in, and the ones a live source holds |
+
+They are advisory: the install proceeds unless `--strict` turns any warning into exit 3 with nothing written or persisted.
+
+| kind | what it names |
+| --- | --- |
+| `shell-pipe` | a fetch piped into a shell or interpreter, or its PowerShell equivalents |
+| `url` | any `http` or `https` URL, with the host a browser would resolve it to |
+| `override` | an instruction-override phrase such as "ignore all previous instructions" or "you are now" |
+| `mixed-script` | a word mixing Latin with Cyrillic, Greek, or Armenian letters, the homoglyph shape |
+| `encoded-blob` | a long base64-like or hex run, a payload hidden in prose |
+| `sensitive-path` | a path such as `~/.ssh`, `/etc/shadow`, `.env`, or `credentials` |
+| `secret-shape` | a GitHub, OpenAI, AWS, Slack, or Google key, or a PEM private key header |
+
+- **`shell-pipe`** covers `curl`, `wget`, and `iwr` piped into a shell or interpreter, an encoded PowerShell command, and a fetched script inside `$(...)`.
+
 ## Two things that are not mitigations
 
-Content heuristics are not attempted. A rule file is instructions by definition, so a classifier asking "does this description look like an injection" would be guessing, and nobody should count on it.
+The shape scan is a reader's aid, not a classifier. A rule file is instructions by definition, so a clean scan proves nothing about a description, and a flagged one may be a benign sentence about `curl`; the plan shown at `add` stays the review gate.
 
 The token estimate is a report, not a control. The [cap section](keep-fresh.md#the-cap-and-the-cooldown) owns the difference between the count that gates and the estimate that only informs.
