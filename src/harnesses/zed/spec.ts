@@ -3,8 +3,9 @@ import type { HarnessSpec } from "../spec.ts";
 
 // Zed reads exactly one project instruction file, the first of nine names that exists at the
 // worktree root, so the block goes into whichever the repository already has and only a bare
-// repository gets an AGENTS.md. The config directory follows `$XDG_CONFIG_HOME/zed` on Linux and
-// FreeBSD (`~/.config/zed` on macOS regardless). Zed has no hook system; its MCP servers live
+// repository gets an AGENTS.md. Zed's docs place the personal AGENTS.md and settings.json under
+// `~/.config/zed`; its paths.rs resolves that directory through `$XDG_CONFIG_HOME` on Linux and
+// FreeBSD and fixes it at `~/.config/zed` on macOS. Zed has no hook system; its MCP servers live
 // under `context_servers` in settings.json.
 export const spec = {
   id: "zed",
@@ -32,6 +33,13 @@ export const spec = {
           "sha256:038126e974faa81bfcf73ea72238dbbcfbe8da8c932d4cad8f3b77a355d278e5",
         ),
         note: "settings.json under ~/.config/zed",
+      },
+      {
+        url: "https://raw.githubusercontent.com/zed-industries/zed/main/crates/paths/src/paths.rs",
+        contentHash: contentHashLiteral(
+          "sha256:18fd3d6390d5cd1e9d8dd80356a35c5b76f4fa06a417d041e88ed1aff10c5ccb",
+        ),
+        note: "XDG_CONFIG_HOME on Linux and FreeBSD, ~/.config/zed on macOS",
       },
     ],
   },
