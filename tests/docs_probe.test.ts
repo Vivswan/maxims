@@ -126,7 +126,7 @@ const tableCases: [name: string, body: string, findings: ReturnType<typeof cell>
     [cell(3, 16)],
   ],
   [
-    "the cursor steps past the last row, so a paragraph repeating that row's opening words keeps its line",
+    "a paragraph repeating the last row's opening words keeps its own line",
     `${table([`same words ${words(13)}`, "x"])}\n\nsame words ${words(69)}`,
     [paragraph(7, 71)],
   ],
@@ -165,11 +165,11 @@ test.each(skippedCases)(
   },
 );
 
-// A list item's inner stream holds nested blocks and the item's own text in source order, and
-// the cursor walks it in that order: a block before the item's text, or between two runs of it,
-// passes under the cursor at its place. The pages carry no title so the expected lines are the
-// source lines the reader counts; a link's line is pinned too, since a link whose label shows
-// nothing is located from where its segment sits, not from where the item's blocks left the cursor.
+// A tight item's line is its first visible word, wherever the item's fences, quotes, tags, and
+// badges sit around it, and a paragraph after the item keeps its own line even when a fence in the
+// item quotes it word for word. A link's line is pinned too: a link whose label shows nothing has
+// no words to find and still sits where it is written. The pages carry no title so the expected
+// lines are the source lines the reader counts.
 const itemCases: [name: string, text: string, placed: string[]][] = [
   [
     "a fence opening a list item quotes the paragraph after the item, as a list item of its own",
@@ -182,37 +182,37 @@ const itemCases: [name: string, text: string, placed: string[]][] = [
     ["item@4", "paragraph@6"],
   ],
   [
-    "an item's text after its fence is passed before the paragraph repeating it is located",
+    "a paragraph repeating an item's text after its fence keeps its own line",
     "- first two words\n  ```\n  code words\n  ```\n  last words\n\nlast words\n",
     ["item@1", "paragraph@7"],
   ],
   [
-    "an item's text after its fence is passed whole, so a paragraph quoting the fence keeps its line",
+    "a paragraph quoting an item's fence keeps its own line when the item runs on after the fence",
     "- first two words\n  ```\n  code words\n  ```\n  last words\n  extra words\n  more words\n\ncode words\n",
     ["item@1", "paragraph@9"],
   ],
   [
-    "a link whose label shows nothing is located where it sits, ahead of the fence that follows it",
+    "a link whose label shows nothing sits on its own line, ahead of the fence that follows it",
     "- [<br>](./missing.md)\n  ```\n  code words\n  ```\n\nafter words\n",
     ["paragraph@6", "link@1"],
   ],
   [
-    "a link whose label shows nothing still passes its line, so a fence quoting it cannot match there",
+    "a link whose label shows nothing keeps its line when a fence quotes it",
     "- [<br>](./missing.md)\n  ```\n  [<br>](./missing.md)\n  alpha beta\n  ```\n\nalpha beta\n",
     ["paragraph@7", "link@1"],
   ],
   [
-    "tags before an item's words hold their own lines, so only the words' lines pass under the cursor",
+    "an item opening with tags is reported on its first word, not on a tag",
     "- <span></span>\n  <span></span>\n  alpha beta\n  ```\n  alpha beta\n  ```\n\nalpha beta\n",
     ["item@3", "paragraph@8"],
   ],
   [
-    "an item that is only a tag still passes its line, so a fence quoting it cannot match there",
+    "an item that is only a tag is no unit, and a paragraph after a fence quoting it keeps its line",
     "- <span></span>\n  ```\n  <span></span>\n  alpha beta\n  ```\n\nalpha beta\n",
     ["paragraph@7"],
   ],
   [
-    "every badge line of an item passes under the cursor, so a fence quoting the last one cannot match there",
+    "an item of badges is no unit, and a paragraph after a fence quoting a badge keeps its line",
     "- [![Build](build.svg)](https://example.com/build)\n  [![Test](test.svg)](https://example.com/test)\n  ```md\n  [![Test](test.svg)](https://example.com/test)\n  alpha beta\n  ```\n\nalpha beta\n",
     ["paragraph@8", "link@1", "link@2"],
   ],
@@ -232,7 +232,7 @@ const itemCases: [name: string, text: string, placed: string[]][] = [
     ["item@1", "paragraph@6", "paragraph@8", "link@5"],
   ],
   [
-    "a link whose destination holds parentheses is still removed whole when its suffix is searched for",
+    "an item opening with a link whose destination holds parentheses is found on its own line",
     "- ```sh\n  cargo build\n  ```\n  [Rust](https://en.wikipedia.org/wiki/Rust_(programming_language)#History)-based tools work here.\n",
     ["item@4", "link@4"],
   ],
@@ -246,14 +246,13 @@ test.each(itemCases)("%s", (_name, text, placed) => {
   ]).toEqual(placed);
 });
 
-// The first ten cases were reported on the wrong line while units were located by counting
-// visible lines and searching for their first words: an invisible line (a comment's continuation,
-// a tag, a badge, an image, a definition, an empty fence) passed unseen, or a unit with no letters
-// matched nothing and took the cursor's line. The rest pin what the reader's renderer does and the
-// parser's raw tokens do not: a reference resolves through its definition on the label as written,
-// a cell's escaped pipe reads as a pipe, a row's cells past the header's count are dropped, an
-// autolink is a link, and a generated region hides its units wherever they are aggregated. The
-// pages carry no title so the expected lines are the source lines the reader counts.
+// A unit's line survives whatever the reader does not see near it: a comment or tag continued over
+// a line, a badge, an image, a definition, an empty fence, or a fence quoting the very line before it.
+// A code span or link with no letters sits where it is written. The rest pin what the reader's
+// renderer does and the parser's raw tokens do not: a reference resolves through its definition on
+// the label as written, a cell's escaped pipe reads as a pipe, a row's cells past the header's count
+// are dropped, an autolink is a link, and a generated region hides its units wherever they are
+// aggregated. The pages carry no title so the expected lines are the source lines the reader counts.
 const positionCases: [name: string, text: string, placed: string[]][] = [
   [
     "a comment continued on the next line hides that line from the paragraph after it",
@@ -296,7 +295,7 @@ const positionCases: [name: string, text: string, placed: string[]][] = [
     ["paragraph@1", "paragraph@9"],
   ],
   [
-    "a code span with no letters sits on its own line, not the cursor's",
+    "a code span with no letters sits on its own line",
     "Intro words.\n\nUse `.` here.\n",
     ["paragraph@1", "paragraph@3", "code@3=."],
   ],
@@ -410,6 +409,23 @@ const itemWordCases: [name: string, text: string, findings: ReturnType<typeof pa
     [],
   ],
   ["strikethrough markers are markup, not words", "~~![x](a.png)~~ visible words\n", []],
+  [
+    "a comment wrapped over a line break joins the words around it, as the reader sees them",
+    "one<!-- note\n-->two three\n",
+    [],
+  ],
+  [
+    "a tag wrapped over a line break is still one break between words",
+    'one<span\ntitle="x">two</span> three\n',
+    [
+      {
+        file: "page.md",
+        line: 1,
+        message:
+          "paragraph of 3 words; the cap is 2. Split it, or turn its facts into bullets, a table, or numbered steps",
+      },
+    ],
+  ],
   [
     "a character reference is decoded before words are counted, so a no-break space still separates two",
     "one&nbsp;two three\n",

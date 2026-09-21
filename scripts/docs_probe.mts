@@ -180,8 +180,9 @@ const COLLECTED = new Set([
   "resourceDestinationString",
   "definitionDestinationString",
 ]);
-// Tokens whose inline content the reader never sees: an image's alt text, a destination's title.
-const SINKS = new Set(["image", "resource", "reference", "definition"]);
+// Tokens whose inline content the reader never sees: an image's alt text, a destination's title,
+// the line breaks inside a comment or a tag wrapped over several lines.
+const SINKS = new Set(["image", "resource", "reference", "definition", "htmlText"]);
 
 const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
   const m = REGION_MARKER.exec(context.sliceSerialize(token));
