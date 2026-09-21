@@ -2,8 +2,9 @@
 // keep last-good while state says the new sha), a hold `list` and `doctor` do not show, an
 // `add --review` whose own first fetch is held instead of applied, an `unreview` that lifts the
 // mark and leaves the held revision behind, a `--json` document whose `accepted` disagrees with
-// what landed, an intent edit (`link`, `share`) that drops the held revision, and a hand-deleted
-// held revision that crashes `accept`.
+// what landed, an intent edit (`link`, `share`) that drops the held revision, a hand-deleted
+// held revision that crashes `accept`, and a held tree missing a file that `accept` records as
+// the whole revision.
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -142,6 +143,29 @@ test("a held revision deleted by hand is forgotten by accept and held again by t
     expect(readFileSync(rulesFile(scenario), "utf8")).toContain("Never merge red.");
     expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
     expect(recorded(scenario).pending?.summary).toHaveLength(2);
+  });
+});
+
+// The recorded sha names the whole revision; recording it over a tree missing a file would say
+// the revision landed while its block lacks a rule.
+test("a held revision that lost a file is forgotten by accept, not recorded over the partial tree", async () => {
+  await heldScenario(async (scenario, { a }) => {
+    const rules = rulesFile(scenario);
+    const block = readFileSync(rules, "utf8");
+    expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
+    const pending = pendingPathFor(scenario.home, FROM);
+    rmSync(join(pending, "memories", "new-rule.md"));
+    const partial = await runCli(scenario, ["accept", KEY]);
+    expect(partial.code).toBe(0);
+    expect(partial.stdout).toContain(
+      "o  the held revision of @acme/rules no longer matches what was fetched; run maxims update to fetch it again\n",
+    );
+    const after = recorded(scenario);
+    expect(after.pending).toBeUndefined();
+    expect(after.fetched?.sha).toBe((await fetchedFacts(a, "")).sha);
+    expect(readFileSync(rules, "utf8")).toBe(block);
+    expect(existsSync(pending)).toBe(false);
+    expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
   });
 });
 

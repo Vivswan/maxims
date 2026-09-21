@@ -184,6 +184,10 @@ export function heldRevisionGone(key: string): string {
   return `the held revision of ${key} is gone; run maxims update to fetch it again`;
 }
 
+export function heldRevisionAltered(key: string): string {
+  return `the held revision of ${key} no longer matches what was fetched; run maxims update to fetch it again`;
+}
+
 export function failedToUpdate(key: string, reason: string): string {
   return `Failed to update ${key}: ${reason}`;
 }

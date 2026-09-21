@@ -1,6 +1,7 @@
 import {
   accepted,
   alreadyReviewing,
+  heldRevisionAltered,
   heldRevisionGone,
   nothingHeld,
   notReviewing,
@@ -16,8 +17,10 @@ import { admitIntent, syncCommitted } from "./add.ts";
 import { type Intent, loadIntentFor, updateIntent } from "./shared/cli-context.ts";
 import { isFetchedEntry } from "./shared/engine.ts";
 import {
+  diffLines,
   type FetchedEntry,
   fetchedFactsFor,
+  memoryFacts,
   swapStoreEntry,
   withoutPending,
 } from "./shared/fetch.ts";
@@ -72,23 +75,26 @@ async function namedSource(
 type Acceptance = { entry: SourceEntry; changes: Change[]; line: string; applied: boolean };
 
 // The held revision becomes the fetch record and the store copy in one plan: the same swap a
-// refresh lands, plus the pending directory's removal. A revision whose files are gone (deleted
-// by hand) is forgotten instead; the cooldown still runs from the hold, so `update` is the way to
-// fetch it again, and the line says so.
+// refresh lands, plus the pending directory's removal. The recorded sha names the revision as
+// fetched, so the tree is accepted only while its diff against the installed record is still
+// the one the hold recorded; a tree that is gone or has lost a file is forgotten instead. The
+// cooldown still runs from the hold, so `update` is the way to fetch it again, and the line
+// says so.
 async function acceptHeld(key: string, held: Held, home: string): Promise<Acceptance> {
   const { entry, pending } = held;
   const { from, memoryPath } = entry.intent;
   const pendingEntry = pendingPathFor(home, from);
   const tree = await storeTree(pendingEntry, entry.intent);
   const memories = tree === null ? [] : validateMemoryFiles(tree.files).memories;
-  if (memories.length === 0) {
-    return {
-      entry: withoutPending(entry),
-      changes: [],
-      line: heldRevisionGone(key),
-      applied: false,
-    };
-  }
+  const forgotten = (line: string): Acceptance => ({
+    entry: withoutPending(entry),
+    changes: [],
+    line,
+    applied: false,
+  });
+  if (memories.length === 0) return forgotten(heldRevisionGone(key));
+  const found = diffLines(entry.fetched?.memories ?? {}, memoryFacts(memories));
+  if (found.join("\n") !== pending.summary.join("\n")) return forgotten(heldRevisionAltered(key));
   const next = fetchedFactsFor(entry, memories, memoryPath, { sha: pending.sha, at: pending.at });
   if (next === null) throw new Error("unreachable: a pending sha carries its variant's brand");
   const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
