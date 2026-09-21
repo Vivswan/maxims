@@ -140,3 +140,13 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 4. Write `index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 
 The folder census test under `src/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current page before encoding it, and record that page in `verifiedAgainst`.
+
+`contentHash` is the `sha256:<hex>` of the page's text as the nightly drift check reads it, in `scripts/nightly/harness_drift.ts`; one normalization stands behind every stored hash.
+
+| the page's media type | what is hashed |
+| --- | --- |
+| HTML | the text of the first of `main`, `article`, `[role=main]`, else the whole document |
+| HTML, inside a `footer` element | build stamps such as `Last updated: Sep 21, 2026` are dropped first |
+| anything else, such as a raw markdown file | the whole body, whitespace collapsed to single spaces |
+
+Both branches trim the result, and the HTML branch also drops `script`, `style`, and `noscript` bodies. To record a hash by hand, run `bun scripts/nightly.ts harness-drift`: its table prints each definition's stored hash beside the fetched one, and the fetched value is what the definition records.

@@ -123,12 +123,29 @@ npx -y @vivswan/maxims sync --quiet
 
 The [Cline catch](harnesses.md#per-harness-catches) names the hook's other prerequisites.
 
+## OpenCode waits about a minute to start offline after an install
+
+**What you see:** on a machine without network, an OpenCode session started after an `add` that wrote its plugin file takes about 70 seconds to get going.
+
+**What it means:** once a plugin file exists, OpenCode installs `@opencode-ai/plugin` into its config directory with its bundled npm and waits for that install before loading plugins; offline, npm's default retry schedule is the wait. The [OpenCode catch](harnesses.md#per-harness-catches) owns the plugin file.
+
+**What to do:** set `npm_config_offline=true` in the environment OpenCode starts from, and npm gives up without a request. Online the install succeeds on its first request and the wait does not appear; that follows from the cause and was not measured.
+
+The e2e smoke test measured it on OpenCode 1.18.31 in a network namespace with only loopback, one session per run:
+
+| environment | one session |
+| --- | --- |
+| as installed | 73.3 s |
+| `npm_config_offline=true` and `OPENCODE_DISABLE_MODELS_FETCH=1` together | 3.5 s |
+
+The second variable drops a models.dev refresh the namespace could not serve; the pair was measured together, not each alone.
+
 ## A sync notice names a harness you defined yourself
 
-**What you see:** a terminal `sync` prints this line at every run, `<key>` being the source and `<id>` the harness id from `<MAXIMS_HOME>/harnesses.json`, and skips that harness; the [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
+**What you see:** a terminal `sync` prints this line at every run and skips that harness, `@Vivswan/skills` being the source and `my-harness` the id from `<MAXIMS_HOME>/harnesses.json`; `list` shows the same reason under the source. The [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
 
 ```text
-maxims: <key>: skipped <id> (<reason>)
+maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
 ```
 
 **What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records it.
