@@ -70,6 +70,14 @@ export function outcome<T>(fn: () => T): Outcome<T> {
   }
 }
 
+export async function asyncOutcome<T>(fn: () => Promise<T>): Promise<Outcome<T>> {
+  try {
+    return { kind: "value", value: await fn() };
+  } catch (error) {
+    return { kind: "threw", error };
+  }
+}
+
 export function timed<T>(fn: () => T): { value: T; ms: number } {
   const start = performance.now();
   const value = fn();
@@ -86,4 +94,88 @@ export function budgetMs(chars: number, msPerKiB: number, floorMs = 100): number
 export function describeError(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
+}
+
+type JsonPath = (string | number)[];
+
+function jsonPaths(value: unknown, prefix: JsonPath = []): JsonPath[] {
+  const paths: JsonPath[] = [prefix];
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      paths.push(...jsonPaths(item, [...prefix, index]));
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const [key, item] of Object.entries(value)) {
+      paths.push(...jsonPaths(item, [...prefix, key]));
+    }
+  }
+  return paths;
+}
+
+type Mutation = { path: JsonPath } & (
+  | { kind: "drop" }
+  | { kind: "replace"; value: unknown }
+  | { kind: "wrong-type" }
+);
+
+// The same value in another JSON type, so a schema's type check is what the mutation lands on.
+function wrongType(value: unknown): unknown {
+  if (typeof value === "string") return value.length;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return String(value);
+  if (value === null) return 0;
+  return Array.isArray(value) ? {} : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function childOf(parent: unknown, step: string | number): unknown {
+  if (Array.isArray(parent)) return typeof step === "number" ? parent[step] : undefined;
+  return isRecord(parent) ? parent[String(step)] : undefined;
+}
+
+// The replacement is cloned on every apply: fast-check keeps the mutation list for shrinking, and
+// a later mutation reaching into a shared replacement object would change what was retained.
+function applyMutation(root: unknown, mutation: Mutation): unknown {
+  const { path } = mutation;
+  const replacement = (current: unknown): unknown =>
+    mutation.kind === "replace" ? structuredClone(mutation.value) : wrongType(current);
+  if (path.length === 0) return replacement(root);
+  let parent: unknown = root;
+  for (const step of path.slice(0, -1)) parent = childOf(parent, step);
+  const last = path[path.length - 1] ?? "";
+  if (Array.isArray(parent) && typeof last === "number") {
+    if (mutation.kind === "drop") parent.splice(last, 1);
+    else parent[last] = replacement(parent[last]);
+    return root;
+  }
+  if (!isRecord(parent)) return root;
+  const key = String(last);
+  if (mutation.kind === "drop") delete parent[key];
+  else parent[key] = replacement(parent[key]);
+  return root;
+}
+
+// A valid document with one to three of its nodes dropped, retyped or replaced by a random JSON
+// value: the near misses a hand edit or an older writer produces, which a random document from
+// scratch almost never reaches past the first schema check.
+export function mutatedJson(base: unknown): fc.Arbitrary<unknown> {
+  const paths = jsonPaths(base);
+  const mutation: fc.Arbitrary<Mutation> = fc
+    .tuple(
+      fc.constantFrom(...paths),
+      fc.oneof(
+        fc.constant({ kind: "drop" as const }),
+        fc.constant({ kind: "wrong-type" as const }),
+        fc.jsonValue({ maxDepth: 2 }).map((value) => ({ kind: "replace" as const, value })),
+      ),
+    )
+    .map(([path, op]) => ({ path, ...op }));
+  return fc
+    .array(mutation, { minLength: 1, maxLength: 3 })
+    .map((mutations) =>
+      mutations.reduce((doc, next) => applyMutation(doc, next), structuredClone(base)),
+    );
 }
