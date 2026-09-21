@@ -9,7 +9,7 @@ How maxims is arranged on disk and in code: what lives where, who writes it, and
 
 A cylinder is a file or directory on this machine, a double-edged box is a process, and a plain box is code, named by its file and the exported symbols it means.
 
-The sections follow the path a byte takes: disk, then intent, then a fetched source, then the rendered rule line, then the harness that receives it, then the write itself, then the hook that starts the next run. The verbs come last, one flow each, as the command line runs them.
+The sections follow the path a byte takes: disk, then intent, then a fetched source, then the rendered rule line, then the harness that receives it, then the write itself, then the hook that starts the next run. The verb flows follow, one per command as the command line runs it, and the module map closes the page.
 
 ## What lives on disk
 
@@ -236,7 +236,7 @@ flowchart LR
   change -->|"a probe that could not look: exit 4, never a change that silently did not happen"| exit
 ```
 
-- **A `write` compares before it writes,** so an unchanged file keeps its bytes and its mtime, and a sync that changes nothing touches nothing.
+- **A `write` compares before it writes,** so an unchanged file keeps its bytes and its mtime, and a sync that changes nothing touches no destination.
 - **`unlink` and `symlink` refuse a real file or directory at the path,** so the only thing a link change replaces is a link maxims could have written itself; a repointed link is created beside the old one and renamed over it, so no reader sees it absent.
 - **Containment is judged on real paths.** `assertInsideRoot()` resolves the existing prefix of both root and candidate, so a rules directory symlinked out of the project fails while a root that is itself a symlink passes.
 
@@ -268,7 +268,7 @@ flowchart LR
 ```
 
 - **The command carries no source, no filter and no version pin:** intent supplies the first two, and the missing pin lets a fix reach hooked sessions without a re-add.
-- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](harnesses.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
+- **Hook mode turns a held lock into a `skipped` outcome instead of exit 5,** the first half of the promise that a broken hook never breaks a session start. [One hook refreshes every harness](keep-fresh.md#one-hook-refreshes-every-harness) owns the tier story and the debounce.
 
 Demonstrated by: [src/harnesses/hook-writer.test.ts](../src/harnesses/hook-writer.test.ts), [src/harnesses/conformance.test.ts](../src/harnesses/conformance.test.ts), [src/harnesses/mcp-stub/server.test.ts](../src/harnesses/mcp-stub/server.test.ts), [src/harnesses/mcp-stub/register.test.ts](../src/harnesses/mcp-stub/register.test.ts), [src/state/store.test.ts](../src/state/store.test.ts).
 
@@ -299,7 +299,7 @@ flowchart LR
   add -->|"step 1: the resolver fetches at the pin"| temp
   add -->|"step 2: the intent as it is; lock-free under --list and --dry-run"| intent
   add -->|"steps 3 and 4: hidden characters, wikilinks, the collision walk, the harness choice, the confirm"| commit
-  commit -->|"steps 5 and 6: one function under one lock"| update
+  commit -->|"steps 5 and 6: one function, under the lock on a real run; a dry run plans the same write lock-free"| update
   update -->|"the store swap or the local link, the lock projection, the config, in the same plan"| riders
   update -->|"admitIntent(): the sync planned dry against the state about to land; a refusal writes nothing"| apply
   riders --> apply
@@ -310,7 +310,7 @@ flowchart LR
 
 - **One commit point.** Steps 1 to 4 write nothing, so a failure there (exit 2, 3, 6, 7 or 8) leaves the machine as it was, apart from a corrupt state file the locking read has already moved aside; steps 5 and 6 are one state write with the store swap, the manifest and the config in the same plan, and then the sync every other verb ends in runs.
 - **`-y` changes the console, not the flow.** The same code runs; `promptsAllowed()` is false, so the confirm answers its silent default and the harness prompt falls back to the remembered answer. `--json` needs `-y` or `--all`, since a prompt would break the one document.
-- **The harness choice has an order:** `-a` as typed (every harness with a target under `--all`), else the harnesses detected on this machine, else `config.agents`, else a prompt pre-filled with the last answer. A harness with no target at the destination's scope is skipped with a warning, never silently.
+- **The harness choice has an order:** `-a` as typed (every harness with a target under `--all`), else the harnesses detected on this machine, else `config.agents`, else a prompt pre-filled with the last answer. A harness with no target at the destination's scope is skipped: with a warning when it was named, detected or config-listed, silently under `--all` or `-a '*'`, and the prompt never offers it.
 - **`--list` stops before validation,** so a source whose install would be refused can still be seen and narrowed; it fetches unless `--no-fetch` walks the store copy, and it never writes.
 
 Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/cli/parser.test.ts](../tests/cli/parser.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
@@ -335,7 +335,7 @@ flowchart LR
   apply["src/util/change.ts<br>applyChanges()"]
   log["src/util/log.ts<br>appendRefreshLog()"]
   disk[("destinations, the store, state.json, the log")]
-  verb -->|"--cooldown and --cap land in config.json before the engine runs"| persist
+  verb -->|"--cooldown and --cap land in config.json before the engine runs; a dry run writes nothing and hands the engine the new values as a preview"| persist
   verb -->|"fetch due, or none under --no-fetch or when -a names harnesses; -a narrows the run"| io
   io --> runsync
   runsync -->|"stdin never read: the invoker is a person and the project root is the cwd's"| context
@@ -393,7 +393,7 @@ flowchart LR
   runsync -->|"whatever else is thrown: the stack goes to the log, the report is empty"| log
 ```
 
-- **A hook run may not take anything away.** A partial read must never empty a machine, so `PlanBuilder.build()` holds back the removal and orphan categories whole, and every other delete except the store swap's, until an interactive run.
+- **A hook run may not take anything away,** since a partial read must never empty a machine; `PlanBuilder.build()` holds back the deferred categories whole.
 - **One stamp debounces every hook on the machine,** since each runs the same command; an interactive run is never debounced but writes the stamp too.
 - **Notices reach the session only in its protocol.** `stdoutVariantFor()` reads the definition's declared stdout shape; a harness this build does not know gets silence, since plain text into a JSON-only reader is a hook error at every session start.
 
@@ -503,7 +503,7 @@ flowchart LR
 ```
 
 - **The lock is a projection of intent, never a second store.** `shared` is one field of a project-scope entry; every verb that edits a project entry's intent (`add --share`, `share`, `unshare`, `remove`, `link`, `update`, `disable`) recomputes the file from state through `projectLockChange()`, and `sync` never writes it.
-- **This machine edits only its own entries.** A clone that has not replayed the lock holds none of the team's entries in state, so a teammate's entries and disabled names stay as the file has them; the last unshare deletes the file.
+- **This machine edits only its own entries,** because a clone that has not replayed the lock holds none of the team's entries in state; a teammate's disabled names are kept with their entries.
 - **Of the project's disabled names, the lock carries those a shared source provides;** a private source providing a name a teammate switched off says nothing about the teammate's choice.
 
 Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [src/commands/shared/select.test.ts](../src/commands/shared/select.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
@@ -537,7 +537,7 @@ flowchart LR
 
 - **The batch lands whole or not at all.** A declined or refused entry stops before the write, so the machine gains nothing and the manifest is untouched, apart from a corrupt state file the locking read has already moved aside.
 - **The manifest is input here, never output.** The lock is how a fresh clone learns what to add, and state stays the only thing `sync` reads: `sync` never installs from the lock; once state exists it prints one notice naming the lock-only sources and says to run `install`.
-- **Replayed entries are `shared`,** so the machine that installed from the lock writes the same entries back when it edits them; a field the lock omits is recorded at `add`'s default, and the entry's `pin` is the ref state records.
+- **Replayed entries are `shared`,** so the machine that installed from the lock writes the same entries back when it edits them; a field the lock omits is recorded at `add`'s default.
 
 Demonstrated by: [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [src/state/project-lock.test.ts](../src/state/project-lock.test.ts).
 
