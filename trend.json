@@ -3,14 +3,25 @@
   "entries": [
     {
       "at": "2026-09-21T00:44:48.732Z",
-      "runs": 10,
       "sha": "fff3bdf21d06d2866cc753fdd33e6a1a55067b80",
       "node": "v22.23.2",
+      "runs": 10,
       "medianMs": {
         "sync --quiet": 135.416,
         "add --list": 126.936
       },
       "bundleBytes": 1266695
+    },
+    {
+      "at": "2026-09-21T01:53:59.481Z",
+      "runs": 10,
+      "sha": "0dc933cf0d2e29c6da0c214ce71f66c7e820d9d7",
+      "node": "v22.23.2",
+      "medianMs": {
+        "sync --quiet": 131.498,
+        "add --list": 127.74
+      },
+      "bundleBytes": 1267032
     }
   ]
 }
