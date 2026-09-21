@@ -13,17 +13,26 @@ const repoRoot = resolve(import.meta.dir, "..");
 export const WARN_RATIO = 0.1;
 export const FAIL_RATIO = 0.25;
 
+// A bundle under this size is a placeholder, not a CLI: the argument parser alone bundles past
+// it, and the version-only stub that once stood where the CLI now is was 160 bytes. A delta
+// against such a base fails by construction, so the base is reported as not comparable instead.
+export const MIN_COMPARABLE_BUNDLE_BYTES = 16 * 1024;
+
 // What a gross regression does to the job. The hook path and the artifact gate the merge; the
 // interactive path only reports, since it is allowed to cost more.
 export type Gate = "fail" | "warn";
 export type Status = "ok" | "warn" | "fail";
+type Unit = "ms" | "bytes";
 
-export interface Signal {
+export interface Measured {
   name: string;
-  unit: "ms" | "bytes";
+  unit: Unit;
+  head: number;
+}
+
+export interface Signal extends Measured {
   gate: Gate;
   base: number;
-  head: number;
 }
 
 export interface Judged extends Signal {
@@ -31,13 +40,25 @@ export interface Judged extends Signal {
   status: Status;
 }
 
-export interface Report {
+interface Frame {
   base: { ref: string; sha: string };
   head: { sha: string };
   runs: number;
   commands: string[][];
+}
+
+export interface Compared extends Frame {
   signals: Judged[];
 }
+
+export interface Uncompared extends Frame {
+  notComparable: string;
+  signals: Measured[];
+}
+
+export type Report = Compared | Uncompared;
+
+export type Verdict = "pass" | "fail" | "skip";
 
 interface TimedPath {
   name: string;
@@ -51,6 +72,13 @@ export const TIMED_PATHS: TimedPath[] = [
   { name: "sync --quiet", argv: ["sync", "--quiet"], gate: "fail" },
   { name: "add --list", argv: ["add", "@example/repo", "--list", "--no-fetch"], gate: "warn" },
 ];
+
+// One built bundle and the timing of one argv on it; the index is the timed path's, so one side's
+// measurement files stay apart from each other.
+export interface Side {
+  bytes: number;
+  medianMs: (argv: string[], index: number) => number;
+}
 
 interface Options {
   base: string;
@@ -99,41 +127,109 @@ export function judge(signal: Signal): Judged {
   return { ...signal, ratio, status };
 }
 
-export function failed(signals: Judged[]): boolean {
-  return signals.some((signal) => signal.status === "fail");
+export function verdict(report: Report): Verdict {
+  if ("notComparable" in report) return "skip";
+  return report.signals.some((signal) => signal.status === "fail") ? "fail" : "pass";
+}
+
+interface Probe {
+  name: string;
+  unit: Unit;
+  gate: Gate;
+  measure: (side: Side) => number;
+}
+
+const probes = (): Probe[] => [
+  ...TIMED_PATHS.map(
+    (timed, index): Probe => ({
+      name: timed.name,
+      unit: "ms",
+      gate: timed.gate,
+      measure: (side) => side.medianMs(timed.argv, index),
+    }),
+  ),
+  { name: "bundle size", unit: "bytes", gate: "fail", measure: (side) => side.bytes },
+];
+
+const bytes = (value: number): string => `${value.toLocaleString("en-US")} bytes`;
+
+// The head is measured first and in full; a head that cannot be timed is this run's own failure
+// and propagates. A base that cannot be timed is only a base that yields no delta.
+export function compare(frame: Frame, base: Side, head: Side): Report {
+  const measured = probes().map((probe) => ({ probe, head: probe.measure(head) }));
+  const headOnly = (notComparable: string): Uncompared => ({
+    ...frame,
+    notComparable,
+    signals: measured.map(({ probe, head }) => ({ name: probe.name, unit: probe.unit, head })),
+  });
+  if (base.bytes < MIN_COMPARABLE_BUNDLE_BYTES) {
+    const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
+    return headOnly(`its bundle is ${bytes(base.bytes)}, under the ${floor}-byte floor`);
+  }
+  try {
+    return {
+      ...frame,
+      signals: measured.map(({ probe, head }) =>
+        judge({
+          name: probe.name,
+          unit: probe.unit,
+          gate: probe.gate,
+          base: probe.measure(base),
+          head,
+        }),
+      ),
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return headOnly(`timing its bundle failed: ${reason}`);
+  }
 }
 
 const percent = (ratio: number): string =>
   `${ratio * 100 >= 0 ? "+" : ""}${(ratio * 100).toFixed(1)}%`;
 const short = (sha: string): string => sha.slice(0, 7);
 
-function quantity(value: number, unit: Signal["unit"]): string {
-  return unit === "ms" ? `${value.toFixed(1)} ms` : `${value.toLocaleString("en-US")} bytes`;
+function quantity(value: number, unit: Unit): string {
+  return unit === "ms" ? `${value.toFixed(1)} ms` : bytes(value);
 }
 
 export function renderMarkdown(report: Report): string {
-  const lines = [
-    "## Latency and bundle size",
-    "",
-    `Head \`${short(report.head.sha)}\` against base \`${short(report.base.sha)}\` (\`${report.base.ref}\`): ` +
-      `median of ${report.runs} cold starts each, both bundles built and timed on this runner.`,
-    "",
-    "| signal | base | head | delta | status |",
-    "|---|---|---|---|---|",
-  ];
-  for (const s of report.signals) {
-    const status = s.status === "fail" ? "FAIL" : s.status;
+  const against = `Head \`${short(report.head.sha)}\` against base \`${short(report.base.sha)}\` (\`${report.base.ref}\`)`;
+  const lines = ["## Latency and bundle size", ""];
+  if ("notComparable" in report) {
     lines.push(
-      `| ${s.name} | ${quantity(s.base, s.unit)} | ${quantity(s.head, s.unit)} | ${percent(s.ratio)} | ${status} |`,
+      `${against}: median of ${report.runs} cold starts of the head, built and timed on this runner.`,
+    );
+  } else {
+    lines.push(
+      `${against}: median of ${report.runs} cold starts each, both bundles built and timed on this runner.`,
     );
   }
-  const failures = report.signals.filter((s) => s.status === "fail");
-  const limit = `${FAIL_RATIO * 100}%`;
-  const verdict =
-    failures.length === 0
-      ? `Verdict: pass. A regression past ${limit} fails the job on a signal marked fail; past ${WARN_RATIO * 100}% it warns.`
-      : `Verdict: FAIL. ${failures.map((s) => `${s.name} regressed ${percent(s.ratio)} (limit ${limit})`).join("; ")}.`;
-  lines.push("", verdict, "");
+  lines.push("", "| signal | base | head | delta | status |", "|---|---|---|---|---|");
+  if ("notComparable" in report) {
+    for (const s of report.signals) {
+      lines.push(`| ${s.name} | n/a | ${quantity(s.head, s.unit)} | n/a | skip |`);
+    }
+    lines.push(
+      "",
+      `Verdict: skip. Base \`${short(report.base.sha)}\` is not comparable (${report.notComparable}); deltas not judged.`,
+      "",
+    );
+  } else {
+    for (const s of report.signals) {
+      const status = s.status === "fail" ? "FAIL" : s.status;
+      lines.push(
+        `| ${s.name} | ${quantity(s.base, s.unit)} | ${quantity(s.head, s.unit)} | ${percent(s.ratio)} | ${status} |`,
+      );
+    }
+    const failures = report.signals.filter((s) => s.status === "fail");
+    const limit = `${FAIL_RATIO * 100}%`;
+    const line =
+      failures.length === 0
+        ? `Verdict: pass. A regression past ${limit} fails the job on a signal marked fail; past ${WARN_RATIO * 100}% it warns.`
+        : `Verdict: FAIL. ${failures.map((s) => `${s.name} regressed ${percent(s.ratio)} (limit ${limit})`).join("; ")}.`;
+    lines.push("", line, "");
+  }
   lines.push(
     `Commands timed: ${report.commands.map((argv) => `\`${argv.join(" ")}\``).join(", ")}.`,
   );
@@ -141,7 +237,7 @@ export function renderMarkdown(report: Report): string {
 }
 
 export function renderJson(report: Report): string {
-  return `${JSON.stringify({ ...report, verdict: failed(report.signals) ? "fail" : "pass" })}\n`;
+  return `${JSON.stringify({ ...report, verdict: verdict(report) })}\n`;
 }
 
 function run(command: string[], cwd: string): void {
@@ -171,18 +267,6 @@ function git(args: string[]): string {
   return proc.stdout.toString().trim();
 }
 
-interface Bundle {
-  path: string;
-  bytes: number;
-}
-
-function build(root: string, outDir: string): Bundle {
-  const path = join(outDir, "cli.js");
-  const sizeJson = join(outDir, "size.json");
-  run(["bun", join(root, "scripts", "build.ts"), "--outfile", path, "--size-json", sizeJson], root);
-  return { path, bytes: readPositiveNumber(sizeJson, "bytes") };
-}
-
 function medianMs(bundle: string, argv: string[], runs: number, json: string): number {
   const bench = join(repoRoot, "scripts", "bench.ts");
   run(
@@ -192,40 +276,28 @@ function medianMs(bundle: string, argv: string[], runs: number, json: string): n
   return readPositiveNumber(json, "medianMs");
 }
 
-function compare(options: Options, scratch: string, baseSha: string, headSha: string): Report {
+function build(root: string, label: "base" | "head", runs: number, scratch: string): Side {
+  const outDir = join(scratch, `${label}-dist`);
+  const bundle = join(outDir, "cli.js");
+  const sizeJson = join(outDir, "size.json");
+  run(
+    ["bun", join(root, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
+    root,
+  );
+  return {
+    bytes: readPositiveNumber(sizeJson, "bytes"),
+    medianMs: (argv, index) =>
+      medianMs(bundle, argv, runs, join(scratch, `${label}-${index}.json`)),
+  };
+}
+
+function buildBase(options: Options, scratch: string, baseSha: string): Side {
   const baseRoot = join(scratch, "base");
   git(["worktree", "add", "--detach", baseRoot, baseSha]);
   if (!existsSync(join(baseRoot, "scripts", "build.ts")))
     throw new Error(`base ${options.base} (${short(baseSha)}) has no scripts/build.ts to build`);
   run(["bun", "install", "--frozen-lockfile"], baseRoot);
-  const base = build(baseRoot, join(scratch, "base-dist"));
-  const head = build(repoRoot, join(scratch, "head-dist"));
-
-  const signals: Judged[] = TIMED_PATHS.map((timed, index) =>
-    judge({
-      name: timed.name,
-      unit: "ms",
-      gate: timed.gate,
-      base: medianMs(base.path, timed.argv, options.runs, join(scratch, `base-${index}.json`)),
-      head: medianMs(head.path, timed.argv, options.runs, join(scratch, `head-${index}.json`)),
-    }),
-  );
-  signals.push(
-    judge({
-      name: "bundle size",
-      unit: "bytes",
-      gate: "fail",
-      base: base.bytes,
-      head: head.bytes,
-    }),
-  );
-  return {
-    base: { ref: options.base, sha: baseSha },
-    head: { sha: headSha },
-    runs: options.runs,
-    commands: TIMED_PATHS.map((timed) => ["node", "dist/cli.js", ...timed.argv]),
-    signals,
-  };
+  return build(baseRoot, "base", options.runs, scratch);
 }
 
 function main(): number {
@@ -234,7 +306,18 @@ function main(): number {
   const baseSha = git(["rev-parse", "--verify", `${options.base}^{commit}`]);
   const scratch = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "maxims-bench-ci-"));
   try {
-    const report = compare(options, scratch, baseSha, headSha);
+    const base = buildBase(options, scratch, baseSha);
+    const head = build(repoRoot, "head", options.runs, scratch);
+    const report = compare(
+      {
+        base: { ref: options.base, sha: baseSha },
+        head: { sha: headSha },
+        runs: options.runs,
+        commands: TIMED_PATHS.map((timed) => ["node", "dist/cli.js", ...timed.argv]),
+      },
+      base,
+      head,
+    );
     const markdown = renderMarkdown(report);
     if (options.out !== undefined) {
       mkdirSync(options.out, { recursive: true });
@@ -242,7 +325,7 @@ function main(): number {
       writeFileSync(join(options.out, "report.json"), renderJson(report));
     }
     process.stdout.write(markdown);
-    return failed(report.signals) ? 1 : 0;
+    return verdict(report) === "fail" ? 1 : 0;
   } finally {
     // Deleting the scratch tree and pruning covers a worktree add that registered the checkout
     // and then failed (a post-checkout hook, for one), which a remove keyed on success would miss.

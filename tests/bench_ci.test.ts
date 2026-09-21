@@ -1,21 +1,26 @@
 // Fails if the CI latency verdict drifts from the gates the architecture fixes: a regression past
 // 25% on the hook path or the bundle must fail the job, the same regression on the interactive
-// path must only warn, and exactly the threshold is not past it. Also fails if the report that
-// becomes the PR comment changes shape or figures silently, or if measured data can be written
-// inside the repository, where a commit would publish one machine's timings, including through a
-// symlink or a /proc alias whose lexical path lies outside the checkout.
+// path must only warn, and exactly the threshold is not past it. Fails if a base that is no CLI (a
+// version-only stub bundle, or one whose bench run dies) is judged instead of skipped: the first
+// real bundle after a stub read a six-figure percentage on size and blocked the merge. Also fails
+// if the report that becomes the PR comment changes shape or figures silently, or if measured data
+// can be written inside the repository, where a commit would publish one machine's timings,
+// including through a symlink or a /proc alias whose lexical path lies outside the checkout.
 import { expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
-  failed,
+  compare,
   type Judged,
   judge,
+  MIN_COMPARABLE_BUNDLE_BYTES,
   type Report,
   renderJson,
   renderMarkdown,
+  type Side,
   type Signal,
+  verdict,
 } from "../scripts/bench_ci.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -45,6 +50,174 @@ const verdicts: [Signal, Pick<Judged, "ratio" | "status">][] = [
 test.each(verdicts)("judge(%p) yields %p", (signal, expected) => {
   expect(judge(signal)).toEqual({ ...signal, ...expected });
 });
+
+const BASE_SHA = "abcdef0123456789abcdef0123456789abcdef01";
+const HEAD_SHA = "89abcdef0123456789abcdef0123456789abcdef";
+const COMMANDS = [
+  ["node", "dist/cli.js", "sync", "--quiet"],
+  ["node", "dist/cli.js", "add", "@example/repo", "--list", "--no-fetch"],
+];
+const frame = {
+  base: { ref: "origin/main", sha: BASE_SHA },
+  head: { sha: HEAD_SHA },
+  runs: 10,
+  commands: COMMANDS,
+};
+
+const timings =
+  (syncMs: number, addMs: number): Side["medianMs"] =>
+  (argv) =>
+    argv[0] === "sync" ? syncMs : addMs;
+const dies =
+  (message: string): Side["medianMs"] =>
+  () => {
+    throw new Error(message);
+  };
+const realHead: Side = { bytes: 1200000, medianMs: timings(130, 210) };
+
+const headOnly = (notComparable: string, head: Side, bundleBytes: number): Report => ({
+  ...frame,
+  notComparable,
+  signals: [
+    { name: "sync --quiet", unit: "ms", head: head.medianMs(["sync"], 0) },
+    { name: "add --list", unit: "ms", head: head.medianMs(["add"], 1) },
+    { name: "bundle size", unit: "bytes", head: bundleBytes },
+  ],
+});
+
+// A base under the floor is never timed: its timing function dies, and the report must not carry
+// that death as the reason. A base whose bench run dies is skipped for that reason, and the head
+// is measured in full on both. The base at the floor is compared.
+const comparisons: [string, Side, Side, Report, "pass" | "fail" | "skip"][] = [
+  [
+    "a version-only stub as base",
+    { bytes: 160, medianMs: dies("the base was timed") },
+    realHead,
+    headOnly("its bundle is 160 bytes, under the 16,384-byte floor", realHead, 1200000),
+    "skip",
+  ],
+  [
+    "a base one byte under the floor",
+    { bytes: MIN_COMPARABLE_BUNDLE_BYTES - 1, medianMs: dies("the base was timed") },
+    realHead,
+    headOnly("its bundle is 16,383 bytes, under the 16,384-byte floor", realHead, 1200000),
+    "skip",
+  ],
+  [
+    "a base whose bench run dies",
+    { bytes: 1000000, medianMs: dies("node cli.js sync --quiet exited with code 1") },
+    realHead,
+    headOnly(
+      "timing its bundle failed: node cli.js sync --quiet exited with code 1",
+      realHead,
+      1200000,
+    ),
+    "skip",
+  ],
+  [
+    "a base at the floor",
+    { bytes: MIN_COMPARABLE_BUNDLE_BYTES, medianMs: timings(100, 200) },
+    { bytes: 20480, medianMs: timings(130, 210) },
+    {
+      ...frame,
+      signals: [
+        {
+          name: "sync --quiet",
+          unit: "ms",
+          gate: "fail",
+          base: 100,
+          head: 130,
+          ratio: 0.3,
+          status: "fail",
+        },
+        {
+          name: "add --list",
+          unit: "ms",
+          gate: "warn",
+          base: 200,
+          head: 210,
+          ratio: 0.05,
+          status: "ok",
+        },
+        {
+          name: "bundle size",
+          unit: "bytes",
+          gate: "fail",
+          base: 16384,
+          head: 20480,
+          ratio: 0.25,
+          status: "warn",
+        },
+      ],
+    },
+    "fail",
+  ],
+  [
+    "two real bundles",
+    { bytes: 1250000, medianMs: timings(40, 80) },
+    { bytes: 1200000, medianMs: timings(42.4, 104) },
+    {
+      ...frame,
+      signals: [
+        {
+          name: "sync --quiet",
+          unit: "ms",
+          gate: "fail",
+          base: 40,
+          head: 42.4,
+          ratio: 0.06,
+          status: "ok",
+        },
+        {
+          name: "add --list",
+          unit: "ms",
+          gate: "warn",
+          base: 80,
+          head: 104,
+          ratio: 0.3,
+          status: "warn",
+        },
+        {
+          name: "bundle size",
+          unit: "bytes",
+          gate: "fail",
+          base: 1250000,
+          head: 1200000,
+          ratio: -0.04,
+          status: "ok",
+        },
+      ],
+    },
+    "pass",
+  ],
+];
+
+test.each(comparisons)("compare with %s", (_name, base, head, report, expected) => {
+  const actual = compare(frame, base, head);
+  expect(actual).toEqual(report);
+  expect(verdict(actual)).toBe(expected);
+});
+
+// A head that cannot be timed is the run's own failure whatever the base is; only the base's
+// timing is caught into a skip.
+const headDies: [string, Side][] = [
+  ["a version-only stub", { bytes: 160, medianMs: dies("the base was timed") }],
+  ["a real bundle", { bytes: 1250000, medianMs: timings(40, 80) }],
+];
+
+test.each(headDies)("compare against %s propagates a head timing failure", (_name, base) => {
+  const head: Side = {
+    bytes: 1200000,
+    medianMs: dies("node cli.js sync --quiet exited with code 1"),
+  };
+  expect(() => compare(frame, base, head)).toThrow("node cli.js sync --quiet exited with code 1");
+});
+
+const skipped: Report = headOnly(
+  "its bundle is 160 bytes, under the 16,384-byte floor",
+  realHead,
+  1200000,
+);
 
 const passing: Report = {
   base: { ref: "origin/main", sha: "0123456789abcdef0123456789abcdef01234567" },
@@ -126,11 +299,11 @@ const failing: Report = {
 
 // The JSON line is pinned byte for byte: a parse-and-compare would let key order, whitespace, or a
 // stray prefix drift under it.
-const reports: [string, Report, boolean, string, string][] = [
+const reports: [string, Report, "pass" | "fail" | "skip", string, string][] = [
   [
     "a passing report with a warning on the interactive path",
     passing,
-    false,
+    "pass",
     [
       "## Latency and bundle size",
       "",
@@ -162,7 +335,7 @@ const reports: [string, Report, boolean, string, string][] = [
   [
     "a failing report naming every failed signal",
     failing,
-    true,
+    "fail",
     [
       "## Latency and bundle size",
       "",
@@ -191,12 +364,45 @@ const reports: [string, Report, boolean, string, string][] = [
       '],"verdict":"fail"}\n',
     ].join(""),
   ],
+  [
+    "a report whose base is a stub, with the head's figures and no deltas",
+    skipped,
+    "skip",
+    [
+      "## Latency and bundle size",
+      "",
+      "Head `89abcde` against base `abcdef0` (`origin/main`): median of 10 cold starts of the head, built and timed on this runner.",
+      "",
+      "| signal | base | head | delta | status |",
+      "|---|---|---|---|---|",
+      "| sync --quiet | n/a | 130.0 ms | n/a | skip |",
+      "| add --list | n/a | 210.0 ms | n/a | skip |",
+      "| bundle size | n/a | 1,200,000 bytes | n/a | skip |",
+      "",
+      "Verdict: skip. Base `abcdef0` is not comparable (its bundle is 160 bytes, under the 16,384-byte floor); deltas not judged.",
+      "",
+      "Commands timed: `node dist/cli.js sync --quiet`, `node dist/cli.js add @example/repo --list --no-fetch`.",
+      "",
+    ].join("\n"),
+    [
+      '{"base":{"ref":"origin/main","sha":"abcdef0123456789abcdef0123456789abcdef01"},',
+      '"head":{"sha":"89abcdef0123456789abcdef0123456789abcdef"},"runs":10,',
+      '"commands":[["node","dist/cli.js","sync","--quiet"],',
+      '["node","dist/cli.js","add","@example/repo","--list","--no-fetch"]],',
+      '"notComparable":"its bundle is 160 bytes, under the 16,384-byte floor",',
+      '"signals":[',
+      '{"name":"sync --quiet","unit":"ms","head":130},',
+      '{"name":"add --list","unit":"ms","head":210},',
+      '{"name":"bundle size","unit":"bytes","head":1200000}',
+      '],"verdict":"skip"}\n',
+    ].join(""),
+  ],
 ];
 
 test.each(reports)(
   "%s renders the comment markdown and one JSON line",
-  (_name, report, fails, markdown, json) => {
-    expect(failed(report.signals)).toBe(fails);
+  (_name, report, expected, markdown, json) => {
+    expect(verdict(report)).toBe(expected);
     expect(renderMarkdown(report)).toBe(markdown);
     expect(renderJson(report)).toBe(json);
   },
