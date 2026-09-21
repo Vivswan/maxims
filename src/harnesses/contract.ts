@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { ContentHash } from "../memory/contract.ts";
@@ -27,7 +27,9 @@ export type AchievedTier = { tier: 1 | 2; unreadable: null } | { tier: 2; unread
 // `bodiesDir` and `tierCheck.path` return ABSOLUTE paths.
 // `precedence` lists, in the harness's own order, the files of which it reads only the first
 // that exists (Zed reads `.rules` and ignores `AGENTS.md` beside it); `file` is the one created
-// when none exists and must appear in the list. `sharedBlockFile` is the one resolver.
+// when none exists and must appear in the list. `skipsEmpty` marks a harness that passes over a
+// file in that list whose trimmed content is empty (Codex's home loader), so the block never fills
+// a blank file whose filling would silence the next one. `sharedBlockFile` is the one resolver.
 export type Target =
   | {
       kind: "rules-dir";
@@ -35,14 +37,23 @@ export type Target =
       fileName: (sourceSlug: string) => string;
       frontmatter?: (opts: { paths?: string[] }) => string;
     }
-  | { kind: "shared-block"; file: string; precedence?: string[] };
+  | { kind: "shared-block"; file: string; precedence?: string[]; skipsEmpty?: true };
 
 export type SharedBlockTarget = Extract<Target, { kind: "shared-block" }>;
+
+// Blank as Codex judges it: Rust's `str::trim` strips the Unicode White_Space set, which differs
+// from JavaScript's `trim` on two characters. A byte order mark (U+FEFF) is whitespace only to
+// JavaScript, so a BOM-only file is a file Codex reads; U+0085 is whitespace only to Rust.
+const WHITE_SPACE_ONLY =
+  /^[\t\n\v\f\r \u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
 
 // A directory named in the list (Cline's `.clinerules/`) holds no block and is skipped.
 export function sharedBlockFile(target: SharedBlockTarget, root: string): string {
   for (const name of target.precedence ?? []) {
-    if (statSync(join(root, name), { throwIfNoEntry: false })?.isFile()) return name;
+    const path = join(root, name);
+    if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue;
+    if (target.skipsEmpty === undefined || !WHITE_SPACE_ONLY.test(readFileSync(path, "utf8")))
+      return name;
   }
   return target.file;
 }

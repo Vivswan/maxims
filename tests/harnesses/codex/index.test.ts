@@ -12,7 +12,9 @@ import { codex } from "../../../src/harnesses/codex/index.ts";
 import {
   type AchievedTier,
   type HarnessContext,
+  type Scope,
   scopeRoot,
+  sharedBlockFile,
 } from "../../../src/harnesses/contract.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
@@ -234,3 +236,39 @@ test("a fresh project hooks.json receives the grouped async SessionStart entry",
     },
   ]);
 });
+
+// Codex's home loader reads the first of AGENTS.override.md and AGENTS.md whose trimmed content is
+// not empty, so a blank override beside the user's AGENTS.md must not receive the block: filled, it
+// would become the one file Codex reads and the user's AGENTS.md would stop loading. Its project
+// loader takes the first of the two that exists and drops a blank one without falling back to
+// AGENTS.md, so there a blank override is the only file Codex would ever read and the block
+// belongs in it. Blank is what Rust's trim leaves empty: a zero-byte file, a newline, a U+0085
+// (whitespace to Rust, not to JavaScript); a lone byte order mark is content to Codex.
+const blankOverrideRows: [Scope, string][] = [
+  ["project", "AGENTS.override.md"],
+  ["global", "AGENTS.md"],
+];
+
+test.each(blankOverrideRows)(
+  "the %s block follows Codex's own loader: a blank AGENTS.override.md sends it to %s",
+  async (scope, blankOverrideTarget) => {
+    const target = codex.targets[scope];
+    if (target?.kind !== "shared-block") throw new Error("expected a shared block");
+    await withTempDir((dir) => {
+      const override = join(dir, "AGENTS.override.md");
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.md");
+      writeFileSync(override, "");
+      expect(sharedBlockFile(target, dir)).toBe(blankOverrideTarget);
+      writeFileSync(override, "\n");
+      expect(sharedBlockFile(target, dir)).toBe(blankOverrideTarget);
+      writeFileSync(override, "\u0085");
+      expect(sharedBlockFile(target, dir)).toBe(blankOverrideTarget);
+      writeFileSync(join(dir, "AGENTS.md"), "# agents\n");
+      expect(sharedBlockFile(target, dir)).toBe(blankOverrideTarget);
+      writeFileSync(override, "\uFEFF");
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
+      writeFileSync(override, "# override\n");
+      expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
+    });
+  },
+);

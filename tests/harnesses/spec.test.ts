@@ -1,8 +1,9 @@
 // Guards the refusals the schema owes a hand-written harnesses.json or a new built-in folder: an
 // unknown or misspelled key, a path that would escape its root, a template that could never run
-// the hook, a file name the slug cannot reach, and a precedence list that omits its own default
-// would each compile into a definition that writes to the wrong place or writes nothing, and the
-// refusal must name the field so the author can find it.
+// the hook, a file name the slug cannot reach, a precedence list that omits its own default, and
+// an empty-file rule with no list to apply it to would each compile into a definition that writes
+// to the wrong place or writes nothing, and the refusal must name the field so the author can find
+// it.
 import { expect, test } from "bun:test";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
 
@@ -96,6 +97,11 @@ const refusals: [string, Mutation, string][] = [
     "a precedence list that omits the default file",
     at(["targets", "global", "precedence"], ["RULES.md"]),
     "targets.global.precedence: must include the default file AGENTS.md",
+  ],
+  [
+    "skipsEmpty on a shared block with no precedence list",
+    at(["targets", "global"], { kind: "shared-block", file: "AGENTS.md", skipsEmpty: true }),
+    "targets.global.skipsEmpty: only a precedence list has empty files to skip",
   ],
   [
     "a scoped frontmatter whose paths key already holds a value",

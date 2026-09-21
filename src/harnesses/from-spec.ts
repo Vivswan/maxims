@@ -127,9 +127,12 @@ function compileGlobalRoot(root: GlobalRootSpec): (ctx: HarnessContext) => strin
 function compileTarget(target: TargetSpec | null, displayName: string): Target | null {
   if (target === null) return null;
   if (target.kind === "shared-block") {
-    return target.precedence === undefined
-      ? { kind: "shared-block", file: target.file }
-      : { kind: "shared-block", file: target.file, precedence: [...target.precedence] };
+    return {
+      kind: "shared-block",
+      file: target.file,
+      ...(target.precedence === undefined ? {} : { precedence: [...target.precedence] }),
+      ...(target.skipsEmpty === undefined ? {} : { skipsEmpty: target.skipsEmpty }),
+    };
   }
   const frontmatter = target.frontmatter;
   return {

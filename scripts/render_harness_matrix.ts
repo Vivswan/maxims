@@ -48,8 +48,9 @@ function renderTarget(def: HarnessDefinition, scope: Scope): string {
     return code(display(join(root, target.dir, target.fileName(SOURCE_PLACEHOLDER))));
   }
   const fallbacks = target.precedence?.map((name) => code(display(join(root, name)))) ?? [];
+  const first = target.skipsEmpty === undefined ? "first existing" : "first non-empty";
   const written =
-    fallbacks.length === 0 ? "" : `, written into the first existing of ${fallbacks.join(", ")}`;
+    fallbacks.length === 0 ? "" : `, written into the ${first} of ${fallbacks.join(", ")}`;
   return `${code(display(join(root, target.file)))} block${written}`;
 }
 

@@ -160,15 +160,24 @@ const SharedBlockTarget = z
     kind: z.literal("shared-block"),
     file: RelPath,
     precedence: z.array(RelPath).min(1).optional(),
+    skipsEmpty: z.literal(true).optional(),
   })
   .check((ctx) => {
-    const { file, precedence } = ctx.value;
+    const { file, precedence, skipsEmpty } = ctx.value;
     if (precedence !== undefined && !precedence.includes(file)) {
       ctx.issues.push({
         code: "custom",
         input: precedence,
         path: ["precedence"],
         message: `must include the default file ${file}`,
+      });
+    }
+    if (skipsEmpty !== undefined && precedence === undefined) {
+      ctx.issues.push({
+        code: "custom",
+        input: skipsEmpty,
+        path: ["skipsEmpty"],
+        message: "only a precedence list has empty files to skip",
       });
     }
   });
