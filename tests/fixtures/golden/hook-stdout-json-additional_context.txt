@@ -1,1 +1,1 @@
-{"additional_context":"maxims: <SOURCE> offline, kept last-good from 2026-01-01 (4 rules); source repository gone or unreadable"}
+{"additional_context":"maxims: <SOURCE> has not refreshed since 2026-01-01 (source repository gone or unreadable); rules may be out of date"}

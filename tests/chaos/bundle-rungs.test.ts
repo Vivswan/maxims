@@ -482,9 +482,13 @@ row.each(zeroValidRows)(
       // A hook run speaks bare lines in its harness's protocol; an interactive run draws the frame.
       const glyph = quiet ? "" : "!  ";
       const lines = result.stdout.split("\n");
-      expect(lines.filter((line) => line.includes("no valid memories"))).toEqual([
-        `${glyph}maxims: ${key}: no valid memories at memories (layout probably changed upstream); kept last-good`,
-      ]);
+      const stale = lines.filter((line) => line.includes("has not refreshed since"));
+      expect(stale).toHaveLength(1);
+      expect(stale[0]).toMatch(
+        new RegExp(
+          `^${glyph}maxims: ${key} has not refreshed since \\d{4}-\\d{2}-\\d{2} \\(source content invalid\\); rules may be out of date$`,
+        ),
+      );
       expect(lines.filter((line) => line.includes("skipped memories/README.md"))).toEqual(
         quiet
           ? []

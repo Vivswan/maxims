@@ -273,7 +273,7 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
     );
     const since = lastSuccess.slice(0, "2026-01-01".length);
     expect(run.stdout).toBe(
-      `maxims: ${installed.source} offline, kept last-good from ${since} (1 rules); source repository gone or unreadable\n` +
+      `maxims: ${installed.source} has not refreshed since ${since} (source repository gone or unreadable); rules may be out of date\n` +
         "maxims: rules refreshed (2 files updated)\n",
     );
     const ruleAfter = readFileSync(installed.ruleFile, "utf8");

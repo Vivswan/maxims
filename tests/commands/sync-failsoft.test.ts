@@ -105,7 +105,7 @@ describe("fail-soft rungs under --quiet", () => {
     {
       kind: "missing",
       stdout:
-        /^maxims: @acme\/rules offline, kept last-good from 2026-09-20 \(2 rules\); source repository gone or unreadable\nmaxims: rules refreshed \(1 file updated\)\n$/,
+        /^maxims: @acme\/rules has not refreshed since 2026-09-20 \(source repository gone or unreadable\); rules may be out of date\nmaxims: rules refreshed \(1 file updated\)\n$/,
       staleAtOnce: true,
     },
   ];
@@ -151,14 +151,14 @@ describe("fail-soft rungs under --quiet", () => {
       io.out.length = 0;
       await runSync({ ...QUIET, dryRun: true }, io);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY} offline, kept last-good from 2026-09-20 (2 rules); source repository gone or unreadable\n` +
+        `maxims: ${KEY} has not refreshed since 2026-09-20 (source repository gone or unreadable); rules may be out of date\n` +
           "maxims: rules would be refreshed (1 file to update)\n",
       );
       expect(readFileSync(rules, "utf8")).toBe(before);
     });
   });
 
-  test("a fetch with zero valid memories keeps the block and says the layout changed", async () => {
+  test("a fetch with zero valid memories keeps the block and marks it stale at once", async () => {
     await world(async (w) => {
       const { fake, io, rules } = await lastGood(w, 9);
       await runSync(SYNC, io);
@@ -175,11 +175,15 @@ describe("fail-soft rungs under --quiet", () => {
       expect(staleLines(after)).toHaveLength(1);
       expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY}: no valid memories at memories (layout probably changed upstream); kept last-good\n` +
+        `maxims: ${KEY} has not refreshed since 2026-09-20 (source content invalid); rules may be out of date\n` +
           "maxims: rules refreshed (1 file updated)\n",
       );
       expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
         true,
+      );
+      // The reason itself stays off stdout and in the log and the fetch record.
+      expect(logText(w.home)).toContain(
+        `${KEY}: fetch failed (invalid): no valid memories at memories (layout probably changed upstream)`,
       );
     });
   });
@@ -197,12 +201,15 @@ describe("fail-soft rungs under --quiet", () => {
       expect(staleLines(after)).toHaveLength(1);
       expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY}: the source reported an unusable commit id "sha256:${"d".repeat(64)}"; kept last-good\n` +
+        `maxims: ${KEY} has not refreshed since 2026-09-20 (source content invalid); rules may be out of date\n` +
           "maxims: rules refreshed (1 file updated)\n",
       );
       const entry = readStateFile(w.home).sources[KEY];
       const lastError = entry !== undefined && "fetched" in entry ? entry.fetched?.lastError : null;
       expect(lastError?.kind).toBe("invalid");
+      expect(lastError?.message).toBe(
+        `the source reported an unusable commit id "sha256:${"d".repeat(64)}"`,
+      );
     });
   });
 
@@ -397,9 +404,7 @@ describe("staleness", () => {
         const text = readFileSync(rules, "utf8");
         expect(text.includes("have not refreshed since")).toBe(stale);
         expect(text.includes(SELF_REFRESH)).toBe(false);
-        const loudLines = report.notices.filter((line) =>
-          /offline|has not refreshed since|kept last-good/.test(line),
-        );
+        const loudLines = report.notices.filter((line) => /has not refreshed since/.test(line));
         expect(loudLines.length).toBe(loud ? 1 : 0);
       });
     });
@@ -802,7 +807,7 @@ describe("hook stdin contract", () => {
         io.stdin = text;
         await runSync({ ...QUIET, fetch: "none" }, io);
         const line =
-          "maxims: @acme/rules offline, kept last-good from 2026-09-18 (2 rules); source repository gone or unreadable";
+          "maxims: @acme/rules has not refreshed since 2026-09-18 (source repository gone or unreadable); rules may be out of date";
         const variant =
           def.hook.kind === "registry" || def.hook.kind === "file" ? def.hook.stdout : null;
         expect(io.out.join("")).toBe(renderHookStdout(variant, [line]));
@@ -827,10 +832,10 @@ describe("hook stdin contract", () => {
       io.stdin = JSON.stringify({ someHarness: true });
       await runSync({ ...QUIET, fetch: "none" }, io);
       expect(io.out.join("")).toBe("");
-      expect(logText(w.home)).toContain("offline, kept last-good");
+      expect(logText(w.home)).toContain("has not refreshed since");
       const tty = fakeIo({ ...w, cwd: w.dir, now: new Date(NOW.getTime() + 240_000) });
       await runSync({ ...QUIET, fetch: "none" }, tty);
-      expect(tty.out.join("")).toMatch(/^maxims: @acme\/rules offline, kept last-good/);
+      expect(tty.out.join("")).toMatch(/^maxims: @acme\/rules has not refreshed since/);
     });
   });
 });

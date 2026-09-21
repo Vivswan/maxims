@@ -405,7 +405,7 @@ async function planInstall(
       notices.notice(`maxims: ${key}: ${selection.hiddenInternal} internal, hidden`);
     }
     for (const memory of work.tree.memories) knownCopies.add(memory.memory.contentHash);
-    staleNotices(work, selection.selected.length, notices);
+    staleNotices(work, notices);
     const slug = sourceSlug(intent.from);
     const resolved =
       work.scopeKind === "out"
@@ -1209,22 +1209,13 @@ export function staleness(fetched: Fetched | undefined, now: Date): Staleness | 
   return undefined;
 }
 
-function staleNotices(work: SourceWork, ruleCount: number, notices: Notices): void {
-  const fetched = isFetchedEntry(work.entry) ? work.entry.fetched : undefined;
-  if (fetched === undefined || fetched.lastError === null) return;
-  const since = fetched.at.slice(0, "2026-01-01".length);
-  const { kind } = fetched.lastError;
-  if (kind === "missing") {
-    notices.loud(
-      `maxims: ${work.key} offline, kept last-good from ${since} (${ruleCount} rules); source repository gone or unreadable`,
-    );
-  } else if (kind === "invalid") {
-    notices.loud(`maxims: ${work.key}: ${fetched.lastError.message}; kept last-good`);
-  } else if (work.stale !== undefined) {
-    notices.loud(
-      `maxims: ${work.key} has not refreshed since ${since} (${STALE_REASON[kind]}); rules may be out of date`,
-    );
-  }
+// The one line a session hears about a stale source, in the shape the rule-file line takes.
+function staleNotices(work: SourceWork, notices: Notices): void {
+  if (work.stale === undefined) return;
+  const since = work.stale.since.slice(0, "2026-01-01".length);
+  notices.loud(
+    `maxims: ${work.key} has not refreshed since ${since} (${STALE_REASON[work.stale.kind]}); rules may be out of date`,
+  );
 }
 
 // `id` is the directory's real path, the identity two spellings of one folder share.
