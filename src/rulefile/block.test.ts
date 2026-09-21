@@ -974,6 +974,16 @@ describe("replaceBlock and stripBlock", () => {
       `# Mine\r\n${BLOCK}`,
       { text: "# Mine\r\n", emptied: false },
     ],
+    ["a block after CR then CRLF", `# Mine\r\r\n${BLOCK}`, { text: "# Mine\r", emptied: false }],
+    ["a block after LF then CR", `# Mine\n\r${BLOCK}`, { text: "# Mine\n", emptied: false }],
+    ["a block after CRLF then LF", `# Mine\r\n\n${BLOCK}`, { text: "# Mine\r\n", emptied: false }],
+    ["a block after LF then CRLF", `# Mine\n\r\n${BLOCK}`, { text: "# Mine\n", emptied: false }],
+    ["a block after nothing but CRLF endings", `\r\n\r\n${BLOCK}`, { text: "\r\n", emptied: true }],
+    [
+      "a block after a CRLF run that text ends, which leaves one trailing ending",
+      `\r\n\r\n\r\nnotes\n${BLOCK}`,
+      { text: "\r\n\r\n\r\nnotes\n", emptied: false },
+    ],
     ["a block between user texts", `a\n\n${BLOCK}\nb\n`, { text: "a\n\nb\n", emptied: false }],
     ["a block glued to user text", `a\n\n${BLOCK}b\n`, { text: "a\n\nb\n", emptied: false }],
     ["a block beside another source's", `${OTHER}\n${BLOCK}`, { text: OTHER, emptied: false }],
@@ -988,6 +998,18 @@ describe("replaceBlock and stripBlock", () => {
   ];
   test.each(strips)("stripping %s", (_label, text, expected) => {
     expect(stripBlock(text, SOURCE)).toEqual(expected);
+  });
+
+  // The gap's trailing endings were once read by a regex anchored at the end, which backtracks
+  // over every way to split a CRLF run when text follows it: a session-start hook removing a
+  // block behind such a run took time exponential in the run's length.
+  test("a removal behind a long CRLF run finishes in linear time", () => {
+    const run = "\r\n".repeat(40);
+    const started = performance.now();
+    const stripped = stripBlock(`${BLOCK}${run}notes\n${OTHER}`, SOURCE);
+    const elapsed = performance.now() - started;
+    expect(stripped).toEqual({ text: `${OTHER}${run}notes\n`, emptied: false });
+    expect(elapsed).toBeLessThan(50);
   });
 });
 

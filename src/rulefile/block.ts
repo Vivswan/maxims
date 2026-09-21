@@ -888,8 +888,11 @@ export function closerFor({ block, column }: OpenLeaf, ending: string): string {
 }
 
 // The blank line an append wrote is the last of two consecutive line endings before the block;
-// endings are read left to right so a CRLF is one ending, never a CR followed by an LF.
+// endings are read left to right so a CRLF is one ending, never a CR followed by an LF. The run is
+// found by walking back over code units: a regex anchored at the end backtracks over every way to
+// split a CRLF run when text follows it, and takes time exponential in the run's length.
 function trailingLineEndings(text: string): string[] {
-  const run = /(?:\r\n|\r|\n)+$/.exec(text);
-  return run === null ? [] : (run[0].match(/\r\n|\r|\n/g) ?? []);
+  let start = text.length;
+  while (start > 0 && (text[start - 1] === "\n" || text[start - 1] === "\r")) start -= 1;
+  return text.slice(start).match(/\r\n|\r|\n/g) ?? [];
 }
