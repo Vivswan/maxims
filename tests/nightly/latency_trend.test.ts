@@ -12,6 +12,7 @@ import {
   readTrend,
   runLatencyTrend,
 } from "../../scripts/nightly/latency_trend.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const NOW = new Date("2026-09-21T06:41:00Z");
@@ -136,7 +137,9 @@ describe("runLatencyTrend", () => {
     });
   });
 
-  test("a trend path under a regular file fails before measuring", async () => {
+  // Windows reports a path under a regular file as ENOENT, the same as an absent file, so the
+  // first-run branch is taken there.
+  test.skipIf(WINDOWS)("a trend path under a regular file fails before measuring", async () => {
     await withTempDir(async (dir) => {
       const file = join(dir, "not-a-dir");
       writeFileSync(file, "");

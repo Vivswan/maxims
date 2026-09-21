@@ -1,14 +1,16 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // Both helpers nest under the launcher's temp HOME rather than directly under tmpdir: the
 // launcher's signal handlers remove only that HOME, so a fixture placed beside it would outlive an
 // interrupted run, and a test that derives paths from HOME and one that reads MAXIMS_HOME agree on
-// the same sandbox.
-function launcherHome(): string {
+// the same sandbox. The HOME is resolved to its real path because the OS tmpdir it sits under is
+// a symlink on macOS (/var -> /private/var) and a short name on Windows (RUNNER~1), and a fixture
+// path the CLI resolves would otherwise never equal the one the test spelled.
+export function launcherHome(): string {
   const home = process.env.HOME;
   if (home === undefined) throw new Error("the test launcher must set HOME");
-  return home;
+  return realpathSync.native(home);
 }
 
 export async function withTempDir<T>(fn: (dir: string) => Promise<T> | T): Promise<T> {

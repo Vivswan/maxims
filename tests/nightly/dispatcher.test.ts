@@ -16,6 +16,7 @@ import {
 import { join, resolve } from "node:path";
 import { writeFailureReport, writeStepSummary } from "../../scripts/nightly/report.ts";
 import { CATEGORIES } from "../../scripts/nightly.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
@@ -150,36 +151,40 @@ test.each(refusals)("bun scripts/nightly.ts %p exits 2 with usage", (args, messa
 });
 
 // A PATH holding only bun and git: the dispatcher itself still runs, and live-network throws at
-// its first step because no node can run the bundle.
-test("a category that throws exits 1 and leaves its report with the error", async () => {
-  await withTempDir((dir) => {
-    const bin = join(dir, "bin");
-    mkdirSync(bin);
-    for (const tool of ["bun", "git"]) symlinkSync(Bun.which(tool) ?? "", join(bin, tool));
-    const reportDir = join(dir, "nightly-report");
-    const proc = Bun.spawnSync(
-      ["bun", "scripts/nightly.ts", "live-network", "--report-dir", reportDir],
-      {
-        cwd: repoRoot,
-        env: { ...process.env, PATH: bin, GITHUB_STEP_SUMMARY: "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    const report = readFileSync(join(reportDir, "live-network", "report.md"), "utf8");
-    expect({ exitCode: proc.exitCode, stderr: proc.stderr.toString() }).toEqual({
-      exitCode: 1,
-      stderr: "",
+// its first step because no node can run the bundle. On Windows the two are .exe files that need
+// their sibling DLLs, so a directory of two bare-name links is not a PATH they run from.
+test.skipIf(WINDOWS)(
+  "a category that throws exits 1 and leaves its report with the error",
+  async () => {
+    await withTempDir((dir) => {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      for (const tool of ["bun", "git"]) symlinkSync(Bun.which(tool) ?? "", join(bin, tool));
+      const reportDir = join(dir, "nightly-report");
+      const proc = Bun.spawnSync(
+        ["bun", "scripts/nightly.ts", "live-network", "--report-dir", reportDir],
+        {
+          cwd: repoRoot,
+          env: { ...process.env, PATH: bin, GITHUB_STEP_SUMMARY: "" },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const report = readFileSync(join(reportDir, "live-network", "report.md"), "utf8");
+      expect({ exitCode: proc.exitCode, stderr: proc.stderr.toString() }).toEqual({
+        exitCode: 1,
+        stderr: "",
+      });
+      expect(proc.stdout.toString()).toContain("nightly live-network: fail\n");
+      expect(report.split("\n").slice(0, 6)).toEqual([
+        "# Nightly live-network did not complete",
+        "",
+        "```sh",
+        "bun run nightly live-network",
+        "```",
+        "",
+      ]);
+      expect(report).toContain("Error: no node on PATH to run the bundle with");
     });
-    expect(proc.stdout.toString()).toContain("nightly live-network: fail\n");
-    expect(report.split("\n").slice(0, 6)).toEqual([
-      "# Nightly live-network did not complete",
-      "",
-      "```sh",
-      "bun run nightly live-network",
-      "```",
-      "",
-    ]);
-    expect(report).toContain("Error: no node on PATH to run the bundle with");
-  });
-});
+  },
+);

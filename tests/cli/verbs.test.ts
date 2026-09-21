@@ -26,6 +26,7 @@ import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/
 import { renderBlock } from "../../src/rulefile/block.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
+import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
@@ -201,7 +202,7 @@ test("init scaffolds a contract-valid file, refuses to overwrite, and needs a na
     ).toBe(true);
     const again = await runCli(scenario, ["init", "my-rule"]);
     expect(again.code).toBe(1);
-    expect(again.stderr).toBe(" ERROR  memories/my-rule.md already exists\n");
+    expect(again.stderr).toBe(` ERROR  ${join("memories", "my-rule.md")} already exists\n`);
     const nameless = await runCli(scenario, ["init"]);
     expect(nameless.code).toBe(1);
     expect(nameless.stderr).toContain("a memory name is required");
@@ -396,11 +397,11 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
     expect(run.stdout).toBe(
       [
         "memories:1: 3 memories is over the rule cap of 2",
-        "memories/good-rule.md:6: [[missing-target]] does not name a memory in this folder",
-        "memories/hidden-char.md:3: description carries U+200B zero-width character at column 6",
-        "memories/no-description.md:1: description is missing or empty",
-        "memories/third.md:3: shell-pipe: curl piped into sh at column 10",
-        "memories/third.md:3: url: x.example at column 15",
+        `${join("memories", "good-rule.md")}:6: [[missing-target]] does not name a memory in this folder`,
+        `${join("memories", "hidden-char.md")}:3: description carries U+200B zero-width character at column 6`,
+        `${join("memories", "no-description.md")}:1: description is missing or empty`,
+        `${join("memories", "third.md")}:3: shell-pipe: curl piped into sh at column 10`,
+        `${join("memories", "third.md")}:3: url: x.example at column 15`,
         "",
       ].join("\n"),
     );
@@ -772,7 +773,10 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
         ]
           .join("\n")
           .replaceAll("AGENTS.md", join(scenario.cwd, "AGENTS.md"))
-          .replaceAll(".cursor/rules", join(scenario.cwd, ".cursor", "rules")),
+          .replaceAll(
+            ".cursor/rules/maxims-a-b.mdc",
+            join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
+          ),
       );
       expect(await snapshot(scenario.root)).toBe(before);
       writeFileSync(
@@ -1177,8 +1181,8 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
     expect(missing.code).toBe(1);
     expect(missing.stderr).toContain(" ERROR  cannot read ");
     // A permission refusal reads the same as an absent folder: lint inspected nothing there, so
-    // it is a failed check (exit 1), never the destination-write code. Root ignores modes.
-    if (process.getuid?.() === 0) return;
+    // it is a failed check (exit 1), never the destination-write code.
+    if (!CHMOD_DENIES) return;
     const nested = join(dir, "locked");
     mkdirSync(nested);
     chmodSync(nested, 0o000);
@@ -1748,15 +1752,17 @@ test("a project directory named like an object property projects into the manife
   });
 });
 
-// The `./` prefix keeps a drive-relative or prototype-named directory representable; a name the
-// marker grammar refuses everywhere is still refused before anything is written.
-test("a project directory the manifest grammar cannot name is refused before anything is written", async () => {
+// The `./` prefix keeps a drive-relative or prototype-named directory representable.
+test("a drive-relative or prototype-named project directory is recorded under its ./ key", async () => {
   await withScenario({ project: true }, async (scenario) => {
     const memory = (name: string) => `---\nname: ${name}\ndescription: Ours\n---\n`;
-    for (const [name, rule] of [
-      ["a:rules", "drive-rule"],
+    // A colon cannot be part of a directory name on Windows, so the drive-relative row exists only
+    // where the directory can be made.
+    const named: [string, string][] = [
+      ...(WINDOWS ? [] : [["a:rules", "drive-rule"] as [string, string]]),
       ["__proto__", "proto-rule"],
-    ]) {
+    ];
+    for (const [name, rule] of named) {
       mkdirSync(join(scenario.cwd, name, "memories"), { recursive: true });
       writeFileSync(join(scenario.cwd, name, "memories", `${rule}.md`), memory(rule));
       const run = await runCli(scenario, ["add", `./${name}`, "-p", "-a", "codex", "--share"]);
@@ -1766,20 +1772,37 @@ test("a project directory the manifest grammar cannot name is refused before any
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
       sources: object;
     };
-    expect(Object.keys(lock.sources).sort()).toEqual(["./__proto__", "./a:rules"]);
-    const unnameable = "rules-->x";
-    mkdirSync(join(scenario.cwd, unnameable, "memories"), { recursive: true });
-    writeFileSync(
-      join(scenario.cwd, unnameable, "memories", "arrow-rule.md"),
-      memory("arrow-rule"),
-    );
-    const before = await snapshot(scenario.root);
-    const run = await runCli(scenario, ["add", `./${unnameable}`, "-p", "-a", "codex", "--share"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toContain("cannot be written into");
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(Object.keys(lock.sources).sort()).toEqual(named.map(([name]) => `./${name}`).sort());
   });
 });
+
+// A `>` cannot be part of a directory name on Windows, so the scene exists only where the
+// directory can be made.
+test.skipIf(WINDOWS)(
+  "a project directory the manifest grammar cannot name is refused before anything is written",
+  async () => {
+    await withScenario({ project: true }, async (scenario) => {
+      const unnameable = "rules-->x";
+      mkdirSync(join(scenario.cwd, unnameable, "memories"), { recursive: true });
+      writeFileSync(
+        join(scenario.cwd, unnameable, "memories", "arrow-rule.md"),
+        "---\nname: arrow-rule\ndescription: Ours\n---\n",
+      );
+      const before = await snapshot(scenario.root);
+      const run = await runCli(scenario, [
+        "add",
+        `./${unnameable}`,
+        "-p",
+        "-a",
+        "codex",
+        "--share",
+      ]);
+      expect(run.code).toBe(1);
+      expect(run.stderr).toContain("cannot be written into");
+      expect(await snapshot(scenario.root)).toBe(before);
+    });
+  },
+);
 
 test("a project source added through an alias symlink is recorded by its real path in the checkout", async () => {
   await withScenario({ project: true }, async (scenario) => {

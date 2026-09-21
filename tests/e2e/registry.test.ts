@@ -61,6 +61,7 @@ afterAll(() => {
 });
 
 const SCOPES: Scope[] = ["global", "project"];
+const ROW_TIMEOUT_MS = 30_000;
 
 function ok(run: Run): Run {
   expect({ code: run.code, stderr: run.stderr }).toEqual({ code: ExitCode.Ok, stderr: "" });
@@ -271,44 +272,50 @@ test("every declared config fixture has a place on disk where a row seeds it", (
 });
 
 describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
-  test("add installs the target and the hook; remove takes both back byte for byte", async () => {
-    await withTempDir(async (dir) => {
-      const home = makeHome(dir);
-      const ctx = contextFor(home);
-      prepareRoots(def, scope, ctx);
-      const seeded = seedFixture(def, scope, ctx);
-      const source = fixtureRepo(dir, "skills");
-      const slug = sourceSlug({ type: "local", path: source });
-      const destination: Destination =
-        scope === "project"
-          ? { scope: "project", root: realpathSync(home.project) }
-          : { scope: "global" };
-      const target = targetPath(def, destination, ctx, slug);
-      if (target === null) throw new Error("the row was derived from a non-null target");
-      const scopeFlag = scope === "global" ? "-g" : "-p";
-      const argv = ["add", source, scopeFlag, "--rule", "--add-hook", "-a", def.id, "-y"];
-      ok(await runMaxims(bundle, home, argv, { cwd: home.project }));
+  // Each row spawns the bundle under node several times; the first spawn on a cold Windows runner
+  // alone takes longer than bun's default five seconds.
+  test(
+    "add installs the target and the hook; remove takes both back byte for byte",
+    async () => {
+      await withTempDir(async (dir) => {
+        const home = makeHome(dir);
+        const ctx = contextFor(home);
+        prepareRoots(def, scope, ctx);
+        const seeded = seedFixture(def, scope, ctx);
+        const source = fixtureRepo(dir, "skills");
+        const slug = sourceSlug({ type: "local", path: source });
+        const destination: Destination =
+          scope === "project"
+            ? { scope: "project", root: realpathSync(home.project) }
+            : { scope: "global" };
+        const target = targetPath(def, destination, ctx, slug);
+        if (target === null) throw new Error("the row was derived from a non-null target");
+        const scopeFlag = scope === "global" ? "-g" : "-p";
+        const argv = ["add", source, scopeFlag, "--rule", "--add-hook", "-a", def.id, "-y"];
+        ok(await runMaxims(bundle, home, argv, { cwd: home.project }));
 
-      expect(regularFile(target)).toEqual({ file: true, link: false });
-      const text = readFileSync(target, "utf8");
-      const declared = def.targets[scope];
-      const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
-      expect(text.startsWith(preamble)).toBe(true);
-      expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
-      expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("skills").sort());
-      await expectHookInstalled(def, scope, ctx, seeded);
-      // A fixture that is no hook's registry and no quirk's file (an MCP config) is never touched.
-      const hookArtifact =
-        hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;
-      if (seeded !== null && !hookArtifact)
-        expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
+        expect(regularFile(target)).toEqual({ file: true, link: false });
+        const text = readFileSync(target, "utf8");
+        const declared = def.targets[scope];
+        const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
+        expect(text.startsWith(preamble)).toBe(true);
+        expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
+        expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("skills").sort());
+        await expectHookInstalled(def, scope, ctx, seeded);
+        // A fixture that is no hook's registry and no quirk's file (an MCP config) is never touched.
+        const hookArtifact =
+          hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;
+        if (seeded !== null && !hookArtifact)
+          expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
 
-      ok(await runMaxims(bundle, home, ["remove", source, "-y"], { cwd: home.project }));
-      expect(existsSync(target)).toBe(false);
-      await expectHookGone(def, scope, ctx, seeded);
-      if (seeded !== null) expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
-    });
-  });
+        ok(await runMaxims(bundle, home, ["remove", source, "-y"], { cwd: home.project }));
+        expect(existsSync(target)).toBe(false);
+        await expectHookGone(def, scope, ctx, seeded);
+        if (seeded !== null) expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
+      });
+    },
+    ROW_TIMEOUT_MS,
+  );
 });
 
 describe.each(missingScope)("%s has no %s target", (_id, scope, def) => {

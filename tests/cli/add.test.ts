@@ -17,6 +17,7 @@ import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/state/schema.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { CHMOD_DENIES } from "../shared/platform.ts";
 import {
   FIXTURES,
   lastSyncCall,
@@ -556,8 +557,7 @@ test("--list --no-fetch sees the files the fetch saw: a full-depth root folder a
     expect(deepOffline.stdout).toContain("o  Found 2 memories\n");
     expect(deepOffline.stdout).toContain("|    alpha\n");
     // A store copy that is there but cannot be looked at is a failure, never an empty store.
-    // Root ignores modes.
-    if (process.getuid?.() === 0) return;
+    if (!CHMOD_DENIES) return;
     const store = join(scenario.home, "store");
     chmodSync(store, 0o000);
     try {

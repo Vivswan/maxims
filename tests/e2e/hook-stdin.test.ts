@@ -12,6 +12,7 @@ import { parseState, type SourceEntry, type State } from "../../src/state/schema
 import { serializeState } from "../../src/state/store.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { launcherHome } from "../shared/temp_dir.ts";
 import { type Bundle, buildBundle, type Home, makeHome, runMaxims } from "./binary.ts";
 import { fixtureRepo, harnessFixture, hookPayload } from "./fixtures.ts";
 
@@ -28,11 +29,9 @@ let source = "";
 // manual sync: every hook run after it finds the failure inside its retry window, fetches
 // nothing, and has exactly one line to say.
 beforeAll(async () => {
-  const launcherHome = process.env.HOME;
-  if (launcherHome === undefined) throw new Error("the test launcher must set HOME");
-  bundleDir = mkdtempSync(join(launcherHome, "maxims-e2e-bundle-"));
+  bundleDir = mkdtempSync(join(launcherHome(), "maxims-e2e-bundle-"));
   bundle = buildBundle(bundleDir);
-  scratch = mkdtempSync(join(launcherHome, "maxims-fixture-"));
+  scratch = mkdtempSync(join(launcherHome(), "maxims-fixture-"));
   home = makeHome(scratch);
   mkdirSync(join(home.root, ".claude"));
   source = fixtureRepo(scratch, "skills");

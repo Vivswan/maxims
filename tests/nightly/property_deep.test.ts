@@ -18,7 +18,9 @@ test("the suite runs with the iteration count in its environment and passes on e
     summary: "## Deep property run\n\n`MAXIMS_PROPERTY_ITERATIONS=500 bun run test` exited 0\n",
   });
   expect(seen.map((env) => env[ITERATIONS_ENV])).toEqual(["500"]);
-  expect(seen[0]?.PATH).toBe(process.env.PATH ?? "");
+  // Windows spells the variable Path; the copy keeps the spelling it found.
+  const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+  expect(seen[0]?.[pathKey]).toBe(process.env[pathKey] ?? "");
 });
 
 test("a failing suite fails with the last 200 lines of its output", () => {

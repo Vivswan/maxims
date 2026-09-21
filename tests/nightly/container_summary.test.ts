@@ -15,6 +15,7 @@ import {
   renderBuildSummary,
 } from "../container/runner.ts";
 import { HARNESS_SMOKE_CLIS, HARNESS_SMOKE_SUITE } from "../container/tier.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const answer = (stdout: string, exitCode = 0, stderr = ""): RunResult => ({
@@ -75,7 +76,8 @@ const FAKE_DOCKER = [
   "",
 ].join("\n");
 
-describe("the tier's entry with a fake runtime", () => {
+// The fake runtime is a POSIX sh script found through a colon-joined PATH.
+describe.skipIf(WINDOWS)("the tier's entry with a fake runtime", () => {
   test("prints the image size after the build line and appends both to the step summary", async () => {
     await withTempDir((dir) => {
       const bin = join(dir, "bin");

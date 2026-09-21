@@ -595,14 +595,27 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
+  // Both sources are github ones so that "@aaa/first" sorts ahead of "@acme/rules" on every
+  // platform; a local path key would sort after it on Windows, where the drive letter leads.
   test("a shared-file budget refusal keeps its reason when only the second source was fresh", async () => {
     await world(async ({ home, dir, userHome }) => {
       const first = writeSource(join(dir, "first"), { one: { description: "One." } });
       const upstream = writeSource(join(dir, "upstream"), { two: { description: "Two." } });
+      const fromFirst = githubFrom("aaa/first");
       const from = githubFrom("acme/rules");
-      const firstEntry = entryFor(localFrom(first), { harnesses: ["codex"] });
-      writeState(home, stateWith({ [first]: firstEntry }));
-      const plain = fakeIo({ home, userHome, cwd: dir, harnesses: [sharedBlockHarness] });
+      seedStore(home, fromFirst, first);
+      const firstFacts = await fetchedFacts(first, daysAgo(NOW, 1), null, "c".repeat(40));
+      const firstEntry = fetchedEntry(fromFirst, firstFacts, { harnesses: ["codex"] });
+      const fake = fakeResolvers();
+      fake.set(fromFirst, { kind: "dir", dir: first, sha: "c".repeat(40) });
+      writeState(home, stateWith({ "@aaa/first": firstEntry }));
+      const plain = fakeIo({
+        home,
+        userHome,
+        cwd: dir,
+        resolvers: fake.resolvers,
+        harnesses: [sharedBlockHarness],
+      });
       await runSync(SYNC, plain);
       const shared = join(userHome, ".fixture", "FIXTURE.md");
       const tiny: HarnessDefinition = {
@@ -613,11 +626,10 @@ describe("what a refused or departed source leaves behind", () => {
       writeState(
         home,
         stateWith({
-          [first]: firstEntry,
+          "@aaa/first": firstEntry,
           "@acme/rules": fetchedEntry(from, facts, { harnesses: ["codex"] }),
         }),
       );
-      const fake = fakeResolvers();
       fake.set(from, { kind: "dir", dir: upstream, sha: "b".repeat(40) });
       const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers, harnesses: [tiny] });
       await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);

@@ -6,7 +6,7 @@
 // which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 const SRC = resolve(import.meta.dir, "..", "..", "src");
 
@@ -65,7 +65,7 @@ function offenders(graph: Set<string>): { packages: string[]; modules: string[] 
   return {
     packages: HEAVY.filter((name) => graph.has(name)),
     modules: HOOK_PATH_EXCLUDES.filter((path) => graph.has(path)).map((path) =>
-      path.slice(SRC.length + 1),
+      relative(SRC, path).split(sep).join("/"),
     ),
   };
 }

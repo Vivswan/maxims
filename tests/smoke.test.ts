@@ -2,7 +2,7 @@
 // relies on that isolation to keep the developer's real harness configs untouched, and a temp HOME
 // left behind on a failed launch would pile up under the OS tmpdir unnoticed.
 import { expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { readdirSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { tmpdirEnv, withTempDir } from "./shared/temp_dir.ts";
 
@@ -15,7 +15,7 @@ test("tests run inside the hermetic launcher with a temp HOME", () => {
 // an interrupted run.
 test("fixture dirs sit under the launcher HOME so its cleanup covers them", async () => {
   await withTempDir((dir) => {
-    expect(dir.startsWith(`${process.env.HOME}${sep}`)).toBe(true);
+    expect(dir.startsWith(`${realpathSync.native(process.env.HOME ?? "")}${sep}`)).toBe(true);
   });
 });
 

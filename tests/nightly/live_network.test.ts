@@ -12,6 +12,7 @@ import {
   type StepResult,
   summarizeLadder,
 } from "../../scripts/nightly/live_network.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 type Call = { argv: readonly string[]; env: Record<string, string> };
@@ -27,63 +28,73 @@ function recorder(exitCodes: readonly number[]): { calls: Call[]; run: CliRunner
 
 const ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
 
-test("the ladder runs every rung against the bundle with the expected homes and PATHs", async () => {
-  await withTempDir(async (dir) => {
-    const bundle = join(dir, "cli.js");
-    writeFileSync(bundle, "");
-    const { calls, run } = recorder([0, 0, 0, 0, 2]);
-    const outcome = await runLiveNetwork(bundle, run);
-    expect(outcome.status).toBe("pass");
-    const node = Bun.which("node") ?? "";
-    expect(node).not.toBe("");
-    expect(calls.map((call) => call.argv.slice(2))).toEqual([
-      ADD,
-      ["config", "set", "cooldownDays", "0"],
-      ["update"],
-      ADD,
-      ["add", "@Vivswan/maxims-nightly-missing-repo"],
-    ]);
-    for (const call of calls) {
-      expect(call.argv.slice(0, 2)).toEqual([node, bundle]);
-      expect(call.env.MAXIMS_HOME).toBe(join(call.env.HOME, ".agents", "maxims"));
-      expect(call.env.HOME).not.toBe(process.env.HOME);
-    }
-    const homes = calls.map((call) => call.env.HOME);
-    expect(homes[0]).toBe(homes[1]);
-    expect(homes[1]).toBe(homes[2]);
-    expect(homes[3]).toBe(homes[4]);
-    expect(homes[2]).not.toBe(homes[3]);
-    const paths = calls.map((call) => call.env.PATH);
-    expect(paths[0]).toBe(process.env.PATH ?? "");
-    expect(paths[3]).not.toBe(process.env.PATH ?? "");
-    expect(paths[3].split(":").length).toBe(1);
-  });
-});
+// The mirror picks executables by POSIX mode bits and symlinks them by bare name, which is not
+// how a Windows PATH resolves a program.
+const posixPath = test.skipIf(WINDOWS);
+
+posixPath(
+  "the ladder runs every rung against the bundle with the expected homes and PATHs",
+  async () => {
+    await withTempDir(async (dir) => {
+      const bundle = join(dir, "cli.js");
+      writeFileSync(bundle, "");
+      const { calls, run } = recorder([0, 0, 0, 0, 2]);
+      const outcome = await runLiveNetwork(bundle, run);
+      expect(outcome.status).toBe("pass");
+      const node = Bun.which("node") ?? "";
+      expect(node).not.toBe("");
+      expect(calls.map((call) => call.argv.slice(2))).toEqual([
+        ADD,
+        ["config", "set", "cooldownDays", "0"],
+        ["update"],
+        ADD,
+        ["add", "@Vivswan/maxims-nightly-missing-repo"],
+      ]);
+      for (const call of calls) {
+        expect(call.argv.slice(0, 2)).toEqual([node, bundle]);
+        expect(call.env.MAXIMS_HOME).toBe(join(call.env.HOME, ".agents", "maxims"));
+        expect(call.env.HOME).not.toBe(process.env.HOME);
+      }
+      const homes = calls.map((call) => call.env.HOME);
+      expect(homes[0]).toBe(homes[1]);
+      expect(homes[1]).toBe(homes[2]);
+      expect(homes[3]).toBe(homes[4]);
+      expect(homes[2]).not.toBe(homes[3]);
+      const paths = calls.map((call) => call.env.PATH);
+      expect(paths[0]).toBe(process.env.PATH ?? "");
+      expect(paths[3]).not.toBe(process.env.PATH ?? "");
+      expect(paths[3].split(":").length).toBe(1);
+    });
+  },
+);
 
 // The mirror must resolve a name the way the shell does: the first executable regular file wins;
 // a directory or a plain file of that name earlier on PATH does not shadow it.
-test("mirroring PATH drops git and keeps the first executable of every other name", async () => {
-  await withTempDir((dir) => {
-    const first = join(dir, "first");
-    const middle = join(dir, "middle");
-    const second = join(dir, "second");
-    const into = join(dir, "into");
-    for (const d of [first, middle, second, into]) mkdirSync(d);
-    const executable = (d: string, name: string): void => {
-      writeFileSync(join(d, name), "");
-      chmodSync(join(d, name), 0o755);
-    };
-    for (const name of ["git", "node", "sh"]) executable(first, name);
-    mkdirSync(join(first, "tar"), { mode: 0o755 });
-    writeFileSync(join(middle, "tar"), "not a program");
-    for (const name of ["git", "node", "tar"]) executable(second, name);
-    const path = [first, middle, join(dir, "absent"), second].join(":");
-    expect(mirrorPathWithoutGit(path, into)).toBe(into);
-    expect(readdirSync(into).sort()).toEqual(["node", "sh", "tar"]);
-    expect(readlinkSync(join(into, "node"))).toBe(join(first, "node"));
-    expect(readlinkSync(join(into, "tar"))).toBe(join(second, "tar"));
-  });
-});
+posixPath(
+  "mirroring PATH drops git and keeps the first executable of every other name",
+  async () => {
+    await withTempDir((dir) => {
+      const first = join(dir, "first");
+      const middle = join(dir, "middle");
+      const second = join(dir, "second");
+      const into = join(dir, "into");
+      for (const d of [first, middle, second, into]) mkdirSync(d);
+      const executable = (d: string, name: string): void => {
+        writeFileSync(join(d, name), "");
+        chmodSync(join(d, name), 0o755);
+      };
+      for (const name of ["git", "node", "sh"]) executable(first, name);
+      mkdirSync(join(first, "tar"), { mode: 0o755 });
+      writeFileSync(join(middle, "tar"), "not a program");
+      for (const name of ["git", "node", "tar"]) executable(second, name);
+      const path = [first, middle, join(dir, "absent"), second].join(":");
+      expect(mirrorPathWithoutGit(path, into)).toBe(into);
+      expect(readdirSync(into).sort()).toEqual(["node", "sh", "tar"]);
+      expect(readlinkSync(join(into, "node"))).toBe(join(first, "node"));
+      expect(readlinkSync(join(into, "tar"))).toBe(join(second, "tar"));
+    });
+  },
+);
 
 describe("summarizeLadder", () => {
   const result = (index: number, exitCode: number, stderr = ""): StepResult => ({

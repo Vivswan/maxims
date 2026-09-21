@@ -12,6 +12,7 @@ import {
   HARNESS_SMOKE_SUITE,
   type HarnessSmokeCli,
 } from "../container/tier.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 // The suite run is the only `run` whose command ends in `bun run test`; the fake answers it with
@@ -197,7 +198,11 @@ const cases: Case[] = [
   },
 ];
 
-test.each(cases)(
+// The fake runtime is a POSIX sh script found through a colon-joined PATH, and the slow reader
+// is a sh pipeline; neither runs on a Windows host.
+const hostSh = test.skipIf(WINDOWS);
+
+hostSh.each(cases)(
   "the tier's verdict on the smoke rows: $name",
   async ({ suite, exitCode, afterSuite, tail }) => {
     await withTempDir((dir) => {
@@ -221,14 +226,17 @@ function filler(): string {
   return `${lines.join("\n")}\n`;
 }
 
-test("the whole captured suite output, through bun's summary line, reaches the tier's log", async () => {
-  await withTempDir((dir) => {
-    const suite = suiteOutput([filler(), smokeSection(statuses("pass"))], SUMMARY);
-    expect(suite.length).toBeGreaterThan(200_000);
-    const run = runTier(dir, suite);
-    expect({ exitCode: run.exitCode, log: withoutSeconds(run.log) }).toEqual({
-      exitCode: 0,
-      log: expectedLog(suite, [...rowLines(statuses("pass")), SUMMARY_LINE], ""),
+hostSh(
+  "the whole captured suite output, through bun's summary line, reaches the tier's log",
+  async () => {
+    await withTempDir((dir) => {
+      const suite = suiteOutput([filler(), smokeSection(statuses("pass"))], SUMMARY);
+      expect(suite.length).toBeGreaterThan(200_000);
+      const run = runTier(dir, suite);
+      expect({ exitCode: run.exitCode, log: withoutSeconds(run.log) }).toEqual({
+        exitCode: 0,
+        log: expectedLog(suite, [...rowLines(statuses("pass")), SUMMARY_LINE], ""),
+      });
     });
-  });
-});
+  },
+);

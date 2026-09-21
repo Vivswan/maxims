@@ -17,7 +17,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { type HarnessId, HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
 import { hasHook } from "../../src/harnesses/hook-writer.ts";
@@ -155,9 +155,9 @@ test("1: add --dry-run prints the plan and writes nothing, not even state", asyn
     expect(
       planned.some((line) => line.startsWith(`write   ${homePaths(home.maximsHome).state}`)),
     ).toBe(true);
-    expect(planned.some((line) => line.startsWith("write   ") && line.includes(`${out}/`))).toBe(
-      true,
-    );
+    expect(
+      planned.some((line) => line.startsWith("write   ") && line.includes(`${out}${sep}`)),
+    ).toBe(true);
     expect(snapshot(home.root)).toEqual(before);
     expect(existsSync(out)).toBe(false);
     expect(existsSync(homePaths(home.maximsHome).state)).toBe(false);
@@ -394,7 +394,7 @@ test("6: init scaffolds a memory that passes the contract", async () => {
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
     const run = ok(await runMaxims(bundle, home, ["init", "test-rule"], { cwd: home.project }));
-    expect(run.stdout).toBe("o  Created memories/test-rule.md\n");
+    expect(run.stdout).toBe(`o  Created ${join("memories", "test-rule.md")}\n`);
     const path = join(home.project, "memories", "test-rule.md");
     const parsed = parseMemory(path, readFileSync(path, "utf8"));
     expect(parsed.ok ? String(parsed.memory.name) : parsed.reason).toBe("test-rule");
@@ -477,12 +477,12 @@ test("the home snapshot names a new empty directory, file and symlink", async ()
     mkdirSync(join(home.root, ".claude", "rules"), { recursive: true });
     mkdirSync(join(home.root, ".codex"));
     writeFileSync(join(home.root, ".claude", "rules", "maxims-x.md"), "- a rule\n");
-    symlinkSync("/dev/null", join(home.root, ".claude", "link"));
+    symlinkSync("nowhere", join(home.root, ".claude", "link"));
     const after = snapshot(home.root);
     for (const key of before.keys()) after.delete(key);
     expect([...after.entries()].sort()).toEqual([
       [".claude", "dir"],
-      [".claude/link", "link:/dev/null"],
+      [".claude/link", "link:nowhere"],
       [".claude/rules", "dir"],
       [".claude/rules/maxims-x.md", sha256("- a rule\n")],
       [".codex", "dir"],
