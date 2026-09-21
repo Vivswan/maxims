@@ -4,7 +4,7 @@
 // hand-written rule silently rewritten. None of that is enforced by anything but these rows.
 import { describe, expect, test } from "bun:test";
 import type { MemoryName } from "../memory/contract.ts";
-import { parseBlocks, renderBlock, replaceBlock, stripBlock } from "./block.ts";
+import { ownLineMatcher, parseBlocks, renderBlock, replaceBlock, stripBlock } from "./block.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
 const SOURCE = "@Vivswan/skills";
@@ -191,6 +191,43 @@ describe("renderBlock", () => {
       expect(() => renderBlock(input({ source }))).toThrow();
     }
     expect(() => renderBlock(input({ sha: "has space" }))).toThrow();
+  });
+});
+
+// A line that only opens like one of the renderer's own is a hand edit that the regeneration
+// silently discards unless these rows hold; the notice's timestamp is the one part matched by shape.
+describe("ownLineMatcher", () => {
+  const NOTICE_MISSING =
+    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00.000Z (source repository gone or unreadable, they will never refresh) and may be out of date.";
+  const NOTICE_AGE =
+    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.";
+  const SELF_REFRESH =
+    "- If the staleness line above is present, run `npx -y @vivswan/maxims sync --quiet` before continuing.";
+  const NOTICE_UNWRAPPED =
+    "- maxims: the rules below from @Vivswan/skills have not refreshed since 2026-09-01T00:00:00Z (rate limited) and may be out of date.";
+  const rows: [string, boolean][] = [
+    [BEGIN, true],
+    [END, true],
+    [PROVENANCE[0], true],
+    [PROVENANCE[1], true],
+    [SELF_REFRESH, true],
+    [NOTICE_MISSING, true],
+    [NOTICE_AGE, true],
+    [NOTICE_UNWRAPPED, true],
+    [PROVENANCE[0].replace("overwritten", "preserved"), false],
+    [PROVENANCE[1].replace(" | remove: npx -y @vivswan/maxims remove @Vivswan/skills", ""), false],
+    [`${SELF_REFRESH} Really.`, false],
+    [NOTICE_AGE.replace("and may be out of date.", "and must be ignored."), false],
+    [NOTICE_AGE.replace("no successful fetch", "server on fire"), false],
+    [NOTICE_AGE.replace("2026-09-01T00:00:00Z", "yesterday"), false],
+    [NOTICE_AGE.replace("2026-09-01T00:00:00Z", "2026-99-01T00:00:00Z"), false],
+    [NOTICE_AGE.replace("`@Vivswan/skills`", "`@example-user/rules`"), false],
+    ["- maxims: the rules below from upstream are mine.", false],
+    [RUBBER_DUCK_LINE, false],
+  ];
+  const isOwn = ownLineMatcher(SOURCE);
+  test.each(rows)("%s -> %p", (text, own) => {
+    expect(isOwn(text)).toBe(own);
   });
 });
 

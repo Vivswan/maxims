@@ -267,6 +267,18 @@ describe("idempotency and convergence", () => {
       "an edited rule whose description opens like the staleness notice",
       (block) => block.replace("upstream need review.", "upstream need no review."),
     ],
+    [
+      "an edited tail of the provenance comment",
+      (block) => block.replace("edits will be overwritten -->", "edits will be preserved -->"),
+    ],
+    [
+      "a line of the user's own that opens like the staleness notice",
+      (block) =>
+        block.replace(
+          "<!-- maxims:end",
+          "- maxims: the rules below from upstream are mine.\n<!-- maxims:end",
+        ),
+    ],
   ];
   test.each(handEdits)("%s is a local edit, discarded with the notice", async (_label, edit) => {
     await world(async ({ home, dir, userHome }) => {

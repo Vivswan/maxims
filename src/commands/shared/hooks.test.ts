@@ -133,13 +133,9 @@ describe("a hook that lives in one place for both scopes", () => {
     });
   });
 
-  // Once another project's source has mounted the bridge, it is a file this project's run reaches
-  // (with nothing of its own it would take the bridge down), so a run here plans it whole (the
-  // hooks file loads only through the patch row) and keeps it, as does a run outside any project;
-  // the same holds for the registry of a project rooted at the home directory, which is the global
-  // registry under whatever spelling the home is reached by. Before that project's own sync
-  // mounted the bridge, a run here plans nothing for it, as it plans nothing for the registry
-  // under that project's own `.claude/`: both are written by a sync run there, never from here.
+  // The bridge is one artifact in two files (the hooks file loads only through the patch row), so
+  // a run that reaches it with nothing of its own plans it whole and keeps it rather than taking
+  // half of it down; before the other project's own sync mounts it, a run here plans nothing.
   test("a run elsewhere keeps the hook files another project's sources want", async () => {
     await world(async ({ home, userHome, dir, project }) => {
       const other = join(dir, "other");

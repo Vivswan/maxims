@@ -318,6 +318,39 @@ describe("staleness", () => {
     });
   }
 
+  // The notice carries a timestamp the run that drops it never knew, so it is recognized by its
+  // shape; an edited tail no longer has that shape.
+  const recoveries: [string, (notice: string) => string, boolean][] = [
+    ["the notice it carried, with no local edit to report", (notice) => notice, false],
+    [
+      "an edited tail of that notice, a local edit",
+      (notice) => notice.replace("and may be out of date.", "and must be ignored."),
+      true,
+    ],
+  ];
+  test.each(recoveries)("a source that comes back drops %s", async (_label, edit, edited) => {
+    await world(async (w) => {
+      const { fake, io, rules, upstream } = await lastGood(w, 9);
+      await runSync(SYNC, io);
+      fake.set(FROM, { kind: "fail", failure: "missing" });
+      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+      await runSync(SYNC, io);
+      const stale = readFileSync(rules, "utf8");
+      const notice = stale.split("\n").find((line) => line.includes("have not refreshed since"));
+      if (notice === undefined) throw new Error("expected a staleness notice in the block");
+      writeFileSync(rules, stale.replace(notice, edit(notice)));
+      fake.set(FROM, { kind: "dir", dir: upstream });
+      io.clock.now = new Date(NOW.getTime() + 4 * DAY_MS);
+      const report = await runSync(SYNC, io);
+      expect(readFileSync(rules, "utf8")).not.toContain("have not refreshed since");
+      expect(report.notices.filter((line) => line.includes("local edit"))).toEqual(
+        edited
+          ? [`maxims: local edit in ${rules} discarded (the block is regenerated from ${KEY})`]
+          : [],
+      );
+    });
+  });
+
   test("a block that gains its staleness line as its source crosses seven days is not a local edit", async () => {
     await world(async (w) => {
       const down: LastError = { kind: "network", message: "down", at: NOW.toISOString() };

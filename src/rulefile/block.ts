@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { PACKAGE_COMMAND } from "../util/package.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
@@ -7,9 +8,6 @@ const ELLIPSIS = "...";
 // dotAll: a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
 const BEGIN_LINE = /^<!-- maxims:begin (.+) sha=(\S+) -->$/s;
 const END_LINE = /^<!-- maxims:end (.+) -->$/s;
-const MANAGED_PREFIX = "<!-- managed by maxims: ";
-const UPDATE_PREFIX = `<!-- update: ${PACKAGE_COMMAND} add `;
-const STALE_PREFIX = "- maxims: the rules below from ";
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
 
 const STALE_REASON: Record<Staleness["kind"], string> = {
@@ -21,20 +19,27 @@ const STALE_REASON: Record<Staleness["kind"], string> = {
   invalid: "source content invalid",
 };
 
+// A staleness notice's `since` is a fetch record's timestamp; the validator the state schema
+// applies to it decides what a later run, which never knew the value, accepts in its place.
+const ISO_TIMESTAMP = z.iso.datetime();
+const SINCE_PLACEHOLDER = "0000-00-00T00:00:00.000Z";
+// The readers of a shared file, and so the escaping their union asks for, may change between the
+// run that writes a notice and the run that drops it.
+const ESCAPINGS: readonly (readonly ExpansionSyntax[])[] = [
+  [],
+  ["at-import"],
+  ["none"],
+  ["at-import", "none"],
+];
+
 export function renderBlock(input: BlockInput): string {
   const { source, sha, expands } = input;
   assertMarkerField("source", source);
   assertMarkerField("sha", sha);
   const lines = [`<!-- maxims:begin ${source} sha=${sha} -->`];
-  if (input.markers === "stripped") {
-    lines.push(
-      `${MANAGED_PREFIX}${source} - edits will be overwritten -->`,
-      `${UPDATE_PREFIX}${source} | remove: ${PACKAGE_COMMAND} remove ${source} -->`,
-    );
-  }
+  if (input.markers === "stripped") lines.push(...provenanceLines(source));
   if (input.stale !== undefined) {
-    const notice = `${source} have not refreshed since ${input.stale.since} (${STALE_REASON[input.stale.kind]}) and may be out of date.`;
-    lines.push(`${STALE_PREFIX}${escapeText(notice, expands)}`);
+    lines.push(staleLine(source, input.stale.since, STALE_REASON[input.stale.kind], expands));
     if (input.selfRefresh) lines.push(SELF_REFRESH_LINE);
   }
   for (const line of input.lines) lines.push(renderRuleLine(line, expands));
@@ -43,18 +48,47 @@ export function renderBlock(input: BlockInput): string {
   return input.frontmatter === undefined ? block : withNewline(input.frontmatter) + block;
 }
 
-// A line the renderer writes on its own, whatever the rules: the marker pair, the provenance pair,
-// the staleness notice and the self-refresh line. A block on disk holding one this run does not
-// render (a notice that appeared or went) was still written by maxims, not by hand.
-export function isOwnLine(line: string): boolean {
-  return (
+function provenanceLines(source: string): [string, string] {
+  return [
+    `<!-- managed by maxims: ${source} - edits will be overwritten -->`,
+    `<!-- update: ${PACKAGE_COMMAND} add ${source} | remove: ${PACKAGE_COMMAND} remove ${source} -->`,
+  ];
+}
+
+function staleLine(
+  source: string,
+  since: string,
+  reason: string,
+  expands: readonly ExpansionSyntax[],
+): string {
+  const notice = `${source} have not refreshed since ${since} (${reason}) and may be out of date.`;
+  return `- maxims: the rules below from ${escapeText(notice, expands)}`;
+}
+
+// A block on disk may hold a line this run does not render (a staleness notice that appeared or
+// went) that maxims still wrote, not the user; a line that merely opens like one is the user's.
+// The notice's timestamp is the one part a later run cannot know, so it alone is matched by
+// shape, found by rendering the notice around a placeholder no escaping touches.
+export function ownLineMatcher(source: string): (line: string) => boolean {
+  const exact = new Set([...provenanceLines(source), SELF_REFRESH_LINE]);
+  const notices = ESCAPINGS.flatMap((expands) =>
+    Object.values(STALE_REASON).map((reason) => {
+      const line = staleLine(source, SINCE_PLACEHOLDER, reason, expands);
+      const at = line.lastIndexOf(SINCE_PLACEHOLDER);
+      return { head: line.slice(0, at), tail: line.slice(at + SINCE_PLACEHOLDER.length) };
+    }),
+  );
+  return (line) =>
     BEGIN_LINE.test(line) ||
     END_LINE.test(line) ||
-    line.startsWith(MANAGED_PREFIX) ||
-    line.startsWith(UPDATE_PREFIX) ||
-    line.startsWith(STALE_PREFIX) ||
-    line === SELF_REFRESH_LINE
-  );
+    exact.has(line) ||
+    notices.some(
+      ({ head, tail }) =>
+        line.length >= head.length + tail.length &&
+        line.startsWith(head) &&
+        line.endsWith(tail) &&
+        ISO_TIMESTAMP.safeParse(line.slice(head.length, line.length - tail.length)).success,
+    );
 }
 
 // A source or sha that could break or end its own marker has no valid rendering; both come from

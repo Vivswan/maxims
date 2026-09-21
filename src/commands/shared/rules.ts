@@ -6,8 +6,8 @@ import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-tar
 import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
 import { planSharedBlockRemove } from "../../harnesses/strategies/shared-block.ts";
 import {
-  isOwnLine,
   markdownLines,
+  ownLineMatcher,
   parseBlocks,
   renderBlock,
   replaceBlock,
@@ -225,18 +225,21 @@ function blockChangeNotices(
   const onDisk = current.slice(span.start, span.end);
   if (onDisk === rendered) return [];
   if (block.changeLines.length > 0) return block.changeLines;
-  if (span.sha !== block.sha || !handEdited(onDisk, rendered)) return [];
+  if (span.sha !== block.sha) return [];
+  if (!handEdited(onDisk, rendered, ownLineMatcher(block.key))) return [];
   return [`maxims: local edit in ${path} discarded (the block is regenerated from ${block.key})`];
 }
 
-// A hand edit is a line inside the markers maxims could not have written: a rule line whose text
-// differs from this run's rendering of the same memory, or a line that is neither a rule line
-// nor one of maxims's own. A rule line for a memory this run does not render, or one this run
-// renders that the file lacks, follows an intent change (a memory disabled, deselected or
-// renamed) as readily as a hand deletion, so it earns no notice; the regeneration settles both.
-// A rule line is judged as one before the own-line test, since a description may open like the
-// staleness notice.
-function handEdited(onDisk: string, rendered: string): boolean {
+// A rule line for a memory this run does not render, or one this run renders that the file lacks,
+// follows an intent change (a memory disabled, deselected or renamed) as readily as a hand
+// deletion, so it earns no notice; the regeneration settles both. A rule line is judged as one
+// before the own-line test, so a description that opens like the staleness notice never turns on
+// how closely that test matches.
+function handEdited(
+  onDisk: string,
+  rendered: string,
+  isOwnLine: (line: string) => boolean,
+): boolean {
   const renderedLines = new Set(markdownLines(rendered).map((line) => line.text));
   const renderedByName = new Map(parseRuleLines(rendered).map((line) => [line.name, line.text]));
   for (const { text } of markdownLines(onDisk)) {
