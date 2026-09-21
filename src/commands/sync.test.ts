@@ -120,7 +120,7 @@ describe("idempotency and convergence", () => {
     });
   });
 
-  test("with the shipped registry a second sync says up to date and a hook run prints nothing", async () => {
+  test("with the shipped registry a second sync plans nothing, says up to date, and a hook run prints nothing", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
@@ -129,12 +129,17 @@ describe("idempotency and convergence", () => {
       io.out.length = 0;
       io.clock.now = new Date(NOW.getTime() + 1000);
       const second = await runSync(SYNC, io);
+      expect(second.plan.changes).toEqual([]);
       expect(second.changed).toEqual([]);
       expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
+      io.out.length = 0;
+      await runSync({ ...SYNC, dryRun: true }, io);
+      expect(io.out.join("")).toBe("nothing to change\n");
       io.out.length = 0;
       io.clock.now = new Date(NOW.getTime() + 120_000);
       await runSync(QUIET, io);
       expect(io.out.join("")).toBe("");
+      expect(readFileSync(homePaths(home).log, "utf8")).not.toContain("deferred");
     });
   });
 

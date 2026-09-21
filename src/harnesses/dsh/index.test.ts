@@ -168,7 +168,7 @@ test.each(layouts)(
   },
 );
 
-test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, and a project install mounts the same machine-wide row", async () => {
+test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a project install mounts the same machine-wide row, and an unmount takes back only what is there", async () => {
   await withTempDir(async (home) => {
     const changes = await reconcileBridge(
       "global",
@@ -209,9 +209,18 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, an
         content: ourOperation(join(home, ".dsh")),
       },
     ]);
+    // Nothing is mounted and no hooks file exists, so there is nothing to take back: a plan that
+    // named the file would report a deletion on every sync of a machine without dsh.
     expect(
       await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
-    ).toEqual([{ kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") }]);
+    ).toEqual([]);
+    await applyChanges({ changes, notices: [] }, { dryRun: false });
+    expect(
+      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+    ).toEqual([
+      { kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") },
+      { kind: "write", path: rooted(join(home, ".dsh"), "cordis.patch.yml"), content: "[]\n" },
+    ]);
   });
 });
 

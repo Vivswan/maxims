@@ -11,10 +11,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import {
   configEditHarness,
   entryFor,
@@ -119,6 +120,12 @@ describe("a hook that lives in one place for both scopes", () => {
         ]);
         expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
       }
+      // Half a mount (the row without its file) is still the bridge: the scope that does not want
+      // it takes the pair back as one artifact, so the scope that wants it keeps the row.
+      rmSync(hooks);
+      await runSync(SYNC, io);
+      expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+      expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
       writeState(home, stateWith({ [source]: entry }, []));
       await runSync(SYNC, io);
       expect(existsSync(hooks)).toBe(false);
@@ -126,12 +133,13 @@ describe("a hook that lives in one place for both scopes", () => {
     });
   });
 
-  // The bridge another project's source mounts is the one file this project's run reaches, so a
-  // run here with nothing of its own mounts it whole (the hooks file loads only through the patch
-  // row) and keeps it, as does a run outside any project; the same holds for the registry of a
-  // project rooted at the home directory, which is the global registry under whatever spelling the
-  // home is reached by. A registry under that project's own `.claude/` is written by a sync run
-  // there, never from here.
+  // Once another project's source has mounted the bridge, it is a file this project's run reaches
+  // (with nothing of its own it would take the bridge down), so a run here plans it whole (the
+  // hooks file loads only through the patch row) and keeps it, as does a run outside any project;
+  // the same holds for the registry of a project rooted at the home directory, which is the global
+  // registry under whatever spelling the home is reached by. Before that project's own sync
+  // mounted the bridge, a run here plans nothing for it, as it plans nothing for the registry
+  // under that project's own `.claude/`: both are written by a sync run there, never from here.
   test("a run elsewhere keeps the hook files another project's sources want", async () => {
     await world(async ({ home, userHome, dir, project }) => {
       const other = join(dir, "other");
@@ -151,11 +159,18 @@ describe("a hook that lives in one place for both scopes", () => {
         writeState(home, stateWith({ [source]: entry }, ["dsh", "claude-code"]));
         const run = (cwd: string) =>
           runSync(SYNC, fakeIo({ home, userHome: homeAlias, cwd, harnesses: [dsh, claudeCode] }));
-        await run(project);
-        expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
-        expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
+        if (!existsSync(hooks)) {
+          const before = await run(project);
+          const bridge = before.plan.changes.filter((change) =>
+            change.path.includes(join(sep, ".dsh", sep)),
+          );
+          expect(bridge).toEqual([]);
+          expect(existsSync(hooks)).toBe(false);
+        }
         await run(root);
         expect(readFileSync(registry(root), "utf8")).toContain(HOOK_COMMAND);
+        expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+        expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
         for (const cwd of [project, dir]) {
           const report = await run(cwd);
           const hookFiles = new Set([hooks, patch, registry(root)]);

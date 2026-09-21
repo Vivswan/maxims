@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { type Document, isMap, isNode, isSeq, parseDocument, stringify } from "yaml";
-import type { Change } from "../../util/change.ts";
+import { type Change, lstatOrNull } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { readConfigText } from "../../util/jsonc.ts";
@@ -47,7 +47,10 @@ function bridgeRow(hooksPath: string): Record<string, unknown> {
 
 // The scope is part of the hook contract but never changes where the bridge lands: dsh reads one
 // machine-wide patch layer under the global root the spec resolves, so a project install mounts
-// the same row a global one does.
+// the same row a global one does. The row and the hooks file are one artifact: an unmount names
+// the file whenever either half is there, so the hook planner sees the pair claimed together and
+// a scope that still wants it keeps the row, while a machine with no trace of the bridge plans
+// nothing.
 export function bridgeReconciler(
   roots: Pick<HarnessDefinition, "globalRoot">,
 ): Extract<HookShape, { kind: "custom" }>["reconcile"] {
@@ -55,9 +58,11 @@ export function bridgeReconciler(
     const files = bridgeFiles(scopeRoot(roots, "global", ctx));
     const text = (await readConfigText(files.patch)) ?? "";
     const next = editPatch(text, files.patch, wanted ? bridgeRow(files.hooks) : null);
-    const changes: Change[] = wanted
-      ? [{ kind: "write", path: files.hooks, content: renderHooksFile(spec) }]
-      : [{ kind: "delete", path: files.hooks }];
+    const changes: Change[] = [];
+    if (wanted) changes.push({ kind: "write", path: files.hooks, content: renderHooksFile(spec) });
+    else if (next !== text || (await lstatOrNull(files.hooks)) !== null) {
+      changes.push({ kind: "delete", path: files.hooks });
+    }
     if (next !== text) changes.push({ kind: "write", path: files.patch, content: next });
     return changes;
   };

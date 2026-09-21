@@ -124,8 +124,9 @@ async function applyOne(change: Change): Promise<boolean> {
 }
 
 // Only "nothing is there" reads as absent; a probe that could not look (EACCES on a parent, an
-// I/O error) surfaces as exit 4 rather than as a change that silently did not happen.
-function lstatOrNull(path: string): Promise<Stats | null> {
+// I/O error) surfaces as exit 4 rather than as a change that silently did not happen. A planner
+// deciding whether a removal is worth planning asks the same question.
+export function lstatOrNull(path: string): Promise<Stats | null> {
   return probe(path, lstat);
 }
 
