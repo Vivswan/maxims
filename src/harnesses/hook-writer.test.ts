@@ -226,9 +226,14 @@ describe("planHookRegistryWrite on JSON registries", () => {
       after: { hooks: { Stop: [{ hooks: [parse(theirsJson)] }] } },
     },
     {
-      name: "the object holding the events stays, emptied, when its last event goes",
+      name: "the object holding the events goes with its last event; the file's other keys stay",
       before: `{"model":"opus","hooks":{"SessionStart":[{"hooks":[${oursJson}]}]}}`,
-      after: { model: "opus", hooks: {} },
+      after: { model: "opus" },
+    },
+    {
+      name: "the object holding the events stays while another event is in it",
+      before: `{"model":"opus","hooks":{"SessionStart":[{"hooks":[${oursJson}]}],"Stop":[]}}`,
+      after: { model: "opus", hooks: { Stop: [] } },
     },
   ];
 
@@ -252,6 +257,16 @@ describe("planHookRegistryWrite on JSON registries", () => {
       name: "a pre-existing empty event list collapses to an empty object",
       before: `{"hooks":{"SessionStart":[]}}\n`,
       after: "{}\n",
+    },
+    {
+      name: "a file without a hooks key comes back byte-identical, comment and odd spacing included",
+      before: `{\n  // mine\n  "theme":   "dark",\n  "model": "opus"\n}\n`,
+      after: `{\n  // mine\n  "theme":   "dark",\n  "model": "opus"\n}\n`,
+    },
+    {
+      name: "a one-line file without a hooks key comes back byte-identical",
+      before: `{"model":"opus"}`,
+      after: `{"model":"opus"}`,
     },
   ];
 
@@ -361,7 +376,7 @@ describe("planHookRegistryWrite on JSON registries", () => {
       const entry = `{ "type": "command", "command": ${JSON.stringify(command)} }`;
       const before = `{"model":"opus","hooks":{"SessionStart":[{"hooks":[${entry}]}]}}`;
       const result = plan(grouped, false, before);
-      if (ours) expect(parse(textOf(result))).toEqual({ model: "opus", hooks: {} });
+      if (ours) expect(parse(textOf(result))).toEqual({ model: "opus" });
       else expect(result).toEqual({ changes: [] });
     },
   );
@@ -444,9 +459,9 @@ ${flatOurs} ]}}`,
       after: `{"model":"opus","hooks": /* keep */ {}}`,
     },
     { before: `{"hooks":{/* keep */}}`, after: `{"hooks":{/* keep */}}` },
-    { before: `{\n  // keep\n  "hooks": {}\n}\n`, after: `{\n  // keep\n  "hooks": {}\n}\n` },
-    { before: `{/* keep */}`, after: `{/* keep */\n  "hooks": {}\n}` },
-    { before: `// keep\n{}\n`, after: `// keep\n{\n  "hooks": {}\n}\n` },
+    { before: `{\n  // keep\n  "hooks": {}\n}\n`, after: `{\n  // keep\n}\n` },
+    { before: `{/* keep */}`, after: `{/* keep */}` },
+    { before: `// keep\n{}\n`, after: `// keep\n{}\n` },
     {
       before: `{"hooks":{"SessionStart":[\n// keep\n]}}`,
       after: `{"hooks":{"SessionStart":[\n// keep\n]}}`,

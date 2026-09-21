@@ -831,6 +831,24 @@ test("hook intent is recorded and honored per scope", async () => {
   );
 });
 
+// The registry is the user's file: the hook goes in and comes out again, and a file that had no
+// `hooks` key before gets none left behind, comment and spacing included.
+test("add with a hook then remove --all returns a hookless settings file byte for byte", async () => {
+  const fake = fakeResolvers();
+  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
+  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+    mkdirSync(join(scenario.userHome, ".claude"));
+    const registry = join(scenario.userHome, ".claude", "settings.json");
+    const before = `{\n  // mine\n  "theme":   "dark",\n  "model": "opus"\n}\n`;
+    writeFileSync(registry, before);
+    const added = await runCli(scenario, ["add", "@a/b", "-g", "-a", "claude-code", "--add-hook"]);
+    expect([added.code, added.stderr]).toEqual([0, ""]);
+    expect(readFileSync(registry, "utf8")).toContain("maxims sync --quiet");
+    expect((await runCli(scenario, ["remove", "--all"])).code).toBe(0);
+    expect(readFileSync(registry, "utf8")).toBe(before);
+  });
+});
+
 // A teammate's checkout has no path to a directory outside the project, so such a source is
 // refused at the moment it would be shared rather than dropped from the lock in silence.
 test("a local source outside the project cannot be shared", async () => {

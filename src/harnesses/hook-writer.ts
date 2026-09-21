@@ -221,18 +221,15 @@ class JsonRegistry {
   }
 
   // Removal climbs to the highest ancestor our handler alone kept alive (a matcher group whose
-  // list emptied, then the event list) and cuts it there; the object holding the events stays,
-  // emptied if need be, because nothing tells a `hooks: {}` the user wrote from one we added.
-  // Anything a user wrote in a container, a comment above all, pins that container: the climb
-  // stops below it and only our lineage leaves.
+  // list emptied, then the event list, then the object holding the events) and cuts it there, so
+  // a file that had no `hooks` key before the hook was registered has none after. Nothing tells a
+  // `hooks: {}` the user wrote from one we added, so an emptied one leaves either way. Anything a
+  // user wrote in a container, a comment above all, pins that container: the climb stops below it
+  // and only our lineage leaves. The root is never climbed into: it is the file.
   remove(node: Node): void {
     let target = node;
     for (;;) {
       const parent = parentOf(target);
-      if (parent.type === "object" && this.holdsEvents(parent)) {
-        this.text = removeChild(this.text, parent, target);
-        return;
-      }
       const clean = this.commentFree(parent);
       if (parent.type === "property") {
         if (clean) {
@@ -242,7 +239,8 @@ class JsonRegistry {
         this.text = removeChild(this.text, target, onlyChild(target));
         return;
       }
-      if (clean && (this.isGroup(parent) || parent.children?.length === 1)) {
+      const alone = this.isGroup(parent) || parent.children?.length === 1;
+      if (clean && alone && parent.parent !== undefined) {
         target = parent;
         continue;
       }
@@ -256,13 +254,12 @@ class JsonRegistry {
     }
   }
 
-  // A file left holding nothing but its wrapper and empty containers becomes an empty object with
-  // its own line ending, never a deletion: nothing records whether the file existed before the
-  // hook was registered, and an empty object is harmless to every harness.
+  // A file left holding nothing but its wrapper becomes an empty object with its own line ending,
+  // never a deletion: nothing records whether the file existed before the hook was registered,
+  // and an empty object is harmless to every harness.
   finish(): Change {
     const root = this.root();
-    const remaining = withoutEmptyContainers(getNodeValue(root), this.hook.eventPath.slice(0, -1));
-    if (this.commentFree(root) && sameJson(remaining, this.hook.wrapper ?? {})) {
+    if (this.commentFree(root) && sameJson(getNodeValue(root), this.hook.wrapper ?? {})) {
       const eol = this.text.endsWith("\r\n") ? "\r\n" : this.text.endsWith("\n") ? "\n" : "";
       return { kind: "write", path: this.path, content: `{}${eol}` };
     }
@@ -272,10 +269,6 @@ class JsonRegistry {
   write(): Change {
     this.root();
     return { kind: "write", path: this.path, content: this.text };
-  }
-
-  private holdsEvents(node: Node): boolean {
-    return isDeepStrictEqual(getNodePath(node), this.hook.eventPath.slice(0, -1));
   }
 
   private isGroup(node: Node): boolean {
@@ -443,17 +436,4 @@ function isOurCommand(command: string): boolean {
 // JSON round trip puts both sides on plain objects before the structural comparison.
 function sameJson(left: unknown, right: unknown): boolean {
   return isDeepStrictEqual(JSON.parse(JSON.stringify(left)), JSON.parse(JSON.stringify(right)));
-}
-
-// The containers above the event (`hooks` on Claude Code) stay behind emptied, so a file is judged
-// against its wrapper with those empty objects dropped along the event path.
-function withoutEmptyContainers(value: unknown, path: string[]): unknown {
-  if (!isRecord(value)) return value;
-  const copy: Record<string, unknown> = { ...value };
-  const [head, ...rest] = path;
-  if (head === undefined) return copy;
-  const inner = withoutEmptyContainers(copy[head], rest);
-  if (isRecord(inner) && Object.keys(inner).length === 0) delete copy[head];
-  else if (inner !== undefined) copy[head] = inner;
-  return copy;
 }
