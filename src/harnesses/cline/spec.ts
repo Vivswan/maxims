@@ -13,9 +13,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:72c168370c887de43fb25dc6d1013595b351ff1b3b92bd1f6c6486abe1176553",
+      "sha256:afeb7a02b27409a0c4f9e910d17f64fef8e16d97e5fddfc5728db82aa4c9e87e",
     ),
   },
   targets: {

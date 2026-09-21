@@ -11,9 +11,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:47bd5b860be52758cc40edf015ea56af9ec5e4c1d6227e8047c5bf268f287589",
+      "sha256:a7489955249081d1b6064eab80f46e9d736c93cb1404c400411e76453ef7a2d3",
     ),
   },
   targets: {

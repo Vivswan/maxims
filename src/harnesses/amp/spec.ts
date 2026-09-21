@@ -14,9 +14,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://ampcode.com/docs/customize/plugins",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:67415871477a22d245a96221fc4d01bfe40526443ad60dd0428a9b1c0dda1491",
+      "sha256:1cce5c885651149b3421ab93bb211d3440b4c74b4362aa6e4991c211a9a4d100",
     ),
   },
   globalRoot: { default: ".config/amp" },

@@ -12,9 +12,9 @@ export const spec = {
   tier: 2,
   verifiedAgainst: {
     url: "https://zed.dev/docs/ai/instructions",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:9728b4f04f0d60a1ad87f6b50ab8d72db5984ef64349cdeef959b425da95508e",
+      "sha256:976301e2dfd5df76250ed3874de47f34f0db1c957d47928eb84cbe5cc3562797",
     ),
   },
   globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },

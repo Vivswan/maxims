@@ -12,9 +12,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:5926e083454a96d842270c536837743cc29d34f502c10034f05cf6ba12db4461",
+      "sha256:c5e45089edb276477447ebeedfe6c3c23bfb4f2c32ccbec4de76bfb51d0eabf8",
     ),
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },

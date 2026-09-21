@@ -14,9 +14,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://cursor.com/docs/context/rules",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:46711ebcd28feb5ca06a97f8cf2bc2878346654503a63704ee7876b41d4985a2",
+      "sha256:05781c233f0a2302f7cefa20f960849b3f53a1ee14423fa81e4bea8041621f9e",
     ),
   },
   targets: {

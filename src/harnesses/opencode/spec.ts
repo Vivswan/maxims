@@ -18,7 +18,7 @@ export const spec = {
     url: "https://opencode.ai/docs/plugins/",
     date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:5bdc6b9addfd210421c5773eb60319a5470430012471f24003b7041e88099baa",
+      "sha256:ad7473a4c99a5766f38791ae721c41a6399a3c8d43e05b8a87b260fb87e553f3",
     ),
   },
   globalRoot: { default: ".config/opencode", env: { name: "XDG_CONFIG_HOME", subdir: "opencode" } },

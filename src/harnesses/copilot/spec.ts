@@ -13,9 +13,9 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:d03214f47b4186d4ca429d3cf5d8ddea8d80bfaaf1316ffe4dc253deffb91cae",
+      "sha256:8545296cf84c29c08444895aae788b9646184a91394dcb0b96245ad7336294b3",
     ),
   },
   globalRoot: { default: ".copilot", env: { name: "COPILOT_HOME" } },

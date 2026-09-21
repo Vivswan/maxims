@@ -12,9 +12,9 @@ export const spec = {
   tier: 2,
   verifiedAgainst: {
     url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
-    date: "2026-09-20",
+    date: "2026-09-21",
     contentHash: contentHashLiteral(
-      "sha256:8bb458d10895a0344c908be66f9871d840bb4132ab62fcf7ecc6bf06b79339fe",
+      "sha256:cd2feee9ff5f88c387142d089900a2868fd66edfaec14651e7dcb0b69a9cab1d",
     ),
   },
   targets: {
