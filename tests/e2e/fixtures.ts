@@ -12,7 +12,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { join, parse, relative, resolve, sep } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import type { HarnessId } from "../../src/harnesses/contract.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
@@ -62,26 +62,33 @@ export function fixtureRepo(dir: string, tree: string): string {
   return repo;
 }
 
-// The one-line descriptions a default install of the tree publishes as rule lines: every file
-// that passes the memory contract and is not marked internal, in file order.
+// The `<name>: <description>` pairs a default install of the tree publishes as rule lines: every
+// file that passes the memory contract and is not marked internal, in file order. Pairing the
+// description with its memory is what catches two descriptions swapped between intact detail lines.
 export function fixtureDescriptions(tree: string): string[] {
   const memories = join(TREE_ROOT, tree, "memories");
   return readdirSync(memories).flatMap((file) => {
     const parsed = parseMemory(file, readFileSync(join(memories, file), "utf8"));
     if (!parsed.ok || parsed.memory.metadata.internal === true) return [];
-    return [parsed.memory.description];
+    return [`${parsed.memory.name}: ${parsed.memory.description}`];
   });
 }
 
-const RULE_LINE = /^- (.*) \(detail: \S.*, [0-9a-f]{7}\)$/;
+const RULE_LINE = /^- (.*) \(detail: (\S.*), [0-9a-f]{7}\)$/;
 
-// The description each `- ` line of a rule file carries; a line that does not follow the rule
-// grammar stays whole so the mismatch shows what was written.
+// The `<detail stem>: <description>` pair each `- ` line of a rule file carries; a line that does
+// not follow the rule grammar stays whole so the mismatch shows what was written. The stem equals
+// the upstream memory name for every caller: none installs with a rename.
 export function ruleDescriptions(text: string): string[] {
   return text
     .split("\n")
     .filter((line) => line.startsWith("- "))
-    .map((line) => RULE_LINE.exec(line)?.[1] ?? line);
+    .map((line) => {
+      const match = RULE_LINE.exec(line);
+      if (match === null) return line;
+      const [, description = "", detail = ""] = match;
+      return `${parse(detail).name}: ${description}`;
+    });
 }
 
 // `count` rule-flagged memories named m-001.. so a row can cross the rule cap on purpose.
