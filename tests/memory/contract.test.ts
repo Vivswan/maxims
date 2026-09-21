@@ -38,6 +38,8 @@ describe("parseMemoryName", () => {
     ["has space", false],
     ["../../x", false],
     ["MEMORY", false],
+    ["memory", true],
+    ["readme", false],
     ["double--dash", false],
     ["-leading", false],
     ["trailing-", false],
@@ -156,7 +158,32 @@ describe("parseMemory", () => {
 
   const rejected: { title: string; filename: string; text: string; reason: RegExp }[] = [
     { title: "MEMORY.md is reserved", filename: "MEMORY.md", text: FILE, reason: /reserved/ },
+    { title: "README.md is reserved", filename: "README.md", text: FILE, reason: /reserved/ },
+    {
+      title: "the README is reserved in any letter case",
+      filename: "Readme.MD",
+      text: FILE,
+      reason: /reserved/,
+    },
     { title: "non-markdown file", filename: "notes.txt", text: FILE, reason: /not a \.md file/ },
+    {
+      title: "a README with another extension is an ordinary non-markdown file",
+      filename: "readme.txt",
+      text: FILE,
+      reason: /not a \.md file/,
+    },
+    {
+      title: "a README without an extension is an ordinary non-markdown file",
+      filename: "README",
+      text: FILE,
+      reason: /not a \.md file/,
+    },
+    {
+      title: "a stem that only starts like the README is checked as a name",
+      filename: "README-first.md",
+      text: FILE,
+      reason: /not kebab-case/,
+    },
     {
       title: "a traversal path is reduced to its basename before the name check",
       filename: "../../x.md",

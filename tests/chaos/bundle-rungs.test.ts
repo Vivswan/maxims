@@ -458,7 +458,7 @@ const zeroValidRows: ZeroValidRow[] = [
 ];
 
 row.each(zeroValidRows)(
-  "zero valid memories: a remote rewound to a README alone under $label exits $code, keeps the block and says so once",
+  "zero valid memories: a remote rewound to a README alone under $label exits $code, keeps the block and says so once without naming the README",
   async ({ argv, code, quiet }) => {
     await withWorld(async (world) => {
       const { key, repo, run } = await install(world, "rules", RULES);
@@ -489,13 +489,7 @@ row.each(zeroValidRows)(
           `^${glyph}maxims: ${key} has not refreshed since \\d{4}-\\d{2}-\\d{2} \\(source content invalid\\); rules may be out of date$`,
         ),
       );
-      expect(lines.filter((line) => line.includes("skipped memories/README.md"))).toEqual(
-        quiet
-          ? []
-          : [
-              `${glyph}${key}: skipped memories/README.md: filename stem "README" is not kebab-case`,
-            ],
-      );
+      expect(lines.filter((line) => line.includes("skipped memories/"))).toEqual([]);
     });
   },
   SLOW_ROW_MS,

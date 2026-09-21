@@ -293,6 +293,10 @@ test("init scaffolds a contract-valid file, refuses to overwrite, and needs a na
     const nameless = await runCli(scenario, ["init"]);
     expect(nameless.code).toBe(1);
     expect(nameless.stderr).toContain("a memory name is required");
+    const reserved = await runCli(scenario, ["init", "readme"]);
+    expect(reserved.code).toBe(1);
+    expect(reserved.stderr).toBe(' ERROR  "readme" is not a kebab-case memory name\n');
+    expect(existsSync(join(scenario.cwd, "memories", "readme.md"))).toBe(false);
     const dry = await runCli(scenario, ["init", "other-rule", "--dry-run"]);
     expect(dry.code).toBe(0);
     expect(existsSync(join(scenario.cwd, "memories", "other-rule.md"))).toBe(false);
@@ -499,6 +503,8 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
     mkdirSync(clean);
     writeFileSync(join(clean, "alpha.md"), "---\nname: alpha\ndescription: A\n---\n[[beta]]\n");
     writeFileSync(join(clean, "beta.md"), "---\nname: beta\ndescription: B\n---\n");
+    writeFileSync(join(clean, "README.md"), "# about these memories\n");
+    writeFileSync(join(clean, "MEMORY.md"), "- [alpha](alpha.md)\n");
     expect(await runCli(scenario, ["lint", "clean"])).toEqual({ code: 0, stdout: "", stderr: "" });
   });
 });

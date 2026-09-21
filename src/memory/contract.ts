@@ -39,13 +39,26 @@ export const MEMORY_NAME_MAX_LENGTH = 200;
 export function parseMemoryName(candidate: string): MemoryName | null {
   if (candidate.length > MEMORY_NAME_MAX_LENGTH || !MEMORY_NAME_PATTERN.test(candidate))
     return null;
+  // A name whose file every walker skips could be scaffolded but never installed.
+  if (isReservedFile(`${candidate}.md`)) return null;
   return candidate as MemoryName;
 }
 
 export const MEMORY_TYPES = ["user", "feedback", "project", "reference"] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
-export const RESERVED_FILES: ReadonlySet<string> = new Set(["MEMORY.md"]);
+// Two files sit beside memories in their folder without being memories: `MEMORY.md`, the index
+// the auto-memory format writes, and the folder's own README, which hosts render under any
+// letter case. Both are skipped by name and in silence; every other file that fails the contract
+// earns its warning line.
+function isReservedFile(name: string): boolean {
+  return name === "MEMORY.md" || name.toLowerCase() === "readme.md";
+}
+
+// What a walk over a memories folder hands to the parser; everything else is passed over silently.
+export function isMemoryFile(name: string): boolean {
+  return name.endsWith(".md") && !isReservedFile(name);
+}
 
 export type MemoryMetadata = {
   nodeType?: "memory";
@@ -81,7 +94,7 @@ export function parseMemory(filename: string, text: string): ParsedMemory {
 
 function parseMemoryChecked(filename: string, text: string): ParsedMemory {
   const file = basename(filename);
-  if (RESERVED_FILES.has(file)) return { ok: false, reason: `${file} is reserved` };
+  if (isReservedFile(file)) return { ok: false, reason: `${file} is reserved` };
   if (!file.endsWith(".md")) return { ok: false, reason: `${file} is not a .md file` };
   const stem = file.slice(0, -".md".length);
   const name = parseMemoryName(stem);

@@ -1,7 +1,6 @@
 |
 o  Source: <SOURCE>
 o  Directory read
-!  README.md is not a memory: filename stem "README" is not kebab-case
 o  Found 1 memory (1 internal, hidden)
 |
 o  Memories to install

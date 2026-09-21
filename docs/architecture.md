@@ -107,7 +107,7 @@ flowchart LR
   local["src/sources/local.ts<br>createLocalResolver() materializeLocal()"]
   temp[("the fetch's temporary directory")]
   tree["src/sources/tree.ts<br>readMemoryTree() hashFiles()"]
-  memory["src/memory/contract.ts<br>parseMemory() parseMemoryName() hiddenCharacters() contentHashOf() RESERVED_FILES"]
+  memory["src/memory/contract.ts<br>parseMemory() parseMemoryName() hiddenCharacters() contentHashOf() isMemoryFile()"]
   wikilinks["src/memory/wikilinks.ts<br>extractWikilinks() resolveWikilinks()"]
   home["src/util/home.ts<br>storePathFor()"]
   storedir[("the store entry, one directory per source")]
@@ -123,7 +123,7 @@ flowchart LR
   tarball -->|"the archive's top folder dropped"| temp
   temp --> tree
   local -->|"the directory itself"| tree
-  tree -->|"the .md files under the memory path, or the whole tree under --full-depth; hidden entries, symlinks and MEMORY.md skipped; relPath from the source root"| memory
+  tree -->|"the .md files under the memory path, or the whole tree under --full-depth; hidden entries, symlinks, MEMORY.md and the README skipped; relPath from the source root"| memory
   memory -->|"body"| wikilinks
   from --> home
   home -->|"the one derivation, proven inside the store"| storedir

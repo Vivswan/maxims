@@ -173,7 +173,6 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
     const warnings = stdout.split("\n").filter((line) => line.startsWith("!  "));
     expect(redact(warnings.join("\n"), installed, home)).toBe(
       [
-        '!  README.md is not a memory: filename stem "README" is not kebab-case',
         "!  ~N tokens in <HOME>/.claude/rules/maxims-<SLUG>.md",
         "!  ~N tokens in <HOME>/.codex/AGENTS.md",
         "!  maxims: registered the maxims hook in <HOME>/.claude/settings.json",

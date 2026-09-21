@@ -176,7 +176,7 @@ function scenarioLines(console: Console): void {
   console.intro();
   console.step("Source: https://github.com/Vivswan/skills.git");
   console.spinner("Cloning repository...").stop("Repository cloned");
-  console.warn("README.md is not a memory: missing frontmatter");
+  console.warn("notes.md is not a memory: missing frontmatter");
   console.step("Found 4 memories");
   console.gap();
   console.note("Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md", "Memories to install");

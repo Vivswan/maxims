@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { RESERVED_FILES } from "../memory/contract.ts";
+import { isMemoryFile } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import type { FetchOptions } from "./contract.ts";
 
@@ -37,7 +37,7 @@ export async function readMemoryTree(
   const files: TreeFile[] = [];
   for (const rel of await walkRegularFiles(scannedRoot, [], warn)) {
     const name = rel[rel.length - 1] ?? "";
-    if (!name.endsWith(".md") || RESERVED_FILES.has(name)) continue;
+    if (!isMemoryFile(name)) continue;
     const text = await readFile(join(scannedRoot, ...rel), "utf8");
     files.push({ relPath: [...prefixSegments, ...rel].join("/"), text });
   }

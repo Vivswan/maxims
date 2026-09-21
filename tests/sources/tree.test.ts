@@ -1,5 +1,5 @@
 // Guards the one tree walk both resolvers share: a symlink followed, a hidden directory scanned, or
-// MEMORY.md collected would reach the store from every source type at once.
+// MEMORY.md or a README collected would reach the store from every source type at once.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +15,8 @@ function seed(root: string): void {
   writeFileSync(join(root, "memories", "a-rule.md"), "a\n");
   writeFileSync(join(root, "memories", "nested", "c-rule.md"), "c\n");
   writeFileSync(join(root, "memories", "MEMORY.md"), "index\n");
+  writeFileSync(join(root, "memories", "README.md"), "about these memories\n");
+  writeFileSync(join(root, "memories", "nested", "readme.md"), "about the nested ones\n");
   writeFileSync(join(root, "memories", "notes.txt"), "not a memory\n");
   writeFileSync(join(root, "memories", ".hidden", "h.md"), "hidden\n");
   writeFileSync(join(root, "memories", ".dotfile.md"), "hidden file\n");
@@ -46,7 +48,7 @@ describe("readMemoryTree", () => {
     });
   });
 
-  test("fullDepth walks from the source root, keeps every .md, and still skips hidden entries", async () => {
+  test("fullDepth walks from the source root, keeps every .md but the reserved names, and still skips hidden entries", async () => {
     await withTempDir(async (root) => {
       seed(root);
       const tree = await readMemoryTree(
@@ -56,7 +58,6 @@ describe("readMemoryTree", () => {
       );
       expect(tree.scannedRoot).toBe(root);
       expect(tree.files.map((f) => f.relPath)).toEqual([
-        "README.md",
         "docs/d-rule.md",
         "memories/a-rule.md",
         "memories/b-rule.md",

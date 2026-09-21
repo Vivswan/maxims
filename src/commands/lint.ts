@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { hiddenCharacters, type Memory, parseMemory } from "../memory/contract.ts";
+import { hiddenCharacters, isMemoryFile, type Memory, parseMemory } from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
@@ -119,7 +119,7 @@ function collectMarkdown(dir: string, recursive: boolean): string[] {
     if (stat === undefined) continue;
     if (stat.isDirectory()) {
       if (recursive) out.push(...collectMarkdown(path, recursive));
-    } else if (entry.endsWith(".md")) out.push(path);
+    } else if (isMemoryFile(entry)) out.push(path);
   }
   return out;
 }

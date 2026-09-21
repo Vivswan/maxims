@@ -175,7 +175,6 @@ describe("createGitResolver", () => {
       );
       expect(result.files.map((f) => f.relPath)).toEqual([
         "-dashed/odd-rule.md",
-        "README.md",
         "memories/first-rule.md",
         "memories/second-rule.md",
       ]);

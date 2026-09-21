@@ -187,13 +187,11 @@ test("a re-add with fewer harnesses syncs the dropped ones too, and --quiet stay
   });
 });
 
-test("a file that fails the contract is skipped with one warning naming the reason", async () => {
+test("a README beside the memories is skipped without a warning", async () => {
   await withScenario({ github: { "a/d": DOTFILES } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/d", "-g", "-a", "codex"]);
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain(
-      '!  README.md is not a memory: filename stem "README" is not kebab-case\n',
-    );
+    expect(run.stdout).not.toContain("is not a memory");
     expect(run.stdout).toContain("o  Found 1 memory (1 internal, hidden)\n");
   });
 });

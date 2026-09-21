@@ -148,7 +148,6 @@ describe("fetch", () => {
         { memoryPath: "memories", fullDepth: true, tempDir, auth: true },
       );
       expect(second.files.map((f) => f.relPath)).toEqual([
-        "README.md",
         "memories/commit-review.md",
         "memories/tests-first.md",
       ]);
