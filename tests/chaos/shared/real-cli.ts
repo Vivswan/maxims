@@ -82,8 +82,8 @@ export async function runReal(
   const stdin = new PassThrough();
   stdin.end(options.stdin ?? "");
   const deps: CliDeps = {
-    loadEngine: async ({ quiet }): Promise<EngineBundle> => {
-      const bundle = await createEngine({ quiet, env, runner: world.runner });
+    loadEngine: async ({ quiet, rung }): Promise<EngineBundle> => {
+      const bundle = await createEngine({ quiet, rung, env, runner: world.runner });
       return {
         ...bundle,
         resolvers: createResolvers({

@@ -37,7 +37,7 @@ const goldens: Golden[] = [
     "add-install",
     { tty: true, agent: "claude-code", github: { "vivswan/skills": SKILLS } },
     async (scenario) => {
-      scenario.options.bundle = realEngineBundle(fixtureResolvers(() => scenario));
+      scenario.options.loadEngine = async () => realEngineBundle(fixtureResolvers(() => scenario));
       const run = await runCli(scenario, [
         "add",
         "@Vivswan/skills",

@@ -75,8 +75,11 @@ export type ScenarioOptions = {
   // prompt takes its silent branch.
   answers?: Record<string, string>;
   // The real engine over scripted resolvers, for a scenario that must see what a verb's sync
-  // lands rather than what it asked for; the recording engine is unused then.
-  bundle?: EngineBundle;
+  // lands rather than what it asked for; the recording engine is unused then. Called the way the
+  // bin calls it, so the run's rung sink reaches the resolvers it builds.
+  loadEngine?: CliDeps["loadEngine"];
+  // Every read of the clock answers noon on 2026-09-20 unless a scenario needs it to move.
+  now?: () => Date;
 };
 
 export type Scenario = {
@@ -221,20 +224,20 @@ export async function runCli(scenario: Scenario, argv: string[]): Promise<RunRes
   const answers = scenario.options.answers;
   const interactive =
     answers === undefined ? null : scriptedStreams(answers, (chunk) => (stdout += chunk));
-  const bundle: EngineBundle = scenario.options.bundle ?? {
+  const bundle: EngineBundle = {
     engine: scenario.engine,
     harnesses: scenario.options.harnesses ?? FIXTURE_HARNESSES,
     resolvers: fixtureResolvers(() => scenario),
   };
   const deps: CliDeps = {
-    loadEngine: async () => bundle,
+    loadEngine: scenario.options.loadEngine ?? (async () => bundle),
     io: {
       env: { HOME: scenario.userHome, MAXIMS_HOME: scenario.home, ...scenario.options.env },
       cwd: scenario.cwd,
       home: scenario.home,
       userHome: scenario.userHome,
       projectRoot: scenario.projectRoot,
-      now: () => new Date("2026-09-20T12:00:00.000Z"),
+      now: scenario.options.now ?? (() => new Date("2026-09-20T12:00:00.000Z")),
       stdin: new PassThrough(),
       stdout: { write: (chunk: string) => (stdout += chunk) },
       stderr: { write: (chunk: string) => (stderr += chunk) },

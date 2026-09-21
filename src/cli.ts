@@ -10,7 +10,7 @@ import { maximsHome } from "./util/home.ts";
 // which the tests drive with injected fakes.
 const stdout = process.stdout;
 process.exitCode = await main(process.argv.slice(2), {
-  loadEngine: ({ quiet }) => createEngine({ quiet, env: process.env }),
+  loadEngine: (options) => createEngine({ ...options, env: process.env }),
   io: {
     env: process.env,
     cwd: process.cwd(),

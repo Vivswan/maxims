@@ -139,12 +139,15 @@ export type Args = {
 
 export type OpenConsole = (yes: boolean) => Promise<Console>;
 
+// `flushRungLog` writes the fetch rung reasons collected so far to refresh.log. The run does it
+// once the verb settles, so only a verb that keeps running past its sync (`mcp-serve`) calls it.
 export type CommandContext = {
   io: CliIo;
   engine: Engine;
   global: GlobalFlags;
   config: UserConfig;
   openConsole: OpenConsole;
+  flushRungLog: () => Promise<void>;
 };
 
 // A verb's body; its name, aliases and visibility live in the dispatch table that loads it.

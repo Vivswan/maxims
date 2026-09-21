@@ -14,12 +14,13 @@ export const mcpServe: Command = {
   async run(_args, ctx) {
     if (ctx.global.json) throw usage("mcp-serve speaks MCP on stdout; drop --json");
     const io = engineIo(ctx.io, { stdout: SILENT, readStdin: async () => null });
+    // The server outlives its sync by the whole session, so the rung reasons land now rather
+    // than when the harness closes stdin.
     await ctx.engine.serveMcpStub({
       runSync: () =>
-        ctx.engine.runSync(
-          { quiet: true, dryRun: ctx.global.dryRun, json: false, fetch: "due" },
-          io,
-        ),
+        ctx.engine
+          .runSync({ quiet: true, dryRun: ctx.global.dryRun, json: false, fetch: "due" }, io)
+          .finally(ctx.flushRungLog),
       input: ctx.io.stdin,
       output: ctx.io.stdout,
       stderr: ctx.io.stderr,

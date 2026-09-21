@@ -21,9 +21,9 @@ import type { EngineBundle, MachineIo } from "./types.ts";
 
 // The engine is a loader, called only once a verb is about to run: `--help`, `--version` and a
 // usage error never pay for it. It learns whether the run is quiet, so a hook run's resolver
-// warnings stay off stderr.
+// warnings stay off stderr, and where a failed fetch rung reports its reason.
 export type CliDeps = {
-  loadEngine: (options: { quiet: boolean }) => Promise<EngineBundle>;
+  loadEngine: (options: { quiet: boolean; rung: (line: string) => void }) => Promise<EngineBundle>;
   io: MachineIo;
   stdoutTty: { isTTY: boolean; columns?: number };
   stdinTty: boolean;
@@ -238,12 +238,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     if (extra !== undefined) throw usage(`unexpected argument: ${extra}`);
     const global = globalFlags(args);
     refuseJsonCombinations(command, args, json);
-    const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet });
+    const rungs = rungLog(failure, entry.name, args.flag(FLAGS.list));
+    const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet, rung: rungs.rung });
     const ctx: CommandContext = {
       io: { ...io, harnesses, resolvers },
       engine,
       global,
       config: readConfig(io.home),
+      flushRungLog: rungs.flush,
       openConsole: async (yes) => {
         const agent = deps.stdoutTty.isTTY && !quiet && !json ? await deps.detectAgent() : null;
         const mode = consoleMode({
@@ -257,7 +259,7 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
         return createConsole({ mode, output: io.stdout, interactive: deps.interactive });
       },
     };
-    const code = await command.run(args, ctx);
+    const code = await command.run(args, ctx).finally(rungs.flush);
     if (code !== ExitCode.Ok && quiet) {
       await logQuietly(failure, `maxims: ${entry.name} exited ${code}`);
       return ExitCode.Ok;
@@ -278,6 +280,31 @@ async function logQuietly(ctx: FailureContext, line: string): Promise<void> {
   } catch {
     return;
   }
+}
+
+type RungLog = { rung: (line: string) => void; flush: () => Promise<void> };
+
+// Which rung of a fetch failed and why belongs in refresh.log alone, never on a terminal beside
+// the run's own line about the same fetch. The ladder reports a rung the moment it fails, and a
+// verb may plan with a dry-run sync before its real one or fail before any sync runs, so the
+// reasons wait here and land once, when the verb settles, stamped with the run's start. `--list`
+// is `add`'s preview and, like the dry run `logQuietly` honors, writes nothing, the log included.
+function rungLog(ctx: FailureContext, verb: string, listing: boolean): RungLog {
+  const pending: string[] = [];
+  const stamp = ctx.io.now().toISOString();
+  const mode = ctx.quiet ? `${verb} --quiet` : verb;
+  return {
+    rung: (line) => {
+      pending.push(line);
+    },
+    async flush() {
+      const lines = pending.splice(0);
+      if (listing) return;
+      for (const line of lines) {
+        await logQuietly(ctx, `${stamp} ${mode}: fetch rung failed: ${line}`);
+      }
+    },
+  };
 }
 
 // `--json` promises one JSON value on stdout, which a prompt or a `--list` frame would break.

@@ -13,7 +13,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { DEFAULT_LOCK_WAIT_MS, withLock } from "../../src/util/lock.ts";
 import {
@@ -195,12 +195,17 @@ const missingRows: MissingRow[] = [
   { label: "a port nobody listens on", stopDaemon: true },
 ];
 
+// The refused add leaves the machine as it was; the one file it may write is refresh.log, which
+// records the rung that failed for the user who reads the log after the fact.
 row.each(missingRows)(
-  "missing remote: a fresh add of $label exits 2 and writes nothing",
+  "missing remote: a fresh add of $label exits 2 and writes only the log",
   async ({ stopDaemon }) => {
     await withWorld(async (world) => {
       if (stopDaemon) await world.daemon.stop();
-      const before = snapshot(world.home.root);
+      const logDir = relative(world.home.root, dirname(homePaths(world.home.maximsHome).log))
+        .split(sep)
+        .join("/");
+      const before = snapshot(world.home.root, [logDir]);
       const run = await runMaxims(bundle, world.home, [
         "add",
         world.daemon.url("never-existed"),
@@ -210,7 +215,10 @@ row.each(missingRows)(
       expect(run.stderr).toContain(
         ` ERROR  cannot fetch ${world.daemon.url("never-existed")}: git ls-remote: fatal: `,
       );
-      expect(snapshot(world.home.root)).toEqual(before);
+      expect(snapshot(world.home.root, [logDir])).toEqual(before);
+      expect(refreshLog(world.home.maximsHome)).toMatch(
+        / add: fetch rung failed: git ls-remote: fatal: /,
+      );
     });
   },
   SLOW_ROW_MS,

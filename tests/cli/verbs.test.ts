@@ -76,7 +76,8 @@ test.each(selections)(
   async (_title, select, dropStore) => {
     const fake = fakeResolvers();
     const from = { type: "github", repo: "a/b", ref: "HEAD" } as const;
-    await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+    const loadEngine = async () => realEngineBundle(fake.resolvers);
+    await withScenario({ loadEngine }, async (scenario) => {
       const v1 = writeSource(join(scenario.root, "v1"), {
         "alpha-rule": { description: "Alpha, first cut." },
         "beta-rule": { description: "Beta, unchanged throughout." },
@@ -120,7 +121,8 @@ test.each(selections)(
 // must not report the file it would otherwise expect as missing.
 test("doctor passes a source whose every memory is disabled, and again once one is enabled", async () => {
   const fake = fakeResolvers();
-  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
     const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
     const argv = ["add", source, "-g", "--rule", "-a", "claude-code"];
     expect((await runCli(scenario, argv)).code).toBe(0);

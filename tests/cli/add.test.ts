@@ -791,44 +791,42 @@ test.each(scopeMoves)(
 test("hook intent is recorded and honored per scope", async () => {
   const fake = fakeResolvers();
   fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
-  await withScenario(
-    { project: true, bundle: realEngineBundle(fake.resolvers) },
-    async (scenario) => {
-      const other = writeSource(join(scenario.root, "other"), TWO_MEMORIES);
-      fake.set({ type: "github", repo: "a/d", ref: "HEAD" }, { kind: "dir", dir: other });
-      mkdirSync(join(scenario.userHome, ".claude"));
-      mkdirSync(join(scenario.cwd, ".claude"));
-      const globalRegistry = join(scenario.userHome, ".claude", "settings.json");
-      const projectRegistry = join(scenario.cwd, ".claude", "settings.json");
-      const hooks = () => readState(scenario).hooks;
-      const claude = ["add", "@a/b", "-g", "-a", "claude-code"];
-      expect((await runCli(scenario, [...claude, "--add-hook"])).code).toBe(0);
-      expect(readFileSync(globalRegistry, "utf8")).toContain("maxims sync --quiet");
-      expect(hooks()).toEqual({ global: ["claude-code"] });
-      const project = ["add", "@a/d", "-p", "-a", "claude-code"];
-      const withoutFlag = await runCli(scenario, project);
-      expect([withoutFlag.code, withoutFlag.stdout]).toEqual([
-        0,
-        expect.not.stringContaining("Hook registered"),
-      ]);
-      expect(existsSync(projectRegistry)).toBe(false);
-      expect(hooks()).toEqual({ global: ["claude-code"] });
-      expect((await runCli(scenario, [...project, "--add-hook"])).code).toBe(0);
-      expect(readFileSync(projectRegistry, "utf8")).toContain("maxims sync --quiet");
-      expect(hooks()).toEqual({
-        global: ["claude-code"],
-        project: { [scenario.cwd]: ["claude-code"] },
-      });
-      expect((await runCli(scenario, ["remove", "@a/d", "-y"])).code).toBe(0);
-      expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
-      expect(hooks()).toEqual({ global: ["claude-code"] });
-      expect((await runCli(scenario, project)).code).toBe(0);
-      expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
-      expect((await runCli(scenario, ["remove", "--all"])).code).toBe(0);
-      expect(readFileSync(globalRegistry, "utf8")).not.toContain("maxims sync --quiet");
-      expect(hooks()).toBeUndefined();
-    },
-  );
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ project: true, loadEngine }, async (scenario) => {
+    const other = writeSource(join(scenario.root, "other"), TWO_MEMORIES);
+    fake.set({ type: "github", repo: "a/d", ref: "HEAD" }, { kind: "dir", dir: other });
+    mkdirSync(join(scenario.userHome, ".claude"));
+    mkdirSync(join(scenario.cwd, ".claude"));
+    const globalRegistry = join(scenario.userHome, ".claude", "settings.json");
+    const projectRegistry = join(scenario.cwd, ".claude", "settings.json");
+    const hooks = () => readState(scenario).hooks;
+    const claude = ["add", "@a/b", "-g", "-a", "claude-code"];
+    expect((await runCli(scenario, [...claude, "--add-hook"])).code).toBe(0);
+    expect(readFileSync(globalRegistry, "utf8")).toContain("maxims sync --quiet");
+    expect(hooks()).toEqual({ global: ["claude-code"] });
+    const project = ["add", "@a/d", "-p", "-a", "claude-code"];
+    const withoutFlag = await runCli(scenario, project);
+    expect([withoutFlag.code, withoutFlag.stdout]).toEqual([
+      0,
+      expect.not.stringContaining("Hook registered"),
+    ]);
+    expect(existsSync(projectRegistry)).toBe(false);
+    expect(hooks()).toEqual({ global: ["claude-code"] });
+    expect((await runCli(scenario, [...project, "--add-hook"])).code).toBe(0);
+    expect(readFileSync(projectRegistry, "utf8")).toContain("maxims sync --quiet");
+    expect(hooks()).toEqual({
+      global: ["claude-code"],
+      project: { [scenario.cwd]: ["claude-code"] },
+    });
+    expect((await runCli(scenario, ["remove", "@a/d", "-y"])).code).toBe(0);
+    expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
+    expect(hooks()).toEqual({ global: ["claude-code"] });
+    expect((await runCli(scenario, project)).code).toBe(0);
+    expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
+    expect((await runCli(scenario, ["remove", "--all"])).code).toBe(0);
+    expect(readFileSync(globalRegistry, "utf8")).not.toContain("maxims sync --quiet");
+    expect(hooks()).toBeUndefined();
+  });
 });
 
 // The registry is the user's file: the hook goes in and comes out again, and a file that had no
@@ -836,7 +834,8 @@ test("hook intent is recorded and honored per scope", async () => {
 test("add with a hook then remove --all returns a hookless settings file byte for byte", async () => {
   const fake = fakeResolvers();
   fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
-  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
     mkdirSync(join(scenario.userHome, ".claude"));
     const registry = join(scenario.userHome, ".claude", "settings.json");
     const before = `{\n  // mine\n  "theme":   "dark",\n  "model": "opus"\n}\n`;
@@ -854,7 +853,8 @@ test("add with a hook then remove --all returns a hookless settings file byte fo
 // and a summary in the conditional, not the past tense.
 test("add --dry-run into an -o folder prints one truthful plan", async () => {
   const fake = fakeResolvers();
-  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
     const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
     const out = join(scenario.root, "team-rules");
     const before = await snapshot(scenario.root);
@@ -1165,22 +1165,18 @@ test("re-adding a GitHub source in another case continues the recorded entry", a
 test("moving a shared source to the user scope goes through remove, which retires it from the manifest", async () => {
   const fake = fakeResolvers();
   fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
-  await withScenario(
-    { project: true, bundle: realEngineBundle(fake.resolvers) },
-    async (scenario) => {
-      expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(
-        0,
-      );
-      const lock = join(scenario.cwd, ".agents", "maxims.lock");
-      const shared = readFileSync(lock, "utf8");
-      expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(1);
-      expect(readFileSync(lock, "utf8")).toBe(shared);
-      expect((await runCli(scenario, ["remove", "@a/b", "-y"])).code).toBe(0);
-      expect(existsSync(lock)).toBe(false);
-      expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
-      expect(existsSync(lock)).toBe(false);
-    },
-  );
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ project: true, loadEngine }, async (scenario) => {
+    expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(0);
+    const lock = join(scenario.cwd, ".agents", "maxims.lock");
+    const shared = readFileSync(lock, "utf8");
+    expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(1);
+    expect(readFileSync(lock, "utf8")).toBe(shared);
+    expect((await runCli(scenario, ["remove", "@a/b", "-y"])).code).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+    expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+  });
 });
 
 // The old folder is nobody's destination any more, and only the caller knows it existed: the

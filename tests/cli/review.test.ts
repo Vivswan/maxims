@@ -57,7 +57,8 @@ async function heldScenario(
   ) => Promise<void>,
 ) {
   const fake = fakeResolvers();
-  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
     const a = writeSource(join(scenario.root, "a"), TWO_MEMORIES);
     const b = writeSource(join(scenario.root, "b"), REVISION_B);
     fake.set(FROM, { kind: "dir", dir: a });
@@ -243,7 +244,8 @@ test("an intent edit on a held source keeps the held revision", async () => {
 
 test("review refuses a live source, since a directory read in place has no fetch to hold", async () => {
   const fake = fakeResolvers();
-  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
     mkdirSync(join(scenario.cwd, "memories"));
     writeFileSync(
       join(scenario.cwd, "memories", "local-rule.md"),
