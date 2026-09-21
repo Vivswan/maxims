@@ -100,7 +100,7 @@ const RISK_PIECES = [
   "sk-",
   "sk-abcdefghijklmnopqrstuvwxyz",
   "AKIA",
-  "AKIAABCDEFGHIJKLMNOP",
+  "AKIAABCDEFGHIJKLMNOP", // gitleaks:allow (secret-shaped seed for the secret-shape detector)
   "xoxb-",
   "-----BEGIN RSA PRIVATE KEY-----",
   "AIza",

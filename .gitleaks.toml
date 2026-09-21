@@ -16,3 +16,16 @@ paths = ['''(^|/)(bun\.lock|bun\.lockb|package-lock\.json|deno\.lock|uv\.lock|Ca
 # Add further false-positive allowlists here; for a one-off finding,
 # prefer an inline "gitleaks:allow" comment on the flagged line -
 # finding-level, so it never excuses future secrets in the same file.
+
+# The risk-warnings fuzz corpus seeds the secret-shape detector with one
+# secret-SHAPED AWS key id. The inline gitleaks:allow covers the current
+# file; a push-range rescan also revisits the commit that introduced the
+# seed, which needs this entry. It sits on the rule because a global
+# allowlist with a path skips the whole file instead.
+[[rules]]
+id = "aws-access-token"
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)tests/fuzz/risk\.test\.ts$''']
+regexTarget = "match"
+regexes = ['''^AKIAABCDEFGHIJKLMNOP$''']
