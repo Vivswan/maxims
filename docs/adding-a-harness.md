@@ -147,6 +147,6 @@ The folder census test under `src/harnesses/` parses every `spec.ts`, compiles i
 | --- | --- |
 | HTML | the text of the first of `main`, `article`, `[role=main]`, else the whole document |
 | HTML, inside a `footer` element | build stamps such as `Last updated: Sep 21, 2026` are dropped first |
-| anything else, such as a raw markdown file | the whole body, whitespace collapsed to single spaces |
+| anything else, such as a raw markdown file | the whole body |
 
-Both branches trim the result, and the HTML branch also drops `script`, `style`, and `noscript` bodies. To record a hash by hand, run `bun scripts/nightly.ts harness-drift`: its table prints each definition's stored hash beside the fetched one, and the fetched value is what the definition records.
+Both branches collapse each whitespace run to one space and trim the result; the HTML branch also drops the doctype and the `script`, `style`, and `noscript` bodies. To record a hash by hand, run `bun scripts/nightly.ts harness-drift`: its table prints each definition's stored hash beside the fetched one, and the fetched value is what the definition records.

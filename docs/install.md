@@ -138,7 +138,7 @@ non-interactive:  exit 6, nothing written, unless --rename names the pair
 result:           two rule lines, two names, one rename entry applied by every later sync
 ```
 
-The output when the prompt cannot be shown, captured from the built CLI with `@Vivswan/skills` already owning the name:
+The last two lines of the output when the prompt cannot be shown, captured from the built CLI with `@Vivswan/skills` already owning the name; above them are the ordinary progress lines of any `add`:
 
 ```text
  ERROR  gate-exit-conditions-the-merge is owned by @Vivswan/skills
