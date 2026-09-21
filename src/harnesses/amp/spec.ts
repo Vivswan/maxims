@@ -21,6 +21,20 @@ export const spec = {
           "sha256:d6a8aa88f4b283e6206e2686005f3a0532a887fd9d3d5371e5f722aa931d9d68",
         ),
       },
+      {
+        url: "https://ampcode.com/docs/customize/agents-md",
+        contentHash: contentHashLiteral(
+          "sha256:bff51b2b5e27a56adf671e8b524838a87cb3378f5300f794b2ae533b04419d46",
+        ),
+        note: "AGENTS.md discovery, the AGENT.md and CLAUDE.md fallback, @-mentions",
+      },
+      {
+        url: "https://ampcode.com/docs/customize/mcp",
+        contentHash: contentHashLiteral(
+          "sha256:02cba059b21c7859fbc715734ced6ff91007b16f47a715e247928983b19ef058",
+        ),
+        note: "amp.mcpServers in settings.json",
+      },
     ],
   },
   globalRoot: { default: ".config/amp" },

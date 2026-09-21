@@ -19,6 +19,13 @@ export const spec = {
           "sha256:5ac1259e5fadcc1f608831d2351ab2b1a2d112669c2a4670601884cec1ca192c",
         ),
       },
+      {
+        url: "https://code.claude.com/docs/en/hooks",
+        contentHash: contentHashLiteral(
+          "sha256:f4a5219bdbc33a5187748a32a32632de780b7561240d99314a5636cfb0318541",
+        ),
+        note: "SessionStart hook fields and disableAllHooks",
+      },
     ],
   },
   targets: {

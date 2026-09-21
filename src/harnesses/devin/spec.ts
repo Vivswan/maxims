@@ -19,6 +19,20 @@ export const spec = {
           "sha256:ddcc12d78830e91999967374782f31b25a4a7c1866aca086225fa6cd8fa612ec",
         ),
       },
+      {
+        url: "https://docs.devin.ai/cli/extensibility/rules",
+        contentHash: contentHashLiteral(
+          "sha256:757858529c25c01a178b57794a2baeb38c50d419027fac51e2424e851e5d8226",
+        ),
+        note: "AGENTS.md in the project and under ~/.config/devin",
+      },
+      {
+        url: "https://docs.devin.ai/cli/reference/configuration/global-vs-local",
+        contentHash: contentHashLiteral(
+          "sha256:6f412dc6f129072e8c26d01aa22c48e1338f7acb3bd922265757332b849e447f",
+        ),
+        note: "config.json and mcp_config.json per scope",
+      },
     ],
   },
   globalRoot: { default: ".config/devin" },

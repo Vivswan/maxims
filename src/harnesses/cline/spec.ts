@@ -20,6 +20,13 @@ export const spec = {
           "sha256:afeb7a02b27409a0c4f9e910d17f64fef8e16d97e5fddfc5728db82aa4c9e87e",
         ),
       },
+      {
+        url: "https://docs.cline.bot/customization/cline-rules",
+        contentHash: contentHashLiteral(
+          "sha256:8f388c3e9aa9be79c98e90a88c8df8639a3175e6a3478fea44db49a3302c9d88",
+        ),
+        note: ".clinerules and Documents/Cline/Rules",
+      },
     ],
   },
   targets: {

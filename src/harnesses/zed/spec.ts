@@ -19,6 +19,20 @@ export const spec = {
           "sha256:976301e2dfd5df76250ed3874de47f34f0db1c957d47928eb84cbe5cc3562797",
         ),
       },
+      {
+        url: "https://zed.dev/docs/ai/mcp",
+        contentHash: contentHashLiteral(
+          "sha256:4d54d25a6f0c5cce2ac46e7bdb6a50a8b586c1af63a43eccc1e0c0964c949679",
+        ),
+        note: "context_servers in settings.json",
+      },
+      {
+        url: "https://zed.dev/docs/configuring-zed",
+        contentHash: contentHashLiteral(
+          "sha256:038126e974faa81bfcf73ea72238dbbcfbe8da8c932d4cad8f3b77a355d278e5",
+        ),
+        note: "settings.json under ~/.config/zed",
+      },
     ],
   },
   globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },

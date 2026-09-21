@@ -19,6 +19,13 @@ export const spec = {
           "sha256:cd2feee9ff5f88c387142d089900a2868fd66edfaec14651e7dcb0b69a9cab1d",
         ),
       },
+      {
+        url: "https://docs.warp.dev/knowledge-and-collaboration/mcp",
+        contentHash: contentHashLiteral(
+          "sha256:76a4efca41ecb88282c4490e30217eb075351f1895875740f7812a6f2420192b",
+        ),
+        note: "~/.warp/.mcp.json",
+      },
     ],
   },
   targets: {

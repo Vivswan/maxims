@@ -21,6 +21,13 @@ export const spec = {
           "sha256:05781c233f0a2302f7cefa20f960849b3f53a1ee14423fa81e4bea8041621f9e",
         ),
       },
+      {
+        url: "https://cursor.com/docs/agent/hooks",
+        contentHash: contentHashLiteral(
+          "sha256:1d608babbfbaff3e5d903eeedf84f090e0f4a1bd94da94bc377c9bab5845d3ba",
+        ),
+        note: "sessionStart in hooks.json and additional_context",
+      },
     ],
   },
   targets: {

@@ -20,6 +20,20 @@ export const spec = {
           "sha256:8545296cf84c29c08444895aae788b9646184a91394dcb0b96245ad7336294b3",
         ),
       },
+      {
+        url: "https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions",
+        contentHash: contentHashLiteral(
+          "sha256:0aaf0909ed8cf0740eedb39fed49711d8e0bc1b31f899bb7e5fe87551d10dd31",
+        ),
+        note: ".github/instructions and the applyTo frontmatter",
+      },
+      {
+        url: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference",
+        contentHash: contentHashLiteral(
+          "sha256:c38efc5b1972f5739447b31dd9ba60b8fa800dc1aa68ae496eb7b7a5af68cc0a",
+        ),
+        note: "COPILOT_HOME and the hooks and instructions directories under it",
+      },
     ],
   },
   globalRoot: { default: ".copilot", env: { name: "COPILOT_HOME" } },

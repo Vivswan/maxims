@@ -21,6 +21,20 @@ export const spec = {
           "sha256:ce5720e9742e4fae7fb926aa09ca485caadd7be063b732f998c7b471373d39f8",
         ),
       },
+      {
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/README.md",
+        contentHash: contentHashLiteral(
+          "sha256:f450a53e013b3c1d4d20509de2a0ddd118f3c21800ba518c0f74142b3e66775f",
+        ),
+        note: "PI_CODING_AGENT_DIR and AGENTS.override.md",
+      },
+      {
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/src/core/resource-loader.ts",
+        contentHash: contentHashLiteral(
+          "sha256:9fa67091d559919167684ba2e2b1745d299faa00950db3ab19428745f2085d93",
+        ),
+        note: "context-file order",
+      },
     ],
   },
   globalRoot: { default: ".pi/agent", env: { name: "PI_CODING_AGENT_DIR" } },

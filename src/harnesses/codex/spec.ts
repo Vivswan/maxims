@@ -17,6 +17,20 @@ export const spec = {
           "sha256:66f02af8596752fcac908982eab4e3cd81f14d29a10e546ec5bb1803185a8afd",
         ),
       },
+      {
+        url: "https://developers.openai.com/codex/config-reference",
+        contentHash: contentHashLiteral(
+          "sha256:f0ffeca46e4ac7948a7479d6f94969565764661963465c582b88968c318b0a5e",
+        ),
+        note: "CODEX_HOME and features.hooks",
+      },
+      {
+        url: "https://developers.openai.com/codex/guides/agents-md",
+        contentHash: contentHashLiteral(
+          "sha256:d7fb656879e972b2161881c93cb3404e5b5419c563e4fae377e15d4fecb2d7cd",
+        ),
+        note: "AGENTS.md under the Codex home",
+      },
     ],
   },
   globalRoot: { default: ".codex", env: { name: "CODEX_HOME" } },

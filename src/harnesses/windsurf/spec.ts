@@ -24,6 +24,20 @@ export const spec = {
           "sha256:28cfdfa697c05f2c70b36e5719d401dfe4c2c2757ae122af0632758983eecae1",
         ),
       },
+      {
+        url: "https://docs.devin.ai/desktop/cascade/memories",
+        contentHash: contentHashLiteral(
+          "sha256:b4125a2531eb85541a997f976e441ac6aa5d67314ba7a4061f0a319ecd51bf01",
+        ),
+        note: "rules directories, triggers, the 12,000 and 6,000 character caps, global_rules.md",
+      },
+      {
+        url: "https://docs.devin.ai/desktop/cascade/mcp",
+        contentHash: contentHashLiteral(
+          "sha256:90335975b81cd433ab5434dfaf7be87a57e56ec4df5135ecb421f2742c6f9d50",
+        ),
+        note: "mcp_config.json under ~/.codeium/windsurf",
+      },
     ],
   },
   globalRoot: { default: ".codeium/windsurf" },

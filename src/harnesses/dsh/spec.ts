@@ -24,6 +24,20 @@ export const spec = {
           "sha256:9d379117eb80609f7859f2881f7e94d771c5dfed4560562d3420ec75097066a1",
         ),
       },
+      {
+        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/config-catalog.md",
+        contentHash: contentHashLiteral(
+          "sha256:ad56d626b36c2efb337d422c0564ad7b1590899e5f27b3386397cfd98c0fffd9",
+        ),
+        note: "DSH_HOME and the dsh-hooks-claude-code plugin",
+      },
+      {
+        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/apps/cli/reference/README.md",
+        contentHash: contentHashLiteral(
+          "sha256:b99a22b0860c4aed6211d3e8cfe165550c7049e2f9632a95065c3789390db8e5",
+        ),
+        note: "the 65,536-byte render budget and $DSH_HOME/cordis.patch.yml",
+      },
     ],
   },
   globalRoot: { default: ".dsh", env: { name: "DSH_HOME" } },

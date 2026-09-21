@@ -18,6 +18,13 @@ export const spec = {
           "sha256:a7489955249081d1b6064eab80f46e9d736c93cb1404c400411e76453ef7a2d3",
         ),
       },
+      {
+        url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/cli/gemini-md.md",
+        contentHash: contentHashLiteral(
+          "sha256:3563c86c9aa7345c88a339c00af6bc17b12a62d95e36d2b54963fdaf07fcade3",
+        ),
+        note: "GEMINI.md locations and @file imports",
+      },
     ],
   },
   targets: {

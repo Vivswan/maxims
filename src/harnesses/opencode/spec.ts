@@ -23,6 +23,20 @@ export const spec = {
           "sha256:ad7473a4c99a5766f38791ae721c41a6399a3c8d43e05b8a87b260fb87e553f3",
         ),
       },
+      {
+        url: "https://opencode.ai/docs/rules/",
+        contentHash: contentHashLiteral(
+          "sha256:5eca74acad327e5330556a1ec4cd68c6b3362348e1a47cbe7845215cb1263b82",
+        ),
+        note: "AGENTS.md, ~/.config/opencode/AGENTS.md, and unparsed file references",
+      },
+      {
+        url: "https://opencode.ai/docs/config/",
+        contentHash: contentHashLiteral(
+          "sha256:9b87da847cacec2da757cb7cf3411be4a1cbac8e2a11d72cff50efad1a53b483",
+        ),
+        note: "opencode.json locations and the instructions key",
+      },
     ],
   },
   globalRoot: { default: ".config/opencode", env: { name: "XDG_CONFIG_HOME", subdir: "opencode" } },
