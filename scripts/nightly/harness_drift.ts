@@ -1,7 +1,7 @@
 // Re-fetches every harness definition's verified documentation page and compares its content hash
 // with the one the definition recorded, so a page that moved is dated to a 24-hour window instead
 // of waiting for someone to look.
-import { parse } from "node-html-parser";
+import { HTMLElement, type Node, parse } from "node-html-parser";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -23,12 +23,52 @@ const PARSE_OPTIONS = {
   blockTextElements: { script: false, style: false, noscript: false },
 };
 
+// A raw markdown file is hashed as the text it is; only an HTML page is parsed, so markup quoted
+// inside a markdown code fence never counts as the page's structure.
+export type Media = "html" | "text";
+
+export function mediaOf(contentType: string | null): Media {
+  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
+  return type === "text/html" || type === "application/xhtml+xml" ? "html" : "text";
+}
+
 // The one normalization behind every stored hash: changing it repaints every definition as drift,
-// so the harness_drift test pins a sample's exact normalized text and hash. The parser decodes
-// entities in its text getter.
-export function normalizeDocument(html: string): string {
-  const root = parse(html.replace(DOCTYPE, "").replace(UNSEEN_END_TAG, "</$1>"), PARSE_OPTIONS);
-  return root.textContent.replace(/\s+/g, " ").trim();
+// so the harness_drift test pins a sample's exact normalized text and hash. Two things a redeploy
+// changes with no word of the page changed are left out: the words outside the content element
+// (the site's sidebar and footer, which every new page on the site rewrites) and the build date a
+// footer prints, matched inside `footer` elements only, by the shapes seen on vendor sites rather
+// than by any date, so a dated fact or a code sample elsewhere on the page keeps its words:
+//
+//   Starlight              Last updated: Sep 21, 2026     Last updated: 2026-09-21
+//   Starlight 0.41 (Warp)  Last updated Sep 16, 2026
+//   Docusaurus             Last updated on September 21, 2026
+const CONTENT_SELECTORS = ["main", "article", '[role="main"]'];
+const MONTH = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*";
+const BUILD_STAMP = new RegExp(
+  `Last (?:updated|modified)(?::| on)? (?:${MONTH} \\d{1,2}, \\d{4}|\\d{4}-\\d{2}-\\d{2})`,
+  "g",
+);
+
+const squashWhitespace = (text: string): string => text.replace(/\s+/g, " ");
+
+// The parser's own text getter everywhere but inside a footer, so a line break still reads as a
+// space and entities decode as the parser decodes them.
+function wordsOf(node: Node): string {
+  if (!(node instanceof HTMLElement)) return node.textContent;
+  if (node.tagName === "FOOTER")
+    return squashWhitespace(node.textContent).replace(BUILD_STAMP, " ");
+  if (node.querySelector("footer") === null) return node.textContent;
+  return node.childNodes.map(wordsOf).join("");
+}
+
+export function normalizeDocument(body: string, media: Media): string {
+  if (media === "text") return squashWhitespace(body).trim();
+  const root = parse(body.replace(DOCTYPE, "").replace(UNSEEN_END_TAG, "</$1>"), PARSE_OPTIONS);
+  const content =
+    CONTENT_SELECTORS.map((selector) => root.querySelector(selector)).find(
+      (element) => element !== null,
+    ) ?? root;
+  return squashWhitespace(wordsOf(content)).trim();
 }
 
 export type Fetched =
@@ -45,7 +85,8 @@ export async function fetchPageHash(url: string, fetchImpl: typeof fetch): Promi
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (response.status !== 200) return { kind: "status", status: response.status };
-    return { kind: "page", hash: contentHashOf(normalizeDocument(await response.text())) };
+    const media = mediaOf(response.headers.get("content-type"));
+    return { kind: "page", hash: contentHashOf(normalizeDocument(await response.text(), media)) };
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") return { kind: "timeout" };
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
