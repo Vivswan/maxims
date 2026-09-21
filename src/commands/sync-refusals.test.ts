@@ -1381,6 +1381,9 @@ describe("a shared file whose block a stray marker pair wraps", () => {
         expect.arrayContaining([`maxims: ${refusal(wrappedKey)}`, `maxims: ${hint}`]),
       );
       expect(io.out.join("")).toContain(`!  maxims: ${refusal(wrappedKey)}\n!  maxims: ${hint}\n`);
+      // The hold is the run's outcome: no up-to-date line is printed beside it.
+      expect(io.out.join("")).not.toContain("Up to date");
+      expect(report.heldFiles).toEqual([shared]);
       expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
     });
   });

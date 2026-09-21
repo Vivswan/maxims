@@ -17,6 +17,7 @@ export const EMPTY_REPORT: SyncReport = {
   tokens: 0,
   fetched: [],
   held: [],
+  heldFiles: [],
   upstreamChanges: {},
   failed: [],
   changed: [],
@@ -125,7 +126,12 @@ function printOutcome(
 }
 
 function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {
-  return outcome.failures.length === 0 && report.failed.length === 0 && report.held.length === 0;
+  return (
+    outcome.failures.length === 0 &&
+    report.failed.length === 0 &&
+    report.held.length === 0 &&
+    report.heldFiles.length === 0
+  );
 }
 
 export function summaryLine(report: SyncReport): string {

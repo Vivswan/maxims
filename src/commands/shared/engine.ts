@@ -216,6 +216,7 @@ export async function planSync(
           tokens: attempt.tokens,
           fetched: refreshed.fetchedKeys,
           held: attempt.awaitingReview.map((source) => source.key),
+          heldFiles: attempt.heldFiles,
           upstreamChanges: Object.fromEntries([
             ...refreshed.fetchedKeys.map((key) => [key, refreshed.changeLines.get(key) ?? []]),
             ...attempt.awaitingReview.map((source) => [source.key, source.summary]),
@@ -260,6 +261,7 @@ type Attempt = {
   // what it changes: a session hears about a waiting revision at every start, as it does about a
   // stale source.
   awaitingReview: { key: string; summary: string[] }[];
+  heldFiles: string[];
   hookRun: boolean;
   sources: number;
   memories: number;
@@ -287,6 +289,7 @@ async function planInstall(
   // Said for every source standing held, admitted or not: a refused source keeps the very block
   // the held revision would replace, so the hold is as live for it as for an admitted one.
   const awaitingReview: Attempt["awaitingReview"] = [];
+  const heldFiles: string[] = [];
   for (const [key, entry] of Object.entries(refreshed.sources)) {
     if (!actsHere(entry, ctx) || !isFetchedEntry(entry) || entry.pending === undefined) continue;
     awaitingReview.push({ key, summary: entry.pending.summary });
@@ -638,6 +641,7 @@ async function planInstall(
       // still there has done its own job, and a hook run must stay exit 0.
       for (const hold of rendered.held) {
         planned.add(realKeyOf(hold.path));
+        heldFiles.push(hold.path);
         notices.loud(`maxims: ${hold.message}`);
         if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
         if (extras.verb !== "remove") continue;
@@ -776,6 +780,7 @@ async function planInstall(
     refusedKept,
     failed: read.failed,
     awaitingReview,
+    heldFiles,
     hookRun,
     sources: works.length,
     memories,

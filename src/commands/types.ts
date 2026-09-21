@@ -69,6 +69,8 @@ export type SyncReport = {
   tokens: number;
   fetched: string[];
   held: string[];
+  // Shared files this run left as they were because a removal in them would pair stray markers.
+  heldFiles: string[];
   upstreamChanges: Record<string, string[]>;
   failed: { key: string; message: string; kind: LastError["kind"] }[];
   changed: string[];

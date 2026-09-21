@@ -112,6 +112,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
     tokens: options.syncReport?.tokens ?? 0,
     fetched: options.syncReport?.fetched ?? [],
     held: options.syncReport?.held ?? [],
+    heldFiles: [],
     upstreamChanges: options.syncReport?.upstreamChanges ?? {},
     failed: [...(options.syncReport?.failed ?? [])],
     changed: [],

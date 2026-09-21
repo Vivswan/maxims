@@ -21,7 +21,7 @@ In a terminal, a run that changed no file a harness reads and failed nothing end
 o  Up to date: 4 memories, 4 rule lines
 ```
 
-A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), or a failed write, prints its own line instead, and the up-to-date line stays out.
+A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), a file held because [stray marker lines surround a block](troubleshooting.md#exit-4-stray-marker-lines-surround-the-block-to-remove), or a failed write, prints its own line instead, and the up-to-date line stays out.
 
 A failed fetch keeps it out too. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below).
 
