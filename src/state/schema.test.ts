@@ -26,7 +26,7 @@ const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 const VALID = {
   version: 1,
   writtenBy: "maxims@0.4.1",
-  hooks: ["claude-code", "codex"],
+  hooks: { global: ["claude-code", "codex"] },
   sources: {
     "@example-user/rules": {
       intent: {
@@ -373,13 +373,28 @@ describe("parseState", () => {
     },
     {
       title: "a harness id that is neither built-in nor kebab-case",
-      mutate: (j) => ({ ...j, hooks: ["claude-code", "Vim"] }),
-      issue: /^hooks\.1:/,
+      mutate: (j) => ({ ...j, hooks: { global: ["claude-code", "Vim"] } }),
+      issue: /^hooks\.global\.1:/,
     },
     {
       title: "a harness id with an underscore",
-      mutate: (j) => ({ ...j, hooks: ["claude-code", "my_agent"] }),
-      issue: /^hooks\.1:/,
+      mutate: (j) => ({ ...j, hooks: { global: ["claude-code", "my_agent"] } }),
+      issue: /^hooks\.global\.1:/,
+    },
+    {
+      title: "hooks as one flat list, the shape without scopes",
+      mutate: (j) => ({ ...j, hooks: ["claude-code"] }),
+      issue: /^hooks: /,
+    },
+    {
+      title: "an unsorted hook list",
+      mutate: (j) => ({ ...j, hooks: { global: ["codex", "claude-code"] } }),
+      issue: /^hooks\.global\.1: must be sorted after codex$/,
+    },
+    {
+      title: "a project hook list under a relative root",
+      mutate: (j) => ({ ...j, hooks: { project: { "./project": ["claude-code"] } } }),
+      issue: /^hooks\.project\..*absolute/,
     },
     {
       title: "a relative local path",
@@ -875,11 +890,11 @@ describe("parseSourceArgument", () => {
 // when harnesses.json no longer defines it, because intent is never dropped on a read.
 test("a kebab-case user-defined harness id is valid state beside the built-ins", () => {
   const json = structuredClone(VALID);
-  json.hooks = ["claude-code", "acme-agent"];
+  json.hooks = { global: ["acme-agent", "claude-code"] };
   json.sources["@example-user/rules"].intent.harnesses = ["codex", "acme-agent"];
   const parsed = parseState(json);
   if (parsed.ok !== "parsed") throw new Error(`expected a parse: ${JSON.stringify(parsed)}`);
-  expect(parsed.state.hooks.map(String)).toEqual(["claude-code", "acme-agent"]);
+  expect(parsed.state.hooks?.global?.map(String)).toEqual(["acme-agent", "claude-code"]);
   expect(parsed.state.sources["@example-user/rules"]?.intent.harnesses.map(String)).toEqual([
     "codex",
     "acme-agent",

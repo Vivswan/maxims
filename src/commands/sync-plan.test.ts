@@ -63,7 +63,10 @@ describe("plan surfaces", () => {
   test("--dry-run prints the plan and touches nothing; --json is one value, also on a collision", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
       const before = treeDigest(dir);
       const io = fakeIo({ home, userHome, cwd: dir });
       const report = await runSync({ ...SYNC, dryRun: true }, io);

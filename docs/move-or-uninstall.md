@@ -23,7 +23,7 @@ In a terminal it lists "Memories to remove:" and asks "Are you sure you want to 
 | a rule file that was only the maxims block | deleted |
 | a rule file with hand-written content beside the block | the block goes, the rest stays byte for byte |
 | a live local source (installed with `--link`) | the store symlink is unlinked; the source directory is never touched |
-| the hook | stays until the last source leaves state, then is unregistered from every harness |
+| the hook | leaves its scope with the last source there for its harness |
 
 ## Back up or move to a new machine
 
@@ -33,7 +33,7 @@ State carries the intent, so a backup of your intent and configuration is a copy
    ```text
    maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
    ```
-2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project`.
+2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project` and `hooks.project`.
 3. Run `npx -y @vivswan/maxims sync`; the [failure paths](guarantees.md#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.
 
 ## Uninstall everything

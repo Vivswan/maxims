@@ -1,12 +1,8 @@
 import { wasNotDisabled } from "../console/strings.ts";
+import type { ScopeAt } from "../state/scoped.ts";
 import { applyChanges } from "../util/change.ts";
 import { syncCommitted } from "./add.ts";
-import {
-  type DisabledScope,
-  loadIntentFor,
-  updateIntent,
-  withDisabled,
-} from "./shared/cli-context.ts";
+import { loadIntentFor, updateIntent, withDisabled } from "./shared/cli-context.ts";
 import {
   type Args,
   type Command,
@@ -35,7 +31,7 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
   }
   const destination = parseDestination(args, ctx.io.cwd, ctx.io.projectRoot);
   if (destination?.scope === "out") throw usage(`${verb} takes -g or -p, not -o`);
-  const at: DisabledScope =
+  const at: ScopeAt =
     destination === null
       ? ctx.io.projectRoot === null
         ? { scope: "global" }

@@ -62,7 +62,10 @@ describe("idempotency and convergence", () => {
   test("the second sync plans nothing and leaves every file, and state, untouched", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
       const io = fakeIo({ home, userHome, cwd: dir });
       const first = await runSync(SYNC, io);
       expect(first.rules).toBe(2);
@@ -80,7 +83,10 @@ describe("idempotency and convergence", () => {
   test("a change planned every run but landing nothing is not reported: the run says up to date, a hook run says nothing", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [configEditHarness] });
       await runSync(SYNC, io);
       const config = join(userHome, FIXTURE_DIR, "config.json");
@@ -106,7 +112,10 @@ describe("idempotency and convergence", () => {
   test("with the shipped registry a second sync plans nothing, says up to date, and a hook run prints nothing", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: HARNESSES });
       await runSync(SYNC, io);
       io.out.length = 0;
@@ -129,7 +138,10 @@ describe("idempotency and convergence", () => {
   test("wiped rule files and a hand-edited hook come back byte-identical from intent and store", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
       const io = fakeIo({ home, userHome, cwd: dir });
       await runSync(SYNC, io);
       const rules = join(userHome, ".fixture", "rules");
@@ -301,7 +313,7 @@ describe("idempotency and convergence", () => {
       const original = readFileSync(rules, "utf8");
       writeState(
         home,
-        stateWith({ [source]: entry }, [], { global: [memoryName("keep-tests-green")] }),
+        stateWith({ [source]: entry }, undefined, { global: [memoryName("keep-tests-green")] }),
       );
       const disabled = await runSync(SYNC, io);
       expect(disabled.notices.filter((line) => line.includes("local edit"))).toEqual([]);

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { MemoryName } from "../../memory/contract.ts";
 import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
 import { emptyState, parseState, type State } from "../../state/schema.ts";
+import { type ScopeAt, scopedAt, withScopedList } from "../../state/scoped.ts";
 import {
   inspectState,
   type LoadedState,
@@ -244,39 +245,17 @@ function writableState(state: State, path: string): string {
 
 export type DisabledEdit = { changed: boolean; state: State };
 
-// Which disabled list an edit means: the global one, or a project's under its root. A project
-// edit cannot be spelled without the root, so no caller substitutes one.
-export type DisabledScope = { scope: "global" } | { scope: "project"; root: string };
-
-// The one edit of the disabled lists. The list stays sorted and unique, which is the shape the
-// state schema refuses to read otherwise.
+// The one edit of the disabled lists.
 export function withDisabled(
   state: State,
-  at: DisabledScope,
+  at: ScopeAt,
   name: MemoryName,
   disabled: boolean,
 ): DisabledEdit {
-  const current =
-    at.scope === "global"
-      ? (state.disabled?.global ?? [])
-      : (state.disabled?.project?.[at.root] ?? []);
-  const has = current.includes(name);
-  if (has === disabled) return { changed: false, state };
-  const next = disabled ? [...current, name].sort() : current.filter((each) => each !== name);
-  const lists = { ...state.disabled };
-  if (at.scope === "global") {
-    if (next.length === 0) delete lists.global;
-    else lists.global = next;
-  } else {
-    const project = { ...lists.project };
-    if (next.length === 0) delete project[at.root];
-    else project[at.root] = next;
-    if (Object.keys(project).length === 0) delete lists.project;
-    else lists.project = project;
-  }
+  const current = scopedAt(state.disabled, at);
+  if (current.includes(name) === disabled) return { changed: false, state };
+  const next = disabled ? [...current, name] : current.filter((each) => each !== name);
+  const lists = withScopedList(state.disabled, at, next);
   const { disabled: _previous, ...rest } = state;
-  return {
-    changed: true,
-    state: Object.keys(lists).length === 0 ? rest : { ...rest, disabled: lists },
-  };
+  return { changed: true, state: lists === undefined ? rest : { ...rest, disabled: lists } };
 }

@@ -97,7 +97,7 @@ describe("project lock projection", () => {
           ),
           "@acme/global": entryFor({ type: "github", repo: "acme/global", ref: "HEAD" }),
         },
-        [],
+        undefined,
         {
           global: [memoryName("one")],
           project: { [project]: [memoryName("a2"), memoryName("zed")] },
@@ -157,7 +157,7 @@ describe("project lock projection", () => {
       expect(await projectLockChange(project, state, state, io)).toBeNull();
       const unshared = stateWith(
         { ...state.sources, [local]: withShared(state.sources[local] as SourceEntry, false) },
-        [],
+        undefined,
         state.disabled,
       );
       const withoutLocal = await projectLockChange(project, state, unshared, io);
@@ -185,7 +185,7 @@ describe("project lock projection", () => {
           ...state.sources,
           "@acme/rules#v2": withShared(state.sources["@acme/rules#v2"] as SourceEntry, false),
         },
-        [],
+        undefined,
         state.disabled,
       );
       const unspelled = await projectLockChange(project, state, rulesPrivate, io);
@@ -209,7 +209,7 @@ describe("project lock projection", () => {
         Object.fromEntries(
           Object.entries(state.sources).map(([key, entry]) => [key, withShared(entry, false)]),
         ),
-        [],
+        undefined,
         state.disabled,
       );
       const withTwin = stateWith(
@@ -220,7 +220,7 @@ describe("project lock projection", () => {
             at(project, false),
           ),
         },
-        [],
+        undefined,
         state.disabled,
       );
       expect(await projectLockChange(project, privateOnly, withTwin, io)).toBeNull();
@@ -244,7 +244,7 @@ describe("project lock projection", () => {
           ...privateOnly.sources,
           [alphaSource]: entryFor(localFrom(alphaSource, true), at(project, false)),
         },
-        [],
+        undefined,
         state.disabled,
       );
       expect(await projectLockChange(project, privateOnly, withPrivateAlpha, io)).toBeNull();
@@ -255,7 +255,7 @@ describe("project lock projection", () => {
         Object.fromEntries(
           Object.entries(state.sources).map(([key, entry]) => [key, withShared(entry, false)]),
         ),
-        [],
+        undefined,
         state.disabled,
       );
       expect((await projectLockChange(project, state, priv, io))?.kind).toBe("delete");

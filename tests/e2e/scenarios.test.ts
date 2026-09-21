@@ -209,7 +209,7 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
     }
 
     const state = readState(home);
-    expect(state.hooks).toEqual(["claude-code", "codex"]);
+    expect(state.hooks).toEqual({ global: ["claude-code", "codex"] });
     const [key, entry] = onlyEntry(state);
     expect(key).toBe(installed.source);
     expect(entry.intent).toMatchObject({
@@ -343,7 +343,10 @@ test("4: remove takes back the rule file, the block, both registry entries and t
     expect(readFileSync(installed.registries.claude, "utf8")).toBe(CLAUDE_SETTINGS);
     expect(readFileSync(installed.registries.codex, "utf8")).toBe(CODEX_HOOKS);
     const state = readState(home);
-    expect({ sources: state.sources, hooks: state.hooks }).toEqual({ sources: {}, hooks: [] });
+    expect({ sources: state.sources, hooks: state.hooks }).toEqual({
+      sources: {},
+      hooks: undefined,
+    });
   });
 });
 

@@ -108,7 +108,7 @@ describe("a hook that lives in one place for both scopes", () => {
         destination: { scope: "project", root: project },
         harnesses: ["dsh"],
       });
-      writeState(home, stateWith({ [source]: entry }, ["dsh"]));
+      writeState(home, stateWith({ [source]: entry }, { project: { [project]: ["dsh"] } }));
       const io = fakeIo({ home, userHome, cwd: project, harnesses: [dsh] });
       const hooks = join(userHome, ".dsh", "maxims-hooks.json");
       const patch = join(userHome, ".dsh", "cordis.patch.yml");
@@ -126,7 +126,7 @@ describe("a hook that lives in one place for both scopes", () => {
       await runSync(SYNC, io);
       expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
       expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
-      writeState(home, stateWith({ [source]: entry }, []));
+      writeState(home, stateWith({ [source]: entry }));
       await runSync(SYNC, io);
       expect(existsSync(hooks)).toBe(false);
       expect(readFileSync(patch, "utf8")).not.toContain("maxims-hooks");
@@ -152,7 +152,10 @@ describe("a hook that lives in one place for both scopes", () => {
           destination: { scope: "project", root },
           harnesses: ["dsh", "claude-code"],
         });
-        writeState(home, stateWith({ [source]: entry }, ["dsh", "claude-code"]));
+        writeState(
+          home,
+          stateWith({ [source]: entry }, { project: { [root]: ["claude-code", "dsh"] } }),
+        );
         const run = (cwd: string) =>
           runSync(SYNC, fakeIo({ home, userHome: homeAlias, cwd, harnesses: [dsh, claudeCode] }));
         if (!existsSync(hooks)) {
@@ -263,7 +266,10 @@ describe("both scopes resolving to one registry", () => {
         destination: { scope: "project", root: userHome },
         harnesses: ["claude-code"],
       });
-      writeState(home, stateWith({ [source]: entry }, ["claude-code"]));
+      writeState(
+        home,
+        stateWith({ [source]: entry }, { project: { [userHome]: ["claude-code"] } }),
+      );
       const io = fakeIo({ home, userHome, cwd: userHome, harnesses: [claudeCode] });
       const settings = join(userHome, ".claude", "settings.json");
       const texts: string[] = [];
@@ -277,7 +283,7 @@ describe("both scopes resolving to one registry", () => {
         texts.push(text);
       }
       expect(texts[2]).toBe(texts[1] ?? "");
-      writeState(home, stateWith({ [source]: entry }, []));
+      writeState(home, stateWith({ [source]: entry }));
       await runSync(SYNC, io);
       expect(readFileSync(settings, "utf8")).not.toContain(HOOK_COMMAND);
     });

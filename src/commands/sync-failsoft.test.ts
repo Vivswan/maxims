@@ -80,7 +80,10 @@ async function lastGood(
   const upstream = writeSource(join(world.dir, "upstream"), TWO_MEMORIES);
   seedStore(world.home, FROM, upstream);
   const facts = await fetchedFacts(upstream, daysAgo(NOW, ageDays), lastError);
-  writeState(world.home, stateWith({ [KEY]: fetchedEntry(FROM, facts) }, ["claude-code"]));
+  writeState(
+    world.home,
+    stateWith({ [KEY]: fetchedEntry(FROM, facts) }, { global: ["claude-code"] }),
+  );
   writeFileSync(homePaths(world.home).config, JSON.stringify({ cooldownDays: 1 }));
   const fake = fakeResolvers();
   fake.set(FROM, { kind: "dir", dir: upstream });
@@ -633,7 +636,10 @@ describe("unreachable harnesses with unreadable sources", () => {
       const entry = fetchedEntry(FROM, facts, {
         destination: { scope: "project", root: w.project },
       });
-      writeState(w.home, stateWith({ [KEY]: entry }, ["claude-code"]));
+      writeState(
+        w.home,
+        stateWith({ [KEY]: entry }, { project: { [w.project]: ["claude-code"] } }),
+      );
       const fake = fakeResolvers();
       fake.set(FROM, { kind: "fail", failure: "network" });
       const io = fakeIo({ ...w, cwd: w.project, resolvers: fake.resolvers });

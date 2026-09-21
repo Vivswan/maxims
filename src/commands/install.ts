@@ -190,14 +190,15 @@ function requestFrom(
       ? source.harnesses.filter((id) => agentFilter.ids.includes(id))
       : source.harnesses;
   const from = sourceFromLock(source, projectRoot);
+  const destination = { scope: "project", root: projectRoot } as const;
   return {
     key: canonicalSourceKey(from),
     from,
-    destination: { scope: "project", root: projectRoot },
+    destination,
     select: source.select,
     rename: source.rename ?? {},
     rule: source.rule,
-    addHook: hookWanted(from, ctx.config.addHook === true),
+    addHook: hookWanted(from, destination, ctx.config.addHook === true),
     // An entry came from the lock, so it stays in the lock.
     shared: true,
     copy: source.copy ?? INTENT_DEFAULTS.copy,

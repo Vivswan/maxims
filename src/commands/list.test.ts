@@ -67,7 +67,7 @@ describe("list", () => {
             },
             "@acme/rules": fetchedEntry(remote, stale),
           },
-          ["claude-code"],
+          { global: ["claude-code"] },
         ),
       );
       const demoted: HarnessDefinition = {
@@ -190,7 +190,10 @@ describe("list", () => {
       const source = writeSource(join(w.dir, "src"), TWO_MEMORIES);
       writeState(
         w.home,
-        stateWith({ [source]: entryFor(localFrom(source), { rule: false }) }, ["claude-code"]),
+        stateWith(
+          { [source]: entryFor(localFrom(source), { rule: false }) },
+          { global: ["claude-code"] },
+        ),
       );
       const io = fakeIo({ ...w, cwd: w.dir, harnesses: [configEditHarness] });
       await runSync(SYNC, io);
@@ -390,7 +393,7 @@ describe("list", () => {
               destination: { scope: "project", root: otherProject },
             }),
           },
-          [],
+          undefined,
           { project: { [otherProject]: [memoryName("always-review")] } },
         ),
       );
@@ -475,7 +478,10 @@ describe("list", () => {
       const entry = entryFor(localFrom(source), {
         destination: { scope: "project", root: w.project },
       });
-      writeState(w.home, stateWith({ [source]: entry }, ["claude-code"]));
+      writeState(
+        w.home,
+        stateWith({ [source]: entry }, { project: { [w.project]: ["claude-code"] } }),
+      );
       const io = fakeIo({ ...w, cwd: w.project });
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
       const [harness] = report.sources[0]?.harnesses ?? [];

@@ -33,7 +33,7 @@ describe("migrateState", () => {
     expect(result.applied).toEqual([0]);
     const migrated = record(result.json);
     expect(migrated.version).toBe(1);
-    expect(migrated.hooks).toEqual(["claude-code", "codex"]);
+    expect(migrated.hooks).toEqual({ global: ["claude-code", "codex"] });
     expect(migrated.sources).toEqual(record(legacy).sources);
     expect(legacyHooksStep.migrate(result.json)).toEqual(result.json);
   });

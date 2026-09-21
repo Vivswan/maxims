@@ -71,7 +71,7 @@ test("updateIntent writes a state that reads back", async () => {
       home,
       false,
       async () => ({
-        state: { ...emptyState(WRITTEN_BY), hooks: ["codex"] },
+        state: { ...emptyState(WRITTEN_BY), hooks: { global: ["codex"] } },
         changes: [],
         notices: [],
       }),
@@ -82,6 +82,9 @@ test("updateIntent writes a state that reads back", async () => {
     const bytes = readFileSync(homePaths(home).state, "utf8");
     expect(write.content).toBe(bytes);
     const stored = parseState(JSON.parse(bytes));
-    expect(stored).toMatchObject({ ok: "parsed", state: { hooks: ["codex"], sources: {} } });
+    expect(stored).toMatchObject({
+      ok: "parsed",
+      state: { hooks: { global: ["codex"] }, sources: {} },
+    });
   });
 });

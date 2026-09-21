@@ -85,7 +85,7 @@ describe("remove", () => {
       writeFileSync(shared, "# Mine\n\nKeep this.\n");
       const before = treeDigest(userHome);
       const entry = entryFor(localFrom(source), { harnesses: ["claude-code", "codex"] });
-      writeState(home, stateWith({ [source]: entry }, ["claude-code", "codex"]));
+      writeState(home, stateWith({ [source]: entry }, { global: ["claude-code", "codex"] }));
       const io = fakeIo({ home, userHome, cwd: dir });
       await runSync(SYNC, io);
       expect(treeDigest(userHome)).not.toBe(before);
@@ -105,7 +105,11 @@ describe("remove", () => {
       );
       expect(existsSync(join(userHome, ".fixture", "hooks", "start"))).toBe(false);
       expect(existsSync(storePathFor(home, localFrom(source)))).toBe(false);
-      expect(readStateFile(home)).toEqual(expect.objectContaining({ hooks: [], sources: {} }));
+      expect(readStateFile(home)).toEqual({
+        version: 1,
+        writtenBy: expect.any(String),
+        sources: {},
+      });
     });
   });
 

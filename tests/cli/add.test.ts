@@ -17,7 +17,8 @@ import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/state/schema.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { fakeResolvers } from "../engine/harness.ts";
+import { fakeResolvers, writeSource } from "../engine/harness.ts";
+import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import {
   FIXTURES,
@@ -93,7 +94,7 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
         "rubber-duck-before-every-commit",
         "skip-unfit-skills",
       ]);
-      expect((readState(scenario) as { hooks: string[] }).hooks).toEqual(["claude-code", "codex"]);
+      expect(readState(scenario).hooks).toEqual({ global: ["claude-code", "codex"] });
       const store = join(scenario.home, "store", "vivswan", "skills", "memories");
       expect(existsSync(join(store, "skip-unfit-skills.md"))).toBe(true);
       // The plan that admits the install runs first, against the would-be state; the sync that
@@ -608,7 +609,7 @@ test("a . source is live, links the store entry, and ignores --add-hook", async 
     const entry = source(scenario, scenario.cwd);
     expect(entry.intent.from).toEqual({ type: "local", path: scenario.cwd, live: true });
     expect(entry.fetched).toBeUndefined();
-    expect((readState(scenario) as { hooks: string[] }).hooks).toEqual([]);
+    expect(readState(scenario).hooks).toBeUndefined();
     expect(run.stdout).not.toContain("Hook registered");
     const store = join(scenario.home, "store", "_local");
     const [entryName] = require("node:fs").readdirSync(store) as string[];
@@ -695,7 +696,6 @@ test("a source recorded for another project is refused by add, link, update, sha
       writeState(scenario, {
         version: 1,
         writtenBy: "maxims@0.0.0",
-        hooks: [],
         sources: {
           "@a/b": {
             intent: {
@@ -784,6 +784,52 @@ test.each(scopeMoves)(
     });
   },
 );
+
+// Hook intent is per scope: a global `--add-hook` must not make a later project add without the
+// flag plant a hook under the project, and a scope whose last source for a harness leaves gives
+// its hook up, so a later add there without the flag registers nothing either.
+test("hook intent is recorded and honored per scope", async () => {
+  const fake = fakeResolvers();
+  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
+  await withScenario(
+    { project: true, bundle: realEngineBundle(fake.resolvers) },
+    async (scenario) => {
+      const other = writeSource(join(scenario.root, "other"), TWO_MEMORIES);
+      fake.set({ type: "github", repo: "a/d", ref: "HEAD" }, { kind: "dir", dir: other });
+      mkdirSync(join(scenario.userHome, ".claude"));
+      mkdirSync(join(scenario.cwd, ".claude"));
+      const globalRegistry = join(scenario.userHome, ".claude", "settings.json");
+      const projectRegistry = join(scenario.cwd, ".claude", "settings.json");
+      const hooks = () => readState(scenario).hooks;
+      const claude = ["add", "@a/b", "-g", "-a", "claude-code"];
+      expect((await runCli(scenario, [...claude, "--add-hook"])).code).toBe(0);
+      expect(readFileSync(globalRegistry, "utf8")).toContain("maxims sync --quiet");
+      expect(hooks()).toEqual({ global: ["claude-code"] });
+      const project = ["add", "@a/d", "-p", "-a", "claude-code"];
+      const withoutFlag = await runCli(scenario, project);
+      expect([withoutFlag.code, withoutFlag.stdout]).toEqual([
+        0,
+        expect.not.stringContaining("Hook registered"),
+      ]);
+      expect(existsSync(projectRegistry)).toBe(false);
+      expect(hooks()).toEqual({ global: ["claude-code"] });
+      expect((await runCli(scenario, [...project, "--add-hook"])).code).toBe(0);
+      expect(readFileSync(projectRegistry, "utf8")).toContain("maxims sync --quiet");
+      expect(hooks()).toEqual({
+        global: ["claude-code"],
+        project: { [scenario.cwd]: ["claude-code"] },
+      });
+      expect((await runCli(scenario, ["remove", "@a/d", "-y"])).code).toBe(0);
+      expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
+      expect(hooks()).toEqual({ global: ["claude-code"] });
+      expect((await runCli(scenario, project)).code).toBe(0);
+      expect(readFileSync(projectRegistry, "utf8")).not.toContain("maxims sync --quiet");
+      expect((await runCli(scenario, ["remove", "--all"])).code).toBe(0);
+      expect(readFileSync(globalRegistry, "utf8")).not.toContain("maxims sync --quiet");
+      expect(hooks()).toBeUndefined();
+    },
+  );
+});
 
 // A teammate's checkout has no path to a directory outside the project, so such a source is
 // refused at the moment it would be shared rather than dropped from the lock in silence.
@@ -1035,7 +1081,6 @@ test("a corrupt state file is quarantined with a warning and the add proceeds on
     writeState(scenario, {
       version: 1,
       writtenBy: "x",
-      hooks: [],
       sources: { "@a/b": { bogus: true } },
     });
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"]);
@@ -1187,7 +1232,7 @@ test("a repeated -m name is one selection and a hookless harness registers no ho
     expect(run.code).toBe(0);
     expect(run.stdout).not.toContain("Hook registered");
     expect(run.stdout).toContain("o  Selected 1 memory: skip-unfit-skills\n");
-    expect((readState(scenario) as { hooks: string[] }).hooks).toEqual([]);
+    expect(readState(scenario).hooks).toBeUndefined();
     expect(source(scenario, "@a/b").intent.select).toEqual(["skip-unfit-skills"]);
   });
 });
@@ -1334,7 +1379,6 @@ test("--from, --full-depth and --copy round-trip through the manifest into a fre
 const CORRUPT_STATE = {
   version: 1,
   writtenBy: "x",
-  hooks: [],
   sources: { "@a/b": { bogus: true } },
 };
 

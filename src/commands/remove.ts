@@ -13,6 +13,7 @@ import { storePathFor } from "../util/home.ts";
 import { actsHere, type EngineContext, loadContext } from "./shared/context.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
 import { isRemoteEntry } from "./shared/fetch.ts";
+import { prunedHooks } from "./shared/hooks.ts";
 import type { SourceTree } from "./shared/memories.ts";
 import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
@@ -239,11 +240,7 @@ async function resolveRemoval(
     if (next.hash !== null) removedCopies.add(next.hash);
     labels.push(name);
   }
-  const nextState: State = {
-    ...state,
-    sources,
-    hooks: Object.keys(sources).length === 0 ? [] : state.hooks,
-  };
+  const nextState = prunedHooks({ ...state, sources });
   // Every edit above replaces the entry object, so the lock is rewritten exactly when a
   // project-scoped entry changed; a target that was only looked at leaves it alone.
   const projectTouched = Object.entries(state.sources).some(

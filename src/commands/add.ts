@@ -63,6 +63,7 @@ import {
 } from "./shared/cli-context.ts";
 import { framed } from "./shared/engine-io.ts";
 import { swapStoreEntry } from "./shared/fetch.ts";
+import { prunedHooks, withHooks } from "./shared/hooks.ts";
 import {
   type AgentSelection,
   type Args,
@@ -264,8 +265,10 @@ export async function admitIntent(
 }
 
 // A live source registers no hook: a refresh would clobber an unpushed edit, so the wish is
-// dropped for that variant however it was expressed.
-export function hookWanted(from: SourceFrom, wanted: boolean): boolean {
+// dropped for that variant however it was expressed. An `-o` folder is no harness's scope, so it
+// has no hook list to record the wish in.
+export function hookWanted(from: SourceFrom, destination: Destination, wanted: boolean): boolean {
+  if (destination.scope === "out") return false;
   return wanted && !(from.type === "local" && from.live === true);
 }
 
@@ -334,7 +337,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     select,
     rename: parseRenames(args),
     rule: args.flag(FLAGS.rule) || config.rule === true,
-    addHook: hookWanted(from, args.flag(FLAGS.addHook) || config.addHook === true),
+    addHook: hookWanted(from, destination, args.flag(FLAGS.addHook) || config.addHook === true),
     shared,
     copy: args.flag(FLAGS.copy),
     memoryPath: args.value(FLAGS.from) ?? INTENT_DEFAULTS.memoryPath,
@@ -613,13 +616,10 @@ export async function commitAdd(
           now,
           state,
         );
-        state = {
-          ...state,
-          sources: { ...state.sources, [request.key]: entry },
-          hooks: request.addHook
-            ? [...new Set([...state.hooks, ...hookable(harnesses.ids, io)])]
-            : state.hooks,
-        };
+        state = { ...state, sources: { ...state.sources, [request.key]: entry } };
+        if (request.addHook && request.destination.scope !== "out") {
+          state = withHooks(state, request.destination, hookable(harnesses.ids, io));
+        }
         changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
         if (
           previous?.intent.destination.scope === "project" ||
@@ -637,6 +637,7 @@ export async function commitAdd(
         }
         if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);
       }
+      state = prunedHooks(state);
       if (io.projectRoot !== null) {
         const at = { scope: "project", root: io.projectRoot } as const;
         for (const name of options.disabledAtProject ?? []) {

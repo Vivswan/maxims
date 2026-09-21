@@ -300,10 +300,11 @@ export function entryFor(from: SourceFrom, overrides: IntentOverrides = {}): Sou
 
 export function stateWith(
   entries: Record<string, SourceEntry>,
-  hooks: State["hooks"] = [],
+  hooks?: State["hooks"],
   disabled?: State["disabled"],
 ): State {
-  const state: State = { version: 1, writtenBy: "maxims@0.0.0-fixture", hooks, sources: entries };
+  const state: State = { version: 1, writtenBy: "maxims@0.0.0-fixture", sources: entries };
+  if (hooks !== undefined) state.hooks = hooks;
   if (disabled !== undefined) state.disabled = disabled;
   return state;
 }

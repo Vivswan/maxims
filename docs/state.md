@@ -41,7 +41,7 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
 {
   "version": 1,
   "writtenBy": "maxims@0.4.1",
-  "hooks": ["claude-code", "codex"],
+  "hooks": { "global": ["claude-code", "codex"], "project": { "/home/user/project": ["codex"] } },
   "sources": {
     "@Vivswan/skills": {
       "intent": {
@@ -82,7 +82,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 
 - **`version`** is the integer schema version, bumped on any breaking shape change.
 - **`writtenBy`** says which maxims wrote this, so a bug report is reproducible without asking.
-- **`hooks`** lists the harnesses where the user wants a sync hook kept: a list, not records.
+- **`hooks`** lists the harnesses where the user wants a sync hook kept, per scope: `global` is one sorted list for the user scope, `project` one sorted list per project root, so `add --add-hook` in one project says nothing about the user scope or another project. A harness leaves a list with its last source at that scope. Lists, not records: whether the hook is registered is read from the harness.
 - **`overrides`** is reserved for the one hook fact that is intent, a config path the user chose over the harness definition; accepted as an open record, and nothing writes or reads it yet.
 - **`intent.from`** is `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down.
 - **`ref` is `HEAD`** for the default branch's head; the branch name is never stored because a repo can rename it.

@@ -9,7 +9,7 @@ How installed rules stay current: the session hook, the cooldown that decides wh
 
 ## The session hook
 
-The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run it yourself to apply state now:
+The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. `add --add-hook` registers it at the scope of that install, the user scope or the project, and a later add at another scope without the flag registers nothing there. Run it yourself to apply state now:
 
 ```bash
 npx -y @vivswan/maxims sync

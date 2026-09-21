@@ -70,7 +70,7 @@ function gitSha(candidate: string): GitSha {
 const VALID_STATE: State = {
   version: 1,
   writtenBy: "maxims@0.4.1",
-  hooks: ["claude-code", "codex"],
+  hooks: { global: ["claude-code", "codex"] },
   sources: {
     "@example-user/rules#main": {
       intent: {
@@ -297,6 +297,10 @@ describe("readState", () => {
     {
       fixture: "v1-corrupt-pending-without-fetched.json",
       issue: /pending: a held revision needs an installed revision behind it$/,
+    },
+    {
+      fixture: "v1-corrupt-flat-hooks.json",
+      issue: /^hooks: Invalid input: expected object, received array$/,
     },
   ];
   test.each(hostile)(

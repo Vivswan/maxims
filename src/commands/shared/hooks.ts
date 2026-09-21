@@ -7,12 +7,54 @@ import {
   scopeRoot,
 } from "../../harnesses/contract.ts";
 import { type HookPlan, planHookWrite } from "../../harnesses/hook-writer.ts";
+import type { State } from "../../state/schema.ts";
+import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../../state/scoped.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { destinationUnresolvable, realpathOfExistingPrefix } from "./fs-probe.ts";
+
+// The harnesses whose hook state wants at one scope; a project scope with no project root wants
+// none.
+export function hookedAt(
+  state: Pick<State, "hooks">,
+  scope: Scope,
+  projectRoot: string | null,
+): readonly HarnessId[] {
+  if (scope === "global") return scopedAt(state.hooks, { scope });
+  return projectRoot === null ? [] : scopedAt(state.hooks, { scope, root: projectRoot });
+}
+
+// `add --add-hook` at a scope: the ids join that scope's list and no other.
+export function withHooks(state: State, at: ScopeAt, ids: readonly HarnessId[]): State {
+  const hooks = withScopedList(state.hooks, at, [...scopedAt(state.hooks, at), ...ids]);
+  const { hooks: _previous, ...rest } = state;
+  return hooks === undefined ? rest : { ...rest, hooks };
+}
+
+// A hook is wanted at a scope only while some source there lists the harness. Every verb that
+// edits the sources settles the lists here, so a scope whose last source for a harness left
+// gives its hook up, and a later add there without `--add-hook` registers nothing.
+export function prunedHooks(state: State): State {
+  let hooks = state.hooks;
+  for (const at of scopesOf(hooks)) {
+    const listed = scopedAt(hooks, at).filter((id) =>
+      Object.values(state.sources).some(
+        (entry) => sameScope(entry.intent.destination, at) && entry.intent.harnesses.includes(id),
+      ),
+    );
+    hooks = withScopedList(hooks, at, listed);
+  }
+  const { hooks: _previous, ...rest } = state;
+  return hooks === undefined ? rest : { ...rest, hooks };
+}
+
+function sameScope(destination: State["sources"][string]["intent"]["destination"], at: ScopeAt) {
+  if (at.scope === "global") return destination.scope === "global";
+  return destination.scope === "project" && destination.root === at.root;
+}
 
 // `unreachable` says the harness has no home at this scope; nothing there is read or written.
 export type HarnessWants = {
@@ -53,7 +95,7 @@ export async function planHookAlone(
 }
 
 // Reconciles every definition's hook and config edit at every scope this run can reach. The
-// hook follows `state.hooks` and the scopes where the harness has sources; the config edit a
+// hook follows the scope's hook list and the sources the harness has there; the config edit a
 // rules directory needs follows the rules alone, so a harness that lists rules without a hook
 // keeps its config entry while its registry loses ours.
 export async function planHooks(input: {

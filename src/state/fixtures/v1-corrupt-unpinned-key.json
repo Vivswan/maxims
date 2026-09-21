@@ -1,7 +1,7 @@
 {
   "version": 1,
   "writtenBy": "maxims@0.4.1",
-  "hooks": ["claude-code", "codex"],
+  "hooks": { "global": ["claude-code", "codex"] },
   "sources": {
     "@example-user/rules": {
       "intent": {

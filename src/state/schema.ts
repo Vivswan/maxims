@@ -150,23 +150,35 @@ export const HarnessIdSchema = z.custom<HarnessId>(
   { error: "expected a built-in harness id or a kebab-case user-defined one" },
 );
 
-// Names the user has switched off. Sorted and unique so the same intent always serializes to the
-// same bytes; the writer sorts, and a hand edit that does not is refused whole like any other
-// shape error.
-export const DisabledNamesSchema = z.array(MemoryNameSchema).check((ctx) => {
-  const names = ctx.value;
-  for (let index = 1; index < names.length; index += 1) {
-    const previous = names[index - 1] ?? "";
-    const current = names[index] ?? "";
-    if (current > previous) continue;
-    ctx.issues.push({
-      code: "custom",
-      input: current,
-      path: [index],
-      message: current === previous ? "listed twice" : `must be sorted after ${previous}`,
-    });
-  }
-});
+// A per-scope list is sorted and unique so the same intent always serializes to the same bytes;
+// the writer sorts, and a hand edit that does not is refused whole like any other shape error.
+function sortedUniqueList<T extends z.ZodType<string>>(item: T) {
+  return z.array(item).check((ctx) => {
+    const values: string[] = ctx.value;
+    for (let index = 1; index < values.length; index += 1) {
+      const previous = values[index - 1] ?? "";
+      const current = values[index] ?? "";
+      if (current > previous) continue;
+      ctx.issues.push({
+        code: "custom",
+        input: current,
+        path: [index],
+        message: current === previous ? "listed twice" : `must be sorted after ${previous}`,
+      });
+    }
+  });
+}
+
+// One list for the user scope and one per project root, the shape `disabled` and `hooks` share.
+function scopedLists<L extends z.ZodType>(list: L) {
+  return z.strictObject({
+    global: list.optional(),
+    project: z.record(AbsolutePath, list).optional(),
+  });
+}
+
+// Names the user has switched off.
+export const DisabledNamesSchema = sortedUniqueList(MemoryNameSchema);
 
 const IntentFields = {
   select: SelectSchema,
@@ -307,18 +319,22 @@ export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 // State owns the disabled names of BOTH scopes: the global list, and one list per project keyed
 // by its root. A project's lock file carries a committed copy of its list for `install` to read,
 // never the answer itself, so there is one place to change and nothing to reconcile.
-const DisabledSchema = z.strictObject({
-  global: DisabledNamesSchema.optional(),
-  project: z.record(AbsolutePath, DisabledNamesSchema).optional(),
-});
+const DisabledSchema = scopedLists(DisabledNamesSchema);
 /** @public */
 export type Disabled = z.infer<typeof DisabledSchema>;
+
+// The harnesses whose session hook the user asked for, per scope: a project's `--add-hook` says
+// nothing about the user scope and the other way round, so a project add without the flag can
+// never inherit a hook from a global one.
+const HooksSchema = scopedLists(sortedUniqueList(HarnessIdSchema));
+/** @public */
+export type Hooks = z.infer<typeof HooksSchema>;
 
 export const StateSchema = z
   .strictObject({
     version: z.literal(CURRENT_STATE_VERSION),
     writtenBy: z.string().min(1),
-    hooks: z.array(HarnessIdSchema),
+    hooks: HooksSchema.optional(),
     overrides: z.record(z.string(), z.unknown()).optional(),
     sources: z.record(z.string(), SourceEntrySchema),
     disabled: DisabledSchema.optional(),
@@ -643,5 +659,5 @@ function usage(message: string): MaximsError {
 }
 
 export function emptyState(writtenBy: string): State {
-  return { version: CURRENT_STATE_VERSION, writtenBy, hooks: [], sources: {} };
+  return { version: CURRENT_STATE_VERSION, writtenBy, sources: {} };
 }

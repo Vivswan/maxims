@@ -24,7 +24,7 @@ import {
   staleness,
 } from "./shared/engine.ts";
 import { pathAbsent } from "./shared/fs-probe.ts";
-import { planHookAlone } from "./shared/hooks.ts";
+import { hookedAt, planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
@@ -278,7 +278,7 @@ async function listHarnesses(
     if (skipped !== undefined) listed.skipped = skipped.reason;
     // A harness with no home at this scope (its config folder absent or a file) has no registry
     // to probe; sync does not touch it either.
-    if (state.hooks.includes(id) && skipped?.kind !== "unreachable") {
+    if (hookedAt(state, scope, ctx.projectRoot).includes(id) && skipped?.kind !== "unreachable") {
       const hook = await planHookAlone(def, scope, harnessCtx, true);
       listed.hook = hook.changes.length === 0 ? "ok" : "absent";
     }

@@ -1666,7 +1666,7 @@ test("a live manifest source registers no hook even when config asks for one", a
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(run.stdout).not.toContain("Hook registered");
-    expect((readState(scenario) as { hooks: string[] }).hooks).toEqual([]);
+    expect(readState(scenario).hooks).toBeUndefined();
   });
 });
 
@@ -2025,7 +2025,7 @@ test("doctor expects no hook for a harness only another project's source lists",
 
 test("doctor reports a corrupt state file as a warning and leaves it in place", async () => {
   await withScenario({}, async (scenario) => {
-    writeState(scenario, { version: 1, writtenBy: "x", hooks: [], sources: { "@a/b": {} } });
+    writeState(scenario, { version: 1, writtenBy: "x", sources: { "@a/b": {} } });
     const before = await snapshot(scenario.home);
     const run = await runCli(scenario, ["doctor"]);
     expect(run.code).toBe(0);
@@ -2052,7 +2052,7 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
 // A request that turns out malformed reads nothing first, so it settles nothing either.
 test("update --cap on a real run settles a corrupt state file instead of refusing it", async () => {
   await withScenario({}, async (scenario) => {
-    writeState(scenario, { version: 1, writtenBy: "x", hooks: [], sources: { "@a/b": {} } });
+    writeState(scenario, { version: 1, writtenBy: "x", sources: { "@a/b": {} } });
     const malformed = await runCli(scenario, ["update", "@a/b", "--cap", "0"]);
     expect(malformed.code).toBe(1);
     expect(malformed.stderr).toContain("--cap expects a positive integer");

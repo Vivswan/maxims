@@ -10,6 +10,7 @@ import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere } from "./shared/context.ts";
 import { pathAbsent, readTextIfPresent } from "./shared/fs-probe.ts";
+import { hookedAt } from "./shared/hooks.ts";
 import {
   type Command,
   type CommandContext,
@@ -128,7 +129,10 @@ export const doctor: Command = {
 // left harnesses.json. Nothing checks it, so the report says so instead of staying silent.
 function unresolvedHarnessIds(state: State, defs: readonly HarnessDefinition[]): HarnessId[] {
   const known = new Set(defs.map((def) => def.id));
-  const named = new Set<HarnessId>(state.hooks);
+  const named = new Set<HarnessId>([
+    ...(state.hooks?.global ?? []),
+    ...Object.values(state.hooks?.project ?? {}).flat(),
+  ]);
   for (const entry of Object.values(state.sources)) {
     for (const id of entry.intent.harnesses) named.add(id);
   }
@@ -187,7 +191,7 @@ async function checkHarness(
       preamble: preambleCheck(def, scope, entry, readTextIfPresent(path)),
     });
   }
-  const wanted = state.hooks.includes(def.id);
+  const wanted = hookedAt(state, scope, ctx.io.projectRoot).includes(def.id);
   let hook: HarnessReport["hook"] = "not-wanted";
   if (def.hook.kind === "none") hook = "none";
   else if (wanted) {

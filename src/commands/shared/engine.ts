@@ -39,7 +39,7 @@ import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./c
 import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
 import { diffLines, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
-import { planHooks } from "./hooks.ts";
+import { hookedAt, planHooks } from "./hooks.ts";
 import {
   readSourceMemories,
   type SourceMemory,
@@ -670,22 +670,22 @@ async function planInstall(
     harnesses: io.harnesses,
     agents,
     wants: (id, scope) => ({
-      hook: state.hooks.includes(id) && at(scope, id).length > 0,
+      hook: hookedAt(state, scope, ctx.projectRoot).includes(id) && at(scope, id).length > 0,
       rules: at(scope, id).some((entry) => entry.intent.rule),
       unreachable: unreachable.has(`${id}@${scope}`),
     }),
-    elsewhere: (id) =>
-      state.hooks.includes(id)
-        ? [
-            ...new Set(
-              elsewhere.flatMap((entry) =>
-                entry.intent.harnesses.includes(id) && entry.intent.destination.scope === "project"
-                  ? [entry.intent.destination.root]
-                  : [],
-              ),
-            ),
-          ]
-        : [],
+    elsewhere: (id) => [
+      ...new Set(
+        elsewhere.flatMap((entry) => {
+          const { destination } = entry.intent;
+          return destination.scope === "project" &&
+            entry.intent.harnesses.includes(id) &&
+            hookedAt(state, "project", destination.root).includes(id)
+            ? [destination.root]
+            : [];
+        }),
+      ),
+    ],
   });
   builder.add("hook", hooks.changes);
   builder.add("removal", hooks.removals);
