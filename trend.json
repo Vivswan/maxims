@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "at": "2026-09-21T00:44:48.732Z",
+      "runs": 10,
+      "sha": "fff3bdf21d06d2866cc753fdd33e6a1a55067b80",
+      "node": "v22.23.2",
+      "medianMs": {
+        "sync --quiet": 135.416,
+        "add --list": 126.936
+      },
+      "bundleBytes": 1266695
+    }
+  ]
+}
