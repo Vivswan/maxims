@@ -140,9 +140,10 @@ test(
       const result = outcome(() => parseSourceSelector(arg, CWD, options));
       if (result.kind === "threw") return usageOnly(result.error);
       const { from, memory } = result.value;
-      if (from.type === "git" || (from.type === "github" && from.ref === "HEAD")) {
-        expectStorable(from);
-      }
+      // The two fields the grammar mints but does not finish are judged at the add door: the local
+      // path once it is resolved to its real path, the ref once `--pin` has had its say. Every
+      // other field is stored as parsed, so it must already be storable here.
+      if (from.type !== "local") expectStorable({ ...from, ref: "HEAD" });
       if (memory !== null) expect(memory).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
       if (from.type === "github") {
         expect(from.repo).toMatch(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/);
@@ -155,23 +156,6 @@ test(
       if (memory === null) expect(whole).toEqual({ kind: "value", value: from });
       else if (whole.kind === "threw") usageOnly(whole.error);
       else throw new Error(`a memory selector passed as a whole source: ${arg}`);
-    });
-  },
-  PROPERTY_TIMEOUT_MS,
-);
-
-// The `/tree/<ref>` ref is the one grammar field that reaches state as parsed; drifting past its
-// state schema lets `add` write a state the next read quarantines. A local path is judged only
-// after it is resolved to its real path (a symlink's own name may be unstorable while its target
-// is not), by `realLocal`, whose own tests pin that door.
-test(
-  "parseSourceSelector answers only a remote source the state schema stores, for any argument and GH_HOST",
-  async () => {
-    await fuzz("parseSourceSelector storable", selectorInput, ({ arg, ghHost }) => {
-      const options = ghHost === undefined ? {} : { ghHost };
-      const result = outcome(() => parseSourceSelector(arg, CWD, options));
-      if (result.kind === "threw") return usageOnly(result.error);
-      if (result.value.from.type !== "local") expectStorable(result.value.from);
     });
   },
   PROPERTY_TIMEOUT_MS,

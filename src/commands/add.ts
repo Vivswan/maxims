@@ -48,6 +48,7 @@ import {
   type SourceEntry,
   type SourceFrom,
   type State,
+  storable,
 } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -301,7 +302,12 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     }
   } else {
     if (link) throw usage("--link applies to a local directory");
-    if (pin !== undefined) from = { ...from, ref: gitRefOrUsage(pin) };
+    // Only the ref that survives to storage is judged: a `/tree/<ref>` the state schema refuses is
+    // a fine spelling when `--pin` replaces it.
+    from = {
+      ...from,
+      ref: pin === undefined ? storable(GitRefSchema, from.ref, sourceArg) : gitRefOrUsage(pin),
+    };
   }
   const explicitDestination = parseDestination(args, io.cwd, io.projectRoot);
   const destination: Destination =

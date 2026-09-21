@@ -1326,6 +1326,51 @@ test("a --pin the state schema refuses is a usage error naming the flag, and not
   });
 });
 
+const PINNED_SHA = "0123456789abcdef0123456789abcdef01234567";
+
+// The `/tree/<ref>` ref is judged only if it survives to storage: `--pin` replaces it before
+// anything is recorded, so an unstorable spelling in the URL is no reason to refuse the pinned add.
+test("an explicit --pin replaces a /tree/<ref> the state schema would refuse", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    const run = await runCli(scenario, [
+      "add",
+      "https://github.com/a/b/tree/release--%3Ev1",
+      "-g",
+      "-a",
+      "codex",
+      "--pin",
+      PINNED_SHA,
+      "-y",
+    ]);
+    expect({ code: run.code, stderr: run.stderr }).toEqual({ code: 0, stderr: "" });
+    expect(scenario.fetches).toEqual([{ type: "github", repo: "a/b", ref: PINNED_SHA }]);
+    expect(source(scenario, `@a/b#${PINNED_SHA}`).intent.from.ref).toBe(PINNED_SHA);
+  });
+});
+
+// The refusal wording is what a user reads at the door; the URL is echoed as typed.
+const unstorableTreeRefs: [string, string][] = [
+  ["https://github.com/a/b/tree/-->", "a ref cannot contain -->"],
+  ["https://github.com/a/b/tree/a%20", "a ref cannot start or end with whitespace"],
+  ["https://github.com/a/b/tree/a%0Ab", "a ref cannot contain a line break"],
+];
+
+test.each(unstorableTreeRefs)(
+  "a /tree/<ref> the state schema refuses is a usage error without a --pin, and nothing is written: %s",
+  async (url, reason) => {
+    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+      const before = await snapshot(scenario.root);
+      const run = await runCli(scenario, ["add", url, "-g", "-a", "codex", "-y"]);
+      expect({ code: run.code, stderr: run.stderr }).toEqual({
+        code: 1,
+        stderr: ` ERROR  ${JSON.stringify(url)}: ${reason}\n`,
+      });
+      expect(scenario.fetches).toEqual([]);
+      expect(await snapshot(scenario.root)).toBe(before);
+    });
+  },
+);
+
 // The harness prompt is the one place `lastAgents` is written. The next prompt offers it as the
 // pre-selected answer (Enter alone keeps it, where an empty selection would be refused), and a
 // silent run takes it without asking, instead of failing with "no harness detected".

@@ -498,7 +498,8 @@ export function parseSourceSelector(
 const GITHUB_TREE_SEGMENT = 2;
 
 // A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
-// a directory, so the store-path usability check does not apply to it.
+// a directory, so the store-path usability check does not apply to it, and whether it is storable
+// is judged only once `add` knows whether a `--pin` replaces it.
 function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
   const remoteHost = normalizeGithubHost(remote.host);
   const isGithubCom = remoteHost === GITHUB_COM;
@@ -522,15 +523,16 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
       `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>`,
     );
   }
-  const ref = isTreeUrl ? storable(GitRefSchema, rest[0] ?? DEFAULT_GIT_REF, arg) : DEFAULT_GIT_REF;
+  const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
   return github(repo, arg, host, ref);
 }
 
 // A field the state file stores is parsed by its own state schema at the door that mints its
 // final value and refused as usage; written unchecked, it would be quarantined on the next read.
 // The refused spelling is echoed escaped because the refused characters are the invisible ones.
-// The grammar above judges only the `/tree/<ref>` ref, which no later step rewrites; a local path
-// is judged after it is resolved to its real path, where a symlink's own name no longer matters.
+// The grammar above judges neither field it mints: a local path is judged after it is resolved to
+// its real path, where a symlink's own name no longer matters, and a `/tree/<ref>` ref once `add`
+// knows whether a `--pin` replaces it.
 export function storable<T>(schema: z.ZodType<T>, value: string, arg: string): T {
   const parsed = schema.safeParse(value);
   if (parsed.success) return parsed.data;
