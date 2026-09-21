@@ -42,34 +42,40 @@ A local directory source defaults to the user scope so personal text stays out o
 
 Re-running `add` with a different `--memory` list replaces the recorded one, shown in the plan first. It never unions.
 
-The specified output of `add @Vivswan/skills --list`:
+The output of `add @Vivswan/skills --list`, captured from the built CLI:
 
 ```text
 |
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
+!  README.md is not a memory: filename stem "README" is not kebab-case
 o  Found 4 memories
 |
 o  Available Memories
+|    fire-relevant-skills-and-memories
+|
+|      Use before any consequential action - commit, merge, push, delete,
+|      report, spawn - stop and enumerate which skills and memories trigger at
+|      that moment, then apply them
+|
 |    gate-exit-conditions-the-merge
 |
-|      Never chain a merge in the same command as reading a gate log - condition
-|      the merge on the gate's exit code
+|      Use when landing a change after a gate (review, CI, tests) - never chain
+|      the merge or push in the same compound command as reading the gate's log;
+|      land in a separate command only after the gate's exit code and verdict
+|      are read
 |
 |    no-sleep-waiting-on-subagents
 |
-|      Never sleep or poll waiting on a background subagent - its completion
-|      re-invokes the session on its own
+|      Use when tempted to sleep, poll, or busy-wait on a background subagent -
+|      its completion notification re-invokes the session on its own; launch
+|      synchronously instead when the result gates everything else
 |
 |    rubber-duck-before-every-commit
 |
-|      Use when about to commit or merge ANY change, however trivial - the
-|      rubber-duck review WITH CODEX must run and converge first
-|
-|    skip-unfit-skills
-|
-|      The agent may skip an invoked skill that does not fit the task, but must
-|      say why
+|      Use before every commit or merge, however trivial - a cross-model
+|      rubber-duck review must run and converge on the exact final content
+|      first; exceptions and reviewer coverage never transfer between gates
 |
 o  Run without --list to install
 ```
@@ -132,10 +138,10 @@ non-interactive:  exit 6, nothing written, unless --rename names the pair
 result:           two rule lines, two names, one rename entry applied by every later sync
 ```
 
-The specified output when the prompt cannot be shown:
+The output when the prompt cannot be shown, captured from the built CLI with `@Vivswan/skills` already owning the name:
 
 ```text
- ERROR  gate-exit-conditions-the-merge is owned by @a/b
+ ERROR  gate-exit-conditions-the-merge is owned by @Vivswan/skills
 Tip: --rename gate-exit-conditions-the-merge=<new>
 ```
 
@@ -159,10 +165,10 @@ Without a prompt, `add` and `sync` proceed as if `--yes` were given, and no othe
 
 `disable`, `enable`, `link`, and `unlink` take no `-y`, since they never prompt. A collision without `--rename` is exit 6 with nothing written.
 
-The specified output of a non-interactive `remove` without `-y`:
+The output of a non-interactive `remove` without `-y`, captured from the built CLI with stdout piped:
 
 ```text
 |
-o  Memories to remove: @a/b
+o  Memories to remove: @Vivswan/skills
  ERROR  Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.
 ```

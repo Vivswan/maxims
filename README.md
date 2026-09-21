@@ -22,5 +22,3 @@ What maxims writes for Claude Code, one line per memory, with the detail path, t
 - [How it works](docs/how-it-works.md): the five stages and the two layers.
 - [Why maxims](docs/why.md): the problem, the prior art, what a rule costs.
 - [All documentation](docs/README.md): every verb, flag, harness, and design decision.
-
-Status: the code is being built against these pages, so every page states specified behavior rather than observed behavior.

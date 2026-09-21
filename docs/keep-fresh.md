@@ -15,6 +15,16 @@ The hook runs `npx -y @vivswan/maxims sync --quiet` at every session start. Run 
 npx -y @vivswan/maxims sync
 ```
 
+In a terminal, a run that changed no file a harness reads and failed nothing ends with one line, captured from a no-op run:
+
+```text
+o  Up to date: 4 memories, 4 rule lines
+```
+
+A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), or a failed write, prints its own line instead, and the up-to-date line stays out.
+
+A failed fetch keeps it out too, and says nothing of its own until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below). The same no-op run under `--quiet` prints nothing.
+
 In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 
 ```text

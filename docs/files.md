@@ -63,5 +63,3 @@ npx -y @vivswan/maxims config unset rule
 `cooldownDays` and `ruleCap` are the two keys `sync` reads, since they govern every run; the [cap and cooldown section](keep-fresh.md#the-cap-and-the-cooldown) owns the flags that write them and when a typed flag persists. `agents`, `yes`, `addHook`, and `rule` each fill in a flag you did not type on `add`, and what `add` records is ordinary intent.
 
 `config set` refuses a key the table does not name, with exit 1, and the file is parsed the same way: a misspelled key makes the whole file invalid rather than being ignored.
-
-Status: the first six keys are the schema maxims parses today. `lastAgents` and the `config` verb itself are specified, not yet built.

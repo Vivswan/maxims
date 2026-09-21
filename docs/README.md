@@ -5,7 +5,7 @@ group: Start here
 
 # maxims
 
-maxims installs one-line rule memories from GitHub repos or local folders into the always-loaded instruction layer of every coding agent on a machine, and a small hook re-syncs them each time a session opens. These pages state the specified behavior the code is built and tested against; each fact lives on one page.
+maxims installs one-line rule memories from GitHub repos or local folders into the always-loaded instruction layer of every coding agent on a machine, and a small hook re-syncs them each time a session opens. These pages describe the behavior the code is built and tested against; each fact lives on one page.
 
 ```bash
 npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook

@@ -20,7 +20,7 @@ npx -y @vivswan/maxims add @owner/repo --rule -m rubber-duck-before-every-commit
 npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 ```
 
-## Exit 8: a rule file is over the harness's byte budget
+## Exit 8: a rule file is over the harness byte budget
 
 **What you see:** the run names the newest source in the file and how many bytes over the budget it is, with exit 8. That source is held and every other source in the file refreshes; when the file is still over, the next newest is held too. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
 
@@ -29,7 +29,7 @@ x  @you/notes is 716 bytes over the budget for /home/user/AGENTS.md
    narrow the install with --memory or split the source, or keep @you/notes off DeepSeek Harness with maxims unlink @you/notes -a dsh
 ```
 
-**What it means:** the harness loads at most that many bytes, so a larger file would lose rules silently; the specified behavior is to hold a source rather than truncate. A held source keeps the rules it had on disk. The [DeepSeek Harness catch](harnesses.md#per-harness-catches) is the case that set the rule.
+**What it means:** the harness loads at most that many bytes, so a larger file would lose rules silently; maxims holds a source rather than truncate. A held source keeps the rules it had on disk. The [DeepSeek Harness catch](harnesses.md#per-harness-catches) is the case that set the rule.
 
 **What to do:** give that harness fewer rules from the held source: narrow its selection with `--memory`, or keep it off that harness with `unlink <source> -a <id>`.
 
@@ -84,7 +84,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 **What you see:** inside the moved folder a sync installs nothing for the project, and `list` names a project root that no longer exists.
 
-**What it means:** a project-scope source records its project root in `state.json`, as `destination: {scope: "project", root}`, and nothing follows a rename. This is the specified behavior; the [state schema](state.md#the-schema) owns the field.
+**What it means:** a project-scope source records its project root in `state.json`, as `destination: {scope: "project", root}`, and nothing follows a rename. This is by design; the [state schema](state.md#the-schema) owns the field.
 
 **What to do:** edit the `root` of each of the project's sources, and the project's key under `disabled.project`, in `state.json` by hand, the way the [moving section](move-or-uninstall.md#back-up-or-move-to-a-new-machine) edits the other absolute paths, then run `sync` inside the folder.
 
