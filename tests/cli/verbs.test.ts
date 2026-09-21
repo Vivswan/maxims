@@ -213,6 +213,15 @@ test("config set/get/unset round-trips through the schema and refuses bad values
     const bad = await runCli(scenario, ["config", "set", "ruleCap", "0"]);
     expect(bad.code).toBe(1);
     expect(bad.stderr).toBe(' ERROR  ruleCap expects a positive integer, got "0"\n');
+    // A zero cooldown refetches every sync; the key and the flag agree on the bound.
+    expect((await runCli(scenario, ["config", "set", "cooldownDays", "0"])).code).toBe(0);
+    const fraction = await runCli(scenario, ["config", "set", "cooldownDays", "1.5"]);
+    expect(fraction.stderr).toBe(
+      ' ERROR  cooldownDays expects a non-negative integer, got "1.5"\n',
+    );
+    expect((await runCli(scenario, ["config", "set", "cooldownDays", "4"])).code).toBe(0);
+    expect((await runCli(scenario, ["sync", "--cooldown", "0"])).code).toBe(0);
+    expect((await runCli(scenario, ["config", "get", "cooldownDays"])).stdout).toBe("0\n");
     const badAgent = await runCli(scenario, ["config", "set", "agents", "Vim"]);
     expect(badAgent.code).toBe(1);
     expect((await runCli(scenario, ["config", "set", "agents", "team-agent,codex"])).code).toBe(0);

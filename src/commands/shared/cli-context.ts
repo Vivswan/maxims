@@ -15,7 +15,7 @@ import { applyChanges, type Change, type Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
 import { homePaths } from "../../util/home.ts";
-import { type Args, type CommandContext, FLAGS, parsePositiveInt } from "./options.ts";
+import { type Args, type CommandContext, FLAGS, INTEGER, parseInteger } from "./options.ts";
 
 // The project root is the nearest ancestor of the cwd that a git checkout marks, so a project
 // install from a subdirectory lands at the repository root the harness reads from; its real path,
@@ -68,8 +68,8 @@ export function configWrite(home: string, config: UserConfig): Change {
 // later sync, so they land in config.json exactly as `config set` would write them and apply to
 // the current run at once. Null when neither was given.
 export function cooldownCapConfig(args: Args, config: UserConfig): UserConfig | null {
-  const cooldown = parsePositiveInt(FLAGS.cooldown, args);
-  const cap = parsePositiveInt(FLAGS.cap, args);
+  const cooldown = parseInteger(FLAGS.cooldown, INTEGER.nonNegative, args);
+  const cap = parseInteger(FLAGS.cap, INTEGER.positive, args);
   if (cooldown === undefined && cap === undefined) return null;
   return {
     ...config,

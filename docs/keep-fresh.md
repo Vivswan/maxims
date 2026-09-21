@@ -83,8 +83,10 @@ Two numbers apply to every source and live in `config.json`, not on a hook comma
 
 | flag | writes | default | what it governs |
 | --- | --- | --- | --- |
-| `--cooldown <days>` | `cooldownDays` in `config.json` | 7 | how long `sync` goes without refetching a source; `update` ignores it |
+| `--cooldown <days>` | `cooldownDays` in `config.json` | 7 | days after a good fetch before `sync` refetches; 0 means every sync; `update` ignores it |
 | `--cap <n>` | `ruleCap` in `config.json` | 25 | the most rule lines one source may publish |
+
+The cooldown counts from the last fetch that succeeded. A fetch that failed is retried after an hour, or after any Retry-After the server sent, whatever the cooldown, so a source that is down is not asked at every session start.
 
 The cap is a count, and it is a hard gate: over it, the whole source is refused with exit 8, never truncated. The token estimate printed beside every rule file write is a report and never blocks. The two ways out of a cap refusal are named in its hint: narrow with `--memory` or raise `--cap`.
 

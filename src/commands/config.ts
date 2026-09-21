@@ -9,7 +9,13 @@ import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { configWrite } from "./shared/cli-context.ts";
-import { type Command, closestHarnessId, usage } from "./shared/options.ts";
+import {
+  type Command,
+  closestHarnessId,
+  INTEGER,
+  integerOrUsage,
+  usage,
+} from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 
 type ConfigKey = keyof UserConfig;
@@ -52,11 +58,9 @@ function valueFor(key: ConfigKey, raw: string): UserConfig[ConfigKey] {
       if (raw === "false") return false;
       throw usage(`${key} expects true or false, got "${raw}"`);
     case "cooldownDays":
+      return integerOrUsage(raw, INTEGER.nonNegative, key);
     case "ruleCap":
-      if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
-        throw usage(`${key} expects a positive integer, got "${raw}"`);
-      }
-      return Number(raw);
+      return integerOrUsage(raw, INTEGER.positive, key);
   }
 }
 

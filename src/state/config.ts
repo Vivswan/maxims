@@ -9,7 +9,8 @@ export const UserConfigSchema = z.strictObject({
   yes: z.boolean().optional(),
   addHook: z.boolean().optional(),
   rule: z.boolean().optional(),
-  cooldownDays: z.number().int().positive().optional(),
+  // Zero is a cooldown too: every sync refetches, which a CI runner or a tester wants.
+  cooldownDays: z.number().int().nonnegative().optional(),
   ruleCap: z.number().int().positive().optional(),
   // The harnesses chosen at the last interactive prompt, pre-selected next time; a memory of a
   // choice, not a default, so `-a` and `agents` both win over it.

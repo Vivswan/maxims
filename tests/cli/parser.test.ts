@@ -27,8 +27,8 @@ const refusals: [string, string[], string][] = [
   ["missing source", ["add"], "Missing required argument: source"],
   [
     "bad cooldown",
-    ["add", "@a/b", "--cooldown", "0"],
-    '--cooldown expects a positive integer, got "0"',
+    ["add", "@a/b", "--cooldown", "x"],
+    '--cooldown expects a non-negative integer, got "x"',
   ],
   ["bad cap", ["sync", "--cap", "x"], '--cap expects a positive integer, got "x"'],
   [

@@ -355,13 +355,29 @@ export function parseRenames(args: Args): RenameMap {
   return rename;
 }
 
-export function parsePositiveInt(spec: FlagSpec, args: Args): number | undefined {
-  const raw = args.value(spec);
-  if (raw === undefined) return undefined;
-  if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
-    throw usage(`--${spec.name} expects a positive integer, got "${raw}"`);
+// The two bounds config.json holds, shared by the flags and `config set` so the two spellings of
+// one key agree: a cooldown of 0 refetches every sync, while a cap of 0 would refuse every source.
+export const INTEGER = {
+  positive: { pattern: /^[1-9][0-9]*$/, expects: "a positive integer" },
+  nonNegative: { pattern: /^(0|[1-9][0-9]*)$/, expects: "a non-negative integer" },
+} as const;
+export type IntegerBound = (typeof INTEGER)[keyof typeof INTEGER];
+
+// `what` names the spelling in the refusal: `--cooldown` or `cooldownDays`.
+export function integerOrUsage(raw: string, bound: IntegerBound, what: string): number {
+  if (!bound.pattern.test(raw) || !Number.isSafeInteger(Number(raw))) {
+    throw usage(`${what} expects ${bound.expects}, got "${raw}"`);
   }
   return Number(raw);
+}
+
+export function parseInteger(spec: FlagSpec, bound: IntegerBound, args: Args): number | undefined {
+  const raw = args.value(spec);
+  return raw === undefined ? undefined : integerOrUsage(raw, bound, `--${spec.name}`);
+}
+
+export function parsePositiveInt(spec: FlagSpec, args: Args): number | undefined {
+  return parseInteger(spec, INTEGER.positive, args);
 }
 
 export function usage(message: string, options: { hint?: string } = {}): MaximsError {
