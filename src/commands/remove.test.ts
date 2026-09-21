@@ -93,7 +93,7 @@ describe("remove", () => {
       const report = await runRemove({ ...REMOVE, targets: [source] }, io);
       // The removal is the verb's whole report; an installed count is the sync verb's line.
       expect(io.out.join("")).toBe(
-        "Memories to remove:\n  - always-review\n  - keep-tests-green\n" +
+        "o  Memories to remove:\n   - always-review\n   - keep-tests-green\n" +
           `maxims: removed the maxims hook from ${join(userHome, ".fixture", "settings.json")}\n` +
           "Removed 2 memories\n",
       );
@@ -213,7 +213,7 @@ describe("remove", () => {
       const refused = runRemove({ ...REMOVE, targets: [first], confirmed: false }, io);
       const error = await expectExit(refused, ExitCode.Usage);
       expect(error.message).toBe("Removal cancelled");
-      expect(io.out.join("")).toContain("Memories to remove:\n  - one\nRemoval cancelled\n");
+      expect(io.out.join("")).toContain("o  Memories to remove:\n   - one\no  Removal cancelled\n");
       expect(treeDigest(userHome)).toBe(digest);
       expect(readFileSync(homePaths(home).state, "utf8")).toBe(stateBefore);
       await runRemove({ ...REMOVE, all: true }, io);
@@ -275,14 +275,20 @@ describe("remove", () => {
       const bodies = join(project, ".agents", "memories");
       writeFileSync(join(bodies, "mine.md"), "the user's own note\n");
       mkdirSync(join(project, ".agents"), { recursive: true });
-      await runRemove({ ...REMOVE, targets: [source] }, io);
+      // The lock this removal rewrites is the one its own sync judges, so the removed source is
+      // never reported as a lock entry this machine lacks.
+      const lockOnly = (report: { notices: string[] }) =>
+        report.notices.filter((line) => line.includes("maxims.lock but not installed"));
+      const first = await runRemove({ ...REMOVE, targets: [source] }, io);
+      expect(lockOnly(first)).toEqual([]);
       expect(existsSync(join(bodies, "always-review.md"))).toBe(false);
       expect(existsSync(join(bodies, "three.md"))).toBe(true);
       expect(readFileSync(join(bodies, "mine.md"), "utf8")).toBe("the user's own note\n");
       const lock = JSON.parse(readFileSync(join(project, ".agents", "maxims.lock"), "utf8"));
       expect(Object.keys(lock.sources)).toEqual(["./other"]);
       expect(lock.sources["./other"].from).toEqual({ type: "local", path: "./other" });
-      await runRemove({ ...REMOVE, targets: [other] }, io);
+      const second = await runRemove({ ...REMOVE, targets: [other] }, io);
+      expect(lockOnly(second)).toEqual([]);
       expect(existsSync(join(project, ".agents", "maxims.lock"))).toBe(false);
       expect(existsSync(join(bodies, "three.md"))).toBe(false);
     });
@@ -534,7 +540,7 @@ describe("remove", () => {
       await runRemove({ ...REMOVE, targets: [none, some], agents: ["codex"] }, io);
       const state = readStateFile(home);
       expect(Object.keys(state.sources)).toEqual([none]);
-      expect(io.out.join("")).toContain(`${none} is not installed for codex\n`);
+      expect(io.out.join("")).toContain(`!  ${none} is not installed for codex\n`);
       expect(readFileSync(lockPath, "utf8")).toBe(lockBefore);
     });
   });
@@ -588,13 +594,13 @@ describe("remove", () => {
     await world(async ({ home, dir, userHome }) => {
       const io = fakeIo({ home, userHome, cwd: dir });
       await runRemove({ ...REMOVE, targets: ["anything"] }, io);
-      expect(io.out.join("")).toBe("No memories found to remove.\n");
+      expect(io.out.join("")).toBe("o  No memories found to remove.\n");
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
       io.out.length = 0;
       await runRemove({ ...REMOVE, targets: ["nobody-has-this"] }, io);
       expect(io.out.join("")).toBe(
-        "nobody-has-this is not installed\nNo memories found to remove.\n",
+        "!  nobody-has-this is not installed\no  No memories found to remove.\n",
       );
     });
   });

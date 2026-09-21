@@ -151,7 +151,10 @@ export async function planSync(
 ): Promise<SyncOutcome> {
   const base = new Notices();
   if (ctx.configIssue !== null) base.notice(`maxims: ${ctx.configIssue}`);
-  await noticeLockOnlySources(state, ctx, base);
+  await noticeLockOnlySources(state, ctx, base, [
+    ...extras.extraChanges,
+    ...(options.preview?.changes ?? []),
+  ]);
   const refreshed = await refreshAll(state, ctx, io, options, base);
   const overlay = previewStoreTrees(options.preview, ctx);
   const carried = new Notices();
@@ -807,14 +810,16 @@ async function renderFiles(
 }
 
 // The lock is a projection the CLI writes; sync only says when it names a source this machine
-// never installed, and never installs from it.
+// never installed, and never installs from it. The lock judged is the one this run leaves behind:
+// a rewrite the caller planned beside the state edit counts before it lands.
 async function noticeLockOnlySources(
   state: State,
   ctx: EngineContext,
   notices: Notices,
+  planned: readonly Change[],
 ): Promise<void> {
   if (ctx.projectRoot === null) return;
-  const lock = await readProjectLock(ctx.projectRoot);
+  const lock = await readProjectLock(ctx.projectRoot, planned);
   if (lock.kind === "corrupt") {
     notices.notice(`maxims: ${lock.path} could not be read: ${lock.issues.join("; ")}`);
     return;

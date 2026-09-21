@@ -38,19 +38,30 @@ export function projectLockPath(projectRoot: string): string {
 // `keys` are the state keys the entries stand for, so a lock entry and its state entry are found
 // by one string. The manifest is committed and edited by teammates, so a shape error, or an entry
 // this checkout cannot honor (a local path leaving it), is reported whole rather than installing
-// the entries that happened to parse.
-export async function readProjectLock(projectRoot: string): Promise<LoadedProjectLock> {
+// the entries that happened to parse. `planned` holds the changes a run has planned and not yet
+// applied: a rewrite or deletion of the lock among them is the lock this run judges, so a removal
+// never reports the very entry it is taking out as one this machine lacks.
+export async function readProjectLock(
+  projectRoot: string,
+  planned: readonly Change[] = [],
+): Promise<LoadedProjectLock> {
   const path = projectLockPath(projectRoot);
+  const pending = planned.find((change) => change.path === path);
+  if (pending?.kind === "delete") return { kind: "absent" };
   let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return { kind: "absent" };
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
-      cause: error,
-    });
+  if (pending?.kind === "write") {
+    text = pending.content;
+  } else {
+    try {
+      text = await readFile(path, "utf8");
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT")
+        return { kind: "absent" };
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
+        cause: error,
+      });
+    }
   }
   const parsed = parseProjectLock(text);
   if (parsed.ok === "corrupt") return { kind: "corrupt", path, issues: parsed.issues };

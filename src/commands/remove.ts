@@ -41,25 +41,29 @@ export async function runRemove(options: RemoveOptions, io: EngineIo): Promise<S
 
 async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<SyncReport> {
   const ctx = await loadContext(io, { readHookStdin: false });
+  // The lines before the sync are the verb's own frame, in the shape the interactive console
+  // draws: a step glyph on a step, a warning glyph on a notice, a note body indented under it.
   const say = (line: string): void => {
     if (!options.json && !options.quiet) io.stdout(`${line}\n`);
   };
+  const step = (line: string): void => say(`o  ${line}`);
+  const warn = (line: string): void => say(`!  ${line}`);
   // A removal that finds nothing still answers `--json` with one document.
-  const nothing = (lines: string[]): SyncReport => {
-    for (const line of lines) say(line);
+  const nothing = (notices: string[]): SyncReport => {
+    for (const line of notices) warn(line);
+    step("No memories found to remove.");
+    const lines = [...notices, "No memories found to remove."];
     if (options.json) io.stdout(emptyDocument(lines));
     return { ...EMPTY_REPORT, notices: lines };
   };
   const remove = async (state: State): Promise<SyncReport> => {
     const removal = await resolveRemoval(state, options, ctx, io);
-    if (removal.labels.length === 0) {
-      return nothing([...removal.notices, "No memories found to remove."]);
-    }
-    for (const line of removal.notices) say(line);
-    say("Memories to remove:");
-    for (const label of removal.labels) say(`  - ${label}`);
+    if (removal.labels.length === 0) return nothing(removal.notices);
+    for (const line of removal.notices) warn(line);
+    step("Memories to remove:");
+    for (const label of removal.labels) say(`   - ${label}`);
     if (!options.confirmed) {
-      say("Removal cancelled");
+      step("Removal cancelled");
       throw new MaximsError(ExitCode.Usage, "Removal cancelled", { hint: "pass -y to confirm" });
     }
     const extraChanges: Change[] = [];
@@ -87,12 +91,12 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
   if (options.dryRun) {
     const preview = await previewState(ctx.home);
     if (preview.kind === "loaded") return remove(preview.state);
-    if (preview.kind === "absent") return nothing(["No memories found to remove."]);
+    if (preview.kind === "absent") return nothing([]);
     throw new MaximsError(ExitCode.Usage, preview.line);
   }
   return withStateLock(ctx.home, "manual", async (lock) => {
     const loaded = await lock.read();
-    if (loaded.kind === "absent") return nothing(["No memories found to remove."]);
+    if (loaded.kind === "absent") return nothing([]);
     if (loaded.kind !== "loaded") throw new MaximsError(ExitCode.Usage, unusableStateLine(loaded));
     return remove(loaded.state);
   });
