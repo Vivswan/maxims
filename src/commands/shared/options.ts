@@ -382,10 +382,6 @@ export function parseInteger(spec: FlagSpec, bound: IntegerBound, args: Args): n
   return raw === undefined ? undefined : integerOrUsage(raw, bound, `--${spec.name}`);
 }
 
-export function parsePositiveInt(spec: FlagSpec, args: Args): number | undefined {
-  return parseInteger(spec, INTEGER.positive, args);
-}
-
 export function usage(message: string, options: { hint?: string } = {}): MaximsError {
   return new MaximsError(ExitCode.Usage, message, options);
 }

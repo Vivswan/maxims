@@ -4,7 +4,7 @@ import { hiddenCharacters, type Memory, parseMemory } from "../memory/contract.t
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { DEFAULT_RULE_CAP } from "./add.ts";
-import { type Command, FLAGS, type FlagSpec, parsePositiveInt } from "./shared/options.ts";
+import { type Command, FLAGS, type FlagSpec, INTEGER, parseInteger } from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
@@ -29,7 +29,8 @@ export const lint: Command = {
   arity: 1,
   flags: LINT_FLAGS,
   async run(args, ctx) {
-    const cap = parsePositiveInt(LINT_CAP, args) ?? ctx.config.ruleCap ?? DEFAULT_RULE_CAP;
+    const cap =
+      parseInteger(LINT_CAP, INTEGER.positive, args) ?? ctx.config.ruleCap ?? DEFAULT_RULE_CAP;
     const root = resolve(ctx.io.cwd, args.positionals[0] ?? "memories");
     const problems = lintFolder(root, ctx.io.cwd, args.flag(FLAGS.fullDepth), cap);
     if (ctx.global.json) {
