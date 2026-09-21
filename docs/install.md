@@ -85,6 +85,17 @@ o  Run without --list to install
 
 The hook carries no source and no filter, so the tenth source adds nothing to it. An install from `.` registers no hook, so an unpushed edit is never clobbered by a refresh.
 
+## The first source from an owner
+
+The first time a GitHub or git source is added from an owner (the account on GitHub, the host and first path segment elsewhere) no installed source shares, `add` prints where it comes from above the plan, once, whether or not it will prompt. `--json` carries the same facts as `provenance`, null when the owner is already installed.
+
+```text
+o  First source from github.com/acme
+   https://github.com/acme/rules.git
+   commit 1a2b3c4, not pinned (tracks HEAD)
+   4 memories
+```
+
 ## Which harnesses
 
 `-a, --agent <ids>` is a comma list, `*` for all, with ids from the [harness matrix](harnesses.md#the-matrix). Without it, the detected harnesses are used. To change one harness of an installed source without a refetch, use `link` or `unlink`; the [verb notes](cli.md#verbs) own how they differ from `add -a`.

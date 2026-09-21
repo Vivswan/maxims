@@ -2,6 +2,10 @@
 o  Source: https://github.com/Vivswan/skills.git
 o  Repository cloned
 o  Found 4 memories
+o  First source from github.com/vivswan
+   https://github.com/Vivswan/skills.git
+   commit a8d5fe2, not pinned (tracks HEAD)
+   4 memories
 |
 o  Memories to install
    Vivswan Skills -> ~/.codex/AGENTS.md

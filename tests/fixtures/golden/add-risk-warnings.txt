@@ -2,6 +2,10 @@
 o  Source: https://github.com/a/r.git
 o  Repository cloned
 o  Found 2 memories
+o  First source from github.com/a
+   https://github.com/a/r.git
+   commit 42fa674, not pinned (tracks HEAD)
+   2 memories
 |
 !  fetch-helper: shell-pipe: curl piped into sh at column 25
 !  fetch-helper: url: x.example at column 30

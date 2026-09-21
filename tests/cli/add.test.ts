@@ -13,7 +13,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
+import type { SourceFrom } from "../../src/state/schema.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
   FIXTURES,
@@ -377,6 +379,116 @@ test("a risky description earns ! lines and json warnings; --strict refuses it w
     expect(muted.stderr).toBe("");
     expect(muted.code).toBe(0);
   });
+});
+
+// The block is the one place a stranger's repository, commit and size are named beside the
+// plan; it must show on the first source from an owner and stay quiet once one is installed.
+test("the first source from an owner earns a provenance block; a second from the same owner does not", async () => {
+  await withScenario(
+    {
+      github: { "a/r": RISKY, "a/b": SKILLS, "b/d": DOTFILES, "c/d": DOTFILES },
+      syncReport: { rules: 2, tokens: 60 },
+    },
+    async (scenario) => {
+      const first = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "-y", "--json"]);
+      expect(first.code).toBe(0);
+      const body = JSON.parse(first.stdout) as {
+        provenance: { owner: string; url: string; sha: string; memories: number; pinned: unknown };
+      };
+      expect(body.provenance).toMatchObject({
+        owner: "github.com/a",
+        url: "https://github.com/a/r.git",
+        memories: 2,
+        pinned: null,
+      });
+      expect(body.provenance.sha).toBe(source(scenario, "@a/r").fetched?.sha ?? "");
+      const again = await runCli(scenario, [
+        "add",
+        "@a/r",
+        "-g",
+        "-a",
+        "codex",
+        "-m",
+        "plain-rule",
+      ]);
+      expect(again.code).toBe(0);
+      expect(again.stdout).not.toContain("First source from");
+      const second = await runCli(scenario, ["add", "@A/b", "-g", "-a", "codex", "--rule"]);
+      expect(second.code).toBe(0);
+      expect(second.stdout).not.toContain("First source from");
+      const pinned = await runCli(scenario, [
+        "add",
+        "@b/d",
+        "-g",
+        "-a",
+        "codex",
+        "--pin",
+        "v1",
+        "-m",
+        "private-note",
+      ]);
+      expect(pinned.stderr).toBe("");
+      expect(pinned.code).toBe(0);
+      expect(pinned.stdout).toContain(
+        [
+          "o  First source from github.com/b",
+          "   https://github.com/b/d.git",
+          `   commit ${(source(scenario, "@b/d#v1").fetched?.sha ?? "").slice(0, 7)}, pinned to v1`,
+          "   2 memories",
+          "|",
+          "o  Memories to install",
+        ].join("\n"),
+      );
+      const listed = await runCli(scenario, ["add", "@c/d", "--list"]);
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain(STRINGS.runWithoutList);
+      expect(listed.stdout).not.toContain("First source from");
+      const own = join(scenario.root, "own", "memories");
+      mkdirSync(own, { recursive: true });
+      writeFileSync(join(own, "own-rule.md"), "---\nname: own-rule\ndescription: Mine\n---\n");
+      const local = await runCli(scenario, [
+        "add",
+        join(scenario.root, "own"),
+        "-g",
+        "-a",
+        "codex",
+        "-y",
+        "--json",
+      ]);
+      expect(local.code).toBe(0);
+      expect(JSON.parse(local.stdout)).toMatchObject({ provenance: null });
+    },
+  );
+});
+
+// One owner per remote form, so a source spelled as a URL and as a shorthand is one stranger.
+const owners: [string, SourceFrom, string | null][] = [
+  ["github shorthand", { type: "github", repo: "Acme/rules", ref: "HEAD" }, "github.com/acme"],
+  [
+    "github enterprise host",
+    { type: "github", repo: "acme/rules", host: "ghe.example.com", ref: "HEAD" },
+    "ghe.example.com/acme",
+  ],
+  [
+    "https git remote",
+    { type: "git", url: "https://git.example.com/Team/rules.git", ref: "HEAD" },
+    "git.example.com/Team",
+  ],
+  [
+    "scp-like git remote",
+    { type: "git", url: "git@git.example.com:team/rules.git", ref: "HEAD" },
+    "git.example.com/team",
+  ],
+  [
+    "git remote with a port",
+    { type: "git", url: "ssh://git.example.com:2222/team/rules.git", ref: "HEAD" },
+    "git.example.com/team",
+  ],
+  ["local directory", { type: "local", path: "/home/user/rules" }, null],
+];
+
+test.each(owners)("the owner of a %s", (_name, from, owner) => {
+  expect(sourceOwner(from)).toBe(owner);
 });
 
 test("--list shows a source whose install would collide", async () => {

@@ -4,11 +4,13 @@ import { basename, join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { type Collision, promptRenames } from "../console/rename.ts";
 import {
+  firstSourceFrom,
   found,
   hiddenCharacter,
   hookRegistered,
   installed,
   linksTo,
+  memories,
   noTargetAtScope,
   notAMemory,
   notDefinedHere,
@@ -35,9 +37,11 @@ import type { TreeFile } from "../sources/tree.ts";
 import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
+  DEFAULT_GIT_REF,
   type Destination,
   GitRefSchema,
   parseGitSha,
+  parseRemote,
   parseSourceSelector,
   type RenameMap,
   type Select,
@@ -173,8 +177,8 @@ export const add: Command = {
       }
       if (args.value(FLAGS.out) !== undefined) console.warn("--out is ignored with --list");
     }
-    const outcome = await prepareAdd(request, ctx, console);
-    if (outcome.kind === "store-empty") {
+    const stage = await stageAdd(request, ctx, console);
+    if (stage.kind === "store-empty") {
       return finish(ctx, console, {
         plan: { changes: [], notices: [] },
         notices: [],
@@ -182,6 +186,10 @@ export const add: Command = {
         lines: [STRINGS.storeEmpty],
       });
     }
+    // A preview has no plan to sit above, and its output is the specified listing.
+    const provenance = request.list ? null : provenanceFor(stage.staged);
+    if (provenance !== null) showProvenance(console, provenance);
+    const outcome = await planAdd(stage.staged, ctx, console, []);
     if (outcome.kind !== "prepared") return ExitCode.Ok;
     const { prepared } = outcome;
     const commit = await commitAdd([prepared], ctx, { writeManifest: true });
@@ -196,6 +204,7 @@ export const add: Command = {
         memories: prepared.names,
         harnesses: prepared.harnesses.ids,
         warnings: prepared.warnings,
+        provenance,
       },
       lines,
     });
@@ -500,19 +509,6 @@ export async function planAdd(
   };
 }
 
-// Steps 1 to 4 for one source on its own: fetch, filter, validate, show the plan and confirm. No
-// intent and no destination is written, so a failure here (exit 2, 3, 6, 7, 8) leaves the machine
-// as it was, apart from a corrupt state file a real run's locking read has already moved aside.
-export async function prepareAdd(
-  requested: AddRequest,
-  ctx: CommandContext,
-  console: Console,
-): Promise<PrepareOutcome> {
-  const stage = await stageAdd(requested, ctx, console);
-  if (stage.kind === "store-empty") return stage;
-  return planAdd(stage.staged, ctx, console, []);
-}
-
 // A harness that declares no hook shape has nothing to register; asking for one is not an error,
 // it is a no-op that must not be reported as a registration.
 function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
@@ -676,6 +672,65 @@ export function describeSource(from: SourceFrom): string {
     case "local":
       return from.path;
   }
+}
+
+// Where a remote source comes from, shown once, on the first install from an owner this machine
+// holds nothing else from: the review gate for a source is the plan, and a plan from a stranger
+// deserves the repository, the commit and the size named beside it. `pinned` is the ref a pin
+// tracks, null when the source follows the default branch.
+export type Provenance = {
+  owner: string;
+  url: string;
+  sha: string;
+  memories: number;
+  pinned: string | null;
+};
+
+// The owner of a remote: the GitHub account under its host (case-insensitive, as GitHub names
+// are), or a git host and the first path segment (`git.example.com/team`). A local directory has
+// no owner to be new. A git URL the store cannot place is its own owner.
+export function sourceOwner(from: SourceFrom): string | null {
+  if (from.type === "github") {
+    const [owner = ""] = from.repo.toLowerCase().split("/", 1);
+    return `${from.host ?? "github.com"}/${owner}`;
+  }
+  if (from.type === "local") return null;
+  const remote = parseRemote(from.url);
+  const [first] = remote?.segments ?? [];
+  return remote === null || first === undefined ? from.url : `${remote.host}/${first}`;
+}
+
+// A re-add of a recorded source is not a first install, so the recorded entry counts as known.
+export function provenanceFor(staged: StagedAdd): Provenance | null {
+  const { request, tree, memories, state } = staged;
+  const owner = sourceOwner(request.from);
+  if (owner === null || request.from.type === "local") return null;
+  const known = Object.values(state.sources).some(
+    (entry) => sourceOwner(entry.intent.from) === owner,
+  );
+  if (known) return null;
+  return {
+    owner,
+    url: describeSource(request.from),
+    sha: tree.sha,
+    memories: memories.length,
+    pinned: request.from.ref === DEFAULT_GIT_REF ? null : request.from.ref,
+  };
+}
+
+export function showProvenance(console: Console, provenance: Provenance): void {
+  const pin =
+    provenance.pinned === null
+      ? `not pinned (tracks ${DEFAULT_GIT_REF})`
+      : `pinned to ${provenance.pinned}`;
+  console.note(
+    [
+      provenance.url,
+      `commit ${provenance.sha.slice(0, 7)}, ${pin}`,
+      memories(provenance.memories),
+    ].join("\n"),
+    firstSourceFrom(provenance.owner),
+  );
 }
 
 // A fetch lands in a temp directory removed on every path; a `--list --no-fetch` walks the store

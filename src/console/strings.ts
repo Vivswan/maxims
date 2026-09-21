@@ -148,6 +148,10 @@ export function hiddenCharacter(memory: string, label: string, column: number): 
   return `${memory}: ${label} at column ${column}`;
 }
 
+export function firstSourceFrom(owner: string): string {
+  return `First source from ${owner}`;
+}
+
 export function riskWarning(memory: string, kind: string, detail: string, column: number): string {
   return `${memory}: ${kind}: ${detail} at column ${column}`;
 }
