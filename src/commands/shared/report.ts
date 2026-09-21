@@ -104,9 +104,10 @@ function printOutcome(
   }
   if (options.quiet) {
     const lines = [...outcome.notices.quietStdout];
-    if (changed) {
-      lines.push(`maxims: rules refreshed (${countOf(visible.length, "file")} updated)`);
-    }
+    const files = countOf(visible.length, "file");
+    if (changed && options.dryRun)
+      lines.push(`maxims: rules would be refreshed (${files} to update)`);
+    else if (changed) lines.push(`maxims: rules refreshed (${files} updated)`);
     io.stdout(renderHookStdout(ctx.stdoutVariant, lines));
     return;
   }

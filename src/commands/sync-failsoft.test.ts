@@ -134,6 +134,23 @@ describe("fail-soft rungs under --quiet", () => {
     });
   }
 
+  test("a quiet dry run says what would be refreshed and refreshes nothing", async () => {
+    await world(async (w) => {
+      const { fake, io, rules } = await lastGood(w, 9);
+      await runSync(SYNC, io);
+      const before = readFileSync(rules, "utf8");
+      fake.set(FROM, { kind: "fail", failure: "missing" });
+      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+      io.out.length = 0;
+      await runSync({ ...QUIET, dryRun: true }, io);
+      expect(io.out.join("")).toBe(
+        `maxims: ${KEY} offline, kept last-good from 2026-09-20 (2 rules); source repository gone or unreadable\n` +
+          "maxims: rules would be refreshed (1 file to update)\n",
+      );
+      expect(readFileSync(rules, "utf8")).toBe(before);
+    });
+  });
+
   test("a fetch with zero valid memories keeps the block and says the layout changed", async () => {
     await world(async (w) => {
       const { fake, io, rules } = await lastGood(w, 9);

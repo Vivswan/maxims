@@ -101,6 +101,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 | a source was held for a harness's byte budget (the exit 8 section above) | its two lines: the overage and the way out |
 | a reviewed source has a revision [held for review](keep-fresh.md#hold-changes-for-review) | `maxims: <key> has <n> changed lines held for review; run maxims accept <key>` |
 | a file a harness reads changed | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)` |
+| under `--dry-run`, a file a harness reads would change | `maxims: rules would be refreshed (<n> files to update)`; nothing is written |
 | none of those | nothing |
 | the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-` | nothing reaches the agent, whatever sync printed |
 | the column is `json:` | the same lines inside one JSON document, in the named field |
