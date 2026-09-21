@@ -18,9 +18,11 @@ import {
   type FlagSpec,
   usage,
 } from "./shared/options.ts";
+import { disabledNames } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import {
   effectiveNames,
+  effectiveNamesIfReadable,
   findSourceKey,
   harnessContext,
   localName,
@@ -162,7 +164,9 @@ function scopesFor(id: HarnessId, state: State, here: Here): Scope[] {
 
 // A rule file counts as present when the engine's own parser finds this source's managed block in
 // it; a shared file that merely mentions the source in prose or a comment does not. An `-o`
-// folder is written by the engine under its own file naming and is not checked here.
+// folder is written by the engine under its own file naming and is not checked here, and neither
+// is a readable source with no enabled memory at the scope (every one disabled, or none visible):
+// the sync writes nothing for it. An unreadable source keeps its last-good file, so it is checked.
 async function checkHarness(
   def: HarnessDefinition,
   scope: Scope,
@@ -176,6 +180,9 @@ async function checkHarness(
     if (!entry.intent.harnesses.includes(def.id) || !entry.intent.rule || !here(entry)) continue;
     if (scopeOf(entry.intent.destination) !== scope) continue;
     if (entry.intent.destination.scope === "out") continue;
+    const disabled = disabledNames(state, scope, ctx.io.projectRoot);
+    const names = await effectiveNamesIfReadable(entry, ctx.io);
+    if (names?.every((name) => disabled.has(name))) continue;
     const path = targetPath(
       def,
       entry.intent.destination,

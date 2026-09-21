@@ -84,12 +84,22 @@ export async function upstreamNames(
   entry: SourceEntry,
   io: Pick<CliIo, "home" | "env">,
 ): Promise<MemoryName[]> {
+  return (await upstreamNamesIfReadable(entry, io)) ?? [];
+}
+
+// Null when nothing answers: no tree the sync would install from (absent, unreadable, or holding
+// no valid memory, which the sync keeps last-good for) and no fetch record to stand in for it. A
+// caller that must tell "nothing installable" from "nothing readable" asks here; the rest read `[]`.
+export async function upstreamNamesIfReadable(
+  entry: SourceEntry,
+  io: Pick<CliIo, "home" | "env">,
+): Promise<MemoryName[] | null> {
   const { from } = entry.intent;
   const root =
     from.type === "local" && from.live === true ? from.path : storePathFor(io.home, from);
-  const tree = await storeTree(root, entry.intent);
-  if (tree === null) {
-    if (!("fetched" in entry) || entry.fetched === undefined) return [];
+  const memories = await validMemoriesAt(root, entry.intent);
+  if (memories === null) {
+    if (!("fetched" in entry) || entry.fetched === undefined) return null;
     return Object.keys(entry.fetched.memories).flatMap((name) => {
       const parsed = parseMemoryName(name);
       return parsed === null ? [] : [parsed];
@@ -97,10 +107,25 @@ export async function upstreamNames(
   }
   const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
   const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
-  return validateMemoryFiles(tree.files).memories.flatMap(({ memory }) => {
+  return memories.flatMap(({ memory }) => {
     if (memory.metadata.internal === true && !installInternal && !named.has(memory.name)) return [];
     return [memory.name];
   });
+}
+
+async function validMemoriesAt(
+  root: string,
+  scope: TreeScope,
+): Promise<ReturnType<typeof validateMemoryFiles>["memories"] | null> {
+  let tree: MemoryTree | null;
+  try {
+    tree = await storeTree(root, scope);
+  } catch {
+    return null;
+  }
+  if (tree === null) return null;
+  const { memories } = validateMemoryFiles(tree.files);
+  return memories.length === 0 ? null : memories;
 }
 
 // The files under a store entry as the fetch would have laid them out, walked from the source
@@ -122,8 +147,17 @@ export async function effectiveNames(
   entry: SourceEntry,
   io: Pick<CliIo, "home" | "env">,
 ): Promise<MemoryName[]> {
+  return (await effectiveNamesIfReadable(entry, io)) ?? [];
+}
+
+export async function effectiveNamesIfReadable(
+  entry: SourceEntry,
+  io: Pick<CliIo, "home" | "env">,
+): Promise<MemoryName[] | null> {
   const select = entry.intent.select;
-  return (await upstreamNames(entry, io))
+  const upstream = await upstreamNamesIfReadable(entry, io);
+  if (upstream === null) return null;
+  return upstream
     .filter((name) => select === "*" || select.includes(name))
     .map((name) => localName(entry, name));
 }

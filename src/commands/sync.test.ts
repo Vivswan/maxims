@@ -11,6 +11,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -323,6 +324,38 @@ describe("idempotency and convergence", () => {
         `maxims: local edit in ${rules} discarded (the block is regenerated from ${source})`,
       );
       expect(readFileSync(rules, "utf8")).toBe(original);
+    });
+  });
+
+  // A marker-only rule file loads nothing the user asked for, and a symlink the user left at the
+  // path is not a file maxims wrote: both leave when the source has no line left to publish.
+  test("disabling a source's every memory removes its rule file and its shared block; enabling one brings them back", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source, true), { harnesses: ["claude-code", "codex"] });
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source, true)));
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      writeFileSync(shared, "# Mine\n\nKeep this.\n");
+      writeState(home, stateWith({ [source]: entry }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      expect(existsSync(rules)).toBe(true);
+      expect(readFileSync(shared, "utf8")).toContain(`<!-- maxims:begin ${source}`);
+      const aside = join(dir, "rules-copy.md");
+      renameSync(rules, aside);
+      symlinkSync(aside, rules);
+      const both = [memoryName("always-review"), memoryName("keep-tests-green")];
+      writeState(home, stateWith({ [source]: entry }, undefined, { global: both }));
+      const off = await runSync(SYNC, io);
+      expect(lstatSync(rules, { throwIfNoEntry: false })).toBeUndefined();
+      expect(existsSync(aside)).toBe(true);
+      expect(readFileSync(shared, "utf8")).toBe("# Mine\n\nKeep this.\n");
+      expect([off.memories, off.rules]).toEqual([0, 0]);
+      writeState(home, stateWith({ [source]: entry }, undefined, { global: both.slice(0, 1) }));
+      await runSync(SYNC, io);
+      expect(readFileSync(rules, "utf8")).toContain("Never merge red.");
+      expect(readFileSync(rules, "utf8")).not.toContain("Review before every commit.");
+      expect(readFileSync(shared, "utf8")).toContain("Never merge red.");
     });
   });
 

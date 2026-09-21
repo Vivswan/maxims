@@ -37,7 +37,7 @@ The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Comman
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
 - **`share` and `unshare` touch the lock only,** never what is installed.
 - **`link` and `unlink` change one field,** the source's harness list, and never refetch. `add -a` on an installed source still replaces the whole list, as it replaces the selection.
-- **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state.md#the-schema) owns where the list is kept.
+- **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state.md#the-schema) owns where the list is kept. A source whose every memory is disabled at a scope has no rule file and no block there until one is enabled again.
 
 ## Sources
 

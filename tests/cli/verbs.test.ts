@@ -9,6 +9,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -27,6 +28,7 @@ import { renderBlock } from "../../src/rulefile/block.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
+import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
@@ -113,6 +115,30 @@ test.each(selections)(
     });
   },
 );
+
+// A source whose every memory is disabled at a scope has no rule file there by design, so doctor
+// must not report the file it would otherwise expect as missing.
+test("doctor passes a source whose every memory is disabled, and again once one is enabled", async () => {
+  const fake = fakeResolvers();
+  await withScenario({ bundle: realEngineBundle(fake.resolvers) }, async (scenario) => {
+    const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
+    const argv = ["add", source, "-g", "--rule", "-a", "claude-code"];
+    expect((await runCli(scenario, argv)).code).toBe(0);
+    for (const name of ["always-review", "keep-tests-green"]) {
+      expect((await runCli(scenario, ["disable", name, "-g"])).code).toBe(0);
+    }
+    const rules = join(scenario.userHome, ".claude", "rules");
+    expect(existsSync(rules) ? readdirSync(rules) : []).toEqual([]);
+    const off = await runCli(scenario, ["doctor"]);
+    expect([off.code, off.stdout.includes("missing"), off.stdout.includes("no block")]).toEqual([
+      0,
+      false,
+      false,
+    ]);
+    expect((await runCli(scenario, ["enable", "always-review", "-g"])).code).toBe(0);
+    expect((await runCli(scenario, ["doctor"])).code).toBe(0);
+  });
+});
 
 // A managed block as the engine renders one, so `doctor` reads the fixture files with the real
 // parser, which takes each rule line's name from its detail path's last segment; the hash is

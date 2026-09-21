@@ -59,7 +59,9 @@ export type RuleFileOptions = {
 const EMPTY_PLAN: RuleFilePlan = { writes: [], removals: [], notices: [], tokens: [] };
 
 // One target file: every block this run renders for it, spliced over whatever the file holds, plus
-// the removal of blocks no intent derives any more. Identical output means no change.
+// the removal of blocks no intent derives any more. Identical output means no change. A block with
+// no rule line (every memory of its source disabled at this scope) is rendered by nobody: a
+// rules-dir file holding it leaves, and a shared file loses it like a block whose source left.
 export async function planRuleFile(
   file: RuleFile,
   options: RuleFileOptions,
@@ -79,9 +81,9 @@ export async function planRuleFile(
   }
   const current = linked ? null : readIfPresent(file.path);
   const rendering = renderingFor(file);
-  const staleKeys = file.blocks
-    .filter((block) => block.stale !== undefined)
-    .map((block) => block.key);
+  const live = file.blocks.filter((block) => block.lines.length > 0);
+  const gone = file.blocks.filter((block) => block.lines.length === 0);
+  const staleKeys = live.filter((block) => block.stale !== undefined).map((block) => block.key);
   // The tier decides only which stale block carries the self-refresh line, so the harness configs
   // behind it are read only when a block is stale: a file this run renders no block for (a kept
   // block, an orphan strip) must plan on a machine whose config a probe refuses to read.
@@ -89,7 +91,7 @@ export async function planRuleFile(
     staleKeys.length === 0
       ? null
       : chooseSelfRefreshSource({ tier: await fileTier(file, options.ctx) }, staleKeys);
-  const rendered = file.blocks.map((block) => ({
+  const rendered = live.map((block) => ({
     block,
     text: renderBlock({
       source: block.key,
@@ -108,7 +110,10 @@ export async function planRuleFile(
   const removals: Change[] = [];
   if (file.kind === "out" || file.targets[0]?.target.kind === "rules-dir") {
     const [entry, ...extra] = rendered;
-    if (entry === undefined) return { writes, removals, notices, tokens };
+    if (entry === undefined) {
+      if (linked || current !== null) removals.push({ kind: "delete", path: file.path });
+      return { writes, removals, notices, tokens };
+    }
     if (extra.length > 0) {
       const keys = rendered.map((each) => each.block.key).join(", ");
       throw new Error(`${file.path} is one file for several sources (${keys})`);
@@ -133,8 +138,28 @@ export async function planRuleFile(
   // intermediate text even when the finished file fits. So the blocks are spliced here with the
   // grammar's own splicer (which closes a construct the user left open, as the strategy does) and
   // the budget is judged once, on the finished text, against every reader of the file.
+  const sharedTarget = primary.target;
+  const remove = (source: string, from: string): Change | undefined =>
+    planSharedBlockRemove({
+      def: primary.def,
+      target: sharedTarget,
+      scope: primary.scope,
+      ctx: harnessContext(options.ctx),
+      source,
+      currentText: from,
+    })[0];
   let text = current ?? "";
   for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
+  // A still-installed source whose block renders empty leaves with this run's write, so the
+  // budget is judged on the text the harness will load, not on a block about to go.
+  for (const block of gone) {
+    const change = remove(block.key, text);
+    if (change?.kind === "delete") {
+      removals.push(change);
+      return { writes, removals, notices, tokens };
+    }
+    if (change?.kind === "write") text = change.content;
+  }
   if (rendered.length > 0) {
     for (const target of file.targets)
       assertWithinBudget(target.def, target.scope, file.path, text);
@@ -143,19 +168,12 @@ export async function planRuleFile(
     writes.push({ kind: "write", path: file.path, content: text });
     tokens.push({ path: file.path, tokens: estimateTokens(text, rendering.markers) });
   }
-  const wanted = new Set([...file.blocks.map((block) => block.key), ...options.keep]);
+  const wanted = new Set([...rendered.map((entry) => entry.block.key), ...options.keep]);
   let stripped = text;
   let emptied = false;
   for (const span of parseBlocks(text).blocks) {
     if (wanted.has(span.source) || emptied) continue;
-    const [change] = planSharedBlockRemove({
-      def: primary.def,
-      target: primary.target,
-      scope: primary.scope,
-      ctx: harnessContext(options.ctx),
-      source: span.source,
-      currentText: stripped,
-    });
+    const change = remove(span.source, stripped);
     if (change?.kind === "delete") emptied = true;
     else if (change?.kind === "write") stripped = change.content;
   }
