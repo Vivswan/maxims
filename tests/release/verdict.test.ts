@@ -1,6 +1,8 @@
 // Fails if a publish verdict stops reading the registry the way the two lanes rely on: a stale run must never
-// move next or latest back, a rerun must publish nothing, and a record this pipeline cannot read must stop the
-// run rather than pass for an empty registry. The history is hand-built, so the cases hold without git or network.
+// move next or latest back, a rerun must publish nothing, a source that changed nothing shipped since the next
+// build must publish nothing while a next build the checkout cannot place holds nothing back, a shipped change
+// main's tip has undone must publish nothing, and a record this pipeline cannot read must stop the run rather than
+// pass for an empty registry. The history is hand-built, so the cases hold without git or network.
 import { describe, expect, test } from "bun:test";
 import {
   type Ancestry,
@@ -16,17 +18,33 @@ import {
   UnreadablePackument,
 } from "../../.github/scripts/release-pipeline.ts";
 
-/** A linear main: index order is commit order, and every sha7 is unique. */
+/** A linear main: index order is commit order, and every sha7 is unique. SIDE is a commit off main. */
 const MAIN = ["1000001", "2000002", "3000003", "4000004"].map((sha7) => sha7 + "e".repeat(33));
 const [OLDER, SOURCE, NEWER, NEWEST] = MAIN as [string, string, string, string];
+const SIDE = `5000005${"e".repeat(33)}`;
 
-const linear: Ancestry = {
-  resolveCommit: (name) => MAIN.find((sha) => sha.startsWith(name)) ?? null,
-  isAncestor: (ancestor, descendant) => {
-    const [a, d] = [MAIN.indexOf(ancestor), MAIN.indexOf(descendant)];
-    return a !== -1 && d !== -1 && a <= d;
-  },
-};
+/** Where the remote-tracking ref of main sits in the checkout, and what differs between it and every other commit. */
+interface Tip {
+  sha: string;
+  changed: string[];
+}
+
+/** The hand-built history: every pair of distinct commits differs by `changed` (a diff of a commit with itself is
+ * empty), a diff up to the tip by the tip's own list, and origin/main names the tip or nothing. */
+function history(changed: string[], tip: Tip | null): Ancestry {
+  return {
+    resolveCommit: (name) =>
+      name === "origin/main"
+        ? (tip?.sha ?? null)
+        : ([...MAIN, SIDE].find((sha) => sha.startsWith(name)) ?? null),
+    isAncestor: (ancestor, descendant) => {
+      const [a, d] = [MAIN.indexOf(ancestor), MAIN.indexOf(descendant)];
+      return a !== -1 && d !== -1 && a <= d;
+    },
+    changedPaths: (from, to) => (from === to ? [] : to === tip?.sha ? tip.changed : changed),
+  };
+}
+const linear = history(["src/cli.ts", "docs/cli.md"], null);
 
 const prerelease = (sha: string, count: number, release = "0.0.1"): string =>
   `${release}-main.${count}.20260920.g${sha.slice(0, 7)}`;
@@ -70,7 +88,13 @@ describe("nextPublishVerdict", () => {
     [
       "an ancestor's pre-release whose numbers sort ABOVE this version holds nothing back",
       packument([prerelease(OLDER, 9, "0.1.0")], { next: prerelease(OLDER, 9, "0.1.0") }),
-      { action: "publish", version: VERSION, notices: [] },
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [
+          `one shipped file changed since next's ${prerelease(OLDER, 9, "0.1.0")} (${OLDER.slice(0, 7)}): src/cli.ts`,
+        ],
+      },
     ],
     [
       "only ancestors and the stable release published, with a sha the checkout lacks set aside",
@@ -83,12 +107,158 @@ describe("nextPublishVerdict", () => {
         version: VERSION,
         notices: [
           "0.0.2-main.9.20260101.gabcdef0 names abcdef0, which is no commit in this checkout; ignored",
+          `one shipped file changed since next's ${prerelease(OLDER, 1)} (${OLDER.slice(0, 7)}): src/cli.ts`,
         ],
       },
     ],
   ];
   test.each(cases)("%s", (_case, registry, expected) => {
     expect(nextPublishVerdict(linear, SOURCE, VERSION, registry)).toEqual(expected);
+  });
+});
+
+describe("nextPublishVerdict gates on the shipped surface since the next build", () => {
+  const BASE = prerelease(OLDER, 1);
+  const base7 = OLDER.slice(0, 7);
+  const onRegistry = packument([BASE], { next: BASE });
+  const notice = (rest: string) =>
+    `next is ${rest}, so the shipped surface has nothing to be compared against; publishing`;
+  const cases: [string, string[], Packument, NextVerdict, Tip | null][] = [
+    [
+      "a shipped file changed since next's source: publish, naming the files",
+      ["docs/install.md", "package.json", "src/commands/add.ts"],
+      onRegistry,
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [
+          `2 shipped files changed since next's ${BASE} (${base7}): package.json, src/commands/add.ts`,
+        ],
+      },
+      null,
+    ],
+    [
+      "only unshipped files changed since next's source: skip, naming the base",
+      ["docs/install.md", "tests/release/verdict.test.ts", ".github/workflows/post-green.yml"],
+      onRegistry,
+      {
+        action: "skip",
+        version: VERSION,
+        reason: `next is ${BASE}, built from ${base7}, and no shipped file changed between it and ${SOURCE.slice(0, 7)}, so nothing is published`,
+        notices: [],
+      },
+      null,
+    ],
+    [
+      "next was built from this very sha under another version: skip, like a rerun",
+      ["src/cli.ts"],
+      packument([prerelease(SOURCE, 7)], { next: prerelease(SOURCE, 7) }),
+      {
+        action: "skip",
+        version: VERSION,
+        reason: `next is ${prerelease(SOURCE, 7)}, built from ${SOURCE.slice(0, 7)}, and no shipped file changed between it and ${SOURCE.slice(0, 7)}, so nothing is published`,
+        notices: [],
+      },
+      null,
+    ],
+    [
+      "next names a sha the checkout lacks (a shallow clone, an unpublished source): publish",
+      [],
+      packument(["0.0.2-main.9.20260101.gabcdef0"], { next: "0.0.2-main.9.20260101.gabcdef0" }),
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [
+          "0.0.2-main.9.20260101.gabcdef0 names abcdef0, which is no commit in this checkout; ignored",
+          notice(
+            "0.0.2-main.9.20260101.gabcdef0, whose source abcdef0 is no commit in this checkout",
+          ),
+        ],
+      },
+      null,
+    ],
+    [
+      "next names a source off this run's line of main: publish",
+      [],
+      packument([prerelease(SIDE, 3)], { next: prerelease(SIDE, 3) }),
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [
+          `${prerelease(SIDE, 3)} names ${SIDE.slice(0, 7)}, which is neither an ancestor nor a descendant of ${SOURCE.slice(0, 7)} on main; ignored`,
+          notice(
+            `${prerelease(SIDE, 3)}, whose source ${SIDE.slice(0, 7)} is not an ancestor of ${SOURCE.slice(0, 7)} on main`,
+          ),
+        ],
+      },
+      null,
+    ],
+    [
+      "next is unset (the first publish took latest alone): publish",
+      [],
+      packument(["0.0.1"], { latest: "0.0.1" }),
+      { action: "publish", version: VERSION, notices: [notice("unset")] },
+      null,
+    ],
+    [
+      "next names a release, which carries no source sha: publish",
+      [],
+      packument(["0.0.1"], { latest: "0.0.1", next: "0.0.1" }),
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [notice("0.0.1, which names no source commit")],
+      },
+      null,
+    ],
+    [
+      "main's tip has undone this run's shipped change (the tip's run skipped first): skip",
+      ["src/cli.ts"],
+      onRegistry,
+      {
+        action: "skip",
+        version: VERSION,
+        reason: `next is ${BASE}, built from ${base7}, and main's tip ${NEWEST.slice(0, 7)} ships what it ships: ${SOURCE.slice(0, 7)} changed src/cli.ts and main has since undone it, so nothing is published`,
+        notices: [],
+      },
+      { sha: NEWEST, changed: ["docs/install.md"] },
+    ],
+    [
+      "main's tip carries this run's shipped change on: publish",
+      ["src/cli.ts"],
+      onRegistry,
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [`one shipped file changed since next's ${BASE} (${base7}): src/cli.ts`],
+      },
+      { sha: NEWEST, changed: ["src/cli.ts", "docs/install.md"] },
+    ],
+    [
+      "main's tip is this run's source: publish",
+      ["src/cli.ts"],
+      onRegistry,
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [`one shipped file changed since next's ${BASE} (${base7}): src/cli.ts`],
+      },
+      { sha: SOURCE, changed: ["src/cli.ts"] },
+    ],
+    [
+      "main's tip is not a descendant of this run's source (a force push): publish",
+      ["src/cli.ts"],
+      onRegistry,
+      {
+        action: "publish",
+        version: VERSION,
+        notices: [`one shipped file changed since next's ${BASE} (${base7}): src/cli.ts`],
+      },
+      { sha: SIDE, changed: [] },
+    ],
+  ];
+  test.each(cases)("%s", (_case, changed, registry, expected, tip) => {
+    expect(nextPublishVerdict(history(changed, tip), SOURCE, VERSION, registry)).toEqual(expected);
   });
 });
 

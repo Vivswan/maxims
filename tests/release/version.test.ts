@@ -1,7 +1,8 @@
 // Fails if the minted pre-release version stops being one npm orders along main: the count, the g-prefixed sha,
 // and the refusals that keep a malformed input from minting a version that names no commit. git's own facts (a
 // first-parent count that steps once per merge, the committer date read in UTC, the exit codes the ancestry reads
-// rely on) are pinned on a fixture repository because nothing in this repository enforces them.
+// rely on, a diff that lists both sides of a rename unquoted) are pinned on a fixture repository because nothing in
+// this repository enforces them.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -65,8 +66,13 @@ function gitIn(cwd: string, env: Record<string, string>, ...args: string[]): str
   }).trim();
 }
 
-/** main: one, two, three, a merge of the two-commit topic branch, four (with the dates above). */
-function fixtureRepo(root: string): { shas: string[]; merge: string; branchTip: string } {
+/** main: one, two, three, a merge of the two-commit topic branch, four (with the dates above), then four.txt renamed to a path with a space. */
+function fixtureRepo(root: string): {
+  shas: string[];
+  merge: string;
+  branchTip: string;
+  moved: string;
+} {
   const git = (...args: string[]) => gitIn(root, {}, ...args);
   git("init", "-q", "-b", "main");
   const commit = (message: string, env: Record<string, string> = {}): string => {
@@ -85,14 +91,17 @@ function fixtureRepo(root: string): { shas: string[]; merge: string; branchTip: 
   git("-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m", "merge topic", "topic");
   const merge = git("rev-parse", "HEAD");
   const four = commit("four", { GIT_AUTHOR_DATE: AUTHOR_DATE, GIT_COMMITTER_DATE: COMMITTER_DATE });
-  return { shas: [one, two, three, merge, four], merge, branchTip };
+  git("mv", "four.txt", "moved four.txt");
+  gitIn(root, {}, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "move four");
+  const moved = git("rev-parse", "HEAD");
+  return { shas: [one, two, three, merge, four], merge, branchTip, moved };
 }
 
 describe("git facts", () => {
-  test("the first-parent count steps once per merge, the date is the committer's in UTC, and ancestry answers yes, no, and unknown", () => {
+  test("the first-parent count steps once per merge, the date is the committer's in UTC, ancestry answers yes, no, and unknown, and a diff lists every path", () => {
     const root = mkdtempSync(join(tmpdir(), "maxims-release-"));
     try {
-      const { shas, merge, branchTip } = fixtureRepo(root);
+      const { shas, merge, branchTip, moved } = fixtureRepo(root);
       const [one, , , , four] = shas as [string, string, string, string, string];
       expect(shas.map((sha) => mainPosition(root, sha).count)).toEqual([1, 2, 3, 4, 5]);
       expect(mainPosition(root, four).date).toBe("20260316");
@@ -104,6 +113,15 @@ describe("git facts", () => {
       expect(ancestry.isAncestor(branchTip, merge)).toBe(true);
       // merge-base exits 128 on a sha the repository lacks; that is a failure, never a "no".
       expect(() => ancestry.isAncestor("f".repeat(40), four)).toThrow(/merge-base/);
+      expect(ancestry.changedPaths(one, four).sort()).toEqual([
+        "four.txt",
+        "three.txt",
+        "topic-one.txt",
+        "topic-two.txt",
+        "two.txt",
+      ]);
+      expect(ancestry.changedPaths(four, moved).sort()).toEqual(["four.txt", "moved four.txt"]);
+      expect(ancestry.changedPaths(four, four)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

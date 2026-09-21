@@ -2,7 +2,8 @@
  * The npm release pipeline. The built cli reaches consumers through npm alone, from two lanes that share the
  * npm-publish concurrency group and publish through trusted publishing (OIDC, no registry token):
  *
- *   next    post-green.yml      every green main push   -> X.Y.(Z+1)-main.<count>.<yyyymmdd>.g<sha7> under the next dist-tag
+ *   next    post-green.yml      a green main push that changed the shipped surface since the next build
+ *                                                   -> X.Y.(Z+1)-main.<count>.<yyyymmdd>.g<sha7> under the next dist-tag
  *   stable  update-release.yml  each release-please tag -> package.json's X.Y.Z, moving latest
  *
  * One subcommand runs per workflow step; the checkout must be at GITHUB_SHA, the commit whose build is published:
@@ -71,6 +72,8 @@ export interface Ancestry {
   resolveCommit(name: string): string | null;
   /** Whether `ancestor` is `descendant` or reachable from it; both are resolved shas. */
   isAncestor(ancestor: string, descendant: string): boolean;
+  /** The paths that differ between two resolved shas, a rename as its old path and its new one. */
+  changedPaths(from: string, to: string): string[];
 }
 
 export function gitAncestry(cwd: string): Ancestry {
@@ -78,6 +81,11 @@ export function gitAncestry(cwd: string): Ancestry {
     resolveCommit: (name) => gitOrNo(cwd, "rev-parse", "--verify", "--quiet", `${name}^{commit}`),
     isAncestor: (ancestor, descendant) =>
       gitOrNo(cwd, "merge-base", "--is-ancestor", ancestor, descendant) !== null,
+    // -z keeps a path with a space or a non-ASCII byte unquoted; --no-renames lists both sides of a rename.
+    changedPaths: (from, to) =>
+      git(cwd, "diff", "--name-only", "-z", "--no-renames", from, to)
+        .split("\0")
+        .filter((path) => path !== ""),
   };
 }
 
@@ -328,10 +336,120 @@ function descendantsOf(
 }
 
 /**
+ * The shipped surface: every path whose bytes reach the published package or decide the bundle's, read off the
+ * packaging rather than guessed. package.json packs dist/ and the root files below and carries the name, version,
+ * and bin. dist/cli.js is bundled from src/cli.ts and all it reaches (src/version.ts stamps package.json's version
+ * in), at the versions bun.lock pins, by scripts/build.ts and the one module it imports, through the tsconfig.json
+ * Bun.build reads, with the bun .bun-version installs; .gitattributes sets the packed files' line endings. src/ is
+ * taken whole: its harness fixtures feed tests alone, and a publish nothing needed costs less than one missed.
+ * docs/, tests/, .github/, architecture.yml, and the lint configs shape the repository, not the package.
+ * tests/release/shipped.test.ts holds the list to the build's import graphs, the manifest, and npm's root files.
+ */
+const SHIPPED_FILES = new Set([
+  "package.json",
+  "bun.lock",
+  ".bun-version",
+  ".gitattributes",
+  "tsconfig.json",
+  "scripts/build.ts",
+  "scripts/lib/paths.ts",
+]);
+const SHIPPED_DIRS = ["src/"];
+/**
+ * The root files npm packs whatever package.json's files lists, README.md and LICENSE.md among them: any README,
+ * LICENSE, LICENCE, or COPYING in any case, bare or under an extension not ending in a backup marker (~ or $), as
+ * npm-packlist's readme{,.*[^~$]} rule has it. README.md.orig and licence pack; README.md~, README., NOTICE,
+ * CHANGELOG.md, and docs/README.md do not.
+ */
+const NPM_ROOT_FILE = /^(readme|licen[cs]e|copying)(\..*[^~$])?$/i;
+/** Where the full-history checkout (actions/checkout, fetch-depth 0) keeps the tip of the branch the lane publishes from. */
+const MAIN_TIP = "origin/main";
+const LISTED_PATHS = 8;
+
+/** Whether a change to `path`, relative to the repository root, can change what npm publish packs. */
+export function isShipped(path: string): boolean {
+  return (
+    SHIPPED_FILES.has(path) ||
+    SHIPPED_DIRS.some((dir) => path.startsWith(dir)) ||
+    (!path.includes("/") && NPM_ROOT_FILE.test(path))
+  );
+}
+
+function listed(paths: string[]): string {
+  const rest = paths.length - LISTED_PATHS;
+  return rest > 0
+    ? `${paths.slice(0, LISTED_PATHS).join(", ")}, and ${rest} more`
+    : paths.join(", ");
+}
+
+type Gate = { verdict: "publish"; notice: string } | { verdict: "skip"; reason: string };
+
+/**
+ * Whether the source changed the shipped surface since the build next names. Every base the checkout cannot place
+ * (next unset, a version with no sha, a sha the checkout lacks or that is off the source's line) is a reason to
+ * publish, said in the notice, never a reason to hold. A source whose shipped change main's tip has since undone
+ * holds too: the tip's own run skips (it ships what next ships), so this run publishing would leave next carrying
+ * code main no longer does, whichever of the two runs the lane admits first.
+ */
+function shippedSurfaceGate(ancestry: Ancestry, sourceSha: string, next: string | undefined): Gate {
+  const source7 = sourceSha.slice(0, 7);
+  const publishing = "so the shipped surface has nothing to be compared against; publishing";
+  if (next === undefined) {
+    return { verdict: "publish", notice: `next is unset, ${publishing}` };
+  }
+  const sha7 = mintedVersion(next)?.sha7;
+  if (sha7 === null || sha7 === undefined) {
+    return {
+      verdict: "publish",
+      notice: `next is ${next}, which names no source commit, ${publishing}`,
+    };
+  }
+  const base = ancestry.resolveCommit(sha7);
+  if (base === null) {
+    return {
+      verdict: "publish",
+      notice: `next is ${next}, whose source ${sha7} is no commit in this checkout, ${publishing}`,
+    };
+  }
+  if (!ancestry.isAncestor(base, sourceSha)) {
+    return {
+      verdict: "publish",
+      notice: `next is ${next}, whose source ${sha7} is not an ancestor of ${source7} on main, ${publishing}`,
+    };
+  }
+  const changed = ancestry.changedPaths(base, sourceSha).filter(isShipped);
+  if (changed.length === 0) {
+    return {
+      verdict: "skip",
+      reason: `next is ${next}, built from ${sha7}, and no shipped file changed between it and ${source7}, so nothing is published`,
+    };
+  }
+  const tip = ancestry.resolveCommit(MAIN_TIP);
+  if (
+    tip !== null &&
+    tip !== sourceSha &&
+    ancestry.isAncestor(sourceSha, tip) &&
+    !ancestry.changedPaths(base, tip).some(isShipped)
+  ) {
+    return {
+      verdict: "skip",
+      reason: `next is ${next}, built from ${sha7}, and main's tip ${tip.slice(0, 7)} ships what it ships: ${source7} changed ${listed(changed)} and main has since undone it, so nothing is published`,
+    };
+  }
+  const count = changed.length === 1 ? "one shipped file" : `${changed.length} shipped files`;
+  return {
+    verdict: "publish",
+    notice: `${count} changed since next's ${next} (${sha7}): ${listed(changed)}`,
+  };
+}
+
+/**
  * Every published pre-release is placed by its source's ancestry, so a run for an older commit publishes nothing
  * once a newer commit's pre-release is on the registry, whatever order the two runs finished in (`npm publish --tag
- * next` moves next to whatever it publishes). The dist-tags need no separate read: whatever next names is among
- * the versions. Null is a package the registry has never seen: the first publish goes.
+ * next` moves next to whatever it publishes). A run whose source changed nothing shipped since the build next names
+ * publishes nothing either; a run whose sha IS that build is a rerun, present above. The dist-tags need no separate
+ * read: whatever next names is among the versions. Null is a package the registry has never seen: the first publish
+ * goes.
  */
 export function nextPublishVerdict(
   ancestry: Ancestry,
@@ -354,7 +472,10 @@ export function nextPublishVerdict(
       notices,
     };
   }
-  return { action: "publish", version, notices };
+  const gate = shippedSurfaceGate(ancestry, sourceSha, packument["dist-tags"].next);
+  return gate.verdict === "skip"
+    ? { action: "skip", version, reason: gate.reason, notices }
+    : { action: "publish", version, notices: [...notices, gate.notice] };
 }
 
 /**
@@ -588,8 +709,9 @@ async function main(): Promise<void> {
         registry: process.env.NPM_REGISTRY_URL || DEFAULT_REGISTRY,
         ...lane(channelOf(command, argument)),
       });
+      // The runner reads workflow commands off stderr as it does off stdout; stdout carries the verdict alone.
       for (const notice of "notices" in verdict ? verdict.notices : []) {
-        console.error(notice);
+        console.error(`::notice::${notice}`);
       }
       console.log(
         verdict.action === "skip"
