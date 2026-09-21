@@ -8,6 +8,7 @@ import { runLatencyTrend } from "./nightly/latency_trend.ts";
 import { runLiveNetwork } from "./nightly/live_network.ts";
 import { runParityDrift } from "./nightly/parity_drift.ts";
 import { DEFAULT_ITERATIONS, runPropertyDeep } from "./nightly/property_deep.ts";
+import { runPublishedSmoke } from "./nightly/published_smoke.ts";
 import { type Outcome, writeFailureReport, writeStepSummary } from "./nightly/report.ts";
 
 export const CATEGORIES = [
@@ -16,6 +17,7 @@ export const CATEGORIES = [
   "harness-drift",
   "live-network",
   "latency-trend",
+  "published-smoke",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -32,7 +34,8 @@ type Run =
   | { category: "parity-drift" }
   | { category: "harness-drift" }
   | { category: "live-network" }
-  | { category: "latency-trend"; trend: string };
+  | { category: "latency-trend"; trend: string }
+  | { category: "published-smoke" };
 
 interface Options {
   run: Run;
@@ -81,6 +84,7 @@ function plan(category: Category, flags: Map<Flag, string>): Run {
     case "parity-drift":
     case "harness-drift":
     case "live-network":
+    case "published-smoke":
       only(["--report-dir"]);
       return { category };
     case "latency-trend": {
@@ -126,6 +130,8 @@ async function runCategory(run: Run): Promise<Outcome> {
       return runLiveNetwork(BUNDLE);
     case "latency-trend":
       return runLatencyTrend(run.trend);
+    case "published-smoke":
+      return runPublishedSmoke();
   }
 }
 

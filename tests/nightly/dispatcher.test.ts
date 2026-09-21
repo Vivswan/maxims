@@ -170,6 +170,7 @@ function runNightly(args: string[]) {
 const refusals: [string[], string][] = [
   [["full-moon"], "unknown category full-moon"],
   [["harness-drift", "--trend", "trend.json"], "harness-drift does not take --trend"],
+  [["published-smoke", "--iterations", "3"], "published-smoke does not take --iterations"],
   [
     ["harness-drift", "--report-dir", "dist/nightly-report"],
     `refusing to write the failure report inside the repository: ${join(realRepoRoot, "dist", "nightly-report")}`,

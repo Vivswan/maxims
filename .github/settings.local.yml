@@ -33,6 +33,9 @@ labels:
   - name: nightly-latency-trend
     color: "D93F0B"
     description: Hook-path latency or bundle size regressed against 7 days ago
+  - name: nightly-published-smoke
+    color: "D93F0B"
+    description: The published next package failed its smoke run
   - name: nightly-container
     color: "D93F0B"
     description: The hermetic container tier failed

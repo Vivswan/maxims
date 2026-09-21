@@ -339,6 +339,61 @@ jobs:
           label: nightly-latency-trend
           stream: generic
 
+  # The published `next` package fetched from the registry by `npx` and driven through one install
+  # round trip under a throwaway HOME: the npm artifact itself, not the bundle this checkout builds.
+  published-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run nightly published-smoke --report-dir "$RUNNER_TEMP/nightly-report"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: nightly-published-smoke
+          path: ${{ runner.temp }}/nightly-report
+          if-no-files-found: ignore
+
+  report-published-smoke:
+    needs: [published-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.published-smoke.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nightly-published-smoke
+          path: nightly-report
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs.published-smoke.result)
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: report
+          label: nightly-published-smoke
+          title: The published next package failed its smoke run
+          label-color: D93F0B
+          label-description: The published next package failed its smoke run
+          stream: generic
+          artifacts-dir: nightly-report
+          artifact-name: nightly-published-smoke
+      - if: needs.published-smoke.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
+        with:
+          mode: resolve
+          label: nightly-published-smoke
+          stream: generic
+
   # The hermetic container tier: the script builds the image, runs the suite inside it, probes the
   # sandbox, and writes the build time and image size to the step summary itself. The runtime is
   # required here, so a runner without a daemon fails instead of skipping with a notice.
