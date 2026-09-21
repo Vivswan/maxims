@@ -82,7 +82,10 @@ const GitShaSchema = z.custom<GitSha>(
   { error: "expected a 40-character lower-case hex sha" },
 );
 
-const IsoTimestamp = z.iso.datetime();
+// Every writer stamps `toISOString()`; a hand edit is the only way another precision reaches the
+// file, and it is folded to the same form here so no two spellings of one instant ever meet in
+// a comparison. Zod stops offsets at this boundary, so the fold never shifts the instant.
+const IsoTimestamp = z.iso.datetime().transform((value) => new Date(value).toISOString());
 
 // Every object is strict: a hand-edited state file with a misspelled or foreign key is quarantined
 // rather than half-obeyed, and a `-g` destination carrying an `-o` path has no way to parse.

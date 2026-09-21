@@ -99,7 +99,7 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`fetched.memories`** holds a content hash and a description hash per memory, so a body-only edit skips the rule rewrite.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.
 - **`pending`** is the revision held for review: its `sha`, `at`, and `summary`, the diff against `fetched.memories`. It is absent while nothing waits, and a live source never has one, since its directory is read in place. A `pending` on a source without `intent.review`, without a `fetched` block, or at the installed sha is corrupt.
-- **`addedAt`** is provenance; there is no `updatedAt`.
+- **`addedAt`** is provenance; there is no `updatedAt`. Every timestamp is ISO 8601 UTC in millisecond form; a hand-edited spelling of another precision reads as the same instant in that form and is written back so on the next write.
 - **`disabled`** holds the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a copy of its own root's list.
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.

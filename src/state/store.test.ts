@@ -238,6 +238,28 @@ describe("readState", () => {
     });
   });
 
+  // Every writer stamps `toISOString()`, so a hand-edited timestamp is the only way another
+  // precision reaches the file; the parsed value is canonical so that no later comparison sees
+  // two spellings of one instant, and a read still rewrites nothing.
+  test("timestamps of another precision read as millisecond form without touching the file", async () => {
+    await withTempHome(async (home) => {
+      const path = seed(home, "v1-valid-odd-precision.json");
+      const before = readFileSync(path, "utf8");
+      const expected = structuredClone(V1_STATE);
+      const first = expected.sources["@example-user/rules#main"];
+      const second = expected.sources["@example-user/team-rules"];
+      if (first === undefined || !("fetched" in first) || first.fetched === undefined) {
+        throw new Error("the golden state lost its fetched entry");
+      }
+      if (second === undefined) throw new Error("the golden state lost its second entry");
+      first.fetched.at = "2026-08-27T04:12:09.113Z";
+      first.addedAt = "2026-08-20T08:38:04.000Z";
+      second.addedAt = "2026-08-21T09:00:00.000Z";
+      expect(await readState(home)).toEqual({ kind: "loaded", state: expected, migrated: false });
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+  });
+
   const hostile: { fixture: string; issue: RegExp }[] = [
     { fixture: "v1-corrupt-json.txt", issue: /^not valid JSON: / },
     { fixture: "v1-hostile-extra-key.json", issue: /installedPath/ },

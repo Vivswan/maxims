@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "writtenBy": "maxims@0.4.1",
+  "hooks": ["claude-code", "codex"],
+  "sources": {
+    "@example-user/rules#main": {
+      "intent": {
+        "from": {
+          "type": "github",
+          "repo": "example-user/rules",
+          "ref": "main"
+        },
+        "select": ["rubber-duck-before-every-commit"],
+        "rename": {
+          "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles"
+        },
+        "rule": true,
+        "destination": {
+          "scope": "global"
+        },
+        "copy": false,
+        "harnesses": ["claude-code", "codex"]
+      },
+      "fetched": {
+        "at": "2026-08-27T04:12:09.1134567Z",
+        "sha": "fc675572711b0a1c9e00000000000000000000aa",
+        "memoryPath": "memories",
+        "memories": {
+          "rubber-duck-before-every-commit": {
+            "content": "sha256:9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a",
+            "description": "sha256:11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd"
+          }
+        },
+        "lastError": null
+      },
+      "addedAt": "2026-08-20T08:38:04Z"
+    },
+    "@example-user/team-rules": {
+      "intent": {
+        "from": {
+          "type": "github",
+          "repo": "example-user/team-rules",
+          "ref": "HEAD"
+        },
+        "select": "*",
+        "rename": {},
+        "rule": true,
+        "destination": {
+          "scope": "project",
+          "root": "/home/user/project"
+        },
+        "copy": false,
+        "harnesses": ["codex"],
+        "shared": true
+      },
+      "addedAt": "2026-08-21T09:00:00Z"
+    }
+  }
+}
