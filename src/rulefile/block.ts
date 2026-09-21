@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
@@ -776,62 +777,104 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
     own === undefined
       ? [...slots, fresh]
       : slots.map((occupant) => (occupant === own ? fresh : occupant));
-  return deal(fileText, spans, contents);
+  return deal(fileText, spans, dealOrder(contents), null).text;
 }
 
+// A BEGIN and END the user left around the block are text only while a marker stands between
+// them (see `parseBlocks`). Closing a slot joins the text before it to the text after it, and the
+// join can pair them, or open a fence or raw HTML block over a kept block; the next sweep would
+// then take the user's lines. A closing counts only when the result reads back as the kept
+// blocks, and only them, where they were placed. The last slot goes first because an add opened
+// it, so add-then-remove gives the user's bytes back.
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
   const spans = blockSpans(fileText);
-  const slots = occupants(fileText, spans);
-  const own = slots.find((occupant) => occupant.key === source);
-  if (own === undefined) return { text: fileText, emptied: false };
-  const text = deal(
-    fileText,
-    spans,
-    slots.filter((occupant) => occupant !== own),
+  const own = spans.findIndex((span) => span.source === source);
+  if (own === -1) return { text: fileText, emptied: false };
+  const kept = dealOrder(occupants(fileText, spans).filter((_, index) => index !== own));
+  let strays: string[] = [];
+  for (const closed of new Set([spans.length - 1, own, ...spans.keys()])) {
+    const { text, placed } = deal(fileText, spans, kept, closed);
+    const found = blockSpans(text);
+    const exposed = found
+      .filter((span) => !placed.some((at) => at.start === span.start && at.end === span.end))
+      .map((span) => span.source);
+    if (exposed.length === 0 && found.length === placed.length) {
+      return { text, emptied: text.trim() === "" };
+    }
+    if (strays.length === 0) strays = exposed;
+  }
+  throw new MaximsError(
+    ExitCode.DestinationWriteFailed,
+    `removing the ${source} block would pair the stray maxims markers for ${strays.join(" and ")} around it into a managed block`,
+    {
+      hint: 'edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry',
+    },
   );
-  return { text, emptied: text.trim() === "" };
 }
 
-// The slots are the file's pairs; the contents, one more, one fewer or as many, are dealt into them
-// in source order, so the bytes between slots never move. Every well-formed pair is a slot and the
-// sort is stable: a hand-duplicated pair keeps its text and the first pair for a source is the one
-// replaced. One content more opens a slot after the last block, behind one LF blank line. One
-// content fewer closes the last slot: with the single line ending that joined it to the block
-// before, or with the blank line before it when text stood between or it was the only slot. Every
-// block is closed with LF, whatever closed it on disk: a closer kept from disk made the bytes
-// depend on which source the engine refreshed first, and a lone CR before the LF separator would
-// read as one CRLF.
+function dealOrder(contents: readonly Occupant[]): Occupant[] {
+  return [...contents].sort((a, b) => compareSourceKeys(a.key, b.key));
+}
+
+type Span = Pick<ParsedBlock, "start" | "end">;
+
+// The slots are the file's pairs; the contents are dealt into the open ones in source order, so
+// the bytes between slots never move. Every well-formed pair is a slot and the sort is stable: a
+// hand-duplicated pair keeps its text and the first pair for a source is the one replaced. One
+// content more opens a slot after the last block, behind one LF blank line. A closed slot takes
+// the single line ending that joined it to the block before or after it, or else the blank line
+// before it when text stood between or it headed the run. Every block is closed with LF, whatever
+// closed it on disk: a closer kept from disk made the bytes depend on which source the engine
+// refreshed first, and a lone CR before the LF separator would read as one CRLF.
 function deal(
   fileText: string,
   spans: readonly ParsedBlock[],
-  contents: readonly Occupant[],
-): string {
-  const dealt = [...contents].sort((a, b) => compareSourceKeys(a.key, b.key));
+  dealt: readonly Occupant[],
+  closed: number | null,
+): { text: string; placed: Span[] } {
   let text = "";
   let cursor = 0;
-  dealt.forEach((content, index) => {
-    const slot = spans[index];
-    const closing = closingEnding(content.text);
-    const placed = withNewline(content.text.slice(0, content.text.length - closing.length));
-    if (slot === undefined) {
-      text += `\n${placed}`;
+  let next = 0;
+  const placed: Span[] = [];
+  const put = (content: Occupant): void => {
+    const block = closedWithLf(content.text);
+    placed.push({ start: text.length, end: text.length + block.length });
+    text += block;
+  };
+  spans.forEach((slot, index) => {
+    const gap = fileText.slice(cursor, slot.start);
+    cursor = slot.end;
+    if (index !== closed) {
+      text += gap;
+      put(dealt[next]);
+      next += 1;
       return;
     }
-    text += fileText.slice(cursor, slot.start) + placed;
-    cursor = slot.end;
-  });
-  if (dealt.length < spans.length) {
-    const closed = spans[spans.length - 1];
-    const gap = fileText.slice(cursor, closed.start);
-    const post = fileText.slice(closed.end);
-    const endings = trailingLineEndings(gap);
-    if (spans.length === 1 || !SINGLE_LINE_ENDING.test(gap)) {
-      const blank = endings.length >= 2 && (post === "" || FIRST_LINE_ENDING.test(post));
-      text += blank ? gap.slice(0, -endings[endings.length - 1].length) : gap;
+    if (index > 0 && SINGLE_LINE_ENDING.test(gap)) return;
+    const following = spans[index + 1];
+    if (
+      following !== undefined &&
+      SINGLE_LINE_ENDING.test(fileText.slice(slot.end, following.start))
+    ) {
+      text += gap;
+      cursor = following.start;
+      return;
     }
-    cursor = closed.end;
+    const post = fileText.slice(slot.end);
+    const endings = trailingLineEndings(gap);
+    const blank = endings.length >= 2 && (post === "" || FIRST_LINE_ENDING.test(post));
+    text += blank ? gap.slice(0, -endings[endings.length - 1].length) : gap;
+  });
+  for (const content of dealt.slice(next)) {
+    text += "\n";
+    put(content);
   }
-  return text + fileText.slice(cursor);
+  return { text: text + fileText.slice(cursor), placed };
+}
+
+function closedWithLf(block: string): string {
+  const closing = closingEnding(block);
+  return withNewline(block.slice(0, block.length - closing.length));
 }
 
 function closingEnding(text: string): string {

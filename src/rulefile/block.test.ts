@@ -4,6 +4,7 @@
 // hand-written rule silently rewritten. None of that is enforced by anything but these rows.
 import { describe, expect, test } from "bun:test";
 import type { MemoryName } from "../memory/contract.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { ownLineMatcher, parseBlocks, renderBlock, replaceBlock, stripBlock } from "./block.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
 
@@ -617,6 +618,120 @@ describe("replaceBlock and stripBlock", () => {
       emptied: false,
     });
   });
+
+  // A BEGIN and END the user left around a block are plain text only while a marker stands between
+  // them. Closing the slot the removal would otherwise close can put them back to back, and the
+  // next sync would read the user's lines between them as a block to remove.
+  const STRAY = "@stray/notes";
+  const STRAY_BEGIN = `<!-- maxims:begin ${STRAY} sha=old -->\n`;
+  const STRAY_END = `<!-- maxims:end ${STRAY} -->\n`;
+  const strayPairs: [string, string, string, string][] = [
+    [
+      "a stray pair around the second of two blocks, removing the first",
+      `${BLOCK}\n${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}`,
+      SOURCE,
+      `\n${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}`,
+    ],
+    [
+      "a stray pair around the first of two blocks, removing the first",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}${OTHER}`,
+      SOURCE,
+      `${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}`,
+    ],
+    [
+      "a stray pair around the first of two blocks, removing the second",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}${OTHER}`,
+      OTHER_SOURCE,
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}`,
+    ],
+    [
+      "a stray END right after the removed block, its BEGIN before",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}${STRAY_END}\n${OTHER}`,
+      SOURCE,
+      `${STRAY_BEGIN}KEEP ME\n${OTHER}${STRAY_END}`,
+    ],
+    [
+      "a stray pair around the last of three blocks, removing the middle one",
+      `${BLOCK}\n${OTHER}\n${STRAY_BEGIN}KEEP ME\n${ZETA}\n${STRAY_END}`,
+      OTHER_SOURCE,
+      `${BLOCK}\n${STRAY_BEGIN}KEEP ME\n${ZETA}\n${STRAY_END}`,
+    ],
+    [
+      "a stray pair around the last of three blocks, removing the first",
+      `${BLOCK}\n${OTHER}\n${STRAY_BEGIN}KEEP ME\n${ZETA}\n${STRAY_END}`,
+      SOURCE,
+      `${OTHER}\n${STRAY_BEGIN}KEEP ME\n${ZETA}\n${STRAY_END}`,
+    ],
+    [
+      "a stray pair in CRLF endings around the second of two blocks",
+      `${BLOCK}\r\n${STRAY_BEGIN.replace("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replace("\n", "\r\n")}`,
+      SOURCE,
+      `\r\n${STRAY_BEGIN.replace("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replace("\n", "\r\n")}`,
+    ],
+  ];
+  const keys = (text: string): string[] => parseBlocks(text).blocks.map((block) => block.source);
+  test.each(strayPairs)(
+    "removing %s leaves the pair as text, and a second removal changes nothing",
+    (_label, before, source, expected) => {
+      const stripped = stripBlock(before, source);
+      expect(stripped).toEqual({ text: expected, emptied: false });
+      expect(keys(expected)).toEqual(keys(before).filter((key) => key !== source));
+      expect(stripBlock(expected, source).text).toBe(expected);
+    },
+  );
+
+  // No slot can close without pairing the user's markers, or without a fence the join opens
+  // swallowing a kept block: the removal is refused rather than written, since the next sync
+  // would take the user's lines with the pair it made or the block it lost.
+  const USER_OTHER = `<!-- maxims:begin ${OTHER_SOURCE} sha=user -->\nKEEP USER TEXT\n<!-- maxims:end ${OTHER_SOURCE} -->\n`;
+  const refusals: [string, string, string][] = [
+    ["a stray pair around the only block", `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}`, STRAY],
+    [
+      "stray pairs nested around the only block",
+      `${STRAY_BEGIN}<!-- maxims:begin @inner/notes sha=old -->\nKEEP ME\n${BLOCK}<!-- maxims:end @inner/notes -->\n${STRAY_END}`,
+      "@inner/notes",
+    ],
+    [
+      "two stray pairs interleaved around two blocks",
+      `${STRAY_BEGIN}KEEP ME\n${BLOCK}${STRAY_END}<!-- maxims:begin @inner/notes sha=old -->\nAND ME\n${OTHER}<!-- maxims:end @inner/notes -->\n`,
+      "@inner/notes",
+    ],
+    [
+      "a stray END hidden in a lone-tag HTML block that the join turns into paragraph text",
+      `${STRAY_BEGIN}notes\n${BLOCK}<span>\nKEEP ME\n${STRAY_END}`,
+      STRAY,
+    ],
+    [
+      "a fence hidden in a lone-tag HTML block that the join opens over the kept block",
+      `notes\n${BLOCK}<span>\n~~~\n\n${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}`,
+      STRAY,
+    ],
+    [
+      "a fence the join opens over the kept block, with a user pair under its key past the fence",
+      `notes\n${BLOCK}<span>\n~~~\n\n${STRAY_BEGIN}KEEP ME\n${OTHER}\n${STRAY_END}~~~\n${USER_OTHER}`,
+      STRAY,
+    ],
+  ];
+  test.each(refusals)(
+    "removing the block inside %s is refused, naming the pair",
+    (_label, text, key) => {
+      let caught: unknown;
+      try {
+        stripBlock(text, SOURCE);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(MaximsError);
+      if (!(caught instanceof MaximsError)) return;
+      expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+      expect(caught.message).toBe(
+        `removing the ${SOURCE} block would pair the stray maxims markers for ${key} around it into a managed block`,
+      );
+      expect(caught.hint).toBe(
+        'edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry',
+      );
+    },
+  );
 
   // Adding a source and removing it again gives back the user's bytes whatever slot the new block
   // took: the slot the run opened at its end is the one the removal closes.

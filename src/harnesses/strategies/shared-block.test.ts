@@ -136,6 +136,28 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
     ]);
   });
 
+  // A BEGIN and END the user left around a block are text only while a marker separates them;
+  // a removal that put them back to back would hand the user's lines to the next sweep.
+  const strayBegin = "<!-- maxims:begin @stray/notes sha=old -->\n";
+  const strayEnd = "<!-- maxims:end @stray/notes -->\n";
+  test("removing a block a stray marker pair wraps keeps the pair as text", () => {
+    const before = `${ours}\n${strayBegin}KEEP ME\n${theirs}\n${strayEnd}`;
+    expect(planSharedBlockRemove(location("@a/b", before))).toEqual([
+      { kind: "write", path, content: `\n${strayBegin}KEEP ME\n${theirs}\n${strayEnd}` },
+    ]);
+  });
+
+  test("removing the only block a stray marker pair wraps is refused", () => {
+    let caught: unknown;
+    try {
+      planSharedBlockRemove(location("@a/b", `${strayBegin}KEEP ME\n${ours}${strayEnd}`));
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(MaximsError);
+    if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+  });
+
   test("removing a source that has no block changes nothing", () => {
     expect(planSharedBlockRemove(location("@a/b", `notes\n${theirs}`))).toEqual([]);
     expect(planSharedBlockRemove(location("@a/b", null))).toEqual([]);
