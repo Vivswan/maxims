@@ -954,8 +954,9 @@ type HarnessChoice = { ids: HarnessId[]; warnings: string[]; remember: boolean }
 
 // Default `-a`: the harnesses detected on this machine, then `config.agents`, then the remembered
 // last selection, then a prompt when the console can ask. A harness without a target at the
-// destination's scope is skipped with a warning, never silently. Null means the user cancelled
-// the prompt, which ends the run like a declined confirmation.
+// destination's scope is dropped: with a warning when its id was named, detected or config-listed,
+// silently under `--all` or `-a '*'`, and the prompt never offers it. Null means the user
+// cancelled the prompt, which ends the run like a declined confirmation.
 async function chooseHarnesses(
   request: AddRequest,
   ctx: CommandContext,

@@ -90,16 +90,15 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`intent.select`** is `*` or an explicit list; applied every sync, so a refresh can never widen the selection.
 - **`intent.rename`** maps upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision.
 - **`intent.rule`** is whether this source publishes one-liners; the field that separates `--rule` from `--add-hook`.
-- **`intent.destination`** is `global`; `project` with the project's absolute `root`, so `sync` and `list` find a project's sources from state alone and a moved folder shows as a root that no longer exists; or `out` with a `path`. `-g` with `-o` has no representation.
+- **`intent.destination`** is `global`; `project` with `root`, the realpath of the project, so `sync` and `list` find a project's sources from state alone and a moved folder shows as a root that no longer exists; or `out` with a `path`. A project entry without `root` is corrupt, and `-g` with `-o` has no representation.
 - **`intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths`** record `--copy`, `--from`, `--full-depth`, `--paths` per source.
 - **`intent.harnesses`** is which harnesses this source writes to.
+- **`intent.shared`** is `true` or absent: `true` marks a project source as projected into `.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or `out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns the verbs.
 - **`fetched.at` and `fetched.sha`** drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record.
 - **`fetched.memories`** holds a content hash and a description hash per memory, so a body-only edit skips the rule rewrite.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.
 - **`addedAt`** is provenance; there is no `updatedAt`.
 - **`disabled`** holds the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a copy of its own root's list.
-
-Status: `destination.root` is specified, not yet in the schema; it lands with `--share`, whose status the [sharing section](share.md#sharing-a-source) tracks.
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 

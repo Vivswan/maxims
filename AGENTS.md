@@ -41,7 +41,7 @@ Code is the source of truth; this section holds only the rules a reader could no
 - `state.json` holds intent only. Anything that is a cached copy of the filesystem or a harness registry is re-derived by `sync`, never stored.
 - `sync` is the only writer of destinations. `add`, `update`, and `remove` change intent and then call `sync`; none has a private path to the filesystem.
 - Every write goes through the `Change` plan and `applyChanges`, so `--dry-run` and `--json` are structural, not per-verb.
-- No backwards compatibility. Internal shapes change freely; a state-shape change ships a migration under the state module, named for the version it migrates AWAY FROM, plus a golden fixture.
+- No backwards compatibility. Internal shapes change freely; a state-shape change ships a migration under the state module, named for the version it migrates AWAY FROM, plus a golden fixture. The migration requirement applies from the first stable release; before it, a shape change ships a corrupt fixture that pins the refusal.
 - A rule file is always a real file, never a symlink. Bodies link from the canonical home; `--copy` is the escape hatch.
 - A harness folder is a declaration plus its quirks. Writing logic lives once, in the shared strategies and the single hook writer. The harness registry is a static import list guarded by a completeness test.
 - `sync --quiet` never exits non-zero and never blocks on stdin: a broken hook must never break a session start.

@@ -281,7 +281,7 @@ flowchart LR
   options["src/commands/shared/options.ts<br>parseVerbArgs() GLOBAL_FLAGS FLAGS parseDestination() parseSelect() parseAgents()"]
   engine["src/commands/engine.ts<br>createEngine()<br>src/commands/shared/resolvers.ts<br>createResolvers()"]
   console["src/console/mode.ts<br>consoleMode()<br>src/console/contract.ts<br>createConsole() promptsAllowed()"]
-  add["src/commands/add.ts<br>add parseAddRequest() prepareAdd() stageAdd() planAdd()"]
+  add["src/commands/add.ts<br>add parseAddRequest() stageAdd() provenanceFor() showProvenance() planAdd()"]
   temp[("the fetch's temporary directory, removed on every path")]
   intent["src/commands/shared/cli-context.ts<br>loadIntentFor() peekIntent()"]
   commit["src/commands/add.ts<br>commitAdd() admitIntent()"]
