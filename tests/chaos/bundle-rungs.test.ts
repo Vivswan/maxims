@@ -26,6 +26,7 @@ import {
 } from "../e2e/binary.ts";
 import { snapshot } from "../e2e/fixtures.ts";
 import { WINDOWS } from "../shared/platform.ts";
+import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
   commitAll,
@@ -36,7 +37,7 @@ import {
   writeMemories,
 } from "./shared/fixture-repo.ts";
 import { type GitDaemon, probeGitDaemon, withGitDaemon } from "./shared/git-daemon.ts";
-import { expectRuleFile, staleLines, withoutStaleLine } from "./shared/rule-file.ts";
+import { expectRuleFile } from "./shared/rule-file.ts";
 import {
   ageFetch,
   clearDebounce,
@@ -472,7 +473,10 @@ row.each(zeroValidRows)(
       clearDebounce(world.home.maximsHome);
       const result = await runMaxims(bundle, world.home, argv);
       expect({ code: result.code, stderr: result.stderr }).toEqual({ code, stderr: "" });
-      expect(readFileSync(rule, "utf8")).toBe(before);
+      // Invalid content is stale at once: the block keeps every rule and gains the stale line.
+      const after = readFileSync(rule, "utf8");
+      expect(staleLines(after)).toHaveLength(1);
+      expect(withoutStaleLine(after)).toBe(before);
       expect(storeSnapshot(world.home)).toEqual(store);
       expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("invalid");
       // A hook run speaks bare lines in its harness's protocol; an interactive run draws the frame.

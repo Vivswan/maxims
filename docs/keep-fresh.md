@@ -133,7 +133,7 @@ The first fetch of a source is never held: `add` installs what it fetched, and t
 
 ## The staleness notice and the self-refresh line
 
-A source is stale once its last successful fetch is more than 7 days old, or immediately when the repo returns 404. The notice names the reason (network, rate limit, missing) rather than just "stale".
+A source is stale once its last successful fetch is more than 7 days old, or at once when the repository is gone or the fetched content invalid. The notice names the reason (network, rate limit, missing) rather than just "stale".
 
 | where the harness has | the notice goes to |
 | --- | --- |

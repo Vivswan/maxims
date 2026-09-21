@@ -444,7 +444,7 @@ const GH_PATTERNS: [FetchFailureKind, RegExp][] = [
 const GIT_PATTERNS: [FetchFailureKind, RegExp][] = [
   ["ratelimit", /returned error: 429|rate limit/i],
   ["missing", /repository not found|not found|does not appear to be a git repository/i],
-  ["missing", /couldn't find remote ref|remote branch .* not found/i],
+  ["missing", /repository not exported|couldn't find remote ref|remote branch .* not found/i],
   ["auth", /authentication failed|could not read username|permission denied/i],
   ["auth", /invalid username or|error: 40[13]|unable to get password from user/i],
   ["network", /could not resolve host|unable to access|connection (refused|timed out|reset)/i],

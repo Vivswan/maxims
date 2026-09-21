@@ -17,6 +17,7 @@ import {
 import { sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { snapshot } from "../e2e/fixtures.ts";
+import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
 import { type MemorySpec, memoryFile } from "./shared/fixture-repo.ts";
 import {
   type GithubScript,
@@ -35,7 +36,7 @@ import {
   runReal,
   withRealWorld,
 } from "./shared/real-cli.ts";
-import { expectRuleFile, staleLines, withoutStaleLine } from "./shared/rule-file.ts";
+import { expectRuleFile } from "./shared/rule-file.ts";
 import { lastErrorOf, onlyRuleFile, setCooldownDays } from "./shared/state.ts";
 
 const KEY = "@acme/rules";
@@ -86,8 +87,8 @@ type HttpRung = {
   kind: LastError["kind"];
   answer: (script: GithubScript) => void;
   manualExit: number;
-  // A gone repository is stale at once, so its block gains the notice line the same run and the
-  // hook run says so; the other kinds keep the file byte-identical and the hook run silent.
+  // A gone repository or unusable content is stale at once, so the block gains the notice line the
+  // same run and the hook run says so; a transient kind keeps the file byte-identical.
   staleAtOnce: boolean;
   quietStdout: string | RegExp;
   retryAfter: boolean;
@@ -136,8 +137,9 @@ const httpRungs: HttpRung[] = [
       script.tarball = () => httpResponse(200, BROKEN_TARBALL);
     },
     manualExit: 3,
-    staleAtOnce: false,
-    quietStdout: /^maxims: @acme\/rules: tarball could not be extracted: .*; kept last-good\n$/,
+    staleAtOnce: true,
+    quietStdout:
+      /^maxims: @acme\/rules: tarball could not be extracted: .*; kept last-good\nmaxims: rules refreshed \(1 file updated\)\n$/,
     retryAfter: false,
   },
 ];
@@ -259,7 +261,9 @@ test.each(tarballRows)(
           `maxims: ${KEY}: no valid memories at memories (layout probably changed upstream); kept last-good`,
         );
         expect(lastErrorOf(world.maximsHome, KEY)?.kind).toBe("invalid");
-        expect(readFileSync(rule, "utf8")).toBe(before);
+        const after = readFileSync(rule, "utf8");
+        expect(staleLines(after)).toHaveLength(1);
+        expect(withoutStaleLine(after)).toBe(before);
         expect(storeSnapshot(world)).toEqual(store);
         return;
       }

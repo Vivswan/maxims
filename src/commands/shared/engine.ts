@@ -113,10 +113,11 @@ const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
-// The failure kinds `staleNotices` says out loud the run they happen; a transient kind earns its
-// loud line only once the source is stale, and until then the engine's own word on it is the one
-// stderr summary (the resolver may have said which rung failed before it).
-const LOUD_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
+// The failure kinds that make a source stale the run they happen, so `staleNotices` says them out
+// loud at once; a transient kind earns its loud line only once seven days have passed, and until
+// then the engine's own word on it is the one stderr summary (the resolver may have said which
+// rung failed before it).
+const STALE_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
 
 const STALE_REASON: Record<Staleness["kind"], string> = {
   age: "no successful fetch",
@@ -962,7 +963,7 @@ async function refreshAll(
         // Until a transient failure is said out loud, the run's non-zero exit has this line to
         // explain it.
         if (
-          !LOUD_AT_ONCE.has(result.error.kind) &&
+          !STALE_AT_ONCE.has(result.error.kind) &&
           staleness(result.entry.fetched, ctx.now) === undefined
         ) {
           notices.aside(
@@ -1197,12 +1198,13 @@ function currentLinkTarget(path: string): string | null {
   return resolve(readlinkSync(path));
 }
 
-// Stale means fetching has been failing: immediately for a gone repository, after seven days for
-// anything else. A source merely past its cooldown that fetches fine is not stale.
+// Stale means fetching has been failing: immediately for a gone repository or content nothing
+// can be installed from, after seven days for a transient kind. A source merely past its cooldown
+// that fetches fine is not stale.
 export function staleness(fetched: Fetched | undefined, now: Date): Staleness | undefined {
   if (fetched === undefined || fetched.lastError === null) return undefined;
   const { kind } = fetched.lastError;
-  if (kind === "missing") return { since: fetched.at, kind };
+  if (STALE_AT_ONCE.has(kind)) return { since: fetched.at, kind };
   if (now.getTime() - Date.parse(fetched.at) >= STALE_AFTER_MS) return { since: fetched.at, kind };
   return undefined;
 }

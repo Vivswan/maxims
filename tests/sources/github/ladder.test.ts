@@ -530,6 +530,10 @@ describe("failure classification", () => {
       "missing",
     ],
     ["fatal: couldn't find remote ref v9", "missing"],
+    [
+      "fatal: remote error: access denied or repository not exported: /srv/git/rules.git",
+      "missing",
+    ],
     ["fatal: could not read Username for 'https://github.com': terminal prompts disabled", "auth"],
     ["fatal: Authentication failed for 'https://github.com/o/r.git/'", "auth"],
     ["fatal: unable to get password from user", "auth"],

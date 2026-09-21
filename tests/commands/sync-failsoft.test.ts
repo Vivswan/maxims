@@ -48,6 +48,7 @@ import {
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
+import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
 
 // The self-refresh line as a rule file carries it, spelled through the package command like the
 // renderer does, so a package rename cannot leave these pins matching nothing.
@@ -169,9 +170,13 @@ describe("fail-soft rungs under --quiet", () => {
       io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
       io.out.length = 0;
       await runSync(QUIET, io);
-      expect(readFileSync(rules, "utf8")).toBe(before);
+      // Invalid content is stale at once: the block keeps every rule and gains the stale line.
+      const after = readFileSync(rules, "utf8");
+      expect(staleLines(after)).toHaveLength(1);
+      expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY}: no valid memories at memories (layout probably changed upstream); kept last-good\n`,
+        `maxims: ${KEY}: no valid memories at memories (layout probably changed upstream); kept last-good\n` +
+          "maxims: rules refreshed (1 file updated)\n",
       );
       expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
         true,
@@ -188,9 +193,12 @@ describe("fail-soft rungs under --quiet", () => {
       io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
       io.out.length = 0;
       await runSync(QUIET, io);
-      expect(readFileSync(rules, "utf8")).toBe(before);
+      const after = readFileSync(rules, "utf8");
+      expect(staleLines(after)).toHaveLength(1);
+      expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY}: the source reported an unusable commit id "sha256:${"d".repeat(64)}"; kept last-good\n`,
+        `maxims: ${KEY}: the source reported an unusable commit id "sha256:${"d".repeat(64)}"; kept last-good\n` +
+          "maxims: rules refreshed (1 file updated)\n",
       );
       const entry = readStateFile(w.home).sources[KEY];
       const lastError = entry !== undefined && "fetched" in entry ? entry.fetched?.lastError : null;
@@ -374,6 +382,12 @@ describe("staleness", () => {
       stale: true,
       loud: true,
     },
+    {
+      ageDays: 1,
+      lastError: { kind: "invalid", message: "no valid memories", at: NOW.toISOString() },
+      stale: true,
+      loud: true,
+    },
   ];
   for (const { ageDays, lastError, stale, loud } of cases) {
     test(`fetched ${ageDays}d ago with ${lastError?.kind ?? "no"} error: stale=${stale}`, async () => {
@@ -384,7 +398,7 @@ describe("staleness", () => {
         expect(text.includes("have not refreshed since")).toBe(stale);
         expect(text.includes(SELF_REFRESH)).toBe(false);
         const loudLines = report.notices.filter((line) =>
-          /offline|has not refreshed since/.test(line),
+          /offline|has not refreshed since|kept last-good/.test(line),
         );
         expect(loudLines.length).toBe(loud ? 1 : 0);
       });
