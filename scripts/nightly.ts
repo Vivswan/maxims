@@ -154,11 +154,21 @@ function didNotComplete(category: Category, error: unknown): Outcome {
 }
 
 // The log carries the summary for every outcome, so a passing run shows which rungs ran without
-// opening the step summary.
+// opening the step summary. A failure's body usually repeats the summary's evidence (the diff, the
+// table) and adds a remedy; the log shows the evidence once, and the status line stays last.
 export function announce(category: Category, outcome: Outcome, env: NodeJS.ProcessEnv): void {
   process.stdout.write(outcome.summary);
   writeStepSummary(outcome.summary, env);
+  if (outcome.status === "fail") process.stdout.write(beyondSummary(outcome));
   process.stdout.write(`nightly ${category}: ${outcome.status}\n`);
+}
+
+function beyondSummary(outcome: Extract<Outcome, { status: "fail" }>): string {
+  const { summary, report } = outcome;
+  for (let lead = report.body.length; lead > 0; lead -= 1) {
+    if (summary.endsWith(report.body.slice(0, lead))) return report.body.slice(lead);
+  }
+  return report.body;
 }
 
 async function main(): Promise<number> {
@@ -169,7 +179,6 @@ async function main(): Promise<number> {
   );
   announce(category, outcome, process.env);
   if (outcome.status === "pass") return 0;
-  process.stdout.write(`${outcome.report.body}\n`);
   if (options.reportDir !== undefined)
     writeFailureReport(options.reportDir, category, replayCommand(options.run), outcome.report);
   return 1;

@@ -1,7 +1,8 @@
 // Fails if the failure report leaves the layout the tracking-issue action reads (heading on line
 // 1, the replay block right under it), if the step summary stops reaching the file GitHub reads
 // or lands on stdout when there is none, if a passing category's summary stops reaching the job
-// log ahead of its status line, if the dispatcher accepts a category it has no module for, a flag the
+// log ahead of its status line, if a failing category's evidence lands in the log twice or its
+// remedy not at all, if the dispatcher accepts a category it has no module for, a flag the
 // category ignores, or a report or trend path inside the repository, or if a category that throws
 // stops leaving a report behind for the issue.
 import { describe, expect, test } from "bun:test";
@@ -109,6 +110,49 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
   });
 });
 
+// A failing category's summary often already carries its body (a diff, a table); the log shows
+// each line once, and only what the body adds beyond the summary, ahead of the status line.
+const failBodies: [string, string, string, string][] = [
+  ["equals the summary's tail", "## Parity drift\n\ndrift\n", "drift\n", ""],
+  [
+    "shares a prefix with the summary",
+    "## Drift\n\n| row |\n",
+    "| row |\n\nfix it\n",
+    "\nfix it\n",
+  ],
+  [
+    "is all its own",
+    "## Deep run\n\nfailed\n",
+    "failed. The tail:\n\nline\n",
+    "failed. The tail:\n\nline\n",
+  ],
+];
+
+test.each(failBodies)(
+  "a fail outcome prints only what its body adds when the body %s",
+  (_name, summary, body, extra) => {
+    const outcome = { status: "fail", summary, report: { title: "T", body } };
+    const script =
+      'import { announce } from "./scripts/nightly.ts";' +
+      `announce("parity-drift", ${JSON.stringify(outcome)}, {});`;
+    const proc = Bun.spawnSync(["bun", "-e", script], {
+      cwd: repoRoot,
+      env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect({
+      exitCode: proc.exitCode,
+      stdout: proc.stdout.toString(),
+      stderr: proc.stderr.toString(),
+    }).toEqual({
+      exitCode: 0,
+      stdout: `${summary}${extra}nightly parity-drift: fail\n`,
+      stderr: "",
+    });
+  },
+);
+
 const USAGE =
   "usage: bun scripts/nightly.ts <category> [--report-dir <dir>] [--trend <file>] [--iterations <n>]\n" +
   `categories: ${CATEGORIES.join(" | ")}\n`;
@@ -175,7 +219,9 @@ test.skipIf(WINDOWS)(
         exitCode: 1,
         stderr: "",
       });
-      expect(proc.stdout.toString()).toContain("nightly live-network: fail\n");
+      const stdout = proc.stdout.toString();
+      expect(stdout).toContain("nightly live-network: fail\n");
+      expect(stdout.split("Error: no node on PATH to run the bundle with")).toHaveLength(2);
       expect(report.split("\n").slice(0, 6)).toEqual([
         "# Nightly live-network did not complete",
         "",
