@@ -277,6 +277,23 @@ describe("native errors under --quiet --json", () => {
       }
     });
   });
+
+  // The control is the test above: the same crash on a real run does log its stack.
+  test("a crashed dry run appends nothing to the log", async () => {
+    await world(async (w) => {
+      const { io, rules } = await lastGood(w, 1);
+      await runSync(SYNC, io);
+      const before = logText(w.home);
+      chmodSync(rules, 0o000);
+      try {
+        io.clock.now = new Date(NOW.getTime() + 120_000);
+        await runSync({ ...QUIET, dryRun: true }, io);
+        expect(logText(w.home)).toBe(before);
+      } finally {
+        chmodSync(rules, 0o644);
+      }
+    });
+  });
 });
 
 describe("staleness", () => {
@@ -537,8 +554,10 @@ describe("hook runs", () => {
         JSON.stringify({
           version: 1,
           sources: {
-            "@acme/rules": {
-              from: { type: "github", repo: "acme/rules" },
+            // A teammate's spelling of the installed @acme/rules: one GitHub repository, not a
+            // missing one.
+            "@Acme/rules": {
+              from: { type: "github", repo: "Acme/rules" },
               select: "*",
               rule: true,
               harnesses: ["claude-code"],

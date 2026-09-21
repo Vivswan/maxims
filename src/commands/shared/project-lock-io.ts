@@ -109,6 +109,34 @@ function projectRelative(projectRoot: string, path: string): string {
   return rel === "" ? "." : `./${rel.split(sep).join("/")}`;
 }
 
+// The manifest is committed and edited by teammates, so a shape error names the file and stops
+// the verb rather than installing the entries that happened to parse. Null when there is no file.
+export function manifestOrUsage(lock: LoadedProjectLock): ProjectLock | null {
+  switch (lock.kind) {
+    case "absent":
+      return null;
+    case "parsed":
+      return lock.lock;
+    case "corrupt":
+      throw new MaximsError(
+        ExitCode.Usage,
+        `${lock.path} is not a valid manifest: ${lock.issues.join("; ")}`,
+      );
+  }
+}
+
+// Whether the committed lock lists this source, under any spelling of its identity: an `add -p`
+// of such a source records it shared, as `install` records every lock entry, so the team's entry
+// stays where the team put it.
+export async function listedInLock(projectRoot: string, from: SourceFrom): Promise<boolean> {
+  const lock = manifestOrUsage(await readProjectLock(projectRoot));
+  if (lock === null) return false;
+  const identity = sourceIdentity(from);
+  return Object.values(lock.sources).some(
+    (source) => sourceIdentity(sourceFromLock(source, projectRoot)) === identity,
+  );
+}
+
 // The lock rewrite an edit of this project's intent calls for. This machine edits only the
 // entries it owns here (the project-scope sources state held for this root before or after the
 // edit, shared or not) and leaves a teammate's entries as the file holds them, since a clone that
@@ -126,13 +154,7 @@ export async function projectLockChange(
   io: Pick<CliIo, "home" | "env">,
 ): Promise<Change | null> {
   const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
-  const current = await readProjectLock(projectRoot);
-  if (current.kind === "corrupt") {
-    throw new MaximsError(
-      ExitCode.Usage,
-      `${current.path} is not a valid manifest: ${current.issues.join("; ")}`,
-    );
-  }
+  const current = manifestOrUsage(await readProjectLock(projectRoot));
   const owned = [...ownedEntries(previous, projectRoot), ...ownedEntries(next, projectRoot)];
   // A teammate's `@Acme/rules` is this machine's `@acme/rules`: the lock entry is ours to edit.
   const ours = new Set(owned.map(([, entry]) => sourceIdentity(entry.intent.from)));
@@ -147,13 +169,13 @@ export async function projectLockChange(
   const share = await sharedProjection(next, projectRoot, io);
   const sources: Record<string, LockSource> = Object.create(null);
   const disabled = new Set<MemoryName>();
-  if (current.kind === "parsed") {
-    for (const [lockKey, source] of Object.entries(current.lock.sources)) {
+  if (current !== null) {
+    for (const [lockKey, source] of Object.entries(current.sources)) {
       if (!ours.has(sourceIdentity(sourceFromLock(source, projectRoot)))) {
         sources[lockKey] = source;
       }
     }
-    for (const name of current.lock.disabled ?? []) {
+    for (const name of current.disabled ?? []) {
       if (!ownedNames.has(name)) disabled.add(name);
     }
   }
@@ -169,7 +191,7 @@ export async function projectLockChange(
   }
   for (const name of share.disabled) disabled.add(name);
   if (Object.keys(sources).length === 0) {
-    return current.kind === "absent" ? null : { kind: "delete", path };
+    return current === null ? null : { kind: "delete", path };
   }
   const lock: ProjectLock = {
     version: PROJECT_LOCK_VERSION,
@@ -177,7 +199,7 @@ export async function projectLockChange(
     ...(disabled.size === 0 ? {} : { disabled: [...disabled].sort() }),
   };
   const content = serializeProjectLock(lock);
-  if (current.kind === "parsed" && serializeProjectLock(current.lock) === content) return null;
+  if (current !== null && serializeProjectLock(current) === content) return null;
   const back = parseProjectLock(content);
   const expected = Object.keys(lock.sources).sort();
   const got = back.ok === "parsed" ? Object.keys(back.lock.sources).sort() : [];

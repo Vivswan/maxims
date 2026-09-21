@@ -46,4 +46,4 @@ npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit --json
 
 `--expect <name>` or `--expect @owner/repo/name` asserts that memory has a rule line in place for every harness it targets. A missing one exits 1 with the harness and path named. The flag repeats, one memory per `--expect`.
 
-`--json` emits the report as one document, so a CI job asserts "these rules are installed" without parsing lines. Its top-level keys are `ok`, `harnesses`, `unresolved`, `expect`, `lastSync`, and `defaults`.
+`--json` emits the report as one document, so a CI job asserts "these rules are installed" without parsing lines. Its top-level keys are `ok`, `findings`, `harnesses`, `unresolved`, `expect`, `lastSync`, and `defaults`. `findings` carries the printed lines as `{ "kind": "ok" | "warn" | "fail", "text" }`, and `ok` is false when any finding is `fail`, the `x` lines above.

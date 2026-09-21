@@ -185,6 +185,26 @@ test("-h anywhere on the line wins over an unknown flag, and -v prints the versi
   });
 });
 
+// `--json` promises one JSON document on stdout whatever else the line says, help and version
+// included; neither loads the engine.
+test("--json wraps --version, --help and the bare invocation in one document", async () => {
+  await withScenario({}, async (scenario) => {
+    const version = await runCli(scenario, ["--json", "--version"]);
+    expect(version.code).toBe(0);
+    expect(JSON.parse(version.stdout)).toEqual({ ok: true, version: VERSION });
+    const help = await runCli(scenario, ["add", "-h", "--json"]);
+    expect(help.code).toBe(0);
+    const helpBody = JSON.parse(help.stdout) as { ok: boolean; help: string };
+    expect(helpBody.ok).toBe(true);
+    expect(helpBody.help).toContain("Usage: maxims add <source>");
+    const bare = await runCli(scenario, ["--json"]);
+    expect(bare.code).toBe(0);
+    const bareBody = JSON.parse(bare.stdout) as { ok: boolean; help: string };
+    expect(bareBody.help).toContain("Commands:");
+    expect(bare.stderr).toBe("");
+  });
+});
+
 const aliases: [string, string][] = [
   ["a", "add"],
   ["rm", "remove"],

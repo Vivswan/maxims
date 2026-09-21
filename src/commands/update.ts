@@ -163,6 +163,7 @@ async function recordRenames(
         })),
         select: existing.intent.select,
         rename,
+        rule: existing.intent.rule,
         cap: config.ruleCap ?? DEFAULT_RULE_CAP,
         installed: await installedSources(current.state, ctx.io),
       });

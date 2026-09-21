@@ -16,6 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { runSync } from "../../src/commands/sync.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/index.ts";
 import { cursor } from "../../src/harnesses/cursor/index.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
@@ -309,6 +310,53 @@ test("install replays every manifest entry at project scope and syncs once", asy
   );
 });
 
+// The planner walks sources in key order and rewrites state when its serialization differs, so
+// an intent written in manifest order would cost the sync a second state write.
+test("install records the manifest's sources in key order, so the sync writes state once", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    async (scenario) => {
+      scenario.engine.runSync = runSync;
+      mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
+      writeFileSync(
+        join(scenario.cwd, ".agents", "maxims.lock"),
+        JSON.stringify({
+          version: 1,
+          sources: {
+            "@a/d#v1": {
+              from: { type: "github", repo: "a/d" },
+              pin: "v1",
+              select: ["private-note"],
+              rule: false,
+              harnesses: ["codex"],
+            },
+            "@a/b": {
+              from: { type: "github", repo: "a/b" },
+              select: ["skip-unfit-skills"],
+              rule: true,
+              harnesses: ["codex"],
+            },
+          },
+        }),
+      );
+      const run = await runCli(scenario, ["install", "-y", "--json", "--dry-run"]);
+      expect(run.stderr).toBe("");
+      expect(run.code).toBe(0);
+      const body = JSON.parse(run.stdout) as {
+        ok: boolean;
+        plan: { changes: { kind: string; path: string; content?: string }[] };
+      };
+      expect(body.ok).toBe(true);
+      const stateWrites = body.plan.changes.filter(
+        (change) => change.path === homePaths(scenario.home).state,
+      );
+      expect(stateWrites).toHaveLength(1);
+      const written = JSON.parse(stateWrites[0]?.content ?? "{}") as { sources: object };
+      expect(Object.keys(written.sources)).toEqual(["@a/b", "@a/d#v1"]);
+    },
+  );
+});
+
 test("lint reports each problem class as path:line: reason and exits 3, clean folders exit 0", async () => {
   await withScenario({}, async (scenario) => {
     const dir = join(scenario.cwd, "memories");
@@ -422,6 +470,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
         ok: boolean;
         harnesses: { id: string; hook: string }[];
         expect: { name: string; met: boolean; checked: number; missing: string[] }[];
+        findings: { kind: string; text: string }[];
       };
       expect(body.ok).toBe(true);
       expect(body.harnesses.map((h) => [h.id, h.hook])).toEqual([
@@ -431,6 +480,18 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
       expect(body.expect).toEqual([
         { name: "skip-unfit-skills", met: true, checked: 2, missing: [] },
       ]);
+      // The document carries the same findings the lines print, kind by kind.
+      expect(body.findings.map((finding) => finding.kind)).toEqual(["ok", "ok", "ok", "ok", "ok"]);
+      expect(body.findings[4]).toEqual({ kind: "ok", text: "last sync 4m ago" });
+      scenario.options.hookMissing = ["codex"];
+      const broken = await runCli(scenario, ["doctor", "--json"]);
+      expect(broken.code).toBe(1);
+      const brokenBody = JSON.parse(broken.stdout) as typeof body;
+      expect(brokenBody.ok).toBe(false);
+      expect(brokenBody.findings).toContainEqual({
+        kind: "fail",
+        text: "codex: hook missing (run maxims add <source> --add-hook)",
+      });
     },
   );
 });
@@ -1570,9 +1631,20 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
     const before = await snapshot(scenario.home);
     const run = await runCli(scenario, ["doctor"]);
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain(
-      "!   state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
-    );
+    const line =
+      "state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it";
+    expect(run.stdout).toContain(`!   ${line}\n`);
+    const json = await runCli(scenario, ["doctor", "--json"]);
+    expect(json.code).toBe(0);
+    const body = JSON.parse(json.stdout) as {
+      ok: boolean;
+      findings: { kind: string; text: string }[];
+    };
+    expect(body.ok).toBe(true);
+    expect(body.findings).toEqual([
+      { kind: "warn", text: line },
+      { kind: "warn", text: "never synced" },
+    ]);
     expect(await snapshot(scenario.home)).toBe(before);
   });
 });

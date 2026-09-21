@@ -9,7 +9,7 @@ import {
 } from "../console/strings.ts";
 import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
-import type { LockSource, ProjectLock } from "../state/project-lock.ts";
+import type { LockSource } from "../state/project-lock.ts";
 import { canonicalSourceKey } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
@@ -34,7 +34,7 @@ import {
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
 import {
-  type LoadedProjectLock,
+  manifestOrUsage,
   projectLockPath,
   readProjectLock,
   sourceFromLock,
@@ -123,22 +123,6 @@ export const install: Command = {
     return code;
   },
 };
-
-// The manifest is committed and edited by teammates, so a shape error names the file and stops
-// the replay rather than installing the entries that happened to parse.
-function manifestOrUsage(lock: LoadedProjectLock): ProjectLock | null {
-  switch (lock.kind) {
-    case "absent":
-      return null;
-    case "parsed":
-      return lock.lock;
-    case "corrupt":
-      throw new MaximsError(
-        ExitCode.Usage,
-        `${lock.path} is not a valid manifest: ${lock.issues.join("; ")}`,
-      );
-  }
-}
 
 // Entries are planned against each other's names as STAGED; a rename answered at a prompt can
 // move a name after a sibling validated against it. The final batch is therefore checked once

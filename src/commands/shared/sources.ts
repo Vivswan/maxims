@@ -157,6 +157,7 @@ export type ResolveIncomingInput = {
   memories: readonly IncomingMemory[];
   select: Select;
   rename: RenameMap;
+  rule: boolean;
   cap: number;
   installed: readonly IndexedSource[];
 };
@@ -168,8 +169,10 @@ export type ResolveIncomingOutcome =
 
 // The dedupe walk and the cap check a source about to be recorded is judged by, the same ones
 // every sync runs: what is installed owns its names in installation order, the incoming memories
-// take theirs through the rename map, and the survivors are counted against the cap. The detail
-// path is a rendering concern the walk carries through untouched, so it is blank here.
+// take theirs through the rename map, and the survivors are counted against the cap. The cap
+// counts rule lines, so a source that publishes none is not measured against it, as the planner
+// measures it. The detail path is a rendering concern the walk carries through untouched, so it
+// is blank here.
 export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOutcome {
   const resolution = resolveSourceCandidates({
     source: input.source,
@@ -177,7 +180,7 @@ export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOut
     select: input.select,
     rename: input.rename,
     index: buildNameIndex(input.installed),
-    cap: input.cap,
+    cap: input.rule ? input.cap : Number.MAX_SAFE_INTEGER,
   });
   if (resolution.ok) return { ok: true, names: resolution.lines.map((line) => line.name) };
   if (resolution.code === ExitCode.NameCollision) {

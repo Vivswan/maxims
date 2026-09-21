@@ -18,7 +18,7 @@ npx -y @vivswan/maxims remove @Vivswan/skills                   # take it out of
 
 | verb | state | the lock |
 | --- | --- | --- |
-| `add -p` without `--share` | records the source, private; a re-add of a shared source records it private again | untouched by a private source; a re-added source leaves it |
+| `add -p` without `--share` | records the source, private; a lock-listed source is recorded shared, as `install` does | untouched by a private source; a listed source's entry follows the new intent |
 | `add -p --share` | records the source | gains the source |
 | `share <source>` | marks the source shared | gains the source |
 | `unshare <source>` | clears the mark; the source stays installed | loses the source |

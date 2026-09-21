@@ -183,6 +183,8 @@ export type IntentUpdate = {
 // after it leaves everything the next sync re-derives from. The state write is performed by the
 // store, not by `apply`, and is appended to the returned plan so --dry-run and --json show it. A
 // dry run never takes the lock: taking it would create the home directory, which is a write.
+// Sources are written in key order, the order the planner walks and re-serializes them in, so the
+// sync that follows finds nothing to rewrite.
 export async function updateIntent(
   home: string,
   dryRun: boolean,
@@ -197,20 +199,33 @@ export async function updateIntent(
       { kind: "write", path, content: writableState(update.state, path), mode: 0o600 },
     ],
   });
+  const compute = async (intent: Intent): Promise<IntentUpdate> => {
+    const update = await fn(intent);
+    return { ...update, state: withSortedSources(update.state) };
+  };
   if (dryRun) {
-    const update = await fn(await loadIntentFor(home, true));
+    const update = await compute(await loadIntentFor(home, true));
     const planned = withStateWrite(update);
     await apply({ changes: update.changes, notices: update.notices });
     return planned;
   }
   return withStateLock(home, "manual", async (lock) => {
     const intent = intentFrom(await lock.read(), path);
-    const update = await fn(intent);
+    const update = await compute(intent);
     const planned = withStateWrite(update);
     await apply({ changes: update.changes, notices: update.notices });
     await lock.write(update.state, WRITTEN_BY);
     return planned;
   });
+}
+
+function withSortedSources(state: State): State {
+  const sources: State["sources"] = {};
+  for (const key of Object.keys(state.sources).sort()) {
+    const entry = state.sources[key];
+    if (entry !== undefined) sources[key] = entry;
+  }
+  return { ...state, sources };
 }
 
 // The bytes about to be written are read back through the state parser first: a value that

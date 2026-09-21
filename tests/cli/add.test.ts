@@ -219,7 +219,7 @@ const nothingWritten: [string, string[], number, string, Record<string, string>]
   ],
   [
     "a source over the cap",
-    ["add", "@a/b", "-g", "-a", "codex", "--cap", "3"],
+    ["add", "@a/b", "-g", "-a", "codex", "--rule", "--cap", "3"],
     8,
     "@a/b would publish 4 rule lines, over the cap of 3",
     {},
@@ -321,6 +321,16 @@ test("--list prints every item, warns on ignored flags, and never writes or sync
     expect(run.stdout.endsWith("|\no  Run without --list to install\n\n")).toBe(true);
     expect(await snapshot(scenario.root)).toBe(before);
     expect(scenario.engine.calls.sync).toEqual([]);
+  });
+});
+
+// The cap counts rule lines, and a source installed without --rule publishes none.
+test("a source without --rule installs past the cap, since it publishes no rule lines", async () => {
+  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--cap", "3"]);
+    expect(run.stderr).toBe("");
+    expect(run.code).toBe(0);
+    expect(Object.keys(source(scenario, "@a/b").fetched?.memories ?? {})).toHaveLength(4);
   });
 });
 
@@ -621,6 +631,48 @@ test("a lock this machine has not replayed keeps the team's entries through a pr
   );
 });
 
+// A source the committed lock already lists is the team's: a plain `add -p` of it keeps the
+// entry, as `install` does, instead of recording it private and taking it out of the lock.
+test("add -p of a source the lock lists inherits the shared mark and leaves the lock as it is", async () => {
+  await withScenario({ project: true, github: { "acme/rules": SKILLS } }, async (scenario) => {
+    const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
+    mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
+    const team = JSON.stringify({
+      version: 1,
+      sources: {
+        "@acme/rules": {
+          from: { type: "github", repo: "acme/rules" },
+          select: "*",
+          rule: true,
+          harnesses: ["codex"],
+        },
+      },
+    });
+    writeFileSync(lockPath, team);
+    const run = await runCli(scenario, ["add", "@acme/rules", "-p", "-a", "codex", "--rule", "-y"]);
+    expect(run.stderr).toBe("");
+    expect(run.code).toBe(0);
+    expect(source(scenario, "@acme/rules").intent.shared).toBe(true);
+    expect(readFileSync(lockPath, "utf8")).toBe(team);
+    // A preview takes nothing over, so it reads no lock: an unreadable one does not stop it.
+    chmodSync(lockPath, 0o000);
+    try {
+      const listed = await runCli(scenario, ["add", "@acme/rules", "--list", "--no-fetch"]);
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain("Found 4 memories");
+    } finally {
+      chmodSync(lockPath, 0o644);
+    }
+    // A corrupt lock is refused before the fetch, not after the plan was shown.
+    writeFileSync(lockPath, "{");
+    const fetches = scenario.fetches.length;
+    const refused = await runCli(scenario, ["add", "@acme/rules", "-p", "-a", "codex", "-y"]);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("is not a valid manifest");
+    expect(scenario.fetches).toHaveLength(fetches);
+  });
+});
+
 test("share and unshare move a project source in and out of the lock, and the last unshare deletes it", async () => {
   await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
     const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
@@ -677,7 +729,7 @@ test("harness selection: detected first, then config.agents, then a global-less 
 test("--cooldown and --cap land in config.json and an explicit flag wins over the file", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     writeConfig(scenario, { ruleCap: 2 });
-    const capped = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"]);
+    const capped = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule"]);
     expect(capped.code).toBe(8);
     const raised = await runCli(scenario, [
       "add",
@@ -685,6 +737,7 @@ test("--cooldown and --cap land in config.json and an explicit flag wins over th
       "-g",
       "-a",
       "codex",
+      "--rule",
       "--cap",
       "10",
       "--cooldown",

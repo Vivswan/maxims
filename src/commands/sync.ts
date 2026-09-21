@@ -18,14 +18,15 @@ import type { EngineIo, SyncOptions, SyncReport } from "./types.ts";
 
 // The verb every other verb ends in. Under `--quiet` nothing here may throw or block: the run is
 // debounced, takes the lock without waiting, and any failure past the rungs the plan handles is
-// logged with its stack and swallowed, so a session start never sees a failing hook.
+// logged with its stack and swallowed, so a session start never sees a failing hook. A dry run
+// writes nothing, the crash line included.
 export async function runSync(options: SyncOptions, io: EngineIo): Promise<SyncReport> {
   try {
     return await runSyncChecked(options, io);
   } catch (error) {
     const reported = reportedUnderJson(error, io, options.json);
     if (options.quiet) {
-      await logCrash(io, error);
+      if (!options.dryRun) await logCrash(io, error);
       return EMPTY_REPORT;
     }
     throw reported;

@@ -187,24 +187,25 @@ function findVerb(name: string): VerbEntry | undefined {
 export async function main(argv: readonly string[], deps: CliDeps): Promise<number> {
   const io = deps.io;
   const invocation = scan(argv);
-  if (invocation.version) {
-    io.stdout.write(`maxims ${VERSION}\n`);
-    return ExitCode.Ok;
-  }
-  const entry = invocation.verb === null ? undefined : findVerb(invocation.verb);
   const { quiet, json, dryRun } = invocation;
+  const print = (plain: string, body: Record<string, unknown>): number => {
+    io.stdout.write(json ? `${JSON.stringify({ ok: true, ...body }, null, 2)}\n` : plain);
+    return ExitCode.Ok;
+  };
+  if (invocation.version) return print(`maxims ${VERSION}\n`, { version: VERSION });
+  const entry = invocation.verb === null ? undefined : findVerb(invocation.verb);
   const failure: FailureContext = { io, quiet, json, dryRun, verb: invocation.verb ?? "maxims" };
   if (invocation.help) {
-    io.stdout.write(await helpText(entry));
-    return ExitCode.Ok;
+    const help = await helpText(entry);
+    return print(help, { help });
   }
   if (invocation.verb === null) {
     const unknown = invocation.rest.find((word) => !GLOBAL_WORDS.has(word));
     if (unknown !== undefined) {
       return reportFailure(usage(`unknown option: ${unknown}`, { hint: STRINGS.runHelp }), failure);
     }
-    io.stdout.write(await helpText(undefined));
-    return ExitCode.Ok;
+    const help = await helpText(undefined);
+    return print(help, { help });
   }
   if (entry === undefined) {
     return reportFailure(

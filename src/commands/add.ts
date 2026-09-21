@@ -76,7 +76,7 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import { insideProject, projectLockChange } from "./shared/project-lock-io.ts";
+import { insideProject, listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import {
   detectedHarnesses,
@@ -154,7 +154,7 @@ export const add: Command = {
   arity: 1,
   flags: ADD_FLAGS,
   async run(args, ctx) {
-    const request = parseAddRequest(args, ctx);
+    const request = await parseAddRequest(args, ctx);
     const yes = args.flag(FLAGS.yes) || args.flag(FLAGS.all) || ctx.config.yes === true;
     const console = await ctx.openConsole(yes);
     console.intro();
@@ -247,7 +247,7 @@ export function hookWanted(from: SourceFrom, wanted: boolean): boolean {
   return wanted && !(from.type === "local" && from.live === true);
 }
 
-export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
+export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<AddRequest> {
   const { io, config } = ctx;
   const sourceArg = args.positionals[0];
   if (sourceArg === undefined) throw usage(STRINGS.missingSource);
@@ -278,12 +278,16 @@ export function parseAddRequest(args: Args, ctx: CommandContext): AddRequest {
     (io.projectRoot !== null && from.type !== "local"
       ? { scope: "project", root: io.projectRoot }
       : { scope: "global" });
-  const shared = args.flag(FLAGS.share);
-  if (shared && destination.scope !== "project") {
+  if (args.flag(FLAGS.share) && destination.scope !== "project") {
     throw usage("--share applies to a project install; drop -g or -o", {
       hint: "the project lock holds project-scope sources only",
     });
   }
+  // A source the team's lock lists stays the team's: the mark is inherited, as `install` sets it.
+  // A `--list` takes nothing over, so it reads no lock.
+  const shared =
+    destination.scope === "project" &&
+    (args.flag(FLAGS.share) || (!list && (await listedInLock(destination.root, from))));
   if (shared && destination.scope === "project") assertShareable(from, destination.root);
   const explicitSelect = parseSelect(args);
   let select: Select = explicitSelect ?? "*";
@@ -804,6 +808,7 @@ async function validate(
       })),
       select: "*",
       rename,
+      rule: request.rule,
       cap: request.cap,
       installed,
     });

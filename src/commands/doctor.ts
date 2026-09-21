@@ -28,7 +28,7 @@ import {
   tildify,
 } from "./shared/sources.ts";
 
-type Finding = { level: "ok" | "warn" | "fail"; text: string };
+type Finding = { kind: "ok" | "warn" | "fail"; text: string };
 
 // What the preamble a rules-dir writer puts before the block is for, when the file lacks it: the
 // harness loads the file only on demand (`always-on`), or loads it for every file instead of the
@@ -65,14 +65,14 @@ export const doctor: Command = {
   async run(args, ctx) {
     const { io } = ctx;
     const { state, notices } = await peekIntent(io.home);
-    const findings: Finding[] = notices.map((text) => ({ level: "warn", text }));
+    const findings: Finding[] = notices.map((text) => ({ kind: "warn", text }));
     const unresolved = unresolvedHarnessIds(state, io.harnesses);
-    for (const id of unresolved) findings.push({ level: "warn", text: notDefinedHere(id) });
+    for (const id of unresolved) findings.push({ kind: "warn", text: notDefinedHere(id) });
     for (const [key, entry] of Object.entries(state.sources)) {
       const { destination } = entry.intent;
       if (destination.scope === "project" && pathAbsent(destination.root)) {
         findings.push({
-          level: "warn",
+          kind: "warn",
           text: `${key}: project folder ${destination.root} is missing`,
         });
       }
@@ -95,14 +95,15 @@ export const doctor: Command = {
     const lastSync = lastSyncAge(io.home, io.now());
     findings.push(
       lastSync === null
-        ? { level: "warn", text: "never synced" }
-        : { level: "ok", text: `last sync ${lastSync}` },
+        ? { kind: "warn", text: "never synced" }
+        : { kind: "ok", text: `last sync ${lastSync}` },
     );
     const defaults = `Defaults: rule=${ctx.config.rule === true} addHook=${ctx.config.addHook === true}`;
-    const failed = findings.some((finding) => finding.level === "fail");
+    const failed = findings.some((finding) => finding.kind === "fail");
     if (ctx.global.json) {
       const body = {
         ok: !failed,
+        findings,
         harnesses: reports,
         unresolved,
         expect: expects,
@@ -111,8 +112,7 @@ export const doctor: Command = {
       };
       io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
     } else if (!ctx.global.quiet) {
-      for (const finding of findings)
-        io.stdout.write(`${symbol(finding.level)}  ${finding.text}\n`);
+      for (const finding of findings) io.stdout.write(`${symbol(finding.kind)}  ${finding.text}\n`);
       io.stdout.write(`${defaults}\n`);
     }
     return failed ? ExitCode.Usage : ExitCode.Ok;
@@ -130,8 +130,8 @@ function unresolvedHarnessIds(state: State, defs: readonly HarnessDefinition[]):
   return [...named].filter((id) => !known.has(id)).sort();
 }
 
-function symbol(level: Finding["level"]): string {
-  return level === "ok" ? "ok" : level === "warn" ? "! " : "x ";
+function symbol(kind: Finding["kind"]): string {
+  return kind === "ok" ? "ok" : kind === "warn" ? "! " : "x ";
 }
 
 // A harness is checked at every scope some intent names it for; a harness nothing names here is
@@ -232,27 +232,27 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
         def.targets[report.scope]?.kind === "shared-block"
           ? `${shown} has no block for ${file.source}`
           : `${shown} is missing`;
-      findings.push({ level: "fail", text: `${prefix} ${what}` });
+      findings.push({ kind: "fail", text: `${prefix} ${what}` });
     } else if (file.preamble !== null && !file.preamble.ok) {
       findings.push({
-        level: "fail",
+        kind: "fail",
         text:
           file.preamble.lost === "always-on"
             ? `${prefix} ${shown} lacks the frontmatter ${def.displayName} needs to load it every session`
             : `${prefix} ${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`,
       });
-    } else findings.push({ level: "ok", text: `${prefix} ${shown}` });
+    } else findings.push({ kind: "ok", text: `${prefix} ${shown}` });
   }
   if (report.hook === "current") {
-    findings.push({ level: "ok", text: `${prefix} SessionStart hook current` });
+    findings.push({ kind: "ok", text: `${prefix} SessionStart hook current` });
   }
   if (report.hook === "missing") {
     findings.push({
-      level: "fail",
+      kind: "fail",
       text: `${prefix} hook missing (run maxims add <source> --add-hook)`,
     });
   }
-  if (report.tier === 2) findings.push({ level: "warn", text: `${prefix} tier 2 on this machine` });
+  if (report.tier === 2) findings.push({ kind: "warn", text: `${prefix} tier 2 on this machine` });
   return findings;
 }
 
@@ -323,9 +323,9 @@ function hasRuleLine(
 }
 
 function expectFinding(report: ExpectReport): Finding {
-  if (report.met) return { level: "ok", text: `expect ${report.name}: rule line in place` };
+  if (report.met) return { kind: "ok", text: `expect ${report.name}: rule line in place` };
   const where = report.checked === 0 ? "any rule-writing source" : report.missing.join(", ");
-  return { level: "fail", text: `expect ${report.name}: no rule line in ${where}` };
+  return { kind: "fail", text: `expect ${report.name}: no rule line in ${where}` };
 }
 
 function lastSyncAge(home: string, now: Date): string | null {

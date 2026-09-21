@@ -59,6 +59,7 @@ import {
 } from "./rules.ts";
 import { disabledNames, inSelect, renamed, selectMemories } from "./select.ts";
 import { sourceSlug } from "./slug.ts";
+import { findSourceKey } from "./sources.ts";
 
 export type ScopeKind = SourceIntent["destination"]["scope"];
 
@@ -869,13 +870,15 @@ async function refreshAll(
 }
 
 // A lock entry is installed here when state holds it for this project (or the user), not merely
-// for some other checkout.
+// for some other checkout. A teammate's `@Acme/rules` is this machine's `@acme/rules`, the same
+// identity the lock merge uses.
 export function installedHere(
   state: State,
   key: string,
   ctx: { projectRoot: string | null },
 ): boolean {
-  const entry = state.sources[key];
+  const recorded = findSourceKey(state, key);
+  const entry = recorded === null ? undefined : state.sources[recorded];
   return entry !== undefined && actsHere(entry, ctx);
 }
 
