@@ -1,9 +1,10 @@
 // What would drift silently: a rule file whose bytes make the block scanner THROW, report lines
 // that do not partition the file, find a block whose span does not start and end on its own
-// markers, lose the user's bytes around an appended block, fail to strip what it just appended, or
-// go quadratic on a large file; the name index throwing on odd names or timestamps or handing a
-// name to a later installer. Every rule file is one the user also edits by hand, so the scanner must answer for
-// any bytes it finds there.
+// markers, deal a shared file's blocks out of source order, move the user's bytes between them,
+// fail to hand the file back after stripping what it added, or go quadratic on a large file; the
+// name index throwing on odd names or timestamps or handing a name to a later installer. Every
+// rule file is one the user also edits by hand, so the scanner must answer for any bytes it finds
+// there.
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
@@ -16,6 +17,7 @@ import {
   stripBlock,
 } from "../../src/rulefile/block.ts";
 import { buildNameIndex, compareInstalled, type IndexedSource } from "../../src/rulefile/dedupe.ts";
+import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
@@ -84,11 +86,12 @@ const FILE_PIECES = [
 ];
 
 // Whole blocks for this and other sources, duplicates included, between user lines, unterminated
-// begins and fence openers: the shapes that reach the span, duplicate and round-trip assertions,
-// which random fragments almost never assemble.
+// begins and fence openers: the shapes that reach the span, duplicate and deal assertions, which
+// random fragments almost never assemble. `@Vivswan/skills` sorts before this source (an upper-case
+// code unit is lower), so the dealt block lands in a middle or last slot as well as the first.
 const blockFor = fc
   .tuple(
-    fc.constantFrom(SOURCE, "@other/source", "@third/one#v2"),
+    fc.constantFrom(SOURCE, "@Vivswan/skills", "@other/source", "@third/one#v2"),
     fc.stringMatching(/^[0-9a-f]{7}$/),
   )
   .map(
@@ -168,28 +171,131 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// Appending never touches the user's bytes and leaves exactly one block for the source; when the
-// file ended on a line ending with no block left open, stripping hands the user's bytes back.
+type Pair = { key: string; start: number; end: number };
+
+// Every well-formed pair in document order, a hand-duplicated source's later pairs included,
+// restated from the marker grammar: `parseBlocks` reports one block per source, but the writers
+// keep a slot for every pair, so the model of them needs all of the pairs.
+function pairsOf(text: string): Pair[] {
+  const pairs: Pair[] = [];
+  let begin: { key: string; start: number } | null = null;
+  for (const line of markdownLines(text)) {
+    if (line.kind !== "comment") continue;
+    const opened = /^<!-- maxims:begin (.+) sha=\S+ -->$/s.exec(line.text);
+    if (opened !== null) {
+      begin = { key: opened[1], start: line.start };
+      continue;
+    }
+    if (!/^<!-- maxims:end .+ -->$/s.test(line.text)) continue;
+    if (begin !== null && line.text === `<!-- maxims:end ${begin.key} -->`) {
+      pairs.push({ key: begin.key, start: begin.start, end: line.end });
+    }
+    begin = null;
+  }
+  return pairs;
+}
+
+type Block = { key: string; text: string };
+type Slotted = { gaps: string[]; blocks: Block[] };
+
+// The bytes between a file's pairs, prefix and suffix included, and the pairs' own bytes.
+function slotted(text: string): Slotted {
+  const gaps: string[] = [];
+  const blocks: Block[] = [];
+  let cursor = 0;
+  for (const pair of pairsOf(text)) {
+    gaps.push(text.slice(cursor, pair.start));
+    blocks.push({ key: pair.key, text: text.slice(pair.start, pair.end) });
+    cursor = pair.end;
+  }
+  gaps.push(text.slice(cursor));
+  return { gaps, blocks };
+}
+
+// The order and closing the contract states, spelled without the comparator or the writer under
+// test: keys by code unit ascending, a tie in document order, and one LF closing every block.
+function byKey(blocks: readonly Block[]): Block[] {
+  return [...blocks].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+function closedWithLf(block: Block): Block {
+  return { key: block.key, text: `${block.text.replace(/(\r\n|\r|\n)$/, "")}\n` };
+}
+
+// The deal: the gaps stay where they were, the blocks fill the slots between them by key, and
+// one block more than there are slots opens a slot after the last one, behind an LF blank line.
+function dealt(gaps: readonly string[], blocks: readonly Block[]): string {
+  const slots = gaps.length - 1;
+  let text = "";
+  byKey(blocks).forEach((block, index) => {
+    text += `${index < slots ? gaps[index] : "\n"}${closedWithLf(block).text}`;
+  });
+  return text + gaps[slots];
+}
+
+function isStrayRefusal(error: unknown): boolean {
+  return error instanceof MaximsError && error.code === ExitCode.DestinationWriteFailed;
+}
+
+// A removal is refused only when closing a slot joins two gaps into text that pairs the user's
+// stray markers or opens a fence, a raw HTML block or a link reference definition over a kept
+// block. Each of those needs one of these code units in a gap; over gaps without any, a refusal
+// is a defect.
+const JOIN_CAN_OPEN = /[<`~[]/;
+
+// Both writers are held to the deal above. A replacement leaves every byte outside the pairs
+// where it was and deals the blocks by key; removing the block it added hands back the file
+// dealt without it, which is the file itself once its blocks stood in key order, each closed with
+// LF. A file with no pair is appended to behind its own bytes, and stripping restores it when it
+// ended on a line ending with no block left open. Removing a block the user's stray markers
+// surround may be refused, never answered with a plain throw.
 test(
-  "replaceBlock keeps the user's text and stripBlock removes what it appended",
+  "replaceBlock deals the blocks by source over the user's bytes and stripBlock hands them back",
   async () => {
     await fuzz("replaceBlock and stripBlock", fileText, (before) => {
-      const hadBlock = parseBlocks(before).blocks.some((block) => block.source === SOURCE);
-      const untouched = outcome(() => stripBlock(before, SOURCE));
-      if (untouched.kind === "threw") throw new Error(`threw ${describeError(untouched.error)}`);
-      if (!hadBlock) expect(untouched.value).toEqual({ text: before, emptied: false });
+      const pairs = pairsOf(before);
+      const firstPerKey = pairs.filter(
+        (pair, index) => pairs.findIndex((other) => other.key === pair.key) === index,
+      );
+      expect(
+        parseBlocks(before).blocks.map(({ source, start, end }) => ({ key: source, start, end })),
+      ).toEqual(firstPerKey);
+      const { gaps, blocks } = slotted(before);
+      const own = blocks.findIndex((block) => block.key === SOURCE);
 
-      const appended = outcome(() => replaceBlock(before, SOURCE, BLOCK));
-      if (appended.kind === "threw") throw new Error(`threw ${describeError(appended.error)}`);
-      const after = appended.value;
-      const found = parseBlocks(after).blocks.filter((block) => block.source === SOURCE);
-      expect(found).toHaveLength(1);
-      if (hadBlock) return;
-      expect(after.startsWith(before)).toBe(true);
-      const terminated = before === "" || /[\r\n]$/.test(before);
-      if (terminated && scanLines(before).open === null) {
-        expect(stripBlock(after, SOURCE).text).toBe(before);
+      const stripped = outcome(() => stripBlock(before, SOURCE));
+      if (stripped.kind === "threw") {
+        const refusable = own !== -1 && gaps.some((gap) => JOIN_CAN_OPEN.test(gap));
+        if (!refusable || !isStrayRefusal(stripped.error)) {
+          throw new Error(`threw ${describeError(stripped.error)}`);
+        }
+      } else if (own === -1) {
+        expect(stripped.value).toEqual({ text: before, emptied: false });
+      } else {
+        const kept = blocks.filter((_, index) => index !== own);
+        expect(slotted(stripped.value.text).blocks).toEqual(byKey(kept).map(closedWithLf));
+        expect(stripped.value.emptied).toBe(stripped.value.text.trim() === "");
       }
+
+      const replaced = outcome(() => replaceBlock(before, SOURCE, BLOCK));
+      if (replaced.kind === "threw") throw new Error(`threw ${describeError(replaced.error)}`);
+      const after = replaced.value;
+      expect(parseBlocks(after).blocks.filter((block) => block.source === SOURCE)).toHaveLength(1);
+      if (blocks.length === 0) {
+        expect(after.startsWith(before)).toBe(true);
+        const terminated = before === "" || /[\r\n]$/.test(before);
+        if (terminated && scanLines(before).open === null) {
+          expect(stripBlock(after, SOURCE).text).toBe(before);
+        }
+        return;
+      }
+      const fresh = { key: SOURCE, text: BLOCK };
+      const contents =
+        own === -1
+          ? [...blocks, fresh]
+          : blocks.map((block, index) => (index === own ? fresh : block));
+      expect(after).toBe(dealt(gaps, contents));
+      if (own === -1) expect(stripBlock(after, SOURCE).text).toBe(dealt(gaps, blocks));
     });
   },
   PROPERTY_TIMEOUT_MS,
