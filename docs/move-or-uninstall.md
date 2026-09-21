@@ -31,7 +31,7 @@ State carries the intent, so a backup of your intent and configuration is a copy
 
 1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses. Without that file a source naming one in `intent.harnesses` restores nothing for it, every `sync` prints the line below instead, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns the way out:
    ```text
-   maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
+   !  maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
    ```
 2. Edit the old machine's absolute paths by hand: the key and `intent.from.path` of every local source, the `path` of every `out` destination, the `root` of every `project` destination, and each project root under `disabled.project` and `hooks.project`.
 3. Run `npx -y @vivswan/maxims sync`; the [failure paths](guarantees.md#failure-paths) own the refetch of a missing store copy, and the [verb table](cli.md#verbs) owns what a sync writes.

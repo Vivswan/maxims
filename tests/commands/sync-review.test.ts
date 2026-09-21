@@ -105,7 +105,7 @@ describe("a reviewed source", () => {
         "+ new-rule",
       ]);
       expect(fetchedAt(w.home)).toBe(now);
-      expect(io.out.join("")).toBe(`${heldForReview(KEY, 2)}\n`);
+      expect(io.out.join("")).toBe(`!  ${heldForReview(KEY, 2)}\n`);
       const log = readFileSync(homePaths(w.home).log, "utf8");
       expect(log).toContain(`${KEY}: held + new-rule\n`);
       expect(log).toMatch(/@acme\/rules: held ~ always-review \([0-9a-f]{7} -> [0-9a-f]{7}\)\n/);
@@ -147,7 +147,7 @@ describe("a reviewed source", () => {
       expect(fake.calls).toEqual([`resolveRef ${KEY}`]);
       expect(third.held).toEqual([KEY]);
       expect(third.upstreamChanges).toEqual({ [KEY]: ["+ third-rule"] });
-      expect(io.out.join("")).toBe(`${heldForReview(KEY, 1)}\n`);
+      expect(io.out.join("")).toBe(`!  ${heldForReview(KEY, 1)}\n`);
       expect(readFileSync(homePaths(w.home).state, "utf8")).toBe(stateBytes);
       fake.set(FROM, { kind: "dir", dir: a });
       fake.calls.length = 0;

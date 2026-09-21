@@ -173,7 +173,6 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
     expect(redact(warnings.join("\n"), installed, home)).toBe(
       [
         '!  README.md is not a memory: filename stem "README" is not kebab-case',
-        "!  maxims: <SOURCE>: 1 internal, hidden",
         "!  ~N tokens in <HOME>/.claude/rules/maxims-<SLUG>.md",
         "!  ~N tokens in <HOME>/.codex/AGENTS.md",
         "!  maxims: registered the maxims hook in <HOME>/.claude/settings.json",
@@ -233,13 +232,12 @@ test("3a: a second sync changes nothing but the stamp and the log; a quiet one s
     ok(await runMaxims(bundle, home, ["sync"]));
     const before = homeSnapshot(home);
     const second = ok(await runMaxims(bundle, home, ["sync"]));
-    expect(redact(second.stdout, installed, home)).toBe(
-      "maxims: <SOURCE>: 1 internal, hidden\no  Up to date: 1 memory, 2 rule lines\n",
-    );
+    expect(redact(second.stdout, installed, home)).toBe("o  Up to date: 1 memory, 1 rule line\n");
     expect(homeSnapshot(home)).toEqual(before);
 
-    // Past the debounce window the hook run does its work: it stamps and logs, and prints nothing
-    // into the session it was started from.
+    // Past the debounce window the hook run does its work: it stamps, has nothing to log since
+    // nothing changed and nothing was fetched, and prints nothing into the session it was started
+    // from.
     withoutStamp(home);
     const bare = snapshot(home.root);
     const quiet = ok(
@@ -248,7 +246,7 @@ test("3a: a second sync changes nothing but the stamp and the log; a quiet one s
       }),
     );
     expect(quiet.stdout).toBe("");
-    expect(touched(bare, snapshot(home.root))).toEqual([...SYNC_TOUCHES].sort());
+    expect(touched(bare, snapshot(home.root))).toEqual([".agents/maxims/last-sync"]);
     expect(homeSnapshot(home)).toEqual(before);
   });
 });

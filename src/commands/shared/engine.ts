@@ -378,7 +378,6 @@ async function planInstall(
   // this run, the block is kept and the harness counted among the readers, since a file is
   // written whole and judged against every reader's budget.
   const retained: { key: string; target: HarnessTarget }[] = [];
-  let rules = 0;
   let memories = 0;
 
   for (const work of works) {
@@ -392,7 +391,9 @@ async function planInstall(
       detailPath: () => "",
     });
     memories += selection.selected.length;
-    if (selection.hiddenInternal > 0) {
+    // Said with the fetch that brought the memories in, never repeated by a run that fetched
+    // nothing: an interactive sync and the log would otherwise carry it every run.
+    if (selection.hiddenInternal > 0 && refreshed.freshTrees.has(key)) {
       notices.notice(`maxims: ${key}: ${selection.hiddenInternal} internal, hidden`);
     }
     for (const memory of work.tree.memories) knownCopies.add(memory.memory.contentHash);
@@ -520,7 +521,6 @@ async function planInstall(
           ? request.file.path
           : (request.file.targets[0]?.realKey ?? request.file.path);
       files.set(fileKey, request.file);
-      rules += request.lines.length;
       request.file.blocks.push({
         key,
         sha: work.sha,
@@ -630,20 +630,25 @@ async function planInstall(
     const message = `${key} is ${error.size - error.budget} bytes over the budget for ${error.path}`;
     const hint = `${error.hint}, or keep ${key} off ${error.displayName} with maxims unlink ${key} -a ${error.harnessId}`;
     const said = new Notices();
-    said.loud(`x  ${message}`);
-    said.loud(`   ${hint}`);
+    said.loud(message);
+    said.loud(hint);
     refuse(key, said, { code: error.code, message, hint });
     builder.drop(key);
     for (const dir of dirsByKey.get(key) ?? []) unsweepable.add(dir);
     for (const each of files.values()) {
       for (const block of each.blocks) {
-        if (block.key !== key) continue;
-        keepBlock(key, fileIdentity(each));
-        rules -= block.lines.length;
+        if (block.key === key) keepBlock(key, fileIdentity(each));
       }
       each.blocks = each.blocks.filter((block) => block.key !== key);
     }
   }
+  // What the admitted sources publish: a source's lines are counted once, however many files
+  // carry them, so the count reads as memories with a rule line, not as files times memories.
+  const linesByKey = new Map<string, number>();
+  for (const file of files.values()) {
+    for (const block of file.blocks) linesByKey.set(block.key, block.lines.length);
+  }
+  const rules = [...linesByKey.values()].reduce((sum, count) => sum + count, 0);
   builder.add(
     "removal",
     planRulesDirSweep({
@@ -1434,7 +1439,7 @@ function resolutionFailure(
     const names = resolution.collisions.map((collision) => collision.name).join(", ");
     for (const collision of resolution.collisions) {
       said.notice(
-        `x  ${collision.name} is owned by ${collision.ownedBy}; run maxims add ${key} --rename ${collision.name}=<new>`,
+        `${collision.name} is owned by ${collision.ownedBy}; run maxims add ${key} --rename ${collision.name}=<new>`,
       );
     }
     return {
@@ -1447,8 +1452,8 @@ function resolutionFailure(
     };
   }
   const message = `${key}: ${resolution.count} rule lines exceed the cap of ${resolution.cap}`;
-  said.notice(`x  ${message}`);
-  said.notice(`   ${resolution.hint}`);
+  said.notice(message);
+  said.notice(resolution.hint);
   return { said, failure: { code: resolution.code, message, hint: resolution.hint } };
 }
 

@@ -367,8 +367,8 @@ row(
       expect(manual.stderr).toBe("");
       expect(manual.stdout.split("\n")).toEqual(
         expect.arrayContaining([
-          `x  ${key}: 26 rule lines exceed the cap of 25`,
-          `   ${CAP_HINT.slice("Tip: ".length, -1)}`,
+          `!  ${key}: 26 rule lines exceed the cap of 25`,
+          `!  ${CAP_HINT.slice("Tip: ".length, -1)}`,
         ]),
       );
       expect(readFileSync(rule, "utf8")).toBe(before);
@@ -464,14 +464,18 @@ row.each(zeroValidRows)(
       expect(readFileSync(rule, "utf8")).toBe(before);
       expect(storeSnapshot(world.home)).toEqual(store);
       expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("invalid");
+      // A hook run speaks bare lines in its harness's protocol; an interactive run draws the frame.
+      const glyph = quiet ? "" : "!  ";
       const lines = result.stdout.split("\n");
       expect(lines.filter((line) => line.includes("no valid memories"))).toEqual([
-        `maxims: ${key}: no valid memories at memories (layout probably changed upstream); kept last-good`,
+        `${glyph}maxims: ${key}: no valid memories at memories (layout probably changed upstream); kept last-good`,
       ]);
       expect(lines.filter((line) => line.includes("skipped memories/README.md"))).toEqual(
         quiet
           ? []
-          : [`${key}: skipped memories/README.md: filename stem "README" is not kebab-case`],
+          : [
+              `${glyph}${key}: skipped memories/README.md: filename stem "README" is not kebab-case`,
+            ],
       );
     });
   },

@@ -25,8 +25,8 @@ npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 **What you see:** the run names the newest source in the file and how many bytes over the budget it is, with exit 8. That source is held and every other source in the file refreshes; when the file is still over, the next newest is held too. The `byte budget` column of the [harness matrix](harnesses.md#the-matrix) shows which harnesses have one.
 
 ```text
-x  @you/notes is 716 bytes over the budget for /home/user/AGENTS.md
-   narrow the install with --memory or split the source, or keep @you/notes off DeepSeek Harness with maxims unlink @you/notes -a dsh
+!  @you/notes is 716 bytes over the budget for /home/user/AGENTS.md
+!  narrow the install with --memory or split the source, or keep @you/notes off DeepSeek Harness with maxims unlink @you/notes -a dsh
 ```
 
 **What it means:** the harness loads at most that many bytes, so a larger file would lose rules silently; maxims holds a source rather than truncate. A held source keeps the rules it had on disk. The [DeepSeek Harness catch](harnesses.md#per-harness-catches) is the case that set the rule.
@@ -146,7 +146,7 @@ The second variable drops a models.dev refresh the namespace could not serve; th
 **What you see:** a terminal `sync` prints this line at every run and skips that harness, `@Vivswan/skills` being the source and `my-harness` the id from `<MAXIMS_HOME>/harnesses.json`; `list` shows the same reason under the source. The [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
 
 ```text
-maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
+!  maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
 ```
 
 **What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records it.

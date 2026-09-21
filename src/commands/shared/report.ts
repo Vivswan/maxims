@@ -115,7 +115,9 @@ function printOutcome(
     io.stdout(renderPlan(outcome.plan));
     return;
   }
-  for (const line of outcome.notices.user) io.stdout(`${line}\n`);
+  // The engine's notices are the frame's warnings, glyph included, so a sync that refreshed
+  // reads like the update that printed the same lines.
+  for (const line of outcome.notices.user) io.stdout(`!  ${line}\n`);
   if (options.verb !== "sync") return;
   if (changed) io.stdout(`${summaryLine(report)}\n`);
   else if (upToDate(outcome, report)) io.stdout(`o  Up to date: ${installedCounts(report)}\n`);

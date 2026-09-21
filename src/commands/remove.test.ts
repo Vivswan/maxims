@@ -94,10 +94,10 @@ describe("remove", () => {
       // The removal is the verb's whole report; an installed count is the sync verb's line.
       expect(io.out.join("")).toBe(
         "o  Memories to remove:\n   - always-review\n   - keep-tests-green\n" +
-          `maxims: removed the maxims hook from ${join(userHome, ".fixture", "settings.json")}\n` +
-          "Removed 2 memories\n",
+          `!  maxims: removed the maxims hook from ${join(userHome, ".fixture", "settings.json")}\n` +
+          "o  Removed 2 memories\n",
       );
-      expect(report.notices).toContain("Removed 2 memories");
+      expect(report.notices).not.toContain("Removed 2 memories");
       expect(readFileSync(shared, "utf8")).toBe("# Mine\n\nKeep this.\n");
       expect(existsSync(join(userHome, ".fixture", "rules"))).toBe(false);
       expect(readFileSync(join(userHome, ".fixture", "settings.json"), "utf8")).not.toContain(
@@ -164,11 +164,13 @@ describe("remove", () => {
       );
       expect(treeDigest(userHome)).toBe(digest);
       // A memory named with its source narrows exactly that source.
+      io.out.length = 0;
       const report = await runRemove(
         { ...REMOVE, targets: [{ source: third, memory: memoryName("shared") }] },
         io,
       );
-      expect(report.notices).toContain("Removed 1 memory");
+      expect(report.notices).not.toContain("Removed 1 memory");
+      expect(io.out.join("")).toContain("o  Removed 1 memory\n");
       const after = readStateFile(home);
       expect(after.sources[third]).toBeUndefined();
       expect(after.sources[first]?.intent.select).toBe("*");
@@ -537,10 +539,13 @@ describe("remove", () => {
       )}\n`;
       mkdirSync(join(project, ".agents"), { recursive: true });
       writeFileSync(lockPath, lockBefore);
-      await runRemove({ ...REMOVE, targets: [none, some], agents: ["codex"] }, io);
+      const report = await runRemove({ ...REMOVE, targets: [none, some], agents: ["codex"] }, io);
       const state = readStateFile(home);
       expect(Object.keys(state.sources)).toEqual([none]);
       expect(io.out.join("")).toContain(`!  ${none} is not installed for codex\n`);
+      // A harness drop is reported by what left, never as a count of memories.
+      expect(io.out.join("")).toContain(`o  Removed ${some} from codex\n`);
+      expect(report.notices.filter((line) => line.startsWith("Removed"))).toEqual([]);
       expect(readFileSync(lockPath, "utf8")).toBe(lockBefore);
     });
   });

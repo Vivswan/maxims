@@ -13,10 +13,9 @@ o  Memories to install
 |      The dotfiles spelling of the merge gate rule, colliding with the skills
 |      one by name
 |
-o  Installed 1 memory, 2 rule lines (~N tokens)
+o  Installed 1 memory, 1 rule line (~N tokens)
 o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
 o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
-!  maxims: <SOURCE>: 1 internal, hidden
 !  ~N tokens in <HOME>/.claude/rules/maxims-<SLUG>.md
 !  ~N tokens in <HOME>/.codex/AGENTS.md
 !  maxims: registered the maxims hook in <HOME>/.claude/settings.json

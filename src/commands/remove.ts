@@ -84,8 +84,17 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
         removedCopies: removal.removedCopies,
       },
     );
-    outcome.notices.notice(`Removed ${countOf(removal.labels.length, "memory", "memories")}`);
-    return finishSync(outcome, ctx, io, { ...options, verb: "remove" });
+    const report = await finishSync(outcome, ctx, io, { ...options, verb: "remove" });
+    // A harness drop is reported by what left: each label names the source and the harness,
+    // whether or not the source itself went with its last harness.
+    if (!options.dryRun) {
+      if (options.agents === undefined) {
+        step(`Removed ${countOf(removal.labels.length, "memory", "memories")}`);
+      } else {
+        for (const label of removal.labels) step(`Removed ${label}`);
+      }
+    }
+    return report;
   };
   // A dry run reads without the lock and settles nothing, like a listing.
   if (options.dryRun) {

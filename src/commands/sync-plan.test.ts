@@ -56,7 +56,7 @@ import { runSync } from "./sync.ts";
 import type { SyncOptions } from "./types.ts";
 
 function heldLines(key: string, over: number, path: string): string[] {
-  return [`x  ${key} is ${over} bytes over the budget for ${path}`, `   ${heldHint(key)}`];
+  return [`${key} is ${over} bytes over the budget for ${path}`, heldHint(key)];
 }
 
 describe("plan surfaces", () => {
@@ -438,7 +438,9 @@ describe("shared file byte budget", () => {
     return span === undefined ? "" : text.slice(span.start, span.end);
   };
   const holdLines = (notices: string[]) =>
-    notices.filter((line) => line.startsWith("x  ") || line.startsWith("   narrow"));
+    notices.filter(
+      (line) => line.includes(" bytes over the budget for ") || line.startsWith("narrow"),
+    );
 
   test("the budget is judged on the finished file, not on the text between two block replacements", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -720,8 +722,8 @@ describe("shared file byte budget", () => {
       await expectExit(runSync({ ...SYNC, json: true }, io), ExitCode.RuleCapExceeded);
       const document = JSON.parse(io.out.join(""));
       const heldKeys = holdLines(document.report.notices)
-        .filter((line) => line.startsWith("x  "))
-        .map((line) => line.slice("x  ".length, line.indexOf(" is ")));
+        .filter((line) => line.includes(" is "))
+        .map((line) => line.slice(0, line.indexOf(" is ")));
       expect(heldKeys).toEqual([charlie, bravo]);
       expect(blockKeys(file)).toEqual([alpha]);
       // The control: the same two codex sources with no dsh reader in the file are written.

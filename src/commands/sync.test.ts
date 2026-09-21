@@ -59,6 +59,23 @@ import { sourceSlug } from "./shared/slug.ts";
 import { runSync } from "./sync.ts";
 
 describe("idempotency and convergence", () => {
+  // Two harnesses each hold the source's two lines in their own file; the count is what the
+  // source publishes, not how many files carry it.
+  test("the summary counts a source's rule lines once however many files carry them", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source), { harnesses: ["claude-code", "codex"] });
+      writeState(home, stateWith({ [source]: entry }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      const first = await runSync(SYNC, io);
+      expect([first.memories, first.rules]).toEqual([2, 2]);
+      io.out.length = 0;
+      io.clock.now = new Date(NOW.getTime() + 1000);
+      await runSync(SYNC, io);
+      expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
+    });
+  });
+
   test("the second sync plans nothing and leaves every file, and state, untouched", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
@@ -216,8 +233,16 @@ describe("idempotency and convergence", () => {
       rmSync(join(memories, "keep-tests-green.md"));
       fake.set(from, { kind: "dir", dir: upstream, sha: "b".repeat(40) });
       io.clock.now = new Date(NOW.getTime() + 10 * DAY_MS);
+      io.out.length = 0;
       const report = await runSync(SYNC, io);
       expect(report.fetched).toEqual(["@acme/rules"]);
+      expect(io.out.join("")).toContain("!  maxims: @acme/rules refreshed (");
+      expect(
+        io.out
+          .join("")
+          .split("\n")
+          .filter((line) => line.startsWith("maxims: ")),
+      ).toEqual([]);
       const diff = report.notices.filter((line) => /^[+~-] /.test(line));
       expect(diff).toHaveLength(3);
       expect(diff[0]).toMatch(/^~ always-review \([0-9a-f]{7} -> [0-9a-f]{7}\)$/);
@@ -693,6 +718,11 @@ describe("shared files and dedupe", () => {
       const report = await runSync(SYNC, io);
       expect(report.notices).toContain(`maxims: ${source}: 1 internal, hidden`);
       expect(rules()).not.toContain("Secret.");
+      // The hidden count is news about a fresh fetch; a sync that fetched nothing repeats nothing.
+      io.out.length = 0;
+      const again = await runSync(SYNC, io);
+      expect(again.notices).toEqual([]);
+      expect(io.out.join("")).toBe("o  Up to date: 1 memory, 1 rule line\n");
       const named = entryFor(localFrom(source), { select: [memoryName("secret")] });
       writeState(home, stateWith({ [source]: named }));
       await runSync(SYNC, io);
