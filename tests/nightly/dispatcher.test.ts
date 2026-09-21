@@ -1,8 +1,9 @@
 // Fails if the failure report leaves the layout the tracking-issue action reads (heading on line
 // 1, the replay block right under it), if the step summary stops reaching the file GitHub reads
-// or stdout when there is none, if the dispatcher accepts a category it has no module for, a
-// flag the category ignores, or a report or trend path inside the repository, or if a category
-// that throws stops leaving a report behind for the issue.
+// or stdout when there is none, if a passing category's summary stops reaching the job log ahead
+// of its status line, if the dispatcher accepts a category it has no module for, a flag the
+// category ignores, or a report or trend path inside the repository, or if a category that throws
+// stops leaving a report behind for the issue.
 import { describe, expect, test } from "bun:test";
 import {
   existsSync,
@@ -66,6 +67,36 @@ describe("writeStepSummary", () => {
     expect({ exitCode: proc.exitCode, stdout: proc.stdout.toString() }).toEqual({
       exitCode: 0,
       stdout: "## nightly\n",
+    });
+  });
+});
+
+// The step summary is one click away from the job log; a passing run whose table sits only there
+// shows in the log nothing of which rungs ran. The status line stays last, so a reader who tails
+// the log still ends on it.
+test("a pass outcome prints its summary to the log ahead of the status line and to the step summary", async () => {
+  await withTempDir((dir) => {
+    const summary = join(dir, "summary.md");
+    writeFileSync(summary, "");
+    const script =
+      'import { announce } from "./scripts/nightly.ts";' +
+      'announce("parity-drift", { status: "pass", summary: "## Parity drift\\n\\nno drift\\n" }, process.env);';
+    const proc = Bun.spawnSync(["bun", "-e", script], {
+      cwd: repoRoot,
+      env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect({
+      exitCode: proc.exitCode,
+      stdout: proc.stdout.toString(),
+      stderr: proc.stderr.toString(),
+      stepSummary: readFileSync(summary, "utf8"),
+    }).toEqual({
+      exitCode: 0,
+      stdout: "## Parity drift\n\nno drift\nnightly parity-drift: pass\n",
+      stderr: "",
+      stepSummary: "## Parity drift\n\nno drift\n",
     });
   });
 });
