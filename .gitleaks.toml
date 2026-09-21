@@ -18,14 +18,17 @@ paths = ['''(^|/)(bun\.lock|bun\.lockb|package-lock\.json|deno\.lock|uv\.lock|Ca
 # finding-level, so it never excuses future secrets in the same file.
 
 # The risk-warnings fuzz corpus seeds the secret-shape detector with one
-# secret-SHAPED AWS key id. The inline gitleaks:allow covers the current
-# file; a push-range rescan also revisits the commit that introduced the
-# seed, which needs this entry. It sits on the rule because a global
-# allowlist with a path skips the whole file instead.
+# secret-SHAPED AWS key id: the AKIA prefix followed by the sixteen letters
+# A to P in order. The inline gitleaks:allow covers the current file; a
+# push-range rescan also revisits the commit that introduced the seed,
+# which needs this entry. It sits on the rule because a global allowlist
+# with a path skips the whole file instead. The seed is spelled as a
+# character class so this file never contains a key-shaped literal that
+# other secret scanners would flag in turn.
 [[rules]]
 id = "aws-access-token"
 [[rules.allowlists]]
 condition = "AND"
 paths = ['''(^|/)tests/fuzz/risk\.test\.ts$''']
 regexTarget = "match"
-regexes = ['''^AKIAABCDEFGHIJKLMNOP$''']
+regexes = ['''^AKIA[A-P]{16}$''']
