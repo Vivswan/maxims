@@ -25,12 +25,23 @@
     },
     {
       "at": "2026-09-21T03:09:06.972Z",
-      "runs": 10,
       "sha": "f85b75624a002502c917872bce409e0f09580449",
       "node": "v22.23.2",
+      "runs": 10,
       "medianMs": {
         "sync --quiet": 133.247,
         "add --list": 133.932
+      },
+      "bundleBytes": 1287707
+    },
+    {
+      "at": "2026-09-21T03:14:09.401Z",
+      "runs": 10,
+      "sha": "595f104a7b5fd3de520481c203eec546b0c6b386",
+      "node": "v22.23.2",
+      "medianMs": {
+        "sync --quiet": 134.372,
+        "add --list": 134.677
       },
       "bundleBytes": 1287707
     }
