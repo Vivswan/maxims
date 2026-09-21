@@ -482,7 +482,7 @@ export async function planAdd(
   if (request.list) {
     console.gap();
     console.note("", STRINGS.availableMemories);
-    showItems(console, chosen, request.rename, request.verbose);
+    showItems(console, chosen, request.rename, false);
     console.outro(STRINGS.runWithoutList);
     return { kind: "listed" };
   }
@@ -515,7 +515,7 @@ export async function planAdd(
   }
   for (const warning of harnesses.warnings) console.warn(warning);
   console.gap();
-  showItems(console, chosen, rename, request.verbose);
+  showItems(console, chosen, rename, console.mode.tty && !request.verbose);
   const proceed = await console.confirm(STRINGS.proceed, true);
   if (!proceed) {
     console.step(STRINGS.installationCancelled);
@@ -1115,22 +1115,20 @@ export function sourceTitle(from: SourceFrom): string {
     .join(" ");
 }
 
-// The plan screen lists EVERY incoming one-liner in plain mode and under --verbose: it is the
-// review gate for what will sit in the agent's context, so a fold is allowed only on a TTY where
-// the user can rerun with --verbose.
+// A fold is for the plan screen alone, a confirm gate where one entry plus a count reads faster
+// and --verbose shows the rest. `--list` exists to show the whole source and never folds.
 function showItems(
   console: Console,
   chosen: readonly Memory[],
   rename: RenameMap,
-  verbose: boolean,
+  fold: boolean,
 ): void {
   const items = [...chosen].sort((a, b) =>
     renamed(rename, a.name) < renamed(rename, b.name) ? -1 : 1,
   );
-  const fold = console.mode.tty && !verbose && items.length > 1;
-  const shown = fold ? items.slice(0, 1) : items;
+  const shown = fold && items.length > 1 ? items.slice(0, 1) : items;
   for (const memory of shown) console.item(renamed(rename, memory.name), memory.description);
-  if (fold) console.more(items.length - shown.length);
+  if (shown.length < items.length) console.more(items.length - shown.length);
 }
 
 function renamed(rename: RenameMap, name: MemoryName): MemoryName {

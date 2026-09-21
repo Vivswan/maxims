@@ -67,7 +67,7 @@ o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
 |
 ```
 
-`add @Vivswan/skills --list` prints the same "Found N memories" and item blocks, then ends with "Run without --list to install" and writes nothing.
+`add @Vivswan/skills --list` previews the source and writes nothing; [what gets installed](install.md#what-gets-installed) shows its output.
 
 ## What it writes
 

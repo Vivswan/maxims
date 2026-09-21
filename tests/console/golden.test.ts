@@ -51,9 +51,10 @@ const goldens: Golden[] = [
       return redacted(run.stdout, scenario);
     },
   ],
+  // Pinned on a terminal, the one place the plan screen folds.
   [
     "add-list",
-    { github: { "vivswan/skills": SKILLS } },
+    { tty: true, stdinTty: false, github: { "vivswan/skills": SKILLS } },
     async (scenario) => (await runCli(scenario, ["add", "@Vivswan/skills", "--list"])).stdout,
   ],
   [

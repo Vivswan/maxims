@@ -38,7 +38,8 @@ A local directory source defaults to the user scope so personal text stays out o
 
 - **A `--memory` name the source lacks** is exit 3 with nothing written.
 - **`--all` is shorthand for `--memory '*' --agent '*' -y`.** On `remove` it means every installed source, with `-y` spelled out, so it is the one `remove` that needs no separate `-y`.
-- **`--list` prints the same "Found N memories" and item blocks,** then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning.
+- **`--list` prints the same "Found N memories" line and every item block,** then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning.
+- **`--list` never folds.** A memory is one line, so the whole list is the point: the preview is as long as the source, in a terminal too. The install plan is the one that folds in a terminal, to one entry plus `... N more`; `--verbose` shows the rest.
 
 Re-running `add` with a different `--memory` list replaces the recorded one, shown in the plan first. It never unions.
 
