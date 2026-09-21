@@ -1,11 +1,11 @@
 import { basename, resolve } from "node:path";
 import {
-  canonicalSourceKey,
   DEFAULT_GIT_REF,
   parseRemote,
   type SourceFrom,
   stripGitSuffix,
-} from "../../state/schema.ts";
+} from "../../contracts/source.ts";
+import { canonicalSourceKey } from "../../state/schema.ts";
 import { sha256 } from "../../util/fs.ts";
 
 const SLUG_HASH_LENGTH = 6;

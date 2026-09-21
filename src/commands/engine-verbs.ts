@@ -1,6 +1,6 @@
 import { promptsAllowed } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
-import type { HarnessId } from "../harnesses/contract.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
 import type { State } from "../state/schema.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";

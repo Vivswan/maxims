@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { isBuiltInHarnessId } from "../contracts/harness-id.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import { type HarnessDefinition, isBuiltInHarnessId } from "./contract.ts";
+import type { HarnessDefinition } from "./contract.ts";
 import { toDefinition } from "./from-spec.ts";
 import { parseHarnessSpec, UserHarnessSpecSchema } from "./spec.ts";
 

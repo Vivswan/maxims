@@ -1,6 +1,4 @@
-export type { SourceFrom } from "../state/schema.ts";
-
-import type { SourceFrom } from "../state/schema.ts";
+import type { SourceFrom } from "../contracts/source.ts";
 
 export type FetchOptions = {
   memoryPath: string;

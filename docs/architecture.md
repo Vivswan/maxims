@@ -98,7 +98,7 @@ Demonstrated by: [src/state/store.test.ts](../src/state/store.test.ts), [src/sta
 
 ```mermaid
 flowchart LR
-  from["src/state/schema.ts<br>SourceFrom DEFAULT_GIT_REF"]
+  from["src/contracts/source.ts<br>SourceFrom DEFAULT_GIT_REF"]
   contract["src/sources/contract.ts<br>SourceResolver FetchOptions FetchResult"]
   github["src/sources/github/index.ts<br>createGithubResolver() needsFetch()"]
   ladder["src/sources/github/ladder.ts<br>createLadder() climb() lsRemoteRung() cloneRung() endpointsFor() tokenFor()"]
@@ -190,7 +190,8 @@ flowchart LR
   schema["src/harnesses/spec.ts<br>HarnessSpecSchema UserHarnessSpecSchema parseHarnessSpec()"]
   fromspec["src/harnesses/from-spec.ts<br>toDefinition() HarnessQuirks"]
   detect["src/harnesses/detect.ts<br>configDirExists()"]
-  contract["src/harnesses/contract.ts<br>HarnessDefinition Target HookShape HookStdout scopeRoot() HARNESS_IDS"]
+  contract["src/harnesses/contract.ts<br>HarnessDefinition Target HookShape HookStdout scopeRoot()"]
+  ids["src/contracts/harness-id.ts<br>HARNESS_IDS HarnessId parseUserHarnessId()"]
   registry["src/harnesses/registry.ts<br>HARNESSES"]
   userfile[("your own harness specs: harnesses.json")]
   userdef["src/harnesses/user-defined.ts<br>loadUserDefinedHarnesses()"]
@@ -202,6 +203,8 @@ flowchart LR
   folder -->|"toDefinition(spec, quirks)"| fromspec
   userfile -->|"parsed with UserHarnessSpecSchema"| userdef
   userdef --> schema
+  ids -->|"a spec id is a built-in id or a kebab-case user-defined one"| schema
+  ids -->|"HarnessDefinition.id"| contract
   schema --> fromspec
   fromspec -->|"every relative path joined under scopeRoot()"| contract
   fromspec -->|"detect.dirs become probes under the global root"| detect
@@ -564,6 +567,7 @@ graph TD
   rulefile["src/rulefile/"]
   sources["src/sources/"]
   state["src/state/"]
+  contracts["src/contracts/"]
   memory["src/memory/"]
   util["src/util/"]
   version["src/version.ts<br>package.json"]
@@ -571,6 +575,7 @@ graph TD
   cli --> console
   cli --> util
   commands --> console
+  commands --> contracts
   commands --> harnesses
   commands --> memory
   commands --> rulefile
@@ -579,21 +584,23 @@ graph TD
   commands --> util
   commands --> version
   console --> memory
+  harnesses --> contracts
   harnesses --> memory
   harnesses --> rulefile
   harnesses --> util
   harnesses --> version
+  rulefile --> contracts
   rulefile --> memory
   rulefile --> state
   rulefile --> util
+  sources --> contracts
   sources --> memory
-  sources --> state
   sources --> util
-  state --> harnesses
+  state --> contracts
   state --> memory
   state --> util
   state --> version
   memory --> util
-  util --> state
+  util --> contracts
 ```
 <!-- END GENERATED: architecture-map -->

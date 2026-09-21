@@ -1,7 +1,9 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { heldForReview } from "../../console/strings.ts";
-import type { HarnessId, Scope } from "../../harnesses/contract.ts";
+import type { HarnessId } from "../../contracts/harness-id.ts";
+import type { LastError } from "../../contracts/last-error.ts";
+import type { Scope } from "../../harnesses/contract.ts";
 import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
 import {
   type ContentHash,
@@ -19,7 +21,7 @@ import {
 import type { RuleLine, Staleness } from "../../rulefile/types.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
 import { hashFiles, type TreeFile } from "../../sources/tree.ts";
-import type { Fetched, LastError, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
+import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
 import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";

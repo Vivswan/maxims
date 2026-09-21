@@ -19,7 +19,8 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
-import { type HarnessId, HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
+import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
 import { hasHook } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseMemory } from "../../src/memory/contract.ts";

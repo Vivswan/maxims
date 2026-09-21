@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
-import { DEFAULT_GIT_REF, type LastError } from "../../state/schema.ts";
+import type { LastError } from "../../contracts/last-error.ts";
+import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
 import type { WarnSink } from "../tree.ts";
 import { extractTarball } from "./tarball.ts";
 

@@ -12,7 +12,8 @@ import {
   type StdinLike,
   stdoutVariantFor,
 } from "../../src/commands/shared/stdin.ts";
-import { HARNESS_IDS, type HookStdout } from "../../src/harnesses/contract.ts";
+import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
+import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";
 import { anyText, asyncOutcome, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";

@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { join, parse, relative, resolve, sep } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
-import type { HarnessId } from "../../src/harnesses/contract.ts";
+import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { type Bundle, type Home, type Run, runMaxims } from "./binary.ts";

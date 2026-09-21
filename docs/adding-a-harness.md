@@ -134,7 +134,7 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 
 ## Adding a built-in folder
 
-1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/harnesses/contract.ts`.
+1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/contracts/harness-id.ts`.
 2. Add `index.ts` exporting the compiled definition as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a tier probe (Codex), a config edit (OpenCode), or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`.
 3. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
 4. Write `index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.

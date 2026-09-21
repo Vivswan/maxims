@@ -1,17 +1,18 @@
 import type { Readable } from "node:stream";
 import type { Sink } from "../console/contract.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
+import type { LastError } from "../contracts/last-error.ts";
 import type {
   AchievedTier,
   HarnessContext,
   HarnessDefinition,
-  HarnessId,
   Scope,
 } from "../harnesses/contract.ts";
 import type { HookPlan } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { ResolverFor } from "../sources/contract.ts";
 import type { UserConfig } from "../state/config.ts";
-import type { LastError, Pending, SourceEntry, State } from "../state/schema.ts";
+import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import type { Change, Plan } from "../util/change.ts";
 
 export type CommonOptions = {

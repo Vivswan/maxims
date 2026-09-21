@@ -6,7 +6,7 @@
 // twin's slot.
 import { describe, expect, test } from "bun:test";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import type { SourceFrom } from "../state/schema.ts";
+import type { SourceFrom } from "../contracts/source.ts";
 import type { RootedPath } from "./fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "./home.ts";
 

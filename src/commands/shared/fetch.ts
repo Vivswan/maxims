@@ -2,6 +2,7 @@ import { lstatSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { LastError } from "../../contracts/last-error.ts";
 import {
   contentHashOf,
   type MemoryName,
@@ -14,7 +15,6 @@ import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
 import {
   type Fetched,
-  type LastError,
   parseGitSha,
   type RenameMap,
   type Select,

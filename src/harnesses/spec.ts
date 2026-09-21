@@ -1,15 +1,10 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { HARNESS_ID_PATTERN, type HarnessId } from "../contracts/harness-id.ts";
 import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import {
-  type ByteBudget,
-  type ConfigFormat,
-  HARNESS_ID_PATTERN,
-  type HarnessId,
-  type HookStdout,
-} from "./contract.ts";
+import type { ByteBudget, ConfigFormat, HookStdout } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the

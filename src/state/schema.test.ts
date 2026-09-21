@@ -3,6 +3,7 @@
 // URLs, `.` and relative paths landing on the shapes the rest of the tool switches on.
 import { describe, expect, test } from "bun:test";
 import { dirname, join, resolve } from "node:path";
+import type { SourceFrom } from "../contracts/source.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { ExitCode, type MaximsError } from "../util/exit-codes.ts";
 import {
@@ -12,7 +13,6 @@ import {
   parseSourceArgument,
   parseSourceSelector,
   parseState,
-  type SourceFrom,
 } from "./schema.ts";
 
 function memoryName(candidate: string): MemoryName {

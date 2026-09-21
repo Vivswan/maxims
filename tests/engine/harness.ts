@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 import { validateMemoryFiles } from "../../src/commands/shared/memories.ts";
 import type { EngineIo, SymlinkSupport } from "../../src/commands/types.ts";
+import type { SourceFrom } from "../../src/contracts/source.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -28,7 +29,6 @@ import {
   type Pending,
   parseGitSha,
   type SourceEntry,
-  type SourceFrom,
   type SourceIntent,
   type State,
 } from "../../src/state/schema.ts";

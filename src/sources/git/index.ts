@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import type { FetchResult, SourceFrom, SourceResolver } from "../contract.ts";
+import type { SourceFrom } from "../../contracts/source.ts";
+import type { FetchResult, SourceResolver } from "../contract.ts";
 import {
   climb,
   cloneRung,

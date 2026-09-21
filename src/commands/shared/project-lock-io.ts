@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
 import type { MemoryName } from "../../memory/contract.ts";
 import {
   type LockSource,
@@ -12,9 +13,7 @@ import {
 } from "../../state/project-lock.ts";
 import {
   canonicalSourceKey,
-  DEFAULT_GIT_REF,
   type SourceEntry,
-  type SourceFrom,
   type SourceIntent,
   type State,
 } from "../../state/schema.ts";

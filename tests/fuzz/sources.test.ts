@@ -5,13 +5,11 @@
 import { expect, test } from "bun:test";
 import { isAbsolute } from "node:path";
 import fc from "fast-check";
+import { isUsableRemote, parseRemote, SourceFromSchema } from "../../src/contracts/source.ts";
 import {
   canonicalSourceKey,
-  isUsableRemote,
-  parseRemote,
   parseSourceArgument,
   parseSourceSelector,
-  SourceFromSchema,
 } from "../../src/state/schema.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { PROPERTY_TIMEOUT_MS } from "../convergence/property.ts";

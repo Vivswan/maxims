@@ -1,5 +1,6 @@
 import { StringDecoder } from "node:string_decoder";
-import type { HarnessDefinition, HarnessId, HookStdout } from "../../harnesses/contract.ts";
+import type { HarnessId } from "../../contracts/harness-id.ts";
+import type { HarnessDefinition, HookStdout } from "../../harnesses/contract.ts";
 
 export type InvokerClassification =
   | { kind: "harness"; id: HarnessId; startDir: string | null }

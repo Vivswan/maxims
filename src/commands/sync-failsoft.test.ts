@@ -33,11 +33,11 @@ import {
 } from "../../tests/engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../../tests/engine/world.ts";
 import { CHMOD_DENIES } from "../../tests/shared/platform.ts";
+import type { LastError } from "../contracts/last-error.ts";
 import { codex } from "../harnesses/codex/index.ts";
 import type { HarnessDefinition } from "../harnesses/contract.ts";
 import { HARNESSES } from "../harnesses/registry.ts";
 import { parseBlocks } from "../rulefile/block.ts";
-import type { LastError } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths, storePathFor } from "../util/home.ts";

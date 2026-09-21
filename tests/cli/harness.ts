@@ -23,9 +23,11 @@ import type {
   SyncReport,
 } from "../../src/commands/types.ts";
 import type { InteractiveStreams } from "../../src/console/contract.ts";
-import type { HarnessDefinition, HarnessId } from "../../src/harnesses/contract.ts";
+import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import type { SourceFrom } from "../../src/contracts/source.ts";
+import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { achievedTier, planHookOnly } from "../../src/harnesses/hook-writer.ts";
-import type { FetchOptions, ResolverFor, SourceFrom } from "../../src/sources/contract.ts";
+import type { FetchOptions, ResolverFor } from "../../src/sources/contract.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot, hashDirectory } from "../../src/util/fs.ts";

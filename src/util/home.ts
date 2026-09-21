@@ -1,6 +1,11 @@
 import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
-import { DEFAULT_GIT_REF, parseRemote, type SourceFrom, stripGitSuffix } from "../state/schema.ts";
+import {
+  DEFAULT_GIT_REF,
+  parseRemote,
+  type SourceFrom,
+  stripGitSuffix,
+} from "../contracts/source.ts";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { assertInsideRoot, type RootedPath, sha256 } from "./fs.ts";
 

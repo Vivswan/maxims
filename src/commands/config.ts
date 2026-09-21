@@ -4,7 +4,7 @@ import {
   type HarnessId,
   isBuiltInHarnessId,
   parseUserHarnessId,
-} from "../harnesses/contract.ts";
+} from "../contracts/harness-id.ts";
 import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";

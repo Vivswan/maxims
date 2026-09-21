@@ -1,9 +1,8 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { type HarnessId, isBuiltInHarnessId } from "../../contracts/harness-id.ts";
 import {
   type HarnessDefinition,
-  type HarnessId,
-  isBuiltInHarnessId,
   type Scope,
   scopeRoot,
   type Target,

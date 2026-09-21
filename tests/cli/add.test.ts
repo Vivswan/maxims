@@ -15,7 +15,7 @@ import {
 import { join } from "node:path";
 import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
-import type { SourceFrom } from "../../src/state/schema.ts";
+import type { SourceFrom } from "../../src/contracts/source.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";

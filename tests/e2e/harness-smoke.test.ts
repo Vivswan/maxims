@@ -8,7 +8,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type BuiltInHarnessId, HOOK_COMMAND } from "../../src/harnesses/contract.ts";
+import type { BuiltInHarnessId } from "../../src/contracts/harness-id.ts";
+import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { REPO_ROOT } from "../container/runner.ts";
 import {
   HARNESS_SMOKE_CLIS,

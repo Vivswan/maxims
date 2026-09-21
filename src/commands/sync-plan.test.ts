@@ -42,7 +42,8 @@ import {
   QUIET,
   SYNC,
 } from "../../tests/shared/sync_support.ts";
-import type { HarnessDefinition, HarnessId } from "../harnesses/contract.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
+import type { HarnessDefinition } from "../harnesses/contract.ts";
 import { parseBlocks } from "../rulefile/block.ts";
 import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
 import { readMemoryTree } from "../sources/tree.ts";

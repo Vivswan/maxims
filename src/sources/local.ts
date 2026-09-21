@@ -1,9 +1,10 @@
 import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { SourceFrom } from "../contracts/source.ts";
 import type { Change } from "../util/change.ts";
 import { assertInsideRoot } from "../util/fs.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
-import type { SourceFrom, SourceResolver } from "./contract.ts";
+import type { SourceResolver } from "./contract.ts";
 import { hashFiles, readMemoryTree, type TreeFile, type WarnSink } from "./tree.ts";
 
 export type LocalSourceFrom = Extract<SourceFrom, { type: "local" }>;

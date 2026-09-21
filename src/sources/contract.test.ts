@@ -1,7 +1,7 @@
 // Guards the resolver contract against widening: if the members reverted to method shorthand, a
 // resolver typed for one source variant would silently become assignable to the slot typed for
 // every variant. The pin is compile-time only, so the typecheck gate is the test.
-import type { SourceFrom } from "../state/schema.ts";
+import type { SourceFrom } from "../contracts/source.ts";
 import type { FetchResult, SourceResolver } from "./contract.ts";
 
 type GithubFrom = Extract<SourceFrom, { type: "github" }>;

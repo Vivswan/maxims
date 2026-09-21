@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
@@ -6,7 +7,6 @@ import {
   byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
-  type HarnessId,
   type Scope,
   scopeRoot,
   type Target,

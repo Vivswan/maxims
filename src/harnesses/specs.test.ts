@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { HARNESS_IDS, type HarnessDefinition } from "./contract.ts";
+import { HARNESS_IDS } from "../contracts/harness-id.ts";
+import type { HarnessDefinition } from "./contract.ts";
 import { toDefinition } from "./from-spec.ts";
 import { parseHarnessSpec } from "./spec.ts";
 

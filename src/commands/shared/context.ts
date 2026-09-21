@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { HarnessContext, HarnessId } from "../../harnesses/contract.ts";
+import type { HarnessId } from "../../contracts/harness-id.ts";
+import type { HarnessContext } from "../../harnesses/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
 import { parseUserConfig, type UserConfig } from "../../state/config.ts";
 import type { SourceEntry } from "../../state/schema.ts";

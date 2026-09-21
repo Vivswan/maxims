@@ -1,19 +1,21 @@
 import { join, win32 } from "node:path";
 import { z } from "zod";
-import { flattenIssues } from "../util/zod-issues.ts";
+import { HarnessIdSchema } from "../contracts/harness-id.ts";
 import {
-  canonicalSourceKey,
   DEFAULT_GIT_REF,
-  DisabledNamesSchema,
   GithubRepoSchema,
   GitRefSchema,
   GitUrlSchema,
-  HarnessIdSchema,
   HostnameSchema,
   markerSafe,
+  type SourceFrom,
+} from "../contracts/source.ts";
+import { flattenIssues } from "../util/zod-issues.ts";
+import {
+  canonicalSourceKey,
+  DisabledNamesSchema,
   RenameMapSchema,
   SelectSchema,
-  type SourceFrom,
   sourceKeyIssues,
 } from "./schema.ts";
 

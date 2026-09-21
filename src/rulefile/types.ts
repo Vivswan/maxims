@@ -1,5 +1,5 @@
+import type { LastError } from "../contracts/last-error.ts";
 import type { MemoryName } from "../memory/contract.ts";
-import type { LastError } from "../state/schema.ts";
 
 export type RuleLine = {
   name: MemoryName;

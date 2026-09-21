@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
+import type { HarnessId } from "../../contracts/harness-id.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
-  type HarnessId,
   type Scope,
   scopeRoot,
 } from "../../harnesses/contract.ts";

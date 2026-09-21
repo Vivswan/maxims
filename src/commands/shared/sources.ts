@@ -1,9 +1,10 @@
 import { statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import type { HarnessId } from "../../contracts/harness-id.ts";
+import { AbsolutePathSchema, type SourceFrom } from "../../contracts/source.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
-  type HarnessId,
   type Scope,
   scopeRoot,
   sharedBlockFile,
@@ -16,14 +17,12 @@ import {
 } from "../../rulefile/dedupe.ts";
 import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/tree.ts";
 import {
-  AbsolutePathSchema,
   canonicalSourceKey,
   type Destination,
   parseSourceArgument,
   type RenameMap,
   type Select,
   type SourceEntry,
-  type SourceFrom,
   type SourceIntent,
   type State,
   storable,

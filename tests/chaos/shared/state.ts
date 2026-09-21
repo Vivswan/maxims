@@ -2,7 +2,8 @@
 // refresh falls due, the debounce stamp cleared so a quiet run does work, the cooldown shortened.
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Fetched, type LastError, parseState, type State } from "../../../src/state/schema.ts";
+import type { LastError } from "../../../src/contracts/last-error.ts";
+import { type Fetched, parseState, type State } from "../../../src/state/schema.ts";
 import { serializeState } from "../../../src/state/store.ts";
 import { homePaths } from "../../../src/util/home.ts";
 

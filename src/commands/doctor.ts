@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { heldFinding, notDefinedHere } from "../console/strings.ts";
-import type { AchievedTier, HarnessDefinition, HarnessId, Scope } from "../harnesses/contract.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
+import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";

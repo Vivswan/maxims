@@ -1,4 +1,5 @@
-import type { ResolverFor, SourceFrom, SourceResolver } from "../../sources/contract.ts";
+import type { SourceFrom } from "../../contracts/source.ts";
+import type { ResolverFor, SourceResolver } from "../../sources/contract.ts";
 import { createGitResolver } from "../../sources/git/index.ts";
 import { createGithubResolver } from "../../sources/github/index.ts";
 import type { Runner } from "../../sources/github/ladder.ts";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HarnessIdSchema } from "./schema.ts";
+import { HarnessIdSchema } from "../contracts/harness-id.ts";
 
 // User defaults live in `<home>/config.json`, apart from state: state records what is installed,
 // this records how the user likes to install. Strict, like state, so a misspelled key is refused

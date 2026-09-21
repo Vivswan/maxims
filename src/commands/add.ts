@@ -21,7 +21,14 @@ import {
   STRINGS,
   selected,
 } from "../console/strings.ts";
-import { type HarnessDefinition, type HarnessId, HOOK_COMMAND } from "../harnesses/contract.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
+import {
+  DEFAULT_GIT_REF,
+  GitRefSchema,
+  parseRemote,
+  type SourceFrom,
+} from "../contracts/source.ts";
+import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
 import {
   contentHashOf,
   type HiddenCharacter,
@@ -37,16 +44,12 @@ import type { TreeFile } from "../sources/tree.ts";
 import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
-  DEFAULT_GIT_REF,
   type Destination,
-  GitRefSchema,
   parseGitSha,
-  parseRemote,
   parseSourceSelector,
   type RenameMap,
   type Select,
   type SourceEntry,
-  type SourceFrom,
   type State,
   storable,
 } from "../state/schema.ts";
