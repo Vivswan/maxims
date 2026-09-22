@@ -10,7 +10,7 @@ repository:
   description: "One-line rule memories installed from GitHub repos into coding agents, guaranteed to load every session"
   # Declared even when empty: the apply manages only declared keys, so
   # this keeps topics healing out-of-band edits.
-  topics: ""
+  topics: []
   private: false
 
 # This repository's own labels (the fleet layers already carry the
