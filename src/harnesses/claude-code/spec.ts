@@ -11,18 +11,18 @@ export const spec = {
   displayName: "Claude Code",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://code.claude.com/docs/en/memory",
         contentHash: contentHashLiteral(
-          "sha256:5ac1259e5fadcc1f608831d2351ab2b1a2d112669c2a4670601884cec1ca192c",
+          "sha256:d4328f10e2e3d592d3b9e123cabf8d1588d9aea3d1ba85a559f3443a48148e2a",
         ),
       },
       {
         url: "https://code.claude.com/docs/en/hooks",
         contentHash: contentHashLiteral(
-          "sha256:f4a5219bdbc33a5187748a32a32632de780b7561240d99314a5636cfb0318541",
+          "sha256:6be818a4e474f5d77d8bf7a3cc8b13530c167591c4c332c2e74dbb440adfaa2c",
         ),
         note: "SessionStart hook fields and disableAllHooks",
       },
