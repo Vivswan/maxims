@@ -1,27 +1,27 @@
 import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// The legacy Cascade agent of Devin Desktop (formerly Windsurf). Its rules directory needs
-// `trigger: always_on` in each file's frontmatter or the rule is not injected on every message;
-// a path-scoped rule is `trigger: glob` with the pattern under `globs`, documented for one
-// pattern only, so several are joined with commas. `.devin/rules/` is the location Cascade
-// prefers over `.windsurf/rules/`. A workspace rule is capped at 12,000 characters and the single
-// global file, which takes no frontmatter, at 6,000; the byte caps below are the conservative
-// reading of those. Cascade has no session-start event, so the hook rides `pre_user_prompt`
-// behind the shared debounce; the hook has no stdout protocol and no timeout field, runs
-// `command` through bash and `powershell` on Windows, and silently skips an entry that names only
-// one of them on the other platform.
+// The legacy Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
+// `trigger: always_on` in its frontmatter or it is not injected on every message; a path-scoped
+// rule is `trigger: glob` with the patterns comma-joined under `globs`, documented for one only.
+// `.devin/rules/` is preferred over `.windsurf/rules/`; a workspace rule is capped at 12,000
+// characters and the global file, which takes no frontmatter, at 6,000 (byte caps below). With
+// no session-start event the hook rides `pre_user_prompt` behind the shared debounce; it has no
+// stdout protocol and no timeout field. A `powershell`-only entry is silently skipped on macOS
+// and Linux, a `command`-only one runs on Windows via `powershell -Command`, so both keys are
+// written and Windows skips the fallback. `.windsurf/hooks.json` is read only while the newer
+// `.devin/hooks.json` is absent or holds no hooks. No `mcp`: its file is outside the global root.
 export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://docs.devin.ai/desktop/cascade/hooks",
         contentHash: contentHashLiteral(
-          "sha256:28cfdfa697c05f2c70b36e5719d401dfe4c2c2757ae122af0632758983eecae1",
+          "sha256:8e497f91bfce1b0b28fdb13cba2b58478250da09651e88fbace7f1ce67c69771",
         ),
       },
       {
@@ -34,9 +34,9 @@ export const spec = {
       {
         url: "https://docs.devin.ai/desktop/cascade/mcp",
         contentHash: contentHashLiteral(
-          "sha256:90335975b81cd433ab5434dfaf7be87a57e56ec4df5135ecb421f2742c6f9d50",
+          "sha256:640353c360c72afd53081882fede3cd548bfa4056803764a5bef4e7bc8c78aa0",
         ),
-        note: "mcp_config.json under ~/.codeium/windsurf",
+        note: "mcp_config.json is ~/.config/devin/mcp_config.json on macOS and Linux (under $XDG_CONFIG_HOME/devin when set) and %APPDATA%\\devin\\mcp_config.json on Windows, outside the global root ~/.codeium/windsurf, so no mcp registry is declared",
       },
     ],
   },
@@ -60,7 +60,7 @@ export const spec = {
   detect: { dirs: ["."] },
   hook: {
     kind: "registry",
-    path: { project: ".windsurf/hooks.json", global: "hooks.json" },
+    path: { project: ".devin/hooks.json", global: "hooks.json" },
     format: "json",
     eventPath: ["hooks", "pre_user_prompt"],
     grouped: false,
@@ -70,6 +70,5 @@ export const spec = {
     async: false,
     debounceMs: 60_000,
   },
-  mcp: { path: { project: null, global: "mcp_config.json" }, serversPath: ["mcpServers"] },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
