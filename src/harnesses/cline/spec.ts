@@ -15,18 +15,18 @@ export const spec = {
   displayName: "Cline",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
         contentHash: contentHashLiteral(
-          "sha256:afeb7a02b27409a0c4f9e910d17f64fef8e16d97e5fddfc5728db82aa4c9e87e",
+          "sha256:ceca51cf190a98eb0dcfd693691283a0139b0c2e1b8010942f75289d5b6e692d",
         ),
       },
       {
         url: "https://docs.cline.bot/customization/cline-rules",
         contentHash: contentHashLiteral(
-          "sha256:8f388c3e9aa9be79c98e90a88c8df8639a3175e6a3478fea44db49a3302c9d88",
+          "sha256:f66892aa3b18a7e8e4e1481e850a1d2f5335dc514d5dc653f5de9c32d5d5e56d",
         ),
         note: ".clinerules as where new workspace rules go and Documents/Cline/Rules as the global default; .cline/rules, ~/.cline/rules and ~/Cline/Rules also searched",
       },
