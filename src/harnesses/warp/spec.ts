@@ -11,12 +11,12 @@ export const spec = {
   displayName: "Warp",
   tier: 2,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://docs.warp.dev/knowledge-and-collaboration/rules",
         contentHash: contentHashLiteral(
-          "sha256:cd2feee9ff5f88c387142d089900a2868fd66edfaec14651e7dcb0b69a9cab1d",
+          "sha256:7535af1dccba1e4f820698ae1596687d218a89d3d094265bd8a6c94747cd4f84",
         ),
       },
       {
