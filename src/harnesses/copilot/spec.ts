@@ -12,12 +12,12 @@ export const spec = {
   displayName: "GitHub Copilot",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
         contentHash: contentHashLiteral(
-          "sha256:8545296cf84c29c08444895aae788b9646184a91394dcb0b96245ad7336294b3",
+          "sha256:147566a678bfa7e7cf4dd897b10bb24aa264396c0562de2cc68581a4f0f92911",
         ),
       },
       {
@@ -30,7 +30,7 @@ export const spec = {
       {
         url: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference",
         contentHash: contentHashLiteral(
-          "sha256:c38efc5b1972f5739447b31dd9ba60b8fa800dc1aa68ae496eb7b7a5af68cc0a",
+          "sha256:c85b14ef8144d6b229f877079f0d3dedac692cc8d506838675d3bd6abbbe9713",
         ),
         note: "COPILOT_HOME and the hooks and instructions directories under it",
       },
