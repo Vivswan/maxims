@@ -1,8 +1,8 @@
 // Guards the extension file Pi loads and what moves with `PI_CODING_AGENT_DIR`: the default
 // export takes the extension API, `session_start` runs the sync through `pi.exec` with an argv
-// (not a shell string) and a millisecond timeout inside a try, and the global AGENTS.md and the
-// extension both follow the overridden directory, while the variable alone never counts as an
-// install. Also guards that a directory's one context file receives the block, since Pi reads
+// (not a shell string) and a millisecond timeout inside a try, and the global AGENTS.md, the
+// extension and the `mcp.json` servers file all follow the overridden directory, while the
+// variable alone never counts as an install. Also guards that a directory's one context file receives the block, since Pi reads
 // only the first it finds of AGENTS.override.md, AGENTS.md and CLAUDE.md (the last two also
 // spelled `.MD`, which a case-insensitive filesystem cannot tell apart, so only the lower-case
 // names are driven here): a block in AGENTS.md beside AGENTS.override.md would never load, and
@@ -96,3 +96,13 @@ test.each(["project", "global"] as const)(
     });
   },
 );
+
+test("the mcp.json servers file sits beside the extensions in each scope", () => {
+  const home = resolve("/home/user");
+  const plain = { home, projectRoot: resolve("/home/user/project"), env: {} };
+  expect(pi.mcp?.serversPath).toEqual(["mcpServers"]);
+  expect(pi.mcp?.path("project", plain)).toBe(resolve("/home/user/project/.pi/mcp.json"));
+  expect(pi.mcp?.path("global", plain)).toBe(resolve("/home/user/.pi/agent/mcp.json"));
+  const moved = { ...plain, env: { PI_CODING_AGENT_DIR: resolve("/opt/pi") } };
+  expect(pi.mcp?.path("global", moved)).toBe(resolve("/opt/pi/mcp.json"));
+});

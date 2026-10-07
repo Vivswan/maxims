@@ -5,35 +5,51 @@ import type { HarnessSpec } from "../spec.ts";
 // working directory: AGENTS.override.md, else AGENTS.md or AGENTS.MD, else CLAUDE.md or CLAUDE.MD,
 // so a block written into AGENTS.md beside AGENTS.override.md would never load and creating
 // AGENTS.md beside a lone CLAUDE.md would stop Pi reading the user's file. The config directory
-// moves with `PI_CODING_AGENT_DIR`. Pi has no hook registry and no MCP: an extension file in its
-// extensions directory receives `session_start` and runs the sync through `pi.exec`, which takes
-// an argv rather than a shell string and a timeout in milliseconds.
+// moves with `PI_CODING_AGENT_DIR`. Pi has no hook registry: an extension file in its extensions
+// directory receives `session_start` and runs the sync through `pi.exec`, which takes an argv
+// rather than a shell string and a timeout in milliseconds. Its MCP servers live under
+// `mcpServers` in `mcp.json` beside the extensions; the project file is read once the project is
+// trusted, and every enabled server connects when a session starts.
 export const spec = {
   id: "pi",
   displayName: "Pi",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
         contentHash: contentHashLiteral(
-          "sha256:ce5720e9742e4fae7fb926aa09ca485caadd7be063b732f998c7b471373d39f8",
+          "sha256:37064e6b9f44d2aa699dfc5ca3cfcfc2ba76de63d231abad8fdffeeec0ce78b1",
         ),
       },
       {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/README.md",
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/configuration.md",
         contentHash: contentHashLiteral(
-          "sha256:f450a53e013b3c1d4d20509de2a0ddd118f3c21800ba518c0f74142b3e66775f",
+          "sha256:e75ac4732847833b53b9a2e9223443e460df42b3da035a9f1071f8ab1f9b33f2",
         ),
-        note: "PI_CODING_AGENT_DIR and AGENTS.override.md",
+        note: "PI_CODING_AGENT_DIR, AGENTS.override.md and the extensions directories",
       },
       {
         url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/src/core/resource-loader.ts",
         contentHash: contentHashLiteral(
-          "sha256:9fa67091d559919167684ba2e2b1745d299faa00950db3ab19428745f2085d93",
+          "sha256:194fac4a6276180ed109f3ca77f40abbb25acd4a28ae55ba98232cfde6ad69db",
         ),
         note: "context-file order",
+      },
+      {
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/src/core/exec.ts",
+        contentHash: contentHashLiteral(
+          "sha256:ecc0ba197ae2a9f1f2dcea9c7ccf9bff46b319eb70c1200e06d0c95540737a36",
+        ),
+        note: "pi.exec takes an argv with no shell and a timeout in milliseconds",
+      },
+      {
+        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/mcp.md",
+        contentHash: contentHashLiteral(
+          "sha256:981d9cad82507437b0d873c2d854b841f2dfa0c01596f8abaf79f92068a278c5",
+        ),
+        note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json, connected at session start",
       },
     ],
   },
@@ -78,4 +94,5 @@ export const spec = {
     executable: false,
     stdout: "none",
   },
+  mcp: { path: { project: ".pi/mcp.json", global: "mcp.json" }, serversPath: ["mcpServers"] },
 } satisfies HarnessSpec;
