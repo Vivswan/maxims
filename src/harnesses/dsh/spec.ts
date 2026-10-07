@@ -16,25 +16,25 @@ export const spec = {
   displayName: "DeepSeek Harness",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
         contentHash: contentHashLiteral(
-          "sha256:9d379117eb80609f7859f2881f7e94d771c5dfed4560562d3420ec75097066a1",
+          "sha256:de0e367c272f5e03405660f57345c137221e6b93d1cda4ac468535aba21902de",
         ),
       },
       {
         url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/config-catalog.md",
         contentHash: contentHashLiteral(
-          "sha256:ad56d626b36c2efb337d422c0564ad7b1590899e5f27b3386397cfd98c0fffd9",
+          "sha256:220e84a26db4565c5f920d0f316b3e13ef6610dd78a147cb020e73d38e36af1e",
         ),
         note: "DSH_HOME and the dsh-hooks-claude-code plugin",
       },
       {
         url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/apps/cli/reference/README.md",
         contentHash: contentHashLiteral(
-          "sha256:b99a22b0860c4aed6211d3e8cfe165550c7049e2f9632a95065c3789390db8e5",
+          "sha256:90425b20f567a72be0568384f2b8e8b0f18f4e0a8a0b478db9e6ff8844ce68bf",
         ),
         note: "the 65,536-byte render budget and $DSH_HOME/cordis.patch.yml",
       },
