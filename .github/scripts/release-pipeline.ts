@@ -8,6 +8,7 @@
  *
  * One subcommand runs per workflow step; the checkout must be at GITHUB_SHA, the commit whose build is published:
  *
+ *   npm-floor               (nothing; reads and may upgrade the npm on PATH)
  *   prerelease-version      GITHUB_SHA
  *   npm-verdict next        GITHUB_SHA, NPM_REGISTRY_URL (optional)
  *   npm-verdict stable      TAG, GITHUB_SHA, NPM_REGISTRY_URL (optional)
@@ -19,9 +20,11 @@
 
 import { execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
-import { gt, parse } from "semver";
+import { gt, gte, parse } from "semver";
 
 const MANIFEST = "package.json";
+/** Trusted publishing (OIDC) and its provenance exist from this npm on. */
+const NPM_FLOOR = "11.5.1";
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 /** npm makes a publish readable asynchronously, at times minutes after npm publish returned; 15 reads 20 s apart
@@ -676,6 +679,44 @@ function confirmPauseMs(value: string | undefined): number {
   return Number(value);
 }
 
+/** The version the npm on PATH prints; one that does not parse stops the run rather than being ordered. */
+function npmVersion(): string {
+  const printed = execFileSync("npm", ["--version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  }).trim();
+  if (parse(printed) === null) {
+    throw new Error(`npm --version printed ${JSON.stringify(printed)}, not a version`);
+  }
+  return printed;
+}
+
+export interface NpmFloor {
+  /** The version npm prints once the step is done. */
+  version: string;
+  atFloor: boolean;
+}
+
+/** The npm on PATH, upgraded once when it starts below NPM_FLOOR: a runner's bundled npm may be older. The version
+ * after that single upgrade is the answer, at the floor or not. */
+export function npmFloor(): NpmFloor {
+  const bundled = npmVersion();
+  if (gte(bundled, NPM_FLOOR)) {
+    return { version: bundled, atFloor: true };
+  }
+  const upgrade = ["install", "-g", "npm@latest"];
+  try {
+    execFileSync("npm", upgrade, { stdio: "inherit" });
+  } catch (error) {
+    const status = (error as { status?: unknown }).status;
+    throw new Error(
+      `npm ${upgrade.join(" ")} ${typeof status === "number" ? `exited ${status}` : `failed: ${error instanceof Error ? error.message : String(error)}`}`,
+    );
+  }
+  const upgraded = npmVersion();
+  return { version: upgraded, atFloor: gte(upgraded, NPM_FLOOR) };
+}
+
 function channelOf(command: string, argument: string | undefined): Channel {
   if (argument !== "next" && argument !== "stable") {
     throw new Error(
@@ -698,6 +739,16 @@ async function main(): Promise<void> {
   const lane = (channel: Channel) =>
     channel === "next" ? { channel } : { channel, tag: env("TAG") };
   switch (command) {
+    case "npm-floor": {
+      const npm = npmFloor();
+      if (!npm.atFloor) {
+        console.error(
+          `::error::npm ${npm.version} cannot publish through OIDC; trusted publishing needs npm ${NPM_FLOOR} or newer.`,
+        );
+        process.exitCode = 1;
+      }
+      break;
+    }
     case "prerelease-version": {
       console.log(prereleaseVersionOf(cwd, env("GITHUB_SHA")));
       break;
@@ -738,7 +789,7 @@ async function main(): Promise<void> {
     }
     default:
       throw new Error(
-        `unknown command ${JSON.stringify(command ?? null)}; expected prerelease-version | npm-verdict <next|stable> | npm-confirm <next|stable>`,
+        `unknown command ${JSON.stringify(command ?? null)}; expected npm-floor | prerelease-version | npm-verdict <next|stable> | npm-confirm <next|stable>`,
       );
   }
 }

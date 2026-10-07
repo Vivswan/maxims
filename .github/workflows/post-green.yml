@@ -69,22 +69,13 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - if: steps.oidc.outputs.proceed == 'true'
+        run: bun install --frozen-lockfile
       # Trusted publishing (and its provenance) exists from npm 11.5.1 on; an older bundled npm is upgraded once,
       # then held to the floor.
       - name: Require an npm that publishes through OIDC
         if: steps.oidc.outputs.proceed == 'true'
-        run: |
-          floor=11.5.1
-          below_floor() { [ "$(printf '%s\n' "$floor" "$(npm --version)" | sort -V | head -n1)" != "$floor" ]; }
-          if below_floor; then
-            npm install -g npm@latest
-          fi
-          if below_floor; then
-            echo "::error::npm $(npm --version) cannot publish through OIDC; trusted publishing needs npm $floor or newer."
-            exit 1
-          fi
-      - if: steps.oidc.outputs.proceed == 'true'
-        run: bun install --frozen-lockfile
+        run: bun .github/scripts/release-pipeline.ts npm-floor
       # The verdict reads the registry's origin record (the CDN's copy lags a publish by up to 300 s) and places
       # every published pre-release by the ancestry of the source sha it names, so next never moves back on what
       # the run can see; a registry error stops the job instead of publishing blind. It then publishes only when a
