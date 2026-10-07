@@ -11,12 +11,12 @@ export const spec = {
   displayName: "Devin Local",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
         contentHash: contentHashLiteral(
-          "sha256:ddcc12d78830e91999967374782f31b25a4a7c1866aca086225fa6cd8fa612ec",
+          "sha256:f21bc782be661f4a167d3c193ce9e4bfdc8b470df2875766113ec40f06d64da8",
         ),
       },
       {
