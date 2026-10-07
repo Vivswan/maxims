@@ -13,25 +13,25 @@ export const spec = {
   displayName: "Amp",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://ampcode.com/docs/customize/plugins",
         contentHash: contentHashLiteral(
-          "sha256:d6a8aa88f4b283e6206e2686005f3a0532a887fd9d3d5371e5f722aa931d9d68",
+          "sha256:27f4cb76b33e710137b64f8a28cfa6ed8cfa6a1ce956a5e155ddd1ea4dc8a3ab",
         ),
       },
       {
         url: "https://ampcode.com/docs/customize/agents-md",
         contentHash: contentHashLiteral(
-          "sha256:bff51b2b5e27a56adf671e8b524838a87cb3378f5300f794b2ae533b04419d46",
+          "sha256:a5626c14781916436761493ea1ae299b2dd83916a140ad1f9e9c84d92e63d457",
         ),
         note: "AGENTS.md discovery, the AGENT.md and CLAUDE.md fallback, @-mentions",
       },
       {
         url: "https://ampcode.com/docs/customize/mcp",
         contentHash: contentHashLiteral(
-          "sha256:02cba059b21c7859fbc715734ced6ff91007b16f47a715e247928983b19ef058",
+          "sha256:d3c8a74540c18afcef0f514c0f7b7256c33bb08a5a20a3e9bdcb85e126ce1379",
         ),
         note: "amp.mcpServers in settings.json",
       },
