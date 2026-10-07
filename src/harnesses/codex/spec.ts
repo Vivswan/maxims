@@ -13,25 +13,25 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://learn.chatgpt.com/docs/hooks",
         contentHash: contentHashLiteral(
-          "sha256:66f02af8596752fcac908982eab4e3cd81f14d29a10e546ec5bb1803185a8afd",
+          "sha256:8792941bf07d4ec1a2926d69c837394c15540cc4abd84231cb5c17063bd8a71c",
         ),
       },
       {
         url: "https://developers.openai.com/codex/config-reference",
         contentHash: contentHashLiteral(
-          "sha256:f0ffeca46e4ac7948a7479d6f94969565764661963465c582b88968c318b0a5e",
+          "sha256:377e4fb9764496ba6217eafb79475b0976243327cbca7101b98b34fc4d2e9a24",
         ),
         note: "CODEX_HOME and features.hooks",
       },
       {
         url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
         contentHash: contentHashLiteral(
-          "sha256:d7fb656879e972b2161881c93cb3404e5b5419c563e4fae377e15d4fecb2d7cd",
+          "sha256:56f3a42c7ae3db785332e0e76680c6132f816551a962c3532e21b3e8b40a609c",
         ),
         note: "AGENTS.override.md over AGENTS.md in each project directory and in the Codex home, blank files skipped",
       },
