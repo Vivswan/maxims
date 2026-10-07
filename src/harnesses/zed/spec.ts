@@ -12,7 +12,7 @@ export const spec = {
   displayName: "Zed",
   tier: 2,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-07",
     pages: [
       {
         url: "https://zed.dev/docs/ai/instructions",
@@ -30,7 +30,7 @@ export const spec = {
       {
         url: "https://zed.dev/docs/configuring-zed",
         contentHash: contentHashLiteral(
-          "sha256:038126e974faa81bfcf73ea72238dbbcfbe8da8c932d4cad8f3b77a355d278e5",
+          "sha256:1e574f841fb604a5a3cb7223aa25f5bcbab2bd200d8766ee129d34a609fb128d",
         ),
         note: "settings.json under ~/.config/zed",
       },
