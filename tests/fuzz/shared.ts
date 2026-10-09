@@ -3,6 +3,7 @@
 // that turns a documented complexity into a per-input budget.
 import fc from "fast-check";
 import { checkProperty, propertyKnobs } from "../shared/property.ts";
+import { isRecord } from "../shared/record.ts";
 
 // A convergence property drives the whole engine per run; a fuzz case is one parser call, so the
 // same knob buys this many more cases per property.
@@ -125,10 +126,6 @@ function wrongType(value: unknown): unknown {
   if (typeof value === "boolean") return String(value);
   if (value === null) return 0;
   return Array.isArray(value) ? {} : [];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function childOf(parent: unknown, step: string | number): unknown {

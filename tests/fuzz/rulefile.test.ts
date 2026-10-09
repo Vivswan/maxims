@@ -7,7 +7,7 @@
 // there.
 import { expect, test } from "bun:test";
 import fc from "fast-check";
-import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
+import type { MemoryName } from "../../src/memory/contract.ts";
 import {
   markdownLines,
   ownLineMatcher,
@@ -18,6 +18,7 @@ import {
 } from "../../src/rulefile/block.ts";
 import { buildNameIndex, compareInstalled, type IndexedSource } from "../../src/rulefile/dedupe.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { memoryName } from "../engine/harness.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
@@ -349,12 +350,6 @@ test(
   },
   PROPERTY_TIMEOUT_MS,
 );
-
-function memoryName(candidate: string): MemoryName {
-  const name = parseMemoryName(candidate);
-  if (name === null) throw new Error(`generator produced a non-kebab name: ${candidate}`);
-  return name;
-}
 
 const name = fc.stringMatching(/^[a-z][a-z0-9]{0,2}(-[a-z0-9]{1,2}){0,1}$/).map(memoryName);
 const timestamp = fc.oneof(

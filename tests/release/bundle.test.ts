@@ -3,10 +3,10 @@
 // anywhere else before a green push ever reaches them.
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import manifest from "../../package.json" with { type: "json" };
+import { withTempDir } from "../shared/temp_dir.ts";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const VERSION = "9.9.9-main.7.20260920.gabcdef0";
@@ -22,15 +22,12 @@ function repoCopyAt(root: string, version: string): void {
   );
 }
 
-test("the bundle prints the version package.json carried at build time", () => {
-  const root = mkdtempSync(join(tmpdir(), "maxims-bundle-"));
-  try {
+test("the bundle prints the version package.json carried at build time", async () => {
+  await withTempDir((root) => {
     repoCopyAt(root, VERSION);
     const run = (file: string, args: string[]): string =>
       execFileSync(file, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     run("bun", ["run", "build"]);
     expect(run("node", [join(root, "dist", "cli.js"), "--version"])).toBe(`maxims ${VERSION}\n`);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 });

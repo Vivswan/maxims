@@ -16,6 +16,7 @@ import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
 import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
+import { isRecord } from "../shared/record.ts";
 import { anyText, asyncOutcome, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
 // The fields the invoker rules read, each in the type that matches and in one that does not, so
@@ -253,10 +254,6 @@ const VARIANTS: HookStdout[] = [
 
 // A `json:` variant's name IS the path of the key the harness reads (the contract in
 // src/harnesses/contract.ts), so the payload is looked up at that path.
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function payloadAt(envelope: unknown, variant: HookStdout): unknown {
   let node = envelope;
   for (const step of variant.slice("json:".length).split(".")) {

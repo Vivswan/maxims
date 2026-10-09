@@ -4,7 +4,6 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join, resolve } from "node:path";
 import type { SourceFrom } from "../../src/contracts/source.ts";
-import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import {
   CURRENT_STATE_VERSION,
   canonicalSourceKey,
@@ -14,12 +13,7 @@ import {
   parseState,
 } from "../../src/state/schema.ts";
 import { ExitCode, type MaximsError } from "../../src/util/exit-codes.ts";
-
-function memoryName(candidate: string): MemoryName {
-  const name = parseMemoryName(candidate);
-  if (name === null) throw new Error(`test fixture name is not kebab-case: ${candidate}`);
-  return name;
-}
+import { memoryName } from "../engine/harness.ts";
 
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 

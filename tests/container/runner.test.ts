@@ -3,10 +3,10 @@
 // probe reads its own failures as success, or if the tier's entry stops exiting 0 on a machine
 // without a runtime.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { WINDOWS } from "../shared/platform.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 import {
   buildArgv,
   CONTAINER_HOME,
@@ -146,41 +146,40 @@ describe.skipIf(WINDOWS)("hermetic probe", () => {
     },
   ];
 
-  function probe({ arrange, stdout }: Scene): void {
-    const root = mkdtempSync(join(tmpdir(), "maxims-probe-"));
-    const paths = {
-      home: join(root, "home"),
-      work: join(root, "work"),
-      networkDir: join(root, "net"),
-    };
-    try {
-      for (const dir of Object.values(paths)) mkdirSync(dir);
-      writeFileSync(join(paths.work, "package.json"), "{}\n");
-      writeFileSync(join(paths.networkDir, "lo"), "");
-      const expected = arrange(paths);
-      const proc = Bun.spawnSync(hermeticProbe(expected), {
-        env: { PATH: process.env.PATH ?? "", HOME: paths.home },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const passes = arrange === passing;
-      expect({ passes: proc.exitCode === 0, stdout: proc.stdout.toString() }).toEqual({
-        passes,
-        stdout: passes ? HERMETIC_PROBE_OK : stdout,
-      });
-    } finally {
-      chmodSync(paths.home, 0o700);
-      rmSync(root, { recursive: true, force: true });
-    }
+  function probe({ arrange, stdout }: Scene): Promise<void> {
+    return withTempDir((root) => {
+      const paths = {
+        home: join(root, "home"),
+        work: join(root, "work"),
+        networkDir: join(root, "net"),
+      };
+      try {
+        for (const dir of Object.values(paths)) mkdirSync(dir);
+        writeFileSync(join(paths.work, "package.json"), "{}\n");
+        writeFileSync(join(paths.networkDir, "lo"), "");
+        const expected = arrange(paths);
+        const proc = Bun.spawnSync(hermeticProbe(expected), {
+          env: { PATH: process.env.PATH ?? "", HOME: paths.home },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const passes = arrange === passing;
+        expect({ passes: proc.exitCode === 0, stdout: proc.stdout.toString() }).toEqual({
+          passes,
+          stdout: passes ? HERMETIC_PROBE_OK : stdout,
+        });
+      } finally {
+        chmodSync(paths.home, 0o700);
+      }
+    });
   }
 
   test.each(scenes)("$name", probe);
   test.skipIf(process.getuid?.() === 0)(unlistable.name, () => probe(unlistable));
 });
 
-test("the tier's entry prints the skip notice and exits 0 without a runtime", () => {
-  const emptyPath = mkdtempSync(join(tmpdir(), "maxims-empty-path-"));
-  try {
+test("the tier's entry prints the skip notice and exits 0 without a runtime", async () => {
+  await withTempDir((emptyPath) => {
     const proc = Bun.spawnSync([process.execPath, "scripts/container_tests.ts"], {
       cwd: REPO_ROOT,
       env: { ...process.env, PATH: emptyPath },
@@ -191,7 +190,5 @@ test("the tier's entry prints the skip notice and exits 0 without a runtime", ()
       exitCode: 0,
       stdout: `${skipNotice()}\n`,
     });
-  } finally {
-    rmSync(emptyPath, { recursive: true, force: true });
-  }
+  });
 });

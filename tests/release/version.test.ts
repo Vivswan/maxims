@@ -4,15 +4,15 @@
 // rely on, a diff that lists both sides of a rename unquoted) are pinned on a fixture repository because nothing in
 // this repository enforces them.
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   gitAncestry,
   mainPosition,
   prereleaseVersion,
 } from "../../.github/scripts/release-pipeline.ts";
+import { commitAll, git, gitInit } from "../shared/git_fixture.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const POSITION = { count: 42, date: "20260920" };
@@ -57,15 +57,6 @@ describe("prereleaseVersion", () => {
 const AUTHOR_DATE = "2026-01-01T12:00:00+00:00";
 const COMMITTER_DATE = "2026-03-15T23:30:00-05:00";
 
-function gitIn(cwd: string, env: Record<string, string>, ...args: string[]): string {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...env },
-  }).trim();
-}
-
 /** main: one, two, three, a merge of the two-commit topic branch, four (with the dates above), then four.txt renamed to a path with a space. */
 function fixtureRepo(root: string): {
   shas: string[];
@@ -73,34 +64,29 @@ function fixtureRepo(root: string): {
   branchTip: string;
   moved: string;
 } {
-  const git = (...args: string[]) => gitIn(root, {}, ...args);
-  git("init", "-q", "-b", "main");
+  gitInit(root);
   const commit = (message: string, env: Record<string, string> = {}): string => {
     writeFileSync(join(root, `${message.replaceAll(" ", "-")}.txt`), `${message}\n`);
-    git("add", ".");
-    gitIn(root, env, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message);
-    return git("rev-parse", "HEAD");
+    return commitAll(root, message, env);
   };
   const one = commit("one");
   const two = commit("two");
-  git("checkout", "-q", "-b", "topic");
+  git(root, ["checkout", "-q", "-b", "topic"]);
   commit("topic one");
   const branchTip = commit("topic two");
-  git("checkout", "-q", "main");
+  git(root, ["checkout", "-q", "main"]);
   const three = commit("three");
-  git("-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m", "merge topic", "topic");
-  const merge = git("rev-parse", "HEAD");
+  git(root, ["merge", "-q", "--no-ff", "-m", "merge topic", "topic"]);
+  const merge = git(root, ["rev-parse", "HEAD"]);
   const four = commit("four", { GIT_AUTHOR_DATE: AUTHOR_DATE, GIT_COMMITTER_DATE: COMMITTER_DATE });
-  git("mv", "four.txt", "moved four.txt");
-  gitIn(root, {}, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "move four");
-  const moved = git("rev-parse", "HEAD");
+  git(root, ["mv", "four.txt", "moved four.txt"]);
+  const moved = commitAll(root, "move four");
   return { shas: [one, two, three, merge, four], merge, branchTip, moved };
 }
 
 describe("git facts", () => {
-  test("the first-parent count steps once per merge, the date is the committer's in UTC, ancestry answers yes, no, and unknown, and a diff lists every path", () => {
-    const root = mkdtempSync(join(tmpdir(), "maxims-release-"));
-    try {
+  test("the first-parent count steps once per merge, the date is the committer's in UTC, ancestry answers yes, no, and unknown, and a diff lists every path", async () => {
+    await withTempDir((root) => {
       const { shas, merge, branchTip, moved } = fixtureRepo(root);
       const [one, , , , four] = shas as [string, string, string, string, string];
       expect(shas.map((sha) => mainPosition(root, sha).count)).toEqual([1, 2, 3, 4, 5]);
@@ -122,8 +108,6 @@ describe("git facts", () => {
       ]);
       expect(ancestry.changedPaths(four, moved).sort()).toEqual(["four.txt", "moved four.txt"]);
       expect(ancestry.changedPaths(four, four)).toEqual([]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    });
   });
 });

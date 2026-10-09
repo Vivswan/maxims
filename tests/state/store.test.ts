@@ -14,12 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import {
-  type ContentHash,
-  type MemoryName,
-  parseContentHash,
-  parseMemoryName,
-} from "../../src/memory/contract.ts";
+import { type ContentHash, parseContentHash } from "../../src/memory/contract.ts";
 import { legacyHooksStep } from "../../src/state/fixtures/migration-step-v0.ts";
 import type { MigrationStep } from "../../src/state/migrations/index.ts";
 import {
@@ -40,6 +35,7 @@ import {
 } from "../../src/state/store.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { memoryName } from "../engine/harness.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempHome } from "../shared/temp_dir.ts";
@@ -48,12 +44,6 @@ const FIXTURES = srcPath("state", "fixtures");
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 const RENAME_FROM = memoryName("gate-exit-conditions-the-merge");
 const RENAME_TO = memoryName("gate-exit-conditions-the-merge-dotfiles");
-
-function memoryName(candidate: string): MemoryName {
-  const name = parseMemoryName(candidate);
-  if (name === null) throw new Error(`${candidate} is not a memory name`);
-  return name;
-}
 
 function contentHash(candidate: string): ContentHash {
   const hash = parseContentHash(candidate);

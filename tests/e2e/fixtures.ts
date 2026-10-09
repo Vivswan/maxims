@@ -17,6 +17,7 @@ import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { sha256 } from "../../src/util/fs.ts";
+import { commitAll, gitInit } from "../shared/git_fixture.ts";
 import { type Bundle, type Home, type Run, runMaxims } from "./binary.ts";
 
 const HARNESS_FIXTURES = resolve(import.meta.dir, "..", "..", "src", "harnesses");
@@ -38,19 +39,6 @@ export function hookPayload(fixture: string, home: Home): string {
 
 const TREE_ROOT = resolve(import.meta.dir, "..", "fixtures", "cli");
 
-function git(cwd: string, ...args: string[]): void {
-  const run = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
-  if (run.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} in ${cwd} exited ${run.exitCode}:\n${run.stderr}`);
-  }
-}
-
-function commitAll(dir: string): void {
-  git(dir, "init", "-q", "-b", "main");
-  git(dir, "add", ".");
-  git(dir, "commit", "-q", "-m", "fixture");
-}
-
 // Copies `tests/fixtures/cli/<tree>/` to `<dir>/<tree>` and commits it; returns the path the
 // bundle installs from.
 export function fixtureRepo(dir: string, tree: string): string {
@@ -58,7 +46,8 @@ export function fixtureRepo(dir: string, tree: string): string {
   if (!existsSync(source)) throw new Error(`no fixture tree named ${tree}`);
   const repo = join(dir, tree);
   cpSync(source, repo, { recursive: true });
-  commitAll(repo);
+  gitInit(repo);
+  commitAll(repo, "fixture");
   return repo;
 }
 
@@ -113,7 +102,8 @@ export function memoriesRepo(dir: string, count: number): string {
       ].join("\n"),
     );
   }
-  commitAll(repo);
+  gitInit(repo);
+  commitAll(repo, "fixture");
   return repo;
 }
 
