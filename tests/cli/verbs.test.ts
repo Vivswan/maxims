@@ -26,6 +26,7 @@ import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
 import { renderBlock } from "../../src/rulefile/block.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
@@ -2173,7 +2174,11 @@ test("doctor expects no hook for a harness only another project's source lists",
 
 test("doctor reports a corrupt state file as a warning and leaves it in place", async () => {
   await withScenario({}, async (scenario) => {
-    writeState(scenario, { version: 1, writtenBy: "x", sources: { "@a/b": {} } });
+    writeState(scenario, {
+      version: CURRENT_STATE_VERSION,
+      writtenBy: "x",
+      sources: { "@a/b": {} },
+    });
     const before = await snapshot(scenario.home);
     const run = await runCli(scenario, ["doctor"]);
     expect(run.code).toBe(0);
@@ -2200,7 +2205,11 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
 // A request that turns out malformed reads nothing first, so it settles nothing either.
 test("update --cap on a real run settles a corrupt state file instead of refusing it", async () => {
   await withScenario({}, async (scenario) => {
-    writeState(scenario, { version: 1, writtenBy: "x", sources: { "@a/b": {} } });
+    writeState(scenario, {
+      version: CURRENT_STATE_VERSION,
+      writtenBy: "x",
+      sources: { "@a/b": {} },
+    });
     const malformed = await runCli(scenario, ["update", "@a/b", "--cap", "0"]);
     expect(malformed.code).toBe(1);
     expect(malformed.stderr).toContain("--cap expects a positive integer");

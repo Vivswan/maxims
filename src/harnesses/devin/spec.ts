@@ -2,7 +2,7 @@ import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Devin Local is the agent new Devin Desktop (formerly Windsurf) tabs start with, and it shares
-// its rule, hook and MCP files with the Devin CLI; the legacy Cascade agent is the `windsurf`
+// its rule, hook and MCP files with the Devin CLI; the earlier Cascade agent is the `windsurf`
 // harness. Hooks go under the `hooks` key of `config.json` in both scopes because the standalone
 // `.devin/hooks.v1.json` has no user-level twin. SessionStart takes `timeout` in seconds, has no
 // async field, and reads context back only as `hookSpecificOutput.additionalContext`.

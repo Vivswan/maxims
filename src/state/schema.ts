@@ -17,8 +17,7 @@ import {
   parseMemoryName,
 } from "../memory/contract.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-
-export const CURRENT_STATE_VERSION = 1;
+import { CURRENT_STATE_VERSION, versionOf } from "./migrations/ladder.ts";
 
 export const MemoryNameSchema = z.custom<MemoryName>(
   (value) => typeof value === "string" && parseMemoryName(value) !== null,
@@ -280,16 +279,9 @@ export type ParsedState =
   | { ok: "corrupt"; issues: string[] }
   | { ok: "newer"; version: number };
 
-// The version is read before any shape judgment: the migration runner routes an older document
-// by it and `parseState` refuses a newer one by it, so neither ever parses a shape it cannot know.
-export function versionOf(json: unknown): number | null {
-  if (typeof json !== "object" || json === null || !("version" in json)) return null;
-  return typeof json.version === "number" && Number.isInteger(json.version) ? json.version : null;
-}
-
 // A version above the current one is a clean stop, never a parse attempt: an older binary cannot
 // see the fields a newer one wrote, so a rewrite would destroy them. A version below the current
-// one reaches here only if the migration runner did not intercept it, which is corruption.
+// one reaches here only if the ladder did not intercept it, which is corruption.
 export function parseState(json: unknown): ParsedState {
   const version = versionOf(json);
   if (version !== null && version > CURRENT_STATE_VERSION) return { ok: "newer", version };

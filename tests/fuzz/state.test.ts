@@ -6,8 +6,9 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import fc from "fast-check";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
 import { parseProjectLock, serializeProjectLock } from "../../src/state/project-lock.ts";
-import { CURRENT_STATE_VERSION, parseState, type State } from "../../src/state/schema.ts";
+import { parseState, type State } from "../../src/state/schema.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz, mutatedJson, outcome } from "./shared.ts";
 
@@ -17,8 +18,8 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
 }
 
-const VALID_STATE = fixture("v1-valid.json");
-const ODD_PRECISION_STATE = fixture("v1-valid-odd-precision.json");
+const VALID_STATE = fixture("current.json");
+const ODD_PRECISION_STATE = fixture("current-odd-precision.json");
 
 // Parsed once here, not inside an arbitrary: a parser that breaks on the fixture fails this file
 // at load with this message, where a throw inside a generator has no counterexample to replay.
