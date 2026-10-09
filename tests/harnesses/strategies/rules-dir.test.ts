@@ -3,7 +3,13 @@
 import { describe, expect, test } from "bun:test";
 import { lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HarnessContext, HarnessDefinition, Scope } from "../../../src/harnesses/contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  parseSourceSlug,
+  type Scope,
+  type SourceSlug,
+} from "../../../src/harnesses/contract.ts";
 import {
   planRulesDirRemove,
   planRulesDirWrite,
@@ -49,6 +55,8 @@ const declared: RulesDirTarget = {
 const scoped = definition({
   scopeFrontmatter: (globs) => `---\npaths: [${globs.join(", ")}]\n---\n`,
 });
+
+const SLUG = "a-b" as SourceSlug;
 
 describe("planRulesDirWrite", () => {
   const cases: {
@@ -122,49 +130,27 @@ describe("planRulesDirWrite", () => {
   ];
 
   test.each(cases)("$name", ({ def, target, scope, paths, path, content }) => {
-    const changes = planRulesDirWrite({ def, target, scope, ctx, sourceSlug: "a-b", block, paths });
+    const changes = planRulesDirWrite({ def, target, scope, ctx, sourceSlug: SLUG, block, paths });
     expect(changes).toEqual([{ kind: "write", path: rooted(path), content }]);
-    expect(planRulesDirRemove({ def, target, scope, ctx, sourceSlug: "a-b" })).toEqual([
+    expect(planRulesDirRemove({ def, target, scope, ctx, sourceSlug: SLUG })).toEqual([
       { kind: "delete", path: rooted(path) },
     ]);
   });
 
-  const escaping = (sourceSlug: string) =>
-    planRulesDirWrite({ def: scoped, target: plain, scope: "project", ctx, sourceSlug, block });
+  // A slug that is not one path segment cannot be a SourceSlug: the refusal that once sat in
+  // rulesDirPath now lives in the parse, so these are the inputs it must turn away.
+  const notSlugs = [
+    "x/../../../../etc/evil",
+    "x/../../../escape",
+    "../sibling",
+    "evil\\sibling",
+    "",
+  ];
+  test.each(notSlugs)("parseSourceSlug turns away %j", (text) => {
+    expect(parseSourceSlug(text)).toBeNull();
+  });
+
   const refusals: { name: string; run: () => unknown; code: ExitCode }[] = [
-    {
-      name: "a slug that escapes the scope root",
-      run: () => escaping("x/../../../../etc/evil"),
-      code: ExitCode.DestinationWriteFailed,
-    },
-    {
-      name: "a slug that climbs out of the rules directory but stays under the scope root",
-      run: () => escaping("x/../../../escape"),
-      code: ExitCode.DestinationWriteFailed,
-    },
-    {
-      name: "a slug that nests a directory inside the rules directory",
-      run: () => escaping("../sibling"),
-      code: ExitCode.DestinationWriteFailed,
-    },
-    {
-      name: "a backslash in the slug, which Windows reads as a separator",
-      run: () => escaping("evil\\sibling"),
-      code: ExitCode.DestinationWriteFailed,
-    },
-    {
-      name: "a file name that renders empty",
-      run: () =>
-        planRulesDirWrite({
-          def: scoped,
-          target: { ...plain, fileName: (slug) => slug },
-          scope: "project",
-          ctx,
-          sourceSlug: "",
-          block,
-        }),
-      code: ExitCode.DestinationWriteFailed,
-    },
     {
       name: "a project install with no project root",
       run: () =>
@@ -173,7 +159,7 @@ describe("planRulesDirWrite", () => {
           target: plain,
           scope: "project",
           ctx: { ...ctx, projectRoot: null },
-          sourceSlug: "a-b",
+          sourceSlug: SLUG,
           block,
         }),
       code: ExitCode.Usage,
@@ -186,7 +172,7 @@ describe("planRulesDirWrite", () => {
           target: plain,
           scope: "project",
           ctx,
-          sourceSlug: "a-b",
+          sourceSlug: SLUG,
           block,
         }),
       code: ExitCode.RuleCapExceeded,
@@ -199,7 +185,7 @@ describe("planRulesDirWrite", () => {
           target: plain,
           scope: "project",
           ctx,
-          sourceSlug: "a-b",
+          sourceSlug: SLUG,
           block,
         }),
       code: ExitCode.RuleCapExceeded,
@@ -232,7 +218,7 @@ describe("planRulesDirWrite", () => {
           target: plain,
           scope: "project",
           ctx: local,
-          sourceSlug: "a-b",
+          sourceSlug: SLUG,
           block,
         });
       } catch (error) {
@@ -255,7 +241,7 @@ describe("planRulesDirWrite", () => {
         target: plain,
         scope: "project",
         ctx: local,
-        sourceSlug: "a-b",
+        sourceSlug: SLUG,
         block,
       });
       await applyChanges({ changes, notices: [] }, { dryRun: false });

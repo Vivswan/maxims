@@ -35,12 +35,25 @@ export type Target =
   | {
       kind: "rules-dir";
       dir: string;
-      fileName: (sourceSlug: string) => string;
+      fileName: (sourceSlug: SourceSlug) => string;
       frontmatter?: (opts: { paths?: string[] }) => string;
     }
   | { kind: "shared-block"; file: string; precedence?: string[]; skipsEmpty?: true };
 
 export type SharedBlockTarget = Extract<Target, { kind: "shared-block" }>;
+
+declare const sourceSlugBrand: unique symbol;
+
+// The file-name form of a source, built by `sourceSlug` in src/commands/shared/slug.ts and parsed
+// here before it is trusted: one path segment with nothing a path builder could misread, so a
+// rules-dir file name made from it and a template the spec admits is one segment by construction.
+export type SourceSlug = string & { readonly [sourceSlugBrand]: true };
+
+export const SOURCE_SLUG_PATTERN = /^[a-z0-9-]+$/;
+
+export function parseSourceSlug(candidate: string): SourceSlug | null {
+  return SOURCE_SLUG_PATTERN.test(candidate) ? (candidate as SourceSlug) : null;
+}
 
 // Blank as Codex judges it: Rust's `str::trim` strips the Unicode White_Space set, which differs
 // from JavaScript's `trim` on two characters. A byte order mark (U+FEFF) is whitespace only to

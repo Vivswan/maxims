@@ -12,6 +12,7 @@ import {
   HOOK_COMMAND,
   hookSpecFor,
   type Scope,
+  type SourceSlug,
 } from "../../../src/harnesses/contract.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
@@ -111,7 +112,7 @@ test.each(files)(
         target,
         scope,
         ctx,
-        sourceSlug: "example-user-doctrine",
+        sourceSlug: "example-user-doctrine" as SourceSlug,
         block,
       }),
     ).toEqual([{ kind: "write", path: assertInsideRoot(root, rulePath), content: block }]);

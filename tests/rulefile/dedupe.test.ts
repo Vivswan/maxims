@@ -3,7 +3,7 @@
 // a later-installed source winning a shared name because timestamps sorted as text, or a memory
 // named like an Object prototype member reading a function out of the rename map.
 import { describe, expect, test } from "bun:test";
-import type { MemoryName } from "../../src/memory/contract.ts";
+import { contentHashLiteral, type MemoryName } from "../../src/memory/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../src/rulefile/budget.ts";
 import {
   buildNameIndex,
@@ -23,8 +23,8 @@ const RUBBER_DUCK = "rubber-duck-before-every-commit" as MemoryName;
 const NO_PIPE = "no-pipe-masked-exit-codes" as MemoryName;
 const BRAND_NEW = "brand-new" as MemoryName;
 
-const HASH_A = `sha256:${"a".repeat(64)}`;
-const HASH_B = `sha256:${"b".repeat(7)}${"0".repeat(57)}`;
+const HASH_A = contentHashLiteral(`sha256:${"a".repeat(64)}`);
+const HASH_B = contentHashLiteral(`sha256:${"b".repeat(7)}${"0".repeat(57)}`);
 
 function candidate(name: MemoryName, hash = HASH_A): Candidate {
   return { name, description: `about ${name}`, contentHash: hash, detailPath: `/store/${name}.md` };

@@ -1,6 +1,11 @@
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type HarnessDefinition, type Scope, scopeRoot } from "../../harnesses/contract.ts";
+import {
+  type HarnessDefinition,
+  type Scope,
+  type SourceSlug,
+  scopeRoot,
+} from "../../harnesses/contract.ts";
 import { achievedTier } from "../../harnesses/hook-writer.ts";
 import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-target.ts";
 import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
@@ -37,7 +42,7 @@ export type RuleFile =
   | {
       kind: "harness";
       path: RootedPath;
-      sourceSlug: string;
+      sourceSlug: SourceSlug | null;
       targets: HarnessTarget[];
       blocks: BlockRequest[];
     }
@@ -293,7 +298,9 @@ function rulesDirContent(
   request: BlockRequest,
 ): string {
   const [primary] = file.targets;
-  if (primary === undefined || primary.target.kind !== "rules-dir") return block;
+  if (primary === undefined || primary.target.kind !== "rules-dir" || file.sourceSlug === null) {
+    return block;
+  }
   const [change] = planRulesDirWrite({
     def: primary.def,
     target: primary.target,

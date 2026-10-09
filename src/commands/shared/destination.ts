@@ -4,6 +4,7 @@ import { type HarnessId, isBuiltInHarnessId } from "../../contracts/harness-id.t
 import {
   type HarnessDefinition,
   type Scope,
+  type SourceSlug,
   scopeRoot,
   type Target,
 } from "../../harnesses/contract.ts";
@@ -44,7 +45,9 @@ export type TargetResolution = {
 export type TargetRequest = {
   intent: Pick<SourceIntent, "harnesses">;
   scope: Scope;
-  sourceSlug: string;
+  // null for a shared file visited only for its orphans: a shared block derives no file name
+  // from the source, so no slug exists for it.
+  sourceSlug: SourceSlug | null;
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
@@ -55,6 +58,13 @@ export type TargetRequest = {
 // the ones this run cannot or should not write. A harness the user named with `-a` is written or
 // the run fails; one the intent merely lists is skipped with a reason when its project config
 // root is absent, so a project install never plants a `.claude/` in a repo that has none.
+// A request with no slug names only shared-block harnesses (the orphan sweep), so a rules-dir
+// target meeting one is a caller's defect, never a user's.
+function slugFor(request: Pick<TargetRequest, "sourceSlug">): SourceSlug {
+  if (request.sourceSlug === null) throw new Error("a rules directory needs the source's slug");
+  return request.sourceSlug;
+}
+
 export function resolveTargets(request: TargetRequest): TargetResolution {
   const { ctx, scope } = request;
   const harnessCtx = harnessContext(ctx);
@@ -82,7 +92,7 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
     }
     const path =
       target.kind === "rules-dir"
-        ? rulesDirPath({ def, target, scope, ctx: harnessCtx, sourceSlug: request.sourceSlug })
+        ? rulesDirPath({ def, target, scope, ctx: harnessCtx, sourceSlug: slugFor(request) })
         : sharedBlockPath({ def, target, scope, ctx: harnessCtx });
     targets.push({ def, scope, target, path, realKey: realKeyOf(path) });
   }

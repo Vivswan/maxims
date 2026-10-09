@@ -93,7 +93,7 @@ describe("renderHookStdout", () => {
 
 describe("sourceSlug", () => {
   test("readable for a plain owner/repo, hash-suffixed when two keys could read alike", () => {
-    expect(sourceSlug({ type: "github", repo: "Example/skills", ref: "HEAD" })).toBe(
+    expect(String(sourceSlug({ type: "github", repo: "Example/skills", ref: "HEAD" }))).toBe(
       "example-skills",
     );
     const dashed = [

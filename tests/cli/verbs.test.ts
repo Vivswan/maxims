@@ -20,6 +20,7 @@ import {
 import { join } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/index.ts";
+import type { SourceSlug } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/index.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
@@ -2057,7 +2058,7 @@ test("doctor judges the frontmatter and the precedence file the real definitions
           target,
           scope: "project",
           ctx,
-          sourceSlug: "a-b",
+          sourceSlug: "a-b" as SourceSlug,
           block: rendered,
           paths: ["src/**"],
         });

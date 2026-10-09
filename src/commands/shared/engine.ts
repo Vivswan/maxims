@@ -4,7 +4,7 @@ import { heldForReview } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { LastError } from "../../contracts/last-error.ts";
 import { isLiveLocal } from "../../contracts/source.ts";
-import type { Scope } from "../../harnesses/contract.ts";
+import type { Scope, SourceSlug } from "../../harnesses/contract.ts";
 import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
 import {
   type ContentHash,
@@ -802,7 +802,7 @@ function harnessFile(
   files: Map<string, RuleFile>,
   group: HarnessTarget[],
   first: HarnessTarget,
-  slug: string,
+  slug: SourceSlug,
 ): Extract<RuleFile, { kind: "harness" }> {
   const existing = files.get(first.realKey);
   const file: Extract<RuleFile, { kind: "harness" }> =
@@ -1524,7 +1524,7 @@ function addSharedFilesWithOrphans(
       const [only] = resolveTargets({
         intent: { harnesses: [def.id] },
         scope,
-        sourceSlug: "",
+        sourceSlug: null,
         ctx,
         harnesses: io.harnesses,
         agents: undefined,
@@ -1535,7 +1535,7 @@ function addSharedFilesWithOrphans(
       files.set(only.realKey, {
         kind: "harness",
         path: only.path,
-        sourceSlug: "",
+        sourceSlug: null,
         targets: [only],
         blocks: [],
       });

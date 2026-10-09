@@ -1,4 +1,4 @@
-import type { MemoryName } from "../memory/contract.ts";
+import type { ContentHash, MemoryName } from "../memory/contract.ts";
 import type { RenameMap, Select, SourceIntent } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { compareSourceKeys } from "./block.ts";
@@ -62,7 +62,7 @@ function renamed(rename: RenameMap, name: MemoryName): MemoryName {
 export type Candidate = {
   name: MemoryName;
   description: string;
-  contentHash: string;
+  contentHash: ContentHash;
   detailPath: string;
 };
 
@@ -116,14 +116,12 @@ function compare(a: string, b: string): number {
   return a > b ? 1 : 0;
 }
 
-const CONTENT_HASH = /^sha256:([0-9a-f]{64})$/;
+const SHORT_HASH_LENGTH = 7;
 
-// The display prefix of `fetched.memories[].content`; long enough to make a change visible in a
+// The display prefix of a content hash's hex digits; long enough to make a change visible in a
 // diff line, never stored, never part of identity.
-export function shortHash(contentHash: string): string {
-  const match = CONTENT_HASH.exec(contentHash);
-  if (match === null) throw new Error(`not a sha256 content hash: ${contentHash}`);
-  return match[1].slice(0, 7);
+export function shortHash(contentHash: ContentHash): string {
+  return contentHash.slice("sha256:".length, "sha256:".length + SHORT_HASH_LENGTH);
 }
 
 export function pruneRenames(rename: RenameMap, upstreamNames: Iterable<MemoryName>): RenameMap {
