@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { SourceFrom } from "../../contracts/source.ts";
 import type { FetchResult, SourceResolver } from "../contract.ts";
 import {
@@ -9,6 +10,7 @@ import {
   type Runner,
   sparsePathFor,
   systemRunner,
+  withoutUserinfo,
 } from "../github/ladder.ts";
 import { readMemoryTree, type WarnSink } from "../tree.ts";
 
@@ -25,8 +27,6 @@ export interface GitResolver extends SourceResolver<GitSourceFrom> {
   resolveRef(from: GitSourceFrom, pin?: string, options?: { auth?: boolean }): Promise<string>;
 }
 
-const FULL_SHA = /^[0-9a-f]{40}$/i;
-
 // One transport only: the URL is handed to git exactly as the user wrote it (a mirror path that
 // happens to contain "github.com" is still this remote), and no GitHub token is ever attached,
 // because a token for github.com has no business reaching another host. `auth` is acknowledged
@@ -37,7 +37,7 @@ export function createGitResolver(options: GitResolverOptions): GitResolver {
   const noteAuth = (from: GitSourceFrom, auth: boolean | undefined): void => {
     if (auth === true) {
       options.warn(
-        `${displayUrl(from.url)}: --auth does not apply a GitHub token to this host; git's own credential helpers are used`,
+        `${withoutUserinfo(from.url)}: --auth does not apply a GitHub token to this host; git's own credential helpers are used`,
       );
     }
   };
@@ -49,7 +49,8 @@ export function createGitResolver(options: GitResolverOptions): GitResolver {
   ): Promise<string> => {
     noteAuth(from, request.auth);
     const ref = pin ?? from.ref;
-    if (FULL_SHA.test(ref)) return ref.toLowerCase();
+    const sha = parseGitSha(ref);
+    if (sha !== null) return sha;
     return withoutRateLimitClass(
       climb(options.rung, [lsRemoteRung(runner, from.url, ref, inherited)]),
     );
@@ -81,17 +82,5 @@ async function withoutRateLimitClass<T>(action: Promise<T>): Promise<T> {
       throw new FetchFailure("network", cause.message, cause.retryAfterSeconds);
     }
     throw cause;
-  }
-}
-
-// A remote URL may carry `user:password@`; a notice is not the place for it.
-function displayUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.username = "";
-    parsed.password = "";
-    return parsed.toString();
-  } catch {
-    return url;
   }
 }

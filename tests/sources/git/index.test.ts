@@ -97,23 +97,34 @@ describe("createGitResolver", () => {
     expect(runner.calls).toEqual([]);
   });
 
-  test("the auth notice never repeats credentials embedded in the URL", async () => {
-    const warnings: string[] = [];
-    const resolver = createGitResolver({
-      runner: scriptedRunner(),
-      warn: (m) => warnings.push(m),
-      rung: () => {},
-      env: {},
-    });
-    await resolver.resolveRef(
-      { type: "git", url: "https://example-user:s3cret@mirror.example.com/rules.git", ref: "HEAD" },
-      SHA,
-      { auth: true },
-    );
-    expect(warnings).toEqual([
-      "https://mirror.example.com/rules.git: --auth does not apply a GitHub token to this host; git's own credential helpers are used",
-    ]);
-  });
+  // What would drift: a redaction that only knows http(s) would print an ssh URL's password, which
+  // the CLI accepts in a `ssh://user:password@host` remote, into the notice.
+  const embedded: [string, string][] = [
+    [
+      "https://example-user:s3cret@mirror.example.com/rules.git",
+      "https://mirror.example.com/rules.git",
+    ],
+    [
+      "ssh://example-user:s3cret@mirror.example.com/rules.git",
+      "ssh://mirror.example.com/rules.git",
+    ],
+  ];
+  test.each(embedded)(
+    "the auth notice never repeats credentials embedded in %s",
+    async (url, shown) => {
+      const warnings: string[] = [];
+      const resolver = createGitResolver({
+        runner: scriptedRunner(),
+        warn: (m) => warnings.push(m),
+        rung: () => {},
+        env: {},
+      });
+      await resolver.resolveRef({ type: "git", url, ref: "HEAD" }, SHA, { auth: true });
+      expect(warnings).toEqual([
+        `${shown}: --auth does not apply a GitHub token to this host; git's own credential helpers are used`,
+      ]);
+    },
+  );
 
   test("a password in the URL reaches neither a warning nor the recorded failure, even under GIT_TRACE", async () => {
     const warnings: string[] = [];

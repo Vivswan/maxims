@@ -21,6 +21,7 @@ import {
   STRINGS,
   selected,
 } from "../console/strings.ts";
+import { parseGitSha } from "../contracts/git-sha.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import {
   DEFAULT_GIT_REF,
@@ -46,7 +47,6 @@ import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
   type Destination,
-  parseGitSha,
   parseSourceSelector,
   type RenameMap,
   type Select,

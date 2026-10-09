@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import { type GitSha, parseGitSha } from "../contracts/git-sha.ts";
 import { HarnessIdSchema } from "../contracts/harness-id.ts";
 import { IsoTimestamp, LastErrorSchema } from "../contracts/last-error.ts";
 import {
@@ -34,22 +35,10 @@ export const MemoryNameSchema = z.custom<MemoryName>(
   { error: "expected a kebab-case memory name" },
 );
 
-declare const gitShaBrand: unique symbol;
-
-// What a git remote reports as a commit id; a copied local source has no commit and records a
-// content hash instead, so the two fetched shapes are split by source variant below and the two
-// hash types are distinct brands, never one `string`.
-export type GitSha = string & { readonly [gitShaBrand]: true };
-const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/;
-
-// The one place a resolver's answer becomes a `GitSha`: what a remote reported is parsed here
-// before it is written into state, so the state file never has to be read back to learn it.
-export function parseGitSha(candidate: string): GitSha | null {
-  return GIT_SHA_PATTERN.test(candidate) ? (candidate as GitSha) : null;
-}
-
+// State holds a sha in the minted form only: a hand edit in upper case is refused whole like an
+// unsorted list below, never folded on the way in.
 const GitShaSchema = z.custom<GitSha>(
-  (value) => typeof value === "string" && parseGitSha(value) !== null,
+  (value) => typeof value === "string" && parseGitSha(value) === value,
   { error: "expected a 40-character lower-case hex sha" },
 );
 
