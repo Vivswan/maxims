@@ -8,30 +8,36 @@ import {
   WINDOWS_TEST_TIMEOUT_MS,
 } from "../scripts/lib/test_timeout.ts";
 
-const budgets: [NodeJS.Platform, number][] = [
-  ["win32", WINDOWS_TEST_TIMEOUT_MS],
-  ["linux", DEFAULT_TEST_TIMEOUT_MS],
-  ["darwin", DEFAULT_TEST_TIMEOUT_MS],
+const budgets: [platform: NodeJS.Platform, argv: string[], expected: string[]][] = [
+  [
+    "win32",
+    ["tests/smoke.test.ts"],
+    [`--timeout=${WINDOWS_TEST_TIMEOUT_MS}`, "tests/smoke.test.ts"],
+  ],
+  [
+    "linux",
+    ["tests/smoke.test.ts"],
+    [`--timeout=${DEFAULT_TEST_TIMEOUT_MS}`, "tests/smoke.test.ts"],
+  ],
+  [
+    "darwin",
+    ["tests/smoke.test.ts"],
+    [`--timeout=${DEFAULT_TEST_TIMEOUT_MS}`, "tests/smoke.test.ts"],
+  ],
+  ["win32", ["--timeout=1000", "tests/smoke.test.ts"], ["--timeout=1000", "tests/smoke.test.ts"]],
+  [
+    "win32",
+    ["--timeout", "1000", "tests/smoke.test.ts"],
+    ["--timeout", "1000", "tests/smoke.test.ts"],
+  ],
 ];
 
 test.each(budgets)(
-  "%s tests get a %d ms budget ahead of the caller's arguments",
-  (platform, ms) => {
-    expect(bunTestArgs(platform, ["tests/smoke.test.ts"])).toEqual([
-      `--timeout=${ms}`,
-      "tests/smoke.test.ts",
-    ]);
+  "bunTestArgs(%p, %p) is %p: the platform budget leads unless the caller carries one",
+  (platform, argv, expected) => {
+    expect(bunTestArgs(platform, argv)).toEqual(expected);
   },
 );
-
-const explicitBudgets: [string[]][] = [[["--timeout=1000"]], [["--timeout", "1000"]]];
-
-test.each(explicitBudgets)("a caller's own %p wins and is not doubled", (explicit) => {
-  expect(bunTestArgs("win32", [...explicit, "tests/smoke.test.ts"])).toEqual([
-    ...explicit,
-    "tests/smoke.test.ts",
-  ]);
-});
 
 test("the flag the launcher passes is one `bun test` documents", async () => {
   const proc = Bun.spawn([process.execPath, "test", "--help"], { stdout: "pipe", stderr: "pipe" });
