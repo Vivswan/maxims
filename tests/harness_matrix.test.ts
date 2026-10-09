@@ -1,10 +1,18 @@
-// Fails if the renderer stops showing a scope with no target, a definition with no hook, or a
+// Fails if docs/harnesses.md falls behind the harness registry: a definition added, renamed, or
+// re-pathed in src/harnesses would otherwise ship beside a page still describing the old one. Also
+// fails if the renderer stops showing a scope with no target, a definition with no hook, or a
 // missing budget as the "none" and "-" cells the page's legend describes, renders a hook path for a
 // scope the harness does not install into, or collapses a per-scope budget or MCP file to one cell.
-// Whether the committed page matches the registry is the docs:matrix:check gate's question.
 import { expect, test } from "bun:test";
-import { renderRow } from "../scripts/render_harness_matrix.ts";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { MATRIX_PAGE, renderPage, renderRow } from "../scripts/render_harness_matrix.ts";
 import type { HarnessDefinition } from "../src/harnesses/contract.ts";
+
+test("the committed page carries the matrix rendered from the registry", () => {
+  const page = readFileSync(resolve(import.meta.dir, "..", MATRIX_PAGE), "utf8");
+  expect(renderPage(page)).toBe(page);
+});
 
 // Hand-written definitions covering shapes and combinations the registry does not: no hook, a null
 // global target, no budget, a registry hook beside a null global target, a per-scope budget with

@@ -18,6 +18,11 @@ function launcherEnv(scratch: string): Record<string, string> {
   return Object.assign(env, tmpdirEnv(scratch));
 }
 
+test("tests run inside the hermetic launcher with a temp HOME", () => {
+  expect(process.env.MAXIMS_TEST_LAUNCHER).toBe("1");
+  expect(process.env.HOME).toContain("maxims-test-home-");
+});
+
 // The launcher's signal handlers remove only its HOME, so a fixture anywhere else would outlive
 // an interrupted run.
 test("fixture dirs sit under the launcher HOME so its cleanup covers them", async () => {
