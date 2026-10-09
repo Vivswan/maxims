@@ -10,10 +10,10 @@ import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
 import { cursor } from "../../../src/harnesses/cursor/index.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
-import type { MemoryName } from "../../../src/memory/contract.ts";
 import { renderBlock } from "../../../src/rulefile/block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { memoryName } from "../../engine/harness.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
@@ -171,7 +171,7 @@ test("a rule line keeps an @ mention and the code span around it literal", () =>
     sha: "1",
     lines: [
       {
-        name: "install-skills-first" as MemoryName,
+        name: memoryName("install-skills-first"),
         description: "Install the team skills with `npx skills add @octocat/skills` first.",
         detailPath: ".agents/memories/install-skills-first.md",
         shortHash: "a1b2c3d",
