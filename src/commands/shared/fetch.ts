@@ -12,7 +12,7 @@ import {
   parseMemoryName,
 } from "../../memory/contract.ts";
 import { pruneRenames, shortHash } from "../../rulefile/dedupe.ts";
-import { needsFetch } from "../../sources/github/index.ts";
+import { needsFetch } from "../../sources/contract.ts";
 import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
 import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../../state/schema.ts";

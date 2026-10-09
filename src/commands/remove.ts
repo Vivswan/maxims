@@ -1,11 +1,6 @@
 import { memories } from "../console/strings.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
-import {
-  canonicalSourceKey,
-  parseSourceArgument,
-  type SourceEntry,
-  type State,
-} from "../state/schema.ts";
+import { canonicalSourceKey, type SourceEntry, type State } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -24,6 +19,7 @@ import {
   unusableStateLine,
 } from "./shared/report.ts";
 import { selectMemories } from "./shared/select.ts";
+import { parseSourceArgument } from "./shared/source-argument.ts";
 import { withIntent } from "./shared/sources.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "./types.ts";
 

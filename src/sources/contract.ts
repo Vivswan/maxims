@@ -1,4 +1,4 @@
-import type { SourceFrom } from "../contracts/source.ts";
+import { isLiveLocal, type SourceFrom } from "../contracts/source.ts";
 
 export type FetchOptions = {
   memoryPath: string;
@@ -27,3 +27,12 @@ export type SourceResolver<F extends SourceFrom = SourceFrom> = {
 // The dispatch shape the resolver registry implements: the resolver returned is typed for exactly
 // the variant passed in.
 export type ResolverFor = <F extends SourceFrom>(from: F) => SourceResolver<F>;
+
+export function needsFetch(
+  from: SourceFrom,
+  fetchedSha: string | undefined,
+  remoteSha: string,
+): boolean {
+  if (isLiveLocal(from)) return false;
+  return fetchedSha !== remoteSha;
+}

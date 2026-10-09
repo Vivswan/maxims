@@ -11,6 +11,7 @@ import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { LastError } from "../../contracts/last-error.ts";
 import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
 import type { WarnSink } from "../tree.ts";
+import { DEFAULT_GH_HOST, isDotcomClass } from "./host.ts";
 import { extractTarball } from "./tarball.ts";
 
 export type RepoCoordinate = { owner: string; repo: string };
@@ -72,15 +73,6 @@ export type Endpoints = {
   gitUrl(repo: RepoCoordinate): string;
   archiveUrl(repo: RepoCoordinate, ref: string): string;
 };
-
-export const DEFAULT_GH_HOST = "github.com";
-const TENANCY_SUFFIX = ".ghe.com";
-
-// gh's host classes (go-gh pkg/auth IsTenancy, IsEnterprise): github.com and every ghe.com tenant
-// share one class, every other host is an enterprise server.
-function isDotcomClass(host: string): boolean {
-  return host === DEFAULT_GH_HOST || host.endsWith(TENANCY_SUFFIX);
-}
 
 // gh's URL shapes (go-gh pkg/api restPrefix): the github.com class serves its API from an `api.`
 // subdomain, an enterprise server under its own /api/v3. Archives come from codeload for github.com

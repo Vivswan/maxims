@@ -99,8 +99,8 @@ Demonstrated by: [tests/state/store.test.ts](../tests/state/store.test.ts), [tes
 ```mermaid
 flowchart LR
   from["src/contracts/source.ts<br>SourceFrom DEFAULT_GIT_REF"]
-  contract["src/sources/contract.ts<br>SourceResolver FetchOptions FetchResult"]
-  github["src/sources/github/index.ts<br>createGithubResolver() needsFetch()"]
+  contract["src/sources/contract.ts<br>SourceResolver FetchOptions FetchResult needsFetch()"]
+  github["src/sources/github/index.ts<br>createGithubResolver()"]
   ladder["src/sources/github/ladder.ts<br>createLadder() climb() lsRemoteRung() cloneRung() endpointsFor() tokenFor()"]
   tarball["src/sources/github/tarball.ts<br>extractTarball()"]
   git["src/sources/git/index.ts<br>createGitResolver()"]

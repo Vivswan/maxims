@@ -1,11 +1,11 @@
 import { join } from "node:path";
 import { parseGitSha } from "../../contracts/git-sha.ts";
-import { isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
+import type { SourceFrom } from "../../contracts/source.ts";
 import type { FetchResult, SourceResolver } from "../contract.ts";
 import { readMemoryTree, type WarnSink } from "../tree.ts";
+import { DEFAULT_GH_HOST } from "./host.ts";
 import {
   createLadder,
-  DEFAULT_GH_HOST,
   endpointsFor,
   fetchTimeoutMs,
   type Ladder,
@@ -82,15 +82,6 @@ export function createGithubResolver(options: GithubResolverOptions): GithubReso
       return { sha, memoryPath: opts.memoryPath, files: tree.files };
     },
   };
-}
-
-export function needsFetch(
-  from: SourceFrom,
-  fetchedSha: string | undefined,
-  remoteSha: string,
-): boolean {
-  if (isLiveLocal(from)) return false;
-  return fetchedSha !== remoteSha;
 }
 
 function coordinate(from: GithubSourceFrom): RepoCoordinate {

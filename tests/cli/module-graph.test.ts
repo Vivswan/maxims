@@ -94,11 +94,13 @@ const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
     },
   ],
   [
+    // commands/shared/fetch.ts imports FetchFailure from the ladder and never the resolver factory,
+    // so the walk carries the ladder without the resolver module.
     "the show verb",
     "commands/show.ts",
     {
       packages: ["debug", "diff", "simple-git", "tar"],
-      modules: ["sources/github/index.ts", "sources/github/ladder.ts", "sources/github/tarball.ts"],
+      modules: ["sources/github/ladder.ts", "sources/github/tarball.ts"],
     },
   ],
 ];
