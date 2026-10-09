@@ -5,8 +5,13 @@ import { assertInsideRoot, ensureDir0700, type RootedPath } from "../util/fs.ts"
 import { homePaths } from "../util/home.ts";
 import { type StolenLock, withLock } from "../util/lock.ts";
 import { VERSION } from "../version.ts";
-import { type MigrationStep, migrateState } from "./migrations/index.ts";
-import { CURRENT_STATE_VERSION, parseState, type State, versionOf } from "./schema.ts";
+import {
+  CURRENT_STATE_VERSION,
+  type Ladder,
+  migrateState,
+  versionOf,
+} from "./migrations/ladder.ts";
+import { parseState, type State } from "./schema.ts";
 
 export const WRITTEN_BY = `maxims@${VERSION}`;
 
@@ -23,7 +28,7 @@ export type LoadedState =
 export type WriteResult = { written: boolean };
 
 export type ReadStateOptions = {
-  migrations?: readonly MigrationStep[];
+  ladder?: Ladder;
 };
 
 // `read` and `write` run while the lock is held, so a read-modify-write goes through one handle.
@@ -126,8 +131,8 @@ export async function withStateLock<T>(
   }
 }
 
-// The migration dispatch runs before `parseState`, which reports an older integer version as
-// corrupt rather than due.
+// The ladder runs before `parseState`, which reports an older integer version as corrupt rather
+// than due.
 async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): Promise<Inspection> {
   let text: string;
   try {
@@ -146,7 +151,7 @@ async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): P
   }
   const version = versionOf(json);
   if (version !== null && version < CURRENT_STATE_VERSION) {
-    return migrateDocument(json, version, options.migrations);
+    return migrateDocument(json, version, options.ladder);
   }
   const parsed = parseState(json);
   if (parsed.ok === "parsed") return { kind: "current", state: parsed.state };
@@ -156,12 +161,8 @@ async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): P
 
 // The migrated document passes the same strict parse a fresh file gets before it is written back,
 // so a step that produces a bad shape quarantines the ORIGINAL bytes rather than persisting its output.
-function migrateDocument(
-  json: unknown,
-  version: number,
-  migrations: readonly MigrationStep[] | undefined,
-): Inspection {
-  const migration = migrateState(json, version, migrations);
+function migrateDocument(json: unknown, version: number, ladder: Ladder | undefined): Inspection {
+  const migration = migrateState(json, version, ladder);
   if (migration.kind === "unreachable") {
     return {
       kind: "corrupt",

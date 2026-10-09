@@ -16,7 +16,11 @@ import {
 import { basename, dirname, join } from "node:path";
 import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import { type ContentHash, parseContentHash } from "../../src/memory/contract.ts";
-import type { MigrationStep } from "../../src/state/migrations/index.ts";
+import {
+  CURRENT_STATE_VERSION,
+  FIRST_VERSION,
+  type Ladder,
+} from "../../src/state/migrations/ladder.ts";
 import { emptyState, parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
 import {
   inspectState,
@@ -50,7 +54,7 @@ function gitSha(candidate: string): GitSha {
   return sha;
 }
 
-// The first entry of the v1 fixture as the parser hands it back, byte-for-byte.
+// The first entry of current.json as the parser hands it back, byte-for-byte.
 const VALID_STATE: State = {
   version: 1,
   writtenBy: "maxims@0.4.1",
@@ -86,8 +90,8 @@ const VALID_STATE: State = {
   },
 };
 
-// The v1 fixture also carries a shared project-scope entry.
-const V1_STATE: State = {
+// current.json also carries a shared project-scope entry.
+const CURRENT_STATE: State = {
   ...VALID_STATE,
   sources: {
     ...VALID_STATE.sources,
@@ -116,21 +120,27 @@ function seed(home: string, fixture: string): string {
   return path;
 }
 
-// The migration mechanics (write-back, the lock, a concurrent writer) run on the v1 golden with
-// its version pin moved back one step, brought forward by a step that sets the pin and nothing
-// else, so no second document shape exists for them.
-function seedVersion0(home: string): string {
+// The migration mechanics (write-back, the lock, a concurrent writer) run on the current golden
+// with its version pin moved back one rung, brought forward by a one-step ladder that sets the pin
+// and nothing else, so no second document shape exists for them.
+const BELOW_CURRENT = CURRENT_STATE_VERSION - 1;
+
+function seedAt(home: string, version: number): string {
   const path = homePaths(home).state;
-  writeFileSync(path, `${JSON.stringify({ ...V1_STATE, version: 0 }, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify({ ...CURRENT_STATE, version }, null, 2)}\n`);
   return path;
 }
 
-function stampVersion1(json: unknown): unknown {
+function stampCurrent(json: unknown): unknown {
   if (typeof json !== "object" || json === null) throw new Error("expected an object");
-  return { ...json, version: 1 };
+  return { ...json, version: CURRENT_STATE_VERSION };
 }
 
-const VERSION_STEP: MigrationStep = { from: 0, to: 1, migrate: stampVersion1 };
+function oneStepLadder(up: (json: unknown) => unknown): Ladder {
+  return { firstVersion: BELOW_CURRENT, steps: [{ description: "stamp the current version", up }] };
+}
+
+const STAMP_LADDER = oneStepLadder(stampCurrent);
 
 const SECOND_KEY = "@example-user/more-rules#main";
 const SECOND_SOURCE: SourceEntry = {
@@ -152,23 +162,19 @@ const SECOND_SOURCE: SourceEntry = {
 // A step whose first run doubles as a concurrent writer: it executes after the lock-free read has
 // the bytes and before the lock attempt, the one window in which another process can land a
 // write that the reader must notice before it mutates the file.
-function concurrentWriterStep(
+function concurrentWriterLadder(
   path: string,
   bytes: string,
-  migrate: (json: unknown) => unknown,
-): MigrationStep {
+  up: (json: unknown) => unknown,
+): Ladder {
   let landed = false;
-  return {
-    from: 0,
-    to: 1,
-    migrate(json) {
-      if (!landed) {
-        landed = true;
-        writeFileSync(path, bytes);
-      }
-      return migrate(json);
-    },
-  };
+  return oneStepLadder((json) => {
+    if (!landed) {
+      landed = true;
+      writeFileSync(path, bytes);
+    }
+    return up(json);
+  });
 }
 
 // Staleness is the lock file's age, so a stale fixture backdates the file's mtime along with the
@@ -224,13 +230,13 @@ describe("readState", () => {
     });
   });
 
-  test("the v1 fixture reads as the golden structure without touching the file", async () => {
+  test("current.json reads as the golden structure without touching the file", async () => {
     await withTempHome(async (home) => {
-      const path = seed(home, "v1-valid.json");
+      const path = seed(home, "current.json");
       const before = readFileSync(path, "utf8");
       expect(await readState(home)).toEqual({
         kind: "loaded",
-        state: V1_STATE,
+        state: CURRENT_STATE,
         migrated: false,
       });
       expect(readFileSync(path, "utf8")).toBe(before);
@@ -243,9 +249,9 @@ describe("readState", () => {
   // two spellings of one instant, and a read still rewrites nothing.
   test("timestamps of another precision read as millisecond form without touching the file", async () => {
     await withTempHome(async (home) => {
-      const path = seed(home, "v1-valid-odd-precision.json");
+      const path = seed(home, "current-odd-precision.json");
       const before = readFileSync(path, "utf8");
-      const expected = structuredClone(V1_STATE);
+      const expected = structuredClone(CURRENT_STATE);
       const first = expected.sources["@example-user/rules#main"];
       const second = expected.sources["@example-user/team-rules"];
       if (first === undefined || !("fetched" in first) || first.fetched === undefined) {
@@ -261,36 +267,36 @@ describe("readState", () => {
   });
 
   const hostile: { fixture: string; issue: RegExp }[] = [
-    { fixture: "v1-corrupt-json.txt", issue: /^not valid JSON: / },
-    { fixture: "v1-hostile-extra-key.json", issue: /installedPath/ },
-    { fixture: "v1-hostile-traversal.json", issue: /select\.0: expected a kebab-case memory name/ },
+    { fixture: "corrupt-json.txt", issue: /^not valid JSON: / },
+    { fixture: "hostile-extra-key.json", issue: /installedPath/ },
+    { fixture: "hostile-traversal.json", issue: /select\.0: expected a kebab-case memory name/ },
     {
-      fixture: "v1-corrupt-fractional-version.json",
-      issue: /^version: Invalid input: expected 1$/,
+      fixture: "corrupt-fractional-version.json",
+      issue: new RegExp(`^version: Invalid input: expected ${CURRENT_STATE_VERSION}$`),
     },
     {
-      fixture: "v1-corrupt-unpinned-key.json",
+      fixture: "corrupt-unpinned-key.json",
       issue: /^sources\.@example-user\/rules: source key must be @example-user\/rules#main$/,
     },
     {
-      fixture: "v1-corrupt-case-twins.json",
+      fixture: "corrupt-case-twins.json",
       issue:
         /^sources\.@Example-User\/Rules: names the same GitHub repository as @example-user\/rules$/,
     },
     {
-      fixture: "v1-corrupt-nul-path.json",
+      fixture: "corrupt-nul-path.json",
       issue: /intent\.from\.path: a path cannot contain NUL$/,
     },
     {
-      fixture: "v1-corrupt-pending-unreviewed.json",
+      fixture: "corrupt-pending-unreviewed.json",
       issue: /pending: a held revision needs the source marked for review$/,
     },
     {
-      fixture: "v1-corrupt-pending-at-installed-sha.json",
+      fixture: "corrupt-pending-at-installed-sha.json",
       issue: /pending\.sha: the held revision is the installed one$/,
     },
     {
-      fixture: "v1-corrupt-pending-without-fetched.json",
+      fixture: "corrupt-pending-without-fetched.json",
       issue: /pending: a held revision needs an installed revision behind it$/,
     },
     // One fixture per required intent field, so a parse default restored on any one of them goes
@@ -302,7 +308,7 @@ describe("readState", () => {
         ["full-depth", "fullDepth", "boolean"],
       ] as const
     ).map(([name, field, expected]) => ({
-      fixture: `v1-corrupt-intent-without-${name}.json`,
+      fixture: `corrupt-intent-without-${name}.json`,
       issue: new RegExp(
         `^sources\\.@example-user/rules\\.intent\\.${field}: Invalid input: expected ${expected}, received undefined$`,
       ),
@@ -331,7 +337,7 @@ describe("readState", () => {
 
   test("a newer file is refused with its version and path, and its bytes are left alone", async () => {
     await withTempHome(async (home) => {
-      const path = seed(home, "v99-newer.json");
+      const path = seed(home, "newer.json");
       const before = readFileSync(path, "utf8");
       expect(await readState(home)).toEqual({ kind: "newer", version: 99, path });
       expect(readFileSync(path, "utf8")).toBe(before);
@@ -339,15 +345,19 @@ describe("readState", () => {
     });
   });
 
-  test("a version below every registered migration is quarantined, never read as current", async () => {
+  test("a version below the first rung is quarantined, never read as current", async () => {
     await withTempHome(async (home) => {
-      const path = seedVersion0(home);
+      const path = seedAt(home, FIRST_VERSION - 1);
       const original = readFileSync(path, "utf8");
       const result = await readState(home);
       expect(result.kind).toBe("quarantined");
       if (result.kind !== "quarantined") return;
       expect(result.issues).toEqual([
-        expect.stringMatching(/^version 0 is older than any migration this maxims carries/),
+        expect.stringMatching(
+          new RegExp(
+            `^version ${FIRST_VERSION - 1} is older than any migration this maxims carries`,
+          ),
+        ),
       ]);
       expect(readFileSync(result.movedTo, "utf8")).toBe(original);
       expect(existsSync(path)).toBe(false);
@@ -356,9 +366,9 @@ describe("readState", () => {
 
   test("a due migration is applied, stamped as written by this maxims, and persisted", async () => {
     await withTempHome(async (home) => {
-      const path = seedVersion0(home);
-      const migrated: State = { ...V1_STATE, writtenBy: WRITTEN_BY };
-      const result = await readState(home, { migrations: [VERSION_STEP] });
+      const path = seedAt(home, BELOW_CURRENT);
+      const migrated: State = { ...CURRENT_STATE, writtenBy: WRITTEN_BY };
+      const result = await readState(home, { ladder: STAMP_LADDER });
       expect(result).toEqual({ kind: "loaded", state: migrated, migrated: true });
       expect(readFileSync(path, "utf8")).toBe(serializeState(migrated));
       expect(await readState(home)).toEqual({ kind: "loaded", state: migrated, migrated: false });
@@ -368,16 +378,16 @@ describe("readState", () => {
 
   test("a lock-free read never waits on a held lock to persist a migration; the holder's read does", async () => {
     await withTempHome(async (home) => {
-      const path = seedVersion0(home);
+      const path = seedAt(home, BELOW_CURRENT);
       const before = readFileSync(path, "utf8");
       await withStateLock(home, "manual", async (lock) => {
-        const outside = await readState(home, { migrations: [VERSION_STEP] });
+        const outside = await readState(home, { ladder: STAMP_LADDER });
         expect(outside.kind).toBe("loaded");
         expect(readFileSync(path, "utf8")).toBe(before);
-        const inside = await lock.read({ migrations: [VERSION_STEP] });
+        const inside = await lock.read({ ladder: STAMP_LADDER });
         expect(inside).toEqual(outside);
         expect(readFileSync(path, "utf8")).toBe(
-          serializeState({ ...V1_STATE, writtenBy: WRITTEN_BY }),
+          serializeState({ ...CURRENT_STATE, writtenBy: WRITTEN_BY }),
         );
       });
     });
@@ -385,12 +395,14 @@ describe("readState", () => {
 
   test("a file that turns valid between the lock-free read and the lock is kept, not quarantined", async () => {
     await withTempHome(async (home) => {
-      const path = seedVersion0(home);
-      const landed = readFileSync(join(FIXTURES, "v1-valid.json"), "utf8");
-      const step = concurrentWriterStep(path, landed, () => ({ version: 1 }));
-      expect(await readState(home, { migrations: [step] })).toEqual({
+      const path = seedAt(home, BELOW_CURRENT);
+      const landed = readFileSync(join(FIXTURES, "current.json"), "utf8");
+      const ladder = concurrentWriterLadder(path, landed, () => ({
+        version: CURRENT_STATE_VERSION,
+      }));
+      expect(await readState(home, { ladder })).toEqual({
         kind: "loaded",
-        state: V1_STATE,
+        state: CURRENT_STATE,
         migrated: false,
       });
       expect(readFileSync(path, "utf8")).toBe(landed);
@@ -400,14 +412,14 @@ describe("readState", () => {
 
   test("a migration write-back keeps a source another writer landed before the lock was taken", async () => {
     await withTempHome(async (home) => {
-      const path = seedVersion0(home);
+      const path = seedAt(home, BELOW_CURRENT);
       const theirs: State = {
-        ...V1_STATE,
+        ...CURRENT_STATE,
         writtenBy: WRITTEN_BY,
-        sources: { ...V1_STATE.sources, [SECOND_KEY]: SECOND_SOURCE },
+        sources: { ...CURRENT_STATE.sources, [SECOND_KEY]: SECOND_SOURCE },
       };
-      const step = concurrentWriterStep(path, serializeState(theirs), stampVersion1);
-      expect(await readState(home, { migrations: [step] })).toEqual({
+      const ladder = concurrentWriterLadder(path, serializeState(theirs), stampCurrent);
+      expect(await readState(home, { ladder })).toEqual({
         kind: "loaded",
         state: theirs,
         migrated: false,
@@ -419,7 +431,7 @@ describe("readState", () => {
 
   test("a corrupt file under a held lock is reported in place; the holder's read moves it aside", async () => {
     await withTempHome(async (home) => {
-      const path = seed(home, "v1-corrupt-json.txt");
+      const path = seed(home, "corrupt-json.txt");
       const before = readFileSync(path, "utf8");
       await withStateLock(home, "manual", async (lock) => {
         const result = await readState(home);
@@ -478,7 +490,9 @@ describe("writeState", () => {
       await writeState(home, VALID_STATE, VALID_STATE.writtenBy);
       const bytes = readFileSync(homePaths(home).state, "utf8");
       expect(bytes).toBe(serializeState(VALID_STATE));
-      expect(bytes.startsWith('{\n  "version": 1,\n  "writtenBy": "maxims@0.4.1",\n')).toBe(true);
+      expect(
+        bytes.startsWith(`{\n  "version": ${CURRENT_STATE_VERSION},\n  "writtenBy": "maxims@0.4.1",\n`),
+      ).toBe(true);
       expect(bytes.endsWith("}\n")).toBe(true);
       expect(parseState(JSON.parse(bytes))).toEqual({ ok: "parsed", state: VALID_STATE });
     });
@@ -573,7 +587,7 @@ describe("withStateLock", () => {
 describe("inspectState", () => {
   test("a corrupt file is reported and left in place, with no sibling and no home created", async () => {
     await withTempHome(async (home) => {
-      const path = seed(home, "v1-corrupt-json.txt");
+      const path = seed(home, "corrupt-json.txt");
       const before = readFileSync(path, "utf8");
       const result = await inspectState(home);
       expect(result).toEqual({

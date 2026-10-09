@@ -4,6 +4,7 @@
 //   import between layers with no declared edge  -> "forbidden import", exit 1
 //   declared edge no file draws                  -> "stale allowance", exit 1
 //   computed import() or require()               -> exit 2, never a silently dropped edge
+//   accommodation vocabulary outside migrations/ -> "accommodation vocabulary", exit 1
 //
 // An edge is any way one file names another: runtime imports, type-only
 // imports, re-exports, `import("./x").T` in a type position, and
@@ -281,15 +282,8 @@ export function lintArchitecture(
       if (isFile(join(root, path)) && !excluded.some((glob) => glob.match(path))) files.push(path);
     }
   }
-  for (const scanRoot of scanRoots(arch)) {
-    if (!existsSync(join(root, scanRoot))) continue;
-    for (const entry of readdirSync(join(root, scanRoot), { recursive: true, encoding: "utf8" })) {
-      const file = toPosix(join(scanRoot, entry));
-      if (!SOURCE_EXTENSIONS.some((ext) => file.endsWith(ext))) continue;
-      if (!isFile(join(root, file))) continue;
-      if (excluded.some((glob) => glob.match(file))) continue;
-      files.push(file);
-    }
+  for (const file of sourcesUnder(root, arch)) {
+    if (!excluded.some((glob) => glob.match(file))) files.push(file);
   }
   for (const file of files.sort()) {
     const from = layerOf(arch, file);
@@ -322,6 +316,47 @@ export function lintArchitecture(
   for (const key of [...declared].sort()) {
     if (!drawn.has(key)) {
       problems.push(`stale allowance ${key}: no file draws it; remove it from ${configLabel}`);
+    }
+  }
+  return problems;
+}
+
+/** Every source file under the scan roots, repo-relative, in no particular order. */
+function sourcesUnder(root: string, arch: Architecture): string[] {
+  const files: string[] = [];
+  for (const scanRoot of scanRoots(arch)) {
+    if (!existsSync(join(root, scanRoot))) continue;
+    for (const entry of readdirSync(join(root, scanRoot), { recursive: true, encoding: "utf8" })) {
+      const file = toPosix(join(scanRoot, entry));
+      if (!SOURCE_EXTENSIONS.some((ext) => file.endsWith(ext))) continue;
+      if (isFile(join(root, file))) files.push(file);
+    }
+  }
+  return files;
+}
+
+// --- accommodation vocabulary ------------------------------------------------
+
+// Compatibility with an older document lives in a migration ladder and nowhere else, so the words
+// that announce it anywhere else mark code that should not exist: delete the accommodation or move
+// it into a ladder step, never allow-list the word. Whole words, any case, code and comments alike.
+const ACCOMMODATION_VOCABULARY =
+  /\b(?:legacy|deprecated|backwards|backward[ -]compat\w*|old shape|older file|migration remnant|fallback for an old)\b/gi;
+
+const LADDER_DIRECTORY = "migrations";
+
+/** Every accommodation word under the scan roots outside a `migrations/` folder, one problem per hit. */
+export function lintAccommodationVocabulary(root: string, arch: Architecture): string[] {
+  const problems: string[] = [];
+  for (const file of sourcesUnder(root, arch).sort()) {
+    if (file.split("/").includes(LADDER_DIRECTORY)) continue;
+    const lines = readFileSync(join(root, file), "utf8").split("\n");
+    for (const [index, line] of lines.entries()) {
+      for (const match of line.matchAll(ACCOMMODATION_VOCABULARY)) {
+        problems.push(
+          `accommodation vocabulary "${match[0]}" at ${file}:${index + 1}; compatibility with an older shape lives only under a ${LADDER_DIRECTORY}/ folder`,
+        );
+      }
     }
   }
   return problems;
@@ -374,7 +409,7 @@ const USAGE = [
   "  --config   the layering declaration (default: <root>/architecture.yml)",
   "  --root     the repository root the paths are relative to (default: cwd)",
   "  --mermaid  print the module map instead of linting",
-  "exit 0: the tree matches the declaration; 1: forbidden or stale edges; 2: usage or an unreadable graph",
+  "exit 0: the tree matches the declaration; 1: forbidden or stale edges, or accommodation vocabulary outside migrations/; 2: usage or an unreadable graph",
 ].join("\n");
 
 export interface CliOptions {
@@ -426,7 +461,10 @@ if (import.meta.main) {
       console.log(renderArchitectureMermaid(arch));
       process.exit(0);
     }
-    const problems = lintArchitecture(options.root, arch, configLabel);
+    const problems = [
+      ...lintArchitecture(options.root, arch, configLabel),
+      ...lintAccommodationVocabulary(options.root, arch),
+    ];
     if (problems.length > 0) {
       console.error(`arch-lint: ${problems.length} problem(s)\n  ${problems.join("\n  ")}`);
       process.exit(1);

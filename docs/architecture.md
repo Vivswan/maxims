@@ -66,8 +66,8 @@ Demonstrated by: [tests/util/home.test.ts](../tests/util/home.test.ts), [tests/s
 flowchart LR
   statefile[("the file: state.json")]
   store["src/state/store.ts<br>readState() writeState() withStateLock() serializeState() LoadedState"]
-  migrations["src/state/migrations/index.ts<br>MIGRATIONS migrateState()"]
-  schema["src/state/schema.ts<br>StateSchema parseState() versionOf() SourceEntry SourceIntent Destination Disabled canonicalSourceKey()"]
+  migrations["src/state/migrations/ladder.ts<br>FIRST_VERSION MIGRATIONS CURRENT_STATE_VERSION versionOf() dueMigrations() migrateState()"]
+  schema["src/state/schema.ts<br>StateSchema parseState() SourceEntry SourceIntent Destination Disabled canonicalSourceKey()"]
   intent["intent: the source, its selection and renames, whether it publishes rule lines, its harnesses, its destination"]
   fetched["fetch facts: the sha, when, the content hashes, the last error"]
   derived["derived on every sync, never stored: store paths, installed paths, hook registration, tiers, collisions"]
@@ -76,7 +76,7 @@ flowchart LR
   lock["src/util/lock.ts<br>withLock()"]
   apply["src/util/change.ts<br>applyChanges()"]
   statefile -->|"read without the lock, only a quarantine or a migration write-back takes it"| store
-  store -->|"version below the current one: the whole chain is checked, then the steps run"| migrations
+  store -->|"version below the current one: the steps from that position to the top run in registry order"| migrations
   migrations -->|"the migrated document passes the same strict parse a fresh file gets"| schema
   store -->|"parseState(): strict objects, an unknown key is refused"| schema
   schema -->|"SourceIntent"| intent
@@ -92,7 +92,7 @@ flowchart LR
 - **A live local source has no `fetched` member at all,** so nothing downstream checks for one; the remote and copied-local variants differ only in what their sha is, a git commit or a content hash.
 - The [state page](state.md#state-holds-intent-never-actuality) owns the table of what belongs in the file and what its real owner is.
 
-Demonstrated by: [tests/state/store.test.ts](../tests/state/store.test.ts), [tests/state/schema.test.ts](../tests/state/schema.test.ts), [tests/state/migrations/index.test.ts](../tests/state/migrations/index.test.ts), [tests/state/config.test.ts](../tests/state/config.test.ts).
+Demonstrated by: [tests/state/store.test.ts](../tests/state/store.test.ts), [tests/state/schema.test.ts](../tests/state/schema.test.ts), [tests/state/migrations/ladder.test.ts](../tests/state/migrations/ladder.test.ts), [tests/state/config.test.ts](../tests/state/config.test.ts).
 
 ## A source becomes memories
 

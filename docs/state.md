@@ -121,13 +121,9 @@ State migrates forward only.
 - **A version below the current one** runs the ordered steps, each a pure function over the JSON, then the file is written back atomically and the command continues.
 - **A version above the current one** is a clean stop: in quiet mode exit 0 with "state written by a newer maxims, skipping", otherwise a request to upgrade, because a rewrite would destroy fields the older binary cannot see.
 
-| rule | reason |
-| --- | --- |
-| each step is named for the version it migrates away from | authored against the shipped shape, with no guess at the next release number |
-| steps chain in ascending order and each is idempotent | an update can be retried, so a step may run twice |
-| one golden fixture per step | the shape change is proven, not described |
-| steps are deleted once a hard break makes them unreachable | the migration directory is not allowed to accumulate compatibility baggage |
-| downgrading past a migration is unsupported | recovery is the same as corruption: quarantine and re-add |
+The ladder is `src/state/migrations/ladder.ts`. Its registry order is the version order: a step's position is the version it migrates away from, and the current version is the first version plus the number of steps, never typed by hand. Each step is named for what it changes and ships with the document it migrates away from.
+
+Compatibility with an older file lives in the ladder and nowhere else. A step may run twice on a retried update, so each is idempotent; a step is deleted once a hard break makes it unreachable, and downgrading past one is quarantine and re-add.
 
 A corrupt state file is moved aside to `state.json.corrupt-<timestamp>` and the user is told to re-add; a dry run or a read-only verb never moves it. It is not rebuilt from the rule files, because no reading of a managed block reveals which memories the user selected or whether they asked for rule lines.
 

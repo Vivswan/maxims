@@ -1,7 +1,7 @@
 import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// The legacy Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
+// The earlier Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
 // `trigger: always_on` in its frontmatter or it is not injected on every message; a path-scoped
 // rule is `trigger: glob` with the patterns comma-joined under `globs`, documented for one only.
 // `.devin/rules/` is preferred over `.windsurf/rules/`; a workspace rule is capped at 12,000

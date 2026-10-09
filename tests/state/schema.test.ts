@@ -1,15 +1,11 @@
 // Guards the state boundary: a corrupt or hand-edited file must be refused whole rather than half
 // obeyed, and a newer file must never be rewritten.
 import { describe, expect, test } from "bun:test";
-import {
-  CURRENT_STATE_VERSION,
-  canonicalSourceKey,
-  emptyState,
-  parseState,
-} from "../../src/state/schema.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { canonicalSourceKey, emptyState, parseState } from "../../src/state/schema.ts";
 
 const VALID = {
-  version: 1,
+  version: CURRENT_STATE_VERSION,
   writtenBy: "maxims@0.4.1",
   hooks: { global: ["claude-code", "codex"] },
   sources: {
@@ -98,8 +94,8 @@ const VALID = {
 
 describe("parseState", () => {
   // A project destination without a root reads as corrupt rather than as every project's at once,
-  // and sharing is refused outside a project destination; the parsed shapes are pinned by the v1
-  // fixture golden in the store test.
+  // and sharing is refused outside a project destination; the parsed shapes are pinned by the
+  // current.json golden in the store test.
   const destinations: [string, unknown, unknown, RegExp][] = [
     ["a project destination without a root", { scope: "project" }, undefined, /root/],
     [
