@@ -3,7 +3,7 @@
 // takes by eye, made exact.
 //   a paragraph or list item over the word cap (default 70)  -> finding, exit 1
 //   a table cell over the cell cap (default 15)              -> finding, exit 1
-//   a repository path the prose names that does not exist    -> finding, exit 1
+//   a path the prose names that the repository does not track -> finding, exit 1
 //   a link whose #anchor names no heading or id on its target -> finding, exit 1
 // Block structure and line numbers come from micromark's tokens, so what
 // counts as prose is what CommonMark parses as a paragraph or a tight list
@@ -15,13 +15,15 @@
 // A path is a backticked token with a slash and an extension (or ./, ../, a
 // trailing slash), or a relative link destination; placeholders (<...>),
 // globs, owner/repo slugs, and bare file names are left alone, since a page
-// may name files the reader will create.
+// may name files the reader will create. What the repository owns is what
+// git tracks, never what the checkout happens to hold: a `.claude/` an agent
+// created locally must not turn `.claude/settings.json` into a stale pointer.
 // An anchor is judged against the ids the target page renders: each heading's
 // slug as GitHub and the docs site make it (github-slugger, repeats numbered)
 // and an `id` or `name` attribute on a tag; a comment renders no tag.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
 import GithubSlugger from "github-slugger";
 import { parse, postprocess, preprocess } from "micromark";
@@ -50,8 +52,45 @@ export interface ProbeOptions {
   readonly maxWords: number;
   /** The cap on one table cell; a cell holds one fact, and the explanation goes below the table. */
   readonly maxCellWords: number;
-  /** false: word counts only, for pages that describe another repository's files. */
-  readonly paths: boolean;
+  /** What the repository owns, for the path checks; null: word counts only, for pages that describe another repository's files. */
+  readonly tracked: TrackedPaths | null;
+}
+
+/** Every file git tracks and every directory above one, as slash paths relative to the root. */
+export type TrackedPaths = ReadonlySet<string>;
+
+export function trackedPaths(files: Iterable<string>): TrackedPaths {
+  const out = new Set<string>();
+  for (const file of files) {
+    out.add(file);
+    for (let slash = file.lastIndexOf("/"); slash > 0; slash = file.lastIndexOf("/", slash - 1))
+      out.add(file.slice(0, slash));
+  }
+  return out;
+}
+
+/**
+ * The files git tracks under `root`, as git prints them: slash-separated, relative to the root.
+ * The child gets no `GIT_*` variable: a `GIT_DIR` or `GIT_INDEX_FILE` inherited from a git hook
+ * would list another repository, or nothing, and a listing of nothing passes every page. So an
+ * empty listing is refused rather than read as "nothing to check".
+ */
+function gitTrackedFiles(root: string): string[] {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (value !== undefined && !key.startsWith("GIT_")) env[key] = value;
+  const proc = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"], {
+    env,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (proc.exitCode !== 0)
+    throw new Error(`git ls-files in ${root} failed: ${proc.stderr.toString().trim()}`);
+  const files = proc.stdout.toString("utf8").split("\0").filter(Boolean);
+  if (files.length === 0)
+    throw new Error(`git tracks nothing under ${root}; the path checks need a tracked tree`);
+  return files;
 }
 
 export interface Unit {
@@ -395,23 +434,29 @@ function bases(root: string, pageDir: string): string[] {
 }
 
 /**
- * A slash path is checked only when its first segment exists at one of the bases:
- * `agents/openai.yaml` in a page about some other layout names nothing here and is left alone,
- * while `skills/gone/SKILL.md` under a real `skills/` is the stale pointer the probe exists for.
+ * A slash path that resolves outside the root escapes the repository. Inside it, a path is missing
+ * only when its first segment is tracked at one of the bases: `agents/openai.yaml` in a page about
+ * some other layout names nothing here and is left alone, while `skills/gone/SKILL.md` under a
+ * tracked `skills/` is the stale pointer the probe exists for.
  */
 function verdict(
+  tracked: TrackedPaths,
   root: string,
   pageDir: string,
   path: string,
 ): "ok" | "missing" | "foreign" | "outside" {
-  const dirs = path.startsWith("./") || path.startsWith("../") ? [pageDir] : bases(root, pageDir);
-  const hits = dirs.map((base) => resolve(base, path)).filter((file) => existsSync(file));
-  if (hits.some((file) => isInside(root, file))) return "ok";
-  if (hits.length > 0) return "outside";
+  const owned = (file: string) => tracked.has(relative(root, file).split(sep).join("/"));
+  if (path.startsWith("./") || path.startsWith("../")) {
+    const file = resolve(pageDir, path);
+    if (!isInside(root, file)) return "outside";
+    return owned(file) ? "ok" : "missing";
+  }
+  const dirs = bases(root, pageDir);
+  const files = dirs.map((base) => resolve(base, path));
+  if (files.some(owned)) return "ok";
+  if (files.some((file) => !isInside(root, file))) return "outside";
   const first = path.split("/")[0] ?? "";
-  const anchored =
-    first === "." || first === ".." || dirs.some((base) => existsSync(resolve(base, first)));
-  return anchored ? "missing" : "foreign";
+  return dirs.some((base) => owned(resolve(base, first))) ? "missing" : "foreign";
 }
 
 export function probePage(text: string, file: string, options: ProbeOptions): Finding[] {
@@ -437,10 +482,10 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
       });
     }
   }
-  if (!options.paths) return findings;
+  if (options.tracked === null) return findings;
   for (const { text: code, line } of scan.codespans) {
     const path = pathCandidate(code);
-    const state = path ? verdict(options.root, pageDir, path) : "foreign";
+    const state = path ? verdict(options.tracked, options.root, pageDir, path) : "foreign";
     if (state === "missing") findings.push({ file, line, message: `\`${path}\` does not exist` });
     if (state === "outside")
       findings.push({ file, line, message: `\`${path}\` escapes the repository` });
@@ -499,11 +544,11 @@ function linkFragment(raw: string): string {
 
 const USAGE = [
   "usage: docs-probe.mts [--root <dir>] [--max-words <n>] [--max-cell-words <n>] [--shape-only] <page.md>...",
-  "  --root             the repository root paths resolve against (default: cwd)",
+  "  --root             the repository root paths resolve against; what git tracks there is what exists (default: cwd)",
   "  --max-words        the cap on a paragraph or list item (default: 70)",
   "  --max-cell-words   the cap on a table cell (default: 15)",
   "  --shape-only       word counts only; skip the checks that named paths, link targets, and anchors exist",
-  "exit 0: every page is clean; 1: findings, one per line as page:line: message; 2: usage or an unreadable page",
+  "exit 0: every page is clean; 1: findings, one per line as page:line: message; 2: usage, an unreadable page, or a root git cannot list",
 ].join("\n");
 
 interface CliOptions {
@@ -558,12 +603,18 @@ if (import.meta.main) {
   const findings: Finding[] = [];
   try {
     options = parseArgs(process.argv.slice(2));
+    const probe: ProbeOptions = {
+      root: options.root,
+      maxWords: options.maxWords,
+      maxCellWords: options.maxCellWords,
+      tracked: options.paths ? trackedPaths(gitTrackedFiles(options.root)) : null,
+    };
     for (const page of options.pages) {
       const absolute = realpath(page);
       if (!statSync(absolute, { throwIfNoEntry: false })?.isFile())
         throw new Error(`${page} is not a readable file`);
       const label = relative(options.root, absolute) || page;
-      findings.push(...probePage(readFileSync(absolute, "utf8"), label, options));
+      findings.push(...probePage(readFileSync(absolute, "utf8"), label, probe));
     }
   } catch (error) {
     console.error(`docs-probe: ${error instanceof Error ? error.message : String(error)}`);
