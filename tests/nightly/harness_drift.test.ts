@@ -3,6 +3,7 @@
 //   a claim holds inside a longer word          -> `hooks` holds on `webhooks` after the hooks section is gone
 //   a line break splits a claim                 -> a fact wrapped across two lines reads as absent
 //   a pointer resolves through a missing key    -> a schema that dropped a setting still reads as match
+//   a pointer resolves through the prototype    -> an empty schema answers `/toString` as match
 //   a source the run never read passes          -> a vendor block on the user agent turns the run green
 //   a moved source passes                       -> a landing page at the new URL holds a claim by accident
 //   a run with nothing to verify passes         -> an empty registry reads as every source matching
@@ -106,15 +107,6 @@ const timeoutError = (): never => {
   throw error;
 };
 
-const notJson = (): string => {
-  try {
-    JSON.parse("<p>moved</p>");
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error("expected JSON.parse to refuse markup");
-};
-
 describe("runHarnessDrift", () => {
   const url = (name: string): string => `https://example.com/${name}`;
   const RAW_URL = "https://raw.githubusercontent.com/example/agent/main/docs/hooks.md";
@@ -162,6 +154,7 @@ describe("runHarnessDrift", () => {
     [url("schema-moved")]: () => new Response("<p>moved</p>", TEXT),
     [url("schema-null")]: () => new Response("null", JSON_TYPE),
     [url("schema-array")]: () => new Response("[]", JSON_TYPE),
+    [url("schema-empty")]: () => new Response("{}", JSON_TYPE),
   };
   const table = (rows: string[]): string =>
     ["| id | kind | source | note | verdict | result |", "|---|---|---|---|---|---|", ...rows].join(
@@ -253,7 +246,12 @@ describe("runHarnessDrift", () => {
     ],
     ["stale", page("stale", ["SessionStart"]), "page", "HTTP 304"],
     ["rendered", page("rendered", ["SessionStart"]), "page", "answered text/html"],
-    ["schema-moved", schema("schema-moved", ["/properties"]), "schema", `not JSON: ${notJson()}`],
+    [
+      "schema-moved",
+      schema("schema-moved", ["/properties"]),
+      "schema",
+      "not JSON: InvalidSymbol at offset 0",
+    ],
     ["schema-null", schema("schema-null", ["/properties"]), "schema", "not a JSON object: null"],
     ["schema-array", schema("schema-array", [""]), "schema", "not a JSON object: []"],
   ] as const)(
@@ -279,9 +277,10 @@ describe("runHarnessDrift", () => {
   });
 
   // The moved page lost `SessionStart` and the backticked file name; the schema lost one of two
-  // settings and types another differently; the raw file never had the third claim. Each row
-  // names what is missing as a JSON string, so a claim's own backticks cannot end the cell's
-  // fence, and the definition that also has a matching source still fails.
+  // settings and types another differently; the raw file never had the third claim; the empty
+  // schema has no `toString` key, whatever the parsed object inherits. Each row names what is
+  // missing as a JSON string, so a claim's own backticks cannot end the cell's fence, and the
+  // definition that also has a matching source still fails.
   test("a missing claim fails the definition and its row names the claims and pointers that are gone", async () => {
     const outcome = await runHarnessDrift(
       [
@@ -299,12 +298,13 @@ describe("runHarnessDrift", () => {
           ]),
         ),
         def("partial", file(["TaskStart", "Task Start", "SessionStart"]), page("gone", ["x"])),
+        def("inherited", schema("schema-empty", ["/toString"])),
       ],
       fakeFetch(answers),
     );
     const headline = [
-      "3 definitions: 0 match, 3 drift, 0 unreachable",
-      "5 sources: 1 match, 3 drift, 1 unreachable",
+      "4 definitions: 0 match, 4 drift, 0 unreachable",
+      "6 sources: 1 match, 4 drift, 1 unreachable",
     ].join("\n");
     const rows = table([
       row("multi", "page", url("stable"), "match", "1 claims hold"),
@@ -325,6 +325,7 @@ describe("runHarnessDrift", () => {
       ),
       row("partial", "file", RAW_URL, "DRIFT", 'missing: "Task Start", "SessionStart"'),
       row("partial", "page", url("gone"), "UNREACHABLE", "HTTP 503"),
+      row("inherited", "schema", url("schema-empty"), "DRIFT", 'missing: "/toString"'),
     ]);
     expect(outcome).toEqual(failed(headline, rows));
   });

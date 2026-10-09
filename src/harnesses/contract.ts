@@ -177,12 +177,12 @@ export type HarnessFixtures = {
 };
 
 // The vendor sources the definition's facts were read from, each with the record the nightly
-// drift check re-reads: JSON pointers that must resolve in a published schema (to a given value
-// where one is named), or literal claims that must appear in a repository file or a documentation
+// drift check re-reads: JSON pointers that must resolve in a published schema (to a given
+// primitive where one is named), or literal claims that must appear in a repository file or a documentation
 // page. A page is the last resort, and `why` says what programmatic source was looked for. One
 // source rarely states every fact (Pi's context-file order is in its resource loader, not its
 // extensions page), so `note` names the fact each one justifies.
-export type PointerCheck = string | { pointer: string; equals: unknown };
+export type PointerCheck = string | { pointer: string; equals: string | number | boolean | null };
 export type VerifiedSource =
   | {
       kind: "schema";

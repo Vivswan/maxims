@@ -237,6 +237,15 @@ const refusals: [string, Mutation, string][] = [
     "verifiedAgainst.sources.0.paths.0: expected an RFC 6901 JSON pointer",
   ],
   [
+    "a schema pointer whose value is an object the drift check cannot compare",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "schema",
+      url: "https://example.com/schema.json",
+      paths: [{ pointer: "/properties/hooks", equals: { type: "object" } }],
+    }),
+    "verifiedAgainst.sources.0.paths.0.equals: Invalid input: expected string, received object",
+  ],
+  [
     "a repository file whose repo is a URL",
     at(["verifiedAgainst", "sources", "0"], {
       kind: "file",

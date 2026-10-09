@@ -336,10 +336,13 @@ const Claims = nonEmpty(Claim);
 const JsonPointer = z.string().regex(/^(?:\/(?:[^~/]|~[01])*)*$/, {
   error: "expected an RFC 6901 JSON pointer",
 });
-// A bare pointer must resolve; one paired with `equals` must resolve to that value.
+// A bare pointer must resolve; one paired with `equals` must resolve to that value. The value is
+// a JSON primitive, compared with `!==`: jsonc-parser builds the document's objects with a null
+// prototype, so a structural comparison against an object literal would never hold.
+const JsonPrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const PointerCheck = z.union([
   JsonPointer,
-  z.strictObject({ pointer: JsonPointer, equals: z.json() }),
+  z.strictObject({ pointer: JsonPointer, equals: JsonPrimitive }),
 ]);
 // The repo, ref and path are spliced into a raw.githubusercontent.com URL, so a `#`, `?` or `%`
 // in any of them would fetch a different file than the one named, and a `.` or `..` segment

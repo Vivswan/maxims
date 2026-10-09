@@ -4,7 +4,7 @@
 // to a 24-hour window instead of waiting for someone to look. A pass means every source was read
 // and every claim held: a source the run could not read fails it, since a run that read nothing
 // proves nothing about the facts.
-import { isDeepStrictEqual } from "node:util";
+import { getNodeValue, type ParseError, parseTree, printParseErrorCode } from "jsonc-parser";
 import jsonpointer from "jsonpointer";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
@@ -123,17 +123,21 @@ function readClaims(text: string, claims: readonly string[]): Reading {
 }
 
 // A pointer paired with a value drifts when the schema still has the key but says something else,
-// and the row quotes both so a reader sees whether the fact or the definition moved. JSON carries
-// no undefined, so an undefined lookup is a missing pointer; a document that is not an object
-// (a primitive, null, or an array, which has no keys a schema pointer names) is no schema at all.
+// and the row quotes both so a reader sees whether the fact or the definition moved. jsonc-parser
+// builds every object with a null prototype, so `/toString` on `{}` is a missing pointer, not
+// Object.prototype.toString; JSON carries no undefined, so an undefined lookup is a missing
+// pointer. A document that is not an object (a primitive, null, or an array, which has no keys a
+// schema pointer names) is no schema at all, and a published schema is JSON, not JSONC.
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
-  let document: unknown;
-  try {
-    document = JSON.parse(text);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { verdict: "UNREACHABLE", result: `not JSON: ${message}` };
+  const errors: ParseError[] = [];
+  const root = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
+  const [first] = errors;
+  if (first !== undefined) {
+    const reason = `${printParseErrorCode(first.error)} at offset ${first.offset}`;
+    return { verdict: "UNREACHABLE", result: `not JSON: ${reason}` };
   }
+  if (root === undefined) return { verdict: "UNREACHABLE", result: "not JSON: no value" };
+  const document: unknown = getNodeValue(root);
   if (typeof document !== "object" || document === null || Array.isArray(document))
     return { verdict: "UNREACHABLE", result: `not a JSON object: ${JSON.stringify(document)}` };
   const missing: string[] = [];
@@ -142,7 +146,7 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
     const pointer = typeof check === "string" ? check : check.pointer;
     const value: unknown = jsonpointer.get(document, pointer);
     if (value === undefined) missing.push(pointer);
-    else if (typeof check !== "string" && !isDeepStrictEqual(value, check.equals))
+    else if (typeof check !== "string" && value !== check.equals)
       differing.push(
         `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
       );

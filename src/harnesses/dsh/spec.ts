@@ -15,7 +15,7 @@ export const spec = {
   displayName: "DeepSeek Harness",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-09",
     sources: [
       {
         kind: "file",
@@ -69,7 +69,7 @@ export const spec = {
         kind: "file",
         repo: "deepseek-ai/deepseek-harness",
         ref: "master",
-        path: "packages/hooks/hooks-claude-code/src/index.ts",
+        path: "packages/experimental/hooks-claude-code/src/index.ts",
         claims: [
           "JSON.parse(readFileSync(config.configPath, 'utf8'))",
           "runPoint('SessionStart', source, sessionStartPayload(agent, source)",
@@ -80,7 +80,7 @@ export const spec = {
         kind: "file",
         repo: "deepseek-ai/deepseek-harness",
         ref: "master",
-        path: "packages/hooks/hook-protocol/src/runner.ts",
+        path: "packages/experimental/hook-protocol/src/runner.ts",
         claims: ["hook.timeoutSec * 1000"],
         note: "the hook timeout is in seconds",
       },
@@ -88,7 +88,7 @@ export const spec = {
         kind: "file",
         repo: "deepseek-ai/deepseek-harness",
         ref: "master",
-        path: "packages/hooks/hooks-claude-code/package.json",
+        path: "packages/experimental/hooks-claude-code/package.json",
         claims: ['"@deepseek-ai/dsh-hooks-claude-code"'],
         note: "the dsh-hooks-claude-code plugin",
       },
