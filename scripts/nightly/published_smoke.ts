@@ -2,10 +2,11 @@
 // round trip under a throwaway HOME: `npx` fetches the exact version the dist-tag names, and each
 // step has one expected exit code plus what it must leave on disk or print. Every other suite runs
 // `dist/cli.js`, so a defect that only exists in the npm artifact is visible here alone.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inheritedEnv } from "../lib/env.ts";
 import { markdownTable, type Outcome } from "./report.ts";
+import { type RuleFile, readRuleFile } from "./rule_file.ts";
 import { withScratchDir } from "./scratch.ts";
 
 export const PACKAGE = "@vivswan/maxims";
@@ -48,25 +49,12 @@ export type StepResult =
   | { step: Step; ran: false }
   | { step: Step; ran: true; result: CommandResult; problems: string[]; ms: number };
 
-const codexRuleFile = (home: string): string => join(home, ".codex", "AGENTS.md");
+const CODEX_RULE_FILE = ".codex/AGENTS.md";
+const codexRuleFile = (home: string): string => join(home, CODEX_RULE_FILE);
+const codexRule = (home: string): RuleFile => readRuleFile(home, CODEX_RULE_FILE, "is gone");
 
 function exitZero(result: CommandResult): string[] {
   return result.exitCode === 0 ? [] : [`exited ${result.exitCode}, expected 0`];
-}
-
-// A missing file and one that cannot be read are different defects, and the second keeps its
-// reason: a package that left a directory at the path must not read as "gone".
-type RuleFile = { text: string } | { problem: string };
-
-function readRuleFile(home: string): RuleFile {
-  try {
-    return { text: readFileSync(codexRuleFile(home), "utf8") };
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") return { problem: "~/.codex/AGENTS.md is gone" };
-    const message = error instanceof Error ? error.message : String(error);
-    return { problem: `~/.codex/AGENTS.md could not be read: ${message}` };
-  }
 }
 
 export const STEPS: readonly Step[] = [
@@ -86,7 +74,7 @@ export const STEPS: readonly Step[] = [
     name: "add installs the fixture into the codex rule file",
     argv: ["add", "<fixture>", "-g", "--rule", "-a", "codex", "-y"],
     judge: (result, world) => {
-      const file = readRuleFile(world.home);
+      const file = codexRule(world.home);
       if ("problem" in file) return [...exitZero(result), file.problem];
       const { text } = file;
       const missing = FIXTURE_MEMORIES.filter(
@@ -112,7 +100,7 @@ export const STEPS: readonly Step[] = [
     name: "remove restores the codex rule file",
     argv: ["remove", "<fixture>", "-y"],
     judge: (result, world) => {
-      const file = readRuleFile(world.home);
+      const file = codexRule(world.home);
       if ("problem" in file) return [...exitZero(result), file.problem];
       return [
         ...exitZero(result),

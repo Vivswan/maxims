@@ -10,7 +10,6 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   statSync,
   symlinkSync,
 } from "node:fs";
@@ -18,6 +17,7 @@ import { delimiter, join } from "node:path";
 import { parseRuleLines } from "../../src/commands/shared/blocks.ts";
 import { redactUserinfo } from "../../src/sources/github/ladder.ts";
 import { markdownTable, type Outcome } from "./report.ts";
+import { readRuleFile } from "./rule_file.ts";
 import { withScratchDir } from "./scratch.ts";
 
 const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
@@ -41,17 +41,9 @@ export type Step = {
 // A block with its markers and no rule line installed no rule; the lines are read back by the
 // parser `remove` uses, so the renderer's escaping of a path is not re-modelled here.
 function installedRuleFile(home: string): string[] {
-  const shown = `~/${REFERENCE_RULE_FILE}`;
-  let text: string;
-  try {
-    text = readFileSync(join(home, REFERENCE_RULE_FILE), "utf8");
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") return [`${shown} is missing`];
-    const message = error instanceof Error ? error.message : String(error);
-    return [`${shown} could not be read: ${message}`];
-  }
-  return parseRuleLines(text).length > 0 ? [] : [`no rule line in ${shown}`];
+  const file = readRuleFile(home, REFERENCE_RULE_FILE, "is missing");
+  if ("problem" in file) return [file.problem];
+  return parseRuleLines(file.text).length > 0 ? [] : [`no rule line in ~/${REFERENCE_RULE_FILE}`];
 }
 
 const nothingToCheck = (): string[] => [];
