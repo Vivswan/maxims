@@ -101,9 +101,10 @@ export type ListOptions = CommonOptions;
 export type SymlinkSupport = { ok: true } | { ok: false; reason: string };
 
 // Everything the engine takes from the process, so a test can run it against fixture resolvers
-// and definitions in a temp home. `readStdin` yields the hook payload text, or null when stdin is
-// a terminal or nothing arrives in time; `symlinkSupport` is probed once per run before bodies
-// are linked, and a negative answer turns every link into a copy.
+// and definitions in a temp home. `userHome` is the user's own home, which the harness
+// definitions resolve their files against; `readStdin` yields the hook payload text, or null when
+// stdin is a terminal or nothing arrives in time; `symlinkSupport` is probed once per run before
+// bodies are linked, and a negative answer turns every link into a copy.
 export type EngineIo = {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
@@ -112,6 +113,7 @@ export type EngineIo = {
   now: () => Date;
   env: Record<string, string | undefined>;
   cwd: string;
+  userHome: string;
   readStdin: () => Promise<string | null>;
   symlinkSupport: () => Promise<SymlinkSupport>;
 };

@@ -1,10 +1,9 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { HarnessContext } from "../../harnesses/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
-import { parseUserConfig, type UserConfig } from "../../state/config.ts";
+import { readUserConfig, type UserConfig } from "../../state/config.ts";
 import type { SourceEntry } from "../../state/schema.ts";
 import { type HomePaths, homePaths, maximsHome } from "../../util/home.ts";
 import type { EngineIo, HarnessFilter } from "../types.ts";
@@ -13,7 +12,10 @@ import { classifyInvoker, type InvokerClassification, stdoutVariantFor } from ".
 export const DEFAULT_COOLDOWN_DAYS = 7;
 
 // `home` is the maxims home (state, store, log); `userHome` is the user's own, which the harness
-// definitions resolve their files against.
+// definitions resolve their files against. `configIssue` is the notice an engine verb prints when
+// config.json could not be read as one: the engine always runs on the defaults then, since the
+// session-start hook is one of its callers and must refresh whatever a preference file holds;
+// the verbs that refuse the file instead do so at the command line, before the engine runs.
 export type EngineContext = {
   home: string;
   userHome: string;
@@ -44,24 +46,23 @@ export async function loadContext(
   options: LoadContextOptions,
 ): Promise<EngineContext> {
   const home = maximsHome(io.env);
-  const userHome = io.env.HOME ?? io.env.USERPROFILE ?? homedir();
   const paths = homePaths(home);
   const invoker = classifyInvoker(options.readHookStdin ? await io.readStdin() : null);
   const startDir =
     invoker.kind === "harness" && invoker.startDir !== null ? invoker.startDir : io.cwd;
   const loaded =
     options.config === undefined
-      ? loadUserConfig(paths.config)
+      ? readUserConfig(paths.config)
       : { config: options.config, issue: null };
   return {
     home,
-    userHome,
+    userHome: io.userHome,
     paths,
     env: io.env,
     cwd: io.cwd,
     projectRoot: findProjectRoot(startDir),
     config: loaded.config,
-    configIssue: loaded.issue,
+    configIssue: loaded.issue === null ? null : `${loaded.issue}; using defaults`,
     cooldownDays: loaded.config.cooldownDays ?? DEFAULT_COOLDOWN_DAYS,
     ruleCap: loaded.config.ruleCap ?? DEFAULT_RULE_CAP,
     invoker,
@@ -83,33 +84,6 @@ export function findProjectRoot(startDir: string): string | null {
   }
 }
 
-type LoadedUserConfig = { config: UserConfig; issue: string | null };
-
-// An unreadable config is a notice and the defaults, never a stop: a typo in a preference file
-// must not keep a session start from refreshing rules.
-function loadUserConfig(path: string): LoadedUserConfig {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return { config: {}, issue: null };
-    }
-    const detail = error instanceof Error ? error.message : String(error);
-    return { config: {}, issue: `${path} could not be read (${detail}); using defaults` };
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return { config: {}, issue: `${path} is not valid JSON (${detail}); using defaults` };
-  }
-  const parsed = parseUserConfig(json);
-  if (parsed.ok) return { config: parsed.config, issue: null };
-  return { config: {}, issue: `${path}: ${parsed.issues.join("; ")}; using defaults` };
-}
-
 // A project-scope entry belongs to the project whose root it recorded; a run acts on it only from
 // that project, so two checkouts holding one source never write into each other, and the names,
 // collisions and lookups a run judges are those of the entries it acts on.
@@ -122,6 +96,10 @@ export function agentsAllowed(filter: HarnessFilter | undefined, id: HarnessId):
   return filter === undefined || filter.includes(id);
 }
 
-export function harnessContext(ctx: EngineContext): HarnessContext {
+// What a harness definition resolves its files against, from the engine's context or the command
+// line's io alike: both carry the user's home and the project root the run acts in.
+export function harnessContext(
+  ctx: Pick<EngineContext, "userHome" | "projectRoot" | "env">,
+): HarnessContext {
   return { home: ctx.userHome, projectRoot: ctx.projectRoot, env: ctx.env };
 }

@@ -1,10 +1,12 @@
 import { createConsole, type InteractiveStreams } from "../console/contract.ts";
 import { consoleMode } from "../console/mode.ts";
 import { STRINGS, unknownCommand } from "../console/strings.ts";
+import { readUserConfig } from "../state/config.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { homePaths } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { VERSION } from "../version.ts";
-import { readConfig } from "./shared/cli-context.ts";
+import { configRefusal } from "./shared/cli-context.ts";
 import { ReportedMaximsError } from "./shared/errors.ts";
 import {
   type Args,
@@ -31,120 +33,167 @@ export type CliDeps = {
   detectAgent: () => Promise<string | null>;
 };
 
+// `brokenConfig` is what the verb does with a config.json that cannot be read as one. A verb a
+// session start runs (`sync`, and the MCP stub's quiet sync) runs on the defaults and says so: a
+// typo in a preference file must not keep a hook from refreshing rules. Every other verb refuses
+// the file with exit 4 naming the key, so no run applies a cap or a default the user believes
+// they overrode.
 type VerbEntry = {
   name: string;
   aliases: readonly string[];
   hidden: boolean;
+  brokenConfig: "refuse" | "defaults";
   load: () => Promise<Command>;
 };
 
 // Every verb is a dynamic import so `sync --quiet` loads its own module and nothing else: the
 // interactive verbs pull in the console renderers and the fetch code only when they run.
 const VERBS: readonly VerbEntry[] = [
-  { name: "add", aliases: ["a"], hidden: false, load: () => import("./add.ts").then((m) => m.add) },
+  {
+    name: "add",
+    aliases: ["a"],
+    hidden: false,
+    brokenConfig: "refuse",
+    load: () => import("./add.ts").then((m) => m.add),
+  },
   {
     name: "sync",
     aliases: [],
     hidden: false,
+    brokenConfig: "defaults",
     load: () => import("./engine-verbs.ts").then((m) => m.sync),
   },
   {
     name: "update",
     aliases: ["check", "upgrade"],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./update.ts").then((m) => m.update),
   },
   {
     name: "remove",
     aliases: ["rm", "r"],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./engine-verbs.ts").then((m) => m.remove),
   },
   {
     name: "list",
     aliases: ["ls"],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./engine-verbs.ts").then((m) => m.list),
   },
   {
     name: "show",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./show.ts").then((m) => m.show),
   },
   {
     name: "install",
     aliases: ["i"],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./install.ts").then((m) => m.install),
   },
   {
     name: "share",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./share.ts").then((m) => m.share),
   },
   {
     name: "unshare",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./share.ts").then((m) => m.unshare),
   },
-  { name: "link", aliases: [], hidden: false, load: () => import("./link.ts").then((m) => m.link) },
+  {
+    name: "link",
+    aliases: [],
+    hidden: false,
+    brokenConfig: "refuse",
+    load: () => import("./link.ts").then((m) => m.link),
+  },
   {
     name: "unlink",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./link.ts").then((m) => m.unlink),
   },
   {
     name: "disable",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./disable.ts").then((m) => m.disable),
   },
   {
     name: "enable",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./disable.ts").then((m) => m.enable),
   },
   {
     name: "review",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./review.ts").then((m) => m.review),
   },
   {
     name: "unreview",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./review.ts").then((m) => m.unreview),
   },
   {
     name: "accept",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./review.ts").then((m) => m.accept),
   },
   {
     name: "doctor",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./doctor.ts").then((m) => m.doctor),
   },
   {
     name: "config",
     aliases: [],
     hidden: false,
+    brokenConfig: "refuse",
     load: () => import("./config.ts").then((m) => m.config),
   },
-  { name: "init", aliases: [], hidden: false, load: () => import("./init.ts").then((m) => m.init) },
-  { name: "lint", aliases: [], hidden: false, load: () => import("./lint.ts").then((m) => m.lint) },
+  {
+    name: "init",
+    aliases: [],
+    hidden: false,
+    brokenConfig: "refuse",
+    load: () => import("./init.ts").then((m) => m.init),
+  },
+  {
+    name: "lint",
+    aliases: [],
+    hidden: false,
+    brokenConfig: "refuse",
+    load: () => import("./lint.ts").then((m) => m.lint),
+  },
   {
     name: "mcp-serve",
     aliases: [],
     hidden: true,
+    brokenConfig: "defaults",
     load: () => import("./mcp-serve.ts").then((m) => m.mcpServe),
   },
 ];
@@ -245,12 +294,15 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const global = globalFlags(args);
     refuseJsonCombinations(command, args, json);
     const rungs = rungLog(failure, entry.name, args.flag(FLAGS.list));
+    const loaded = readUserConfig(homePaths(io.home).config);
+    if (loaded.issue !== null && entry.brokenConfig === "refuse") throw configRefusal(loaded.issue);
     const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet, rung: rungs.rung });
     const ctx: CommandContext = {
       io: { ...io, harnesses, resolvers },
       engine,
       global,
-      config: readConfig(io.home),
+      config: loaded.config,
+      configIssue: loaded.issue,
       flushRungLog: rungs.flush,
       openConsole: async (yes) => {
         const agent = deps.stdoutTty.isTTY && !quiet && !json ? await deps.detectAgent() : null;

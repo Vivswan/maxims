@@ -1,7 +1,5 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { MemoryName } from "../../memory/contract.ts";
-import { parseUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
+import { type UserConfig, UserConfigSchema } from "../../state/config.ts";
 import { emptyState, parseState, type State } from "../../state/schema.ts";
 import { type ScopeAt, scopedAt, withScopedList } from "../../state/scoped.ts";
 import {
@@ -18,46 +16,13 @@ import { assertInsideRoot } from "../../util/fs.ts";
 import { homePaths } from "../../util/home.ts";
 import { type Args, type CommandContext, FLAGS, INTEGER, parseInteger } from "./options.ts";
 
-// The project root is the nearest ancestor of the cwd that a git checkout marks, so a project
-// install from a subdirectory lands at the repository root the harness reads from; its real path,
-// since state records a project by it and a cwd reached through an alias must find the same entries.
-export function findProjectRoot(cwd: string): string | null {
-  let dir = cwd;
-  for (;;) {
-    if (existsSync(join(dir, ".git"))) return realpathSync(dir);
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-// An unreadable config is exit 4, never a silent fallback to defaults: a typo in `ruleCap` would
-// otherwise let a run apply a cap the user believes they raised.
-export function readConfig(home: string): UserConfig {
-  const path = homePaths(home).config;
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}`, { cause: error });
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `${path} is not valid JSON: ${detail}`);
-  }
-  const parsed = parseUserConfig(json);
-  if (!parsed.ok) {
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `${path} is not a valid config: ${parsed.issues.join("; ")}`,
-      { hint: `valid keys: ${Object.keys(UserConfigSchema.shape).join(", ")}` },
-    );
-  }
-  return parsed.config;
+// The refusal for a config.json a verb will not run over: exit 4 with the key named, since a typo
+// in `ruleCap` would otherwise let the run apply a cap the user believes they raised. Which verbs
+// refuse and which run on the defaults is the dispatch table's call, in main.ts.
+export function configRefusal(issue: string): MaximsError {
+  return new MaximsError(ExitCode.DestinationWriteFailed, issue, {
+    hint: `valid keys: ${Object.keys(UserConfigSchema.shape).join(", ")}`,
+  });
 }
 
 export function configWrite(home: string, config: UserConfig): Change {
@@ -80,12 +45,15 @@ export function cooldownCapConfig(args: Args, config: UserConfig): UserConfig | 
 }
 
 // Writes the persisted flags before the engine runs, so the sync that follows reads the new cap
-// and cooldown from the file like every later one.
+// and cooldown from the file like every later one. A verb running on defaults over a broken file
+// refuses to write them: `next` was built over the defaults, so the write would replace whatever
+// the user had typed in the file with the one or two keys the flags carry.
 export async function persistConfig(
   ctx: CommandContext,
   next: UserConfig | null,
 ): Promise<{ config: UserConfig; changes: Change[] }> {
   if (next === null) return { config: ctx.config, changes: [] };
+  if (ctx.configIssue !== null) throw configRefusal(ctx.configIssue);
   const changes = [configWrite(ctx.io.home, next)];
   await applyChanges({ changes, notices: [] }, { dryRun: ctx.global.dryRun });
   return { config: next, changes };

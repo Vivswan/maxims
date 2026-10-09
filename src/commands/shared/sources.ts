@@ -30,13 +30,9 @@ import {
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
-import { actsHere } from "./context.ts";
+import { actsHere, harnessContext } from "./context.ts";
 import { realpathOfExistingPrefix } from "./fs-probe.ts";
 import { validateMemoryFiles } from "./memories.ts";
-
-export function harnessContext(io: CliIo): HarnessContext {
-  return { home: io.userHome, projectRoot: io.projectRoot, env: io.env };
-}
 
 // The scope a destination's harness files belong to: an `-o` folder is written like a project
 // target (a rules file the harness does not own), so its harness checks read the project shape.

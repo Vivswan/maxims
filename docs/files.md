@@ -63,4 +63,6 @@ npx -y @vivswan/maxims config unset rule
 
 `cooldownDays` and `ruleCap` are the two keys `sync` reads, since they govern every run; the [cap and cooldown section](keep-fresh.md#the-cap-and-the-cooldown) owns the flags that write them and when a typed flag persists. `agents`, `yes`, `addHook`, and `rule` each fill in a flag you did not type on `add`, and what `add` records is ordinary intent.
 
-`config set` refuses a key the table does not name, with exit 1, and the file is parsed the same way: a misspelled key makes the whole file invalid rather than being ignored.
+`config set` refuses a key the table does not name, with exit 1, and the file is parsed the same way: a misspelled key makes the whole file invalid rather than being ignored. Every verb but `sync` then refuses to run, with exit 4 and a message naming the key.
+
+`sync`, the verb a session-start hook runs, refreshes on the defaults instead and prints (or logs, under `--quiet`) the key it ignored, so a typo in the file never leaves a machine stale. `sync --cap` and `sync --cooldown` would write the file, so they refuse like the other verbs.

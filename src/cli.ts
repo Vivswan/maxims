@@ -2,7 +2,7 @@
 import { homedir } from "node:os";
 import { createEngine } from "./commands/engine.ts";
 import { main } from "./commands/main.ts";
-import { findProjectRoot } from "./commands/shared/cli-context.ts";
+import { findProjectRoot } from "./commands/shared/context.ts";
 import { detectAgent } from "./console/mode.ts";
 import { maximsHome } from "./util/home.ts";
 

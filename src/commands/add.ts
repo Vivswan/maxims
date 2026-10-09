@@ -65,6 +65,7 @@ import {
   updateIntent,
   withDisabled,
 } from "./shared/cli-context.ts";
+import { harnessContext } from "./shared/context.ts";
 import { framed } from "./shared/engine-io.ts";
 import { swapStoreEntry } from "./shared/fetch.ts";
 import { prunedHooks, withHooks } from "./shared/hooks.ts";
@@ -98,7 +99,6 @@ import {
   detectedHarnesses,
   effectiveNames,
   findSourceKey,
-  harnessContext,
   installedAtOtherRef,
   installedAtOtherScope,
   installedSources,

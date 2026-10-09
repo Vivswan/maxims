@@ -147,11 +147,14 @@ export type OpenConsole = (yes: boolean) => Promise<Console>;
 
 // `flushRungLog` writes the fetch rung reasons collected so far to refresh.log. The run does it
 // once the verb settles, so only a verb that keeps running past its sync (`mcp-serve`) calls it.
+// `configIssue` is set only for a verb the dispatch table lets run on defaults over a broken
+// config.json; every other verb was refused before it ran, so it reads null here.
 export type CommandContext = {
   io: CliIo;
   engine: Engine;
   global: GlobalFlags;
   config: UserConfig;
+  configIssue: string | null;
   openConsole: OpenConsole;
   flushRungLog: () => Promise<void>;
 };
