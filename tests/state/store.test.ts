@@ -293,6 +293,20 @@ describe("readState", () => {
       fixture: "v1-corrupt-pending-without-fetched.json",
       issue: /pending: a held revision needs an installed revision behind it$/,
     },
+    // One fixture per required intent field, so a parse default restored on any one of them goes
+    // red here, at the file, and not only at the parser.
+    ...(
+      [
+        ["auth", "auth", "boolean"],
+        ["memory-path", "memoryPath", "string"],
+        ["full-depth", "fullDepth", "boolean"],
+      ] as const
+    ).map(([name, field, expected]) => ({
+      fixture: `v1-corrupt-intent-without-${name}.json`,
+      issue: new RegExp(
+        `^sources\\.@example-user/rules\\.intent\\.${field}: Invalid input: expected ${expected}, received undefined$`,
+      ),
+    })),
   ];
   test.each(hostile)(
     "$fixture is moved aside, reported, and never rebuilt",

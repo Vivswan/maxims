@@ -414,23 +414,6 @@ describe("parseState", () => {
       },
       issue: /destination\.path: .*NUL/,
     },
-    // One row per required intent field, so restoring a parse default for any one of them goes red.
-    ...(
-      [
-        ["auth", "boolean"],
-        ["memoryPath", "string"],
-        ["fullDepth", "boolean"],
-      ] as const
-    ).map(([field, expected]) => ({
-      title: `an intent without ${field}`,
-      mutate: (j: typeof VALID) => {
-        delete (j.sources["@example-user/rules"].intent as Record<string, unknown>)[field];
-        return j;
-      },
-      issue: new RegExp(
-        `intent\\.${field}: Invalid input: expected ${expected}, received undefined$`,
-      ),
-    })),
     {
       title: "an unknown key in intent",
       mutate: (j) => {
