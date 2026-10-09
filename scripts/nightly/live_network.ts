@@ -1,21 +1,30 @@
 // Drives the built bundle through the fetch ladder against the reference source on the public
 // network: the sparse clone, the pinned-sha short circuit, the tarball rung with no git on PATH,
-// and a repository that does not exist. Each rung has one expected exit code.
+// and a repository that does not exist. Each rung has one expected exit code and a judge that
+// reads back what the rung must have left in its HOME: the exit code is the bundle's own word
+// for what it did, and a bundle that exits 0 and writes nothing would otherwise climb the whole
+// ladder green.
 import {
   accessSync,
   constants,
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   statSync,
   symlinkSync,
 } from "node:fs";
 import { delimiter, join } from "node:path";
+import { parseRuleLines } from "../../src/commands/shared/blocks.ts";
 import { redactUserinfo } from "../../src/sources/github/ladder.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
 
 const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
+
+// The rule file REFERENCE_ADD writes under HOME: the claude-code global rules directory and the
+// clean slug of @Vivswan/skills (src/commands/shared/slug.ts).
+const REFERENCE_RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
 
 export type Step = {
   name: string;
@@ -24,7 +33,28 @@ export type Step = {
   home: "first" | "second";
   git: "on-path" | "off-path";
   expectExit: number;
+  // The problems with what the rung left in its HOME, read after it exited; empty when it did
+  // what it was for.
+  judge: (home: string) => string[];
 };
+
+// A block with its markers and no rule line installed no rule; the lines are read back by the
+// parser `remove` uses, so the renderer's escaping of a path is not re-modelled here.
+function installedRuleFile(home: string): string[] {
+  const shown = `~/${REFERENCE_RULE_FILE}`;
+  let text: string;
+  try {
+    text = readFileSync(join(home, REFERENCE_RULE_FILE), "utf8");
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") return [`${shown} is missing`];
+    const message = error instanceof Error ? error.message : String(error);
+    return [`${shown} could not be read: ${message}`];
+  }
+  return parseRuleLines(text).length > 0 ? [] : [`no rule line in ${shown}`];
+}
+
+const nothingToCheck = (): string[] => [];
 
 export const LADDER: readonly Step[] = [
   {
@@ -33,6 +63,7 @@ export const LADDER: readonly Step[] = [
     home: "first",
     git: "on-path",
     expectExit: 0,
+    judge: installedRuleFile,
   },
   {
     name: "config set cooldownDays 0",
@@ -40,6 +71,7 @@ export const LADDER: readonly Step[] = [
     home: "first",
     git: "on-path",
     expectExit: 0,
+    judge: nothingToCheck,
   },
   {
     name: "update short-circuits on the pinned sha",
@@ -47,6 +79,7 @@ export const LADDER: readonly Step[] = [
     home: "first",
     git: "on-path",
     expectExit: 0,
+    judge: installedRuleFile,
   },
   {
     name: "add through the codeload tarball with no git on PATH",
@@ -54,6 +87,7 @@ export const LADDER: readonly Step[] = [
     home: "second",
     git: "off-path",
     expectExit: 0,
+    judge: installedRuleFile,
   },
   {
     name: "add a repository that does not exist",
@@ -61,6 +95,7 @@ export const LADDER: readonly Step[] = [
     home: "second",
     git: "on-path",
     expectExit: 2,
+    judge: nothingToCheck,
   },
 ];
 
@@ -70,7 +105,10 @@ export type CliRunner = (
   env: Record<string, string>,
 ) => Promise<CliResult>;
 
-export type StepResult = Step & { exitCode: number; stderr: string };
+export type StepResult = Step & CliResult & { problems: readonly string[] };
+
+const passed = (result: StepResult): boolean =>
+  result.exitCode === result.expectExit && result.problems.length === 0;
 
 async function spawnNode(argv: readonly string[], env: Record<string, string>): Promise<CliResult> {
   const proc = Bun.spawn([...argv], { env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
@@ -124,7 +162,7 @@ function homeEnv(home: string, path: string): Record<string, string> {
 const show = (argv: readonly string[]): string => `maxims ${argv.join(" ")}`;
 
 export function summarizeLadder(results: readonly StepResult[]): Outcome {
-  const failed = results.filter((result) => result.exitCode !== result.expectExit);
+  const failed = results.filter((result) => !passed(result));
   const table = markdownTable(
     ["step", "argv", "expected", "exit", "verdict"],
     results.map((result) => [
@@ -132,7 +170,7 @@ export function summarizeLadder(results: readonly StepResult[]): Outcome {
       `\`${show(result.argv)}\``,
       String(result.expectExit),
       String(result.exitCode),
-      result.exitCode === result.expectExit ? "ok" : "FAIL",
+      passed(result) ? "ok" : "FAIL",
     ]),
   );
   const summary = `## Live network ladder\n\n${table}\n`;
@@ -142,6 +180,7 @@ export function summarizeLadder(results: readonly StepResult[]): Outcome {
       `### ${result.name}`,
       "",
       `\`${show(result.argv)}\` (git ${result.git}) expected exit ${result.expectExit}, got ${result.exitCode}.`,
+      ...(result.problems.length === 0 ? [] : ["", ...result.problems.map((p) => `- ${p}`)]),
       "",
       "```text",
       redactUserinfo(result.stderr).trimEnd(),
@@ -179,11 +218,9 @@ export async function runLiveNetwork(
     };
     const results: StepResult[] = [];
     for (const step of ladder) {
-      const result = await run(
-        [node, bundle, ...step.argv],
-        homeEnv(homes[step.home], pathFor(step.git)),
-      );
-      results.push({ ...step, ...result });
+      const home = homes[step.home];
+      const result = await run([node, bundle, ...step.argv], homeEnv(home, pathFor(step.git)));
+      results.push({ ...step, ...result, problems: step.judge(home) });
     }
     return summarizeLadder(results);
   });
