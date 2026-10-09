@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { basename } from "node:path";
 import fc from "fast-check";
+import { stringify } from "yaml";
 import {
   hiddenCharacters,
   type Memory,
@@ -267,7 +268,7 @@ test(
 );
 
 // Six names shared by every slot: the rename rule fires only when a rename key reuses a name an
-// incoming memory or a link carries, and draws from a space of thousands of names never reuse one.
+// incoming memory or a link carries, and draws from a space of thousands of names rarely reuse one.
 const memoryName = fc.constantFrom("a", "b", "c", "d-e", "f1", "g");
 
 // A body is built from the links it is meant to carry, so the expected unmet set comes from the
@@ -276,9 +277,8 @@ function bodyWith(links: readonly string[], noise: string): string {
   return links.map((link) => `[[${link}]]`).join(noise === "" ? " " : noise);
 }
 
-// The name is quoted: YAML would read a generated "null" or "true" as a non-string scalar.
 function memoryOf(name: string, text: string): Memory {
-  const file = `---\nname: ${JSON.stringify(name)}\ndescription: d\n---\n${text}`;
+  const file = `---\n${stringify({ name, description: "d" })}---\n${text}`;
   const parsed = parseMemory(`${name}.md`, file);
   if (!parsed.ok) throw new Error(`fixture memory ${name} did not parse: ${parsed.reason}`);
   return parsed.memory;
