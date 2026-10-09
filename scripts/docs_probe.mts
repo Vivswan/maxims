@@ -31,7 +31,7 @@ import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
 import { normalizeIdentifier } from "micromark-util-normalize-identifier";
 import type { Event, Token, TokenizeContext } from "micromark-util-types";
-import { parseArgv, positiveInteger } from "./lib/argv.ts";
+import { parseArgv, positiveInteger, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { isInside } from "./lib/paths.ts";
 
@@ -522,9 +522,7 @@ function realpath(path: string): string {
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
-  const refuse: (message: string) => never = (message) => {
-    throw new Error(`${message}\n${USAGE}`);
-  };
+  const refuse: Refuser = usageRefuser(USAGE);
   const { values, positionals } = parseArgv(
     {
       args: [...argv],

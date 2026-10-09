@@ -1,9 +1,12 @@
 import { type ParseArgsConfig, parseArgs } from "node:util";
 
+/** A usage refusal: it reports the message with the usage text and never returns. */
+export type Refuser = (message: string) => never;
+
 // A flag given twice is two intents, so it is refused rather than resolved to the last one.
 export function parseArgv<T extends ParseArgsConfig>(
   config: T,
-  refuse: (message: string) => never,
+  refuse: Refuser,
 ): ReturnType<typeof parseArgs<T & { tokens: true }>> {
   let parsed: ReturnType<typeof parseArgs<T & { tokens: true }>>;
   try {
@@ -28,11 +31,18 @@ export function parseArgv<T extends ParseArgsConfig>(
   return parsed;
 }
 
-export function positiveInteger(
-  flag: string,
-  raw: string,
-  refuse: (message: string) => never,
-): number {
+/**
+ * The refusal the .mts scripts share: the message above the usage text, thrown for main to print
+ * and exit 2 on. A caller binds it with the `Refuser` annotation, which is what lets TypeScript
+ * narrow after a call that never returns.
+ */
+export function usageRefuser(usage: string): Refuser {
+  return (message) => {
+    throw new Error(`${message}\n${usage}`);
+  };
+}
+
+export function positiveInteger(flag: string, raw: string, refuse: Refuser): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1)
     refuse(`${flag} must be a positive integer, got ${raw}`);

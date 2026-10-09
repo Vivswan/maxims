@@ -13,7 +13,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Node, parseSync as ParseSync, TemplateElement } from "oxc-parser";
-import { parseArgv } from "./lib/argv.ts";
+import { parseArgv, usageRefuser } from "./lib/argv.ts";
 
 // The adopting repository adds the parser (bun add -d oxc-parser); a copied
 // script without it says so once instead of failing on a missing module path.
@@ -401,9 +401,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         mermaid: { type: "boolean", default: false },
       },
     },
-    (message) => {
-      throw new Error(`${message}\n${USAGE}`);
-    },
+    usageRefuser(USAGE),
   );
   const root = resolve(values.root);
   return {

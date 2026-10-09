@@ -15,7 +15,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseSync, pathLabel, resolveImport, SOURCE_EXTENSIONS } from "./arch_lint.mts";
-import { parseArgv } from "./lib/argv.ts";
+import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { isInside } from "./lib/paths.ts";
 
@@ -510,9 +510,7 @@ interface CliOptions extends PageCheckOptions {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  const refuse: (message: string) => never = (message) => {
-    throw new Error(`${message}\n${USAGE}`);
-  };
+  const refuse: Refuser = usageRefuser(USAGE);
   const { values } = parseArgv(
     {
       args: [...argv],

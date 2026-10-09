@@ -12,7 +12,7 @@ import {
   renderArchitectureMermaid,
 } from "./arch_lint.mts";
 import { readPage } from "./check_architecture_page.mts";
-import { parseArgv } from "./lib/argv.ts";
+import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 
 export const DEFAULT_REGION = "architecture-map";
 
@@ -78,9 +78,7 @@ interface CliOptions {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  const refuse: (message: string) => never = (message) => {
-    throw new Error(`${message}\n${USAGE}`);
-  };
+  const refuse: Refuser = usageRefuser(USAGE);
   const { values } = parseArgv(
     {
       args: [...argv],
