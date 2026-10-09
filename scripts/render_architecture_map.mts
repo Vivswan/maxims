@@ -34,7 +34,7 @@ export function regionBounds(text: string, name: string): { bodyStart: number; b
   // line counting on the raw text keeps the offsets the splice needs.
   const page = readPage(text);
   const live = (match: RegExpExecArray): boolean => {
-    const line = text.slice(0, match.index).split("\n").length - 1;
+    const line = text.slice(0, match.index).split(/\r\n|\n|\r/).length - 1;
     const lineText = page.text[line];
     // Indented code is quoted text as much as a fence is.
     return lineText !== undefined && !/^( {4}|\t)/.test(lineText);
