@@ -9,7 +9,6 @@
 import { expect, test } from "bun:test";
 import {
   copyFileSync,
-  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -18,7 +17,8 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { importSpecifiers, resolveImport } from "../scripts/arch_lint.mts";
 import { summarize } from "../scripts/bench.ts";
 import { git, gitInit } from "./shared/git_fixture.ts";
 import { removerOfCreated } from "./shared/strays.ts";
@@ -219,14 +219,20 @@ interface Fixture {
   bench: string;
 }
 
-// The bench derives the repository from its own location, so a copy of the script, with the
-// modules it imports beside it, measures the checkout it is copied into.
+// The bench derives the repository from its own location, so a copy of the script, with every
+// module it loads at its place in the tree, measures the checkout it is copied into. A fixed
+// directory list would miss a script's next import from src/.
 function copyBenchInto(root: string): string {
-  mkdirSync(join(root, "scripts"), { recursive: true });
-  const bench = join(root, "scripts", "bench.ts");
-  copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
-  cpSync(join(repoRoot, "scripts", "lib"), join(root, "scripts", "lib"), { recursive: true });
-  return bench;
+  const bench = join(repoRoot, "scripts", "bench.ts");
+  const files = new Set([bench]);
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    const target = join(root, relative(repoRoot, file));
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(file, target);
+    for (const specifier of importSpecifiers(text, file)) files.add(resolveImport(file, specifier));
+  }
+  return join(root, relative(repoRoot, bench));
 }
 
 function fixtureWorktree(dir: string): Fixture {
