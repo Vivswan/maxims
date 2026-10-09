@@ -10,6 +10,8 @@ import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
 import { cursor } from "../../../src/harnesses/cursor/index.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
+import type { MemoryName } from "../../../src/memory/contract.ts";
+import { renderBlock } from "../../../src/rulefile/block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { srcPath } from "../../shared/src_path.ts";
@@ -158,4 +160,28 @@ test("detection reads a ~/.cursor directory and never a stray file of that name"
     mkdirSync(join(home, ".cursor"));
     expect(cursor.detect({ home, projectRoot: null, env: {} })).toBe(true);
   });
+});
+
+// Cursor's rules page states that rule content reaches the agent as written and an `@file`
+// mention is not inlined, so a rule line is not rewritten around an `@` token the way it is for a
+// harness that expands imports at load; the user's own code span survives byte for byte.
+test("a rule line keeps an @ mention and the code span around it literal", () => {
+  const rendered = renderBlock({
+    source: "@example-user/doctrine",
+    sha: "1",
+    lines: [
+      {
+        name: "install-skills-first" as MemoryName,
+        description: "Install the team skills with `npx skills add @octocat/skills` first.",
+        detailPath: ".agents/memories/install-skills-first.md",
+        shortHash: "a1b2c3d",
+      },
+    ],
+    markers: cursor.markers,
+    expands: cursor.expands,
+    selfRefresh: false,
+  });
+  expect(rendered.split("\n")[1]).toBe(
+    "- Install the team skills with `npx skills add @octocat/skills` first. (detail: .agents/memories/install-skills-first.md, a1b2c3d)",
+  );
 });
