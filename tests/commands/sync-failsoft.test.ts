@@ -933,7 +933,7 @@ test("a codex config.toml the probe cannot read demotes to tier 2 with a notice,
     const configToml = join(userHome, ".codex", "config.toml");
     mkdirSync(join(userHome, ".codex"), { recursive: true });
     writeFileSync(configToml, "hooks\n");
-    const reason = `config.toml could not be read (${configToml}: Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)); assuming hooks off`;
+    const reason = `config.toml could not be read (${configToml}: Invalid TOML document: illegal character in key (line 1, column 6)); assuming hooks off`;
     const report = await runSync({ ...SYNC, fetch: "none" }, io);
     expect(report.notices).toContain(`maxims: codex ${reason}`);
     const shared = join(userHome, ".fixture", "FIXTURE.md");
