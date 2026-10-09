@@ -6,9 +6,10 @@
 // reads no other path.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { isShipped } from "../../.github/scripts/release-pipeline.ts";
 import manifest from "../../package.json" with { type: "json" };
+import { importSpecifiers, resolveImport, SOURCE_EXTENSIONS } from "../../scripts/arch_lint.mts";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const BUILD_SCRIPT = "scripts/build.ts";
@@ -18,11 +19,12 @@ function repoPath(absolute: string): string {
   return relative(REPO, absolute).split(sep).join("/");
 }
 
-/** The relative imports of a TypeScript module, static and dynamic, as repository paths. */
+/** The relative imports of a module in every form the architecture lint follows, as repository paths; a data file (package.json) imports nothing. */
 function relativeImports(path: string): string[] {
-  const source = readFileSync(join(REPO, path), "utf8");
-  return [...source.matchAll(/\b(?:from\s+|import\()"(\.\.?\/[^"]+)"/g)].map((match) =>
-    repoPath(resolve(REPO, dirname(path), match[1] as string)),
+  if (!SOURCE_EXTENSIONS.some((ext) => path.endsWith(ext))) return [];
+  const absolute = join(REPO, path);
+  return importSpecifiers(readFileSync(absolute, "utf8"), path).map((specifier) =>
+    repoPath(resolveImport(absolute, specifier)),
   );
 }
 
