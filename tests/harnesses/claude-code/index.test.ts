@@ -238,4 +238,25 @@ describe("claude-code", () => {
       expect(claudeCode.detect(bare)).toBe(true);
     });
   });
+
+  // A layer that does not parse is not a layer that sets nothing: the walk stops at it with the
+  // reason, so a valid user setting below it never passes for the machine's answer.
+  test("a malformed project settings.json is tier 2 with the reason, over a valid user layer", async () => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(join(project, ".claude"), { recursive: true });
+      const broken = join(project, ".claude", "settings.json");
+      writeFileSync(broken, "{ this is not json\n");
+      writeFileSync(join(home, ".claude", "settings.json"), on);
+      const layered: HarnessContext = { home, projectRoot: project, env: {} };
+      for (const scope of ["project", "global"] as const) {
+        expect(await achievedTier(claudeCode, scope, layered)).toEqual({
+          tier: 2,
+          unreadable: `settings.json could not be read (${broken}: InvalidSymbol at offset 2); assuming hooks off`,
+        });
+      }
+    });
+  });
 });

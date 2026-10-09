@@ -19,7 +19,7 @@ import {
   appendChild,
   assertParses,
   readConfigText,
-  readPresentText,
+  readPresentFile,
   removeChild,
   replaceValue,
 } from "../util/jsonc.ts";
@@ -417,7 +417,7 @@ export type ConfigReading =
 export async function readConfigValue(path: string, format: ConfigFormat): Promise<ConfigReading> {
   let text: string | null;
   try {
-    text = await readPresentText(path);
+    ({ text } = await readPresentFile(path));
   } catch (cause) {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOTDIR") {
       return { kind: "absent" };

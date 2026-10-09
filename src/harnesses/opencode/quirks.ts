@@ -3,9 +3,14 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import { appendChild, assertParses, readConfigText, removeChild } from "../../util/jsonc.ts";
+import {
+  appendChild,
+  assertParses,
+  type ConfigRead,
+  readConfigFile,
+  removeChild,
+} from "../../util/jsonc.ts";
 import { type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
-import { statOrAbsent } from "../detect.ts";
 import { spec } from "./spec.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
@@ -19,7 +24,7 @@ export const INSTRUCTIONS_GLOB = `${spec.targets.project.dir}/${spec.targets.pro
 // from every file that does.
 const CONFIG_NAMES = ["opencode.jsonc", "opencode.json"] as const;
 
-type ConfigFile = { path: RootedPath; present: boolean; text: string | null };
+type ConfigFile = ConfigRead & { path: RootedPath };
 
 export function configEdit(scope: Scope, ctx: HarnessContext, wanted: boolean): Promise<Change[]> {
   return scope === "project"
@@ -60,11 +65,7 @@ async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
   return Promise.all(
     CONFIG_NAMES.map(async (name) => {
       const path = assertInsideRoot(projectRoot, join(projectRoot, name));
-      return {
-        path,
-        present: statOrAbsent(path)?.isFile() === true,
-        text: await readConfigText(path),
-      };
+      return { path, ...(await readConfigFile(path)) };
     }),
   );
 }
