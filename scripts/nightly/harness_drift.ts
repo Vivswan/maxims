@@ -36,7 +36,7 @@ export function claimPresent(text: string, claim: string): boolean {
 }
 
 export type Fetched =
-  | { kind: "body"; text: string }
+  | { kind: "body"; text: string; mediaType: string }
   | { kind: "redirect"; location: string }
   | { kind: "status"; status: number }
   | { kind: "timeout" }
@@ -46,6 +46,12 @@ export function sourceUrl(source: VerifiedSource): string {
   return source.kind === "file"
     ? `https://raw.githubusercontent.com/${source.repo}/${source.ref}/${source.path}`
     : source.url;
+}
+
+// The Content-Type without its parameters, lower-cased, so a page read can tell a rendered HTML
+// page from the markdown it expects; a missing header reads as an empty type.
+export function mediaTypeOf(contentType: string | null): string {
+  return (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
 }
 
 // A redirect is not followed: a vendor that moved a page answers a landing page at the new URL,
@@ -62,7 +68,11 @@ export async function fetchSource(url: string, fetchImpl: typeof fetch): Promise
     if (response.status >= 300 && response.status < 400 && location !== null)
       return { kind: "redirect", location: new URL(location, url).href };
     if (response.status !== 200) return { kind: "status", status: response.status };
-    return { kind: "body", text: await response.text() };
+    return {
+      kind: "body",
+      text: await response.text(),
+      mediaType: mediaTypeOf(response.headers.get("content-type")),
+    };
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") return { kind: "timeout" };
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
@@ -115,7 +125,7 @@ function readClaims(text: string, claims: readonly string[]): Reading {
 // A pointer paired with a value drifts when the schema still has the key but says something else,
 // and the row quotes both so a reader sees whether the fact or the definition moved. JSON carries
 // no undefined, so an undefined lookup is a missing pointer; a document that is not an object
-// (jsonpointer refuses a primitive and trips on null) is no schema at all.
+// (a primitive, null, or an array, which has no keys a schema pointer names) is no schema at all.
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   let document: unknown;
   try {
@@ -124,7 +134,7 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
     const message = error instanceof Error ? error.message : String(error);
     return { verdict: "UNREACHABLE", result: `not JSON: ${message}` };
   }
-  if (typeof document !== "object" || document === null)
+  if (typeof document !== "object" || document === null || Array.isArray(document))
     return { verdict: "UNREACHABLE", result: `not a JSON object: ${JSON.stringify(document)}` };
   const missing: string[] = [];
   const differing: string[] = [];
@@ -144,7 +154,11 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
 }
 
 // A source that answered anything but its content is UNREACHABLE: its row shows the answer where
-// the reading would be, and the run reads nothing of the facts it carries.
+// the reading would be, and the run reads nothing of the facts it carries. A page that answers a
+// rendered HTML document is one of those: its claims were written against a markdown rendition,
+// and nav text or embedded data would hold them by accident.
+const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+
 function read(source: VerifiedSource, fetched: Fetched): Reading {
   switch (fetched.kind) {
     case "redirect":
@@ -156,9 +170,10 @@ function read(source: VerifiedSource, fetched: Fetched): Reading {
     case "error":
       return { verdict: "UNREACHABLE", result: `network error: ${fetched.message}` };
     case "body":
-      return source.kind === "schema"
-        ? readSchema(fetched.text, source.paths)
-        : readClaims(normalizeText(fetched.text), source.claims);
+      if (source.kind === "schema") return readSchema(fetched.text, source.paths);
+      if (source.kind === "page" && HTML_TYPES.has(fetched.mediaType))
+        return { verdict: "UNREACHABLE", result: `answered ${fetched.mediaType}` };
+      return readClaims(normalizeText(fetched.text), source.claims);
   }
 }
 

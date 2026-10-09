@@ -87,6 +87,7 @@ const SCHEMA = {
 
 const RAW = "# Hooks\n\nThe `TaskStart` file runs on each task.\n\n<main>quoted</main>\n";
 const TEXT = { headers: { "content-type": "text/plain; charset=utf-8" } };
+const HTML = { headers: { "content-type": "text/html; charset=utf-8" } };
 const JSON_TYPE = { headers: { "content-type": "application/json" } };
 
 function fakeFetch(answers: Record<string, () => Response | Promise<Response>>): typeof fetch {
@@ -157,8 +158,10 @@ describe("runHarnessDrift", () => {
     [url("relocated")]: () =>
       new Response(null, { status: 301, headers: { location: "/docs/new-hooks" } }),
     [url("stale")]: () => new Response(null, { status: 304 }),
+    [url("rendered")]: () => new Response("<nav>SessionStart</nav>", HTML),
     [url("schema-moved")]: () => new Response("<p>moved</p>", TEXT),
     [url("schema-null")]: () => new Response("null", JSON_TYPE),
+    [url("schema-array")]: () => new Response("[]", JSON_TYPE),
   };
   const table = (rows: string[]): string =>
     ["| id | kind | source | note | verdict | result |", "|---|---|---|---|---|---|", ...rows].join(
@@ -230,8 +233,9 @@ describe("runHarnessDrift", () => {
   // behind another's failure. Without this the run stays green on sources it never read, and a
   // vendor that starts answering 403 to the nightly's user agent turns the whole category green
   // for good. A redirect is a move the row must show, since the landing page at the new URL could
-  // hold a claim by accident; a schema URL that answers markup, or a JSON document with no keys to
-  // point into, read nothing of the schema either.
+  // hold a claim by accident; so is a page that answers rendered HTML, whose nav text would hold a
+  // claim written against its markdown rendition. A schema URL that answers markup, or a JSON
+  // document with no keys to point into (null, an array), read nothing of the schema either.
   test.each([
     ["gone", page("gone", ["SessionStart"]), "page", "HTTP 503"],
     ["slow", page("slow", ["SessionStart"]), "page", "timeout after 20 s"],
@@ -248,8 +252,10 @@ describe("runHarnessDrift", () => {
       "moved to https://example.com/docs/new-hooks",
     ],
     ["stale", page("stale", ["SessionStart"]), "page", "HTTP 304"],
+    ["rendered", page("rendered", ["SessionStart"]), "page", "answered text/html"],
     ["schema-moved", schema("schema-moved", ["/properties"]), "schema", `not JSON: ${notJson()}`],
     ["schema-null", schema("schema-null", ["/properties"]), "schema", "not a JSON object: null"],
+    ["schema-array", schema("schema-array", [""]), "schema", "not a JSON object: []"],
   ] as const)(
     "the %s source, which the run could not read, fails the run with its answer in its row",
     async (name, source, kind, result) => {

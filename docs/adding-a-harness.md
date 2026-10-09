@@ -168,7 +168,7 @@ A pointer is an RFC 6901 JSON pointer, so a dotted key such as `amp.mcpServers` 
 
 Matching is a fixed-string search with whitespace runs on both sides read as one space, and a claim that begins or ends in a word character (`[A-Za-z0-9_-]`) must begin or end at a word boundary, so `hooks` never holds on `webhooks` and `.claude/rules` needs no boundary before its dot.
 
-Every source is read as the text it is, a raw repository file or a page's markdown rendition, so a fence quoting markup is just more text. A page that answers HTML has no markdown rendition and is not a source the nightly reads.
+Every source is read as the text it is, a raw repository file or a page's markdown rendition, so a fence quoting markup is just more text. A page that answers HTML instead of its markdown rendition reads `UNREACHABLE`, since nav text or embedded data would hold a claim by accident.
 
 One source rarely states every fact: Pi's context-file order is in its resource loader, not its extensions page. A source's `note` names the fact it justifies, so a drift row says what to re-check.
 
@@ -178,7 +178,7 @@ The nightly `harness-drift` category fetches every source and gives each a verdi
 | --- | --- | --- |
 | `match` | every claim holds and every pointer resolves | passes |
 | `DRIFT` | a claim or pointer is missing or a value differs; the row names it | fails |
-| `UNREACHABLE` | the source answered with a status, a redirect, a timeout, a network error, or non-JSON | fails |
+| `UNREACHABLE` | answered with a status, a redirect, a timeout, a network error, HTML or non-JSON | fails |
 
 A definition takes the worst verdict of its sources and the run the worst of its definitions, so a run that read nothing fails. To clear a `DRIFT` row, open the source, re-verify the facts it justifies, fix the definition or its claims and pointers to what the source states now, and set `verifiedAgainst.date` to today. `bun scripts/nightly.ts harness-drift --report-dir <dir>` runs the category locally:
 
