@@ -10,20 +10,18 @@ import { expect, test } from "bun:test";
 import {
   copyFileSync,
   existsSync,
-  lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
-  statSync,
   symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { summarize } from "../scripts/bench.ts";
-import { tmpdirEnv } from "./shared/temp_dir.ts";
+import { git, gitInit } from "./shared/git_fixture.ts";
+import { removerOfCreated } from "./shared/strays.ts";
+import { tmpdirEnv, withTempDir } from "./shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const realRepoRoot = realpathSync.native(repoRoot);
@@ -56,31 +54,8 @@ function runBench(args: string[], scratch: string) {
   });
 }
 
-// A red run of a guard test writes exactly where the guard should have refused. The shallowest
-// missing ancestor of each path is what such a run would create, and removing it afterwards takes
-// everything under it along without touching what was already there. Descent stops at an entry
-// that is not a directory, so a stray file or a dangling link is neither probed beneath nor removed.
-function removerOfCreated(paths: string[]): () => void {
-  const created = new Set<string>();
-  for (const path of paths) {
-    let current = parse(path).root;
-    for (const segment of relative(current, path).split(sep)) {
-      current = join(current, segment);
-      if (lstatSync(current, { throwIfNoEntry: false }) === undefined) {
-        created.add(current);
-        break;
-      }
-      if (!statSync(current, { throwIfNoEntry: false })?.isDirectory()) break;
-    }
-  }
-  return () => {
-    for (const path of created) rmSync(path, { recursive: true, force: true });
-  };
-}
-
-test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 times in fresh homes", () => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
-  try {
+test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 times in fresh homes", async () => {
+  await withTempDir((dir) => {
     const out = join(dir, "bench.json");
     const log = join(dir, "runs.log");
     const command = [
@@ -111,9 +86,7 @@ test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 t
     expect(record.minMs).toBeLessThanOrEqual(record.medianMs);
     expect(record.medianMs).toBeLessThanOrEqual(record.maxMs);
     expect(readdirSync(dir).sort()).toEqual(["bench.json", "runs.log"]);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 interface JsonTarget {
@@ -191,43 +164,42 @@ const jsonTargets: [string, (dir: string, token: string) => JsonTarget][] = [
     : []),
 ];
 
-test.each(jsonTargets)("--json with %s is decided by where the bytes would land", (_name, plan) => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
-  try {
-    const { jsonArg, target, refusal } = plan(dir, basename(dir));
-    const removeStrays = removerOfCreated([target]);
-    try {
-      const log = join(dir, "runs.log");
-      const command = [
-        "node",
-        "-e",
-        "require('node:fs').appendFileSync(process.argv[1], 'x')",
-        log,
-      ];
-      const bench = runBench(["--runs", "1", "--json", jsonArg, "--", ...command], dir);
-      if (refusal !== undefined) {
-        expect(bench.exitCode).toBe(2);
-        expect(bench.stdout.toString()).toBe("");
-        for (const fragment of refusal) expect(bench.stderr.toString()).toContain(fragment);
-        expect(existsSync(log)).toBe(false);
-        expect(existsSync(target)).toBe(false);
-      } else {
-        expect(bench.stderr.toString()).toBe("");
-        expect(bench.exitCode).toBe(0);
-        expect(readFileSync(log, "utf8")).toBe("x");
-        expect(JSON.parse(readFileSync(target, "utf8")).runs).toBe(1);
+test.each(jsonTargets)(
+  "--json with %s is decided by where the bytes would land",
+  async (_name, plan) => {
+    await withTempDir((dir) => {
+      const { jsonArg, target, refusal } = plan(dir, basename(dir));
+      const removeStrays = removerOfCreated([target]);
+      try {
+        const log = join(dir, "runs.log");
+        const command = [
+          "node",
+          "-e",
+          "require('node:fs').appendFileSync(process.argv[1], 'x')",
+          log,
+        ];
+        const bench = runBench(["--runs", "1", "--json", jsonArg, "--", ...command], dir);
+        if (refusal !== undefined) {
+          expect(bench.exitCode).toBe(2);
+          expect(bench.stdout.toString()).toBe("");
+          for (const fragment of refusal) expect(bench.stderr.toString()).toContain(fragment);
+          expect(existsSync(log)).toBe(false);
+          expect(existsSync(target)).toBe(false);
+        } else {
+          expect(bench.stderr.toString()).toBe("");
+          expect(bench.exitCode).toBe(0);
+          expect(readFileSync(log, "utf8")).toBe("x");
+          expect(JSON.parse(readFileSync(target, "utf8")).runs).toBe(1);
+        }
+      } finally {
+        removeStrays();
       }
-    } finally {
-      removeStrays();
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+    });
+  },
+);
 
-test("a failing command's stderr and exit code are reported with status 1, and its HOME is removed", () => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
-  try {
+test("a failing command's stderr and exit code are reported with status 1, and its HOME is removed", async () => {
+  await withTempDir((dir) => {
     const command = ["node", "-e", "process.stderr.write('child says no\\n'); process.exit(3)"];
     const bench = runBench(["--runs", "1", "--", ...command], dir);
     expect(bench.exitCode).toBe(1);
@@ -236,9 +208,7 @@ test("a failing command's stderr and exit code are reported with status 1, and i
       `child says no\nbench: ${command.join(" ")} exited with code 3\n`,
     );
     expect(readdirSync(dir).sort()).toEqual([]);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 interface Fixture {
@@ -261,23 +231,15 @@ function copyBenchInto(root: string): string {
   return bench;
 }
 
-// Git's default-branch hint goes to stderr and is not an error; only the exit code says whether a
-// step succeeded.
 function fixtureWorktree(dir: string): Fixture {
   const primary = join(dir, "primary");
   const linked = join(dir, "linked");
   const other = join(dir, "other");
   mkdirSync(primary);
-  const steps = [
-    ["git", "-C", primary, "init", "--quiet"],
-    ["git", "-C", primary, "commit", "--quiet", "--allow-empty", "-m", "root"],
-    ["git", "-C", primary, "worktree", "add", "--quiet", linked],
-    ["git", "-C", primary, "worktree", "add", "--quiet", other],
-  ];
-  for (const step of steps) {
-    const ran = Bun.spawnSync(step, { stdout: "pipe", stderr: "pipe" });
-    if (ran.exitCode !== 0) throw new Error(`${step.join(" ")}: ${ran.stderr.toString()}`);
-  }
+  gitInit(primary);
+  git(primary, ["commit", "--quiet", "--allow-empty", "-m", "root"]);
+  git(primary, ["worktree", "add", "--quiet", linked]);
+  git(primary, ["worktree", "add", "--quiet", other]);
   return { primary, linked, other, bench: copyBenchInto(linked) };
 }
 
@@ -290,9 +252,8 @@ const worktreeTargets: [string, (fixture: Fixture) => string, boolean][] = [
 
 test.each(worktreeTargets)(
   "--json into %s, from a linked worktree, is refused when it lands in any checkout",
-  (_name, target, refused) => {
-    const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
-    try {
+  async (_name, target, refused) => {
+    await withTempDir((dir) => {
       const fixture = fixtureWorktree(dir);
       const out = target(fixture);
       const log = join(dir, "runs.log");
@@ -325,9 +286,7 @@ test.each(worktreeTargets)(
         expect(readFileSync(log, "utf8")).toBe("x");
         expect(JSON.parse(readFileSync(out, "utf8")).runs).toBe(1);
       }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   },
 );
 
@@ -340,7 +299,7 @@ interface GitFailure {
 
 // A copy of the bench in a checkout whose own .git is damaged asks git about a repository it
 // cannot read, while that checkout's linked worktrees may still exist. The ceiling keeps git from
-// adopting a repository that happens to enclose the OS tmpdir. With an empty PATH only git goes
+// adopting a repository that happens to enclose the fixture. With an empty PATH only git goes
 // missing: the bench and its child are named by absolute path.
 const gitFailures: [string, (dir: string) => GitFailure][] = [
   [
@@ -348,8 +307,7 @@ const gitFailures: [string, (dir: string) => GitFailure][] = [
     (dir) => {
       const fixture = join(dir, "fixture");
       mkdirSync(fixture);
-      const init = Bun.spawnSync(["git", "-C", fixture, "init", "--quiet"], { stderr: "pipe" });
-      if (init.exitCode !== 0) throw new Error(init.stderr.toString());
+      gitInit(fixture);
       rmSync(join(fixture, ".git", "HEAD"));
       return {
         bench: copyBenchInto(fixture),
@@ -374,9 +332,8 @@ const gitFailures: [string, (dir: string) => GitFailure][] = [
 
 test.each(gitFailures)(
   "--json with %s is refused with exit 2 before the child runs or anything is written",
-  (_name, plan) => {
-    const dir = mkdtempSync(join(tmpdir(), "maxims-bench-"));
-    try {
+  async (_name, plan) => {
+    await withTempDir((dir) => {
       const { bench, env, fragments } = plan(dir);
       const out = join(dir, "bench.json");
       const log = join(dir, "runs.log");
@@ -400,8 +357,6 @@ test.each(gitFailures)(
       expect(stderr.endsWith(USAGE)).toBe(true);
       expect(existsSync(log)).toBe(false);
       expect(existsSync(out)).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   },
 );

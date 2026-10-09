@@ -2,19 +2,10 @@
 // history, dependencies, or build output into the work tree, if the dependency link moves, or if
 // a file the copy cannot read stops being a failure that leaves the work tree empty.
 import { describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readlinkSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { WINDOWS } from "../shared/platform.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 import { REPO_ROOT } from "./runner.ts";
 
 const ENTRYPOINT = join(REPO_ROOT, "tests", "container", "entrypoint.sh");
@@ -46,12 +37,11 @@ function walk(dir: string, prefix = ""): Entry[] {
 }
 
 // TMPDIR points into the fixture so the archive a failed copy leaves behind goes with it.
-function runCopy(arrange: (repo: string) => void): Outcome {
-  const root = mkdtempSync(join(tmpdir(), "maxims-entrypoint-"));
-  const repo = join(root, "repo");
-  const work = join(root, "work");
-  const temp = join(root, "tmp");
-  try {
+function runCopy(arrange: (repo: string) => void): Promise<Outcome> {
+  return withTempDir((root) => {
+    const repo = join(root, "repo");
+    const work = join(root, "work");
+    const temp = join(root, "tmp");
     for (const dir of [repo, work, temp]) mkdirSync(dir);
     for (const file of HOST_FILES) {
       mkdirSync(join(repo, dirname(file)), { recursive: true });
@@ -69,15 +59,13 @@ function runCopy(arrange: (repo: string) => void): Outcome {
       stderr: "pipe",
     });
     return { ok: proc.exitCode === 0, stdout: proc.stdout.toString(), work: walk(work) };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 }
 
 // The entrypoint is a POSIX sh script run on the host; Git Bash's ln -s copies instead of linking.
 describe.skipIf(WINDOWS)("the entrypoint's copy from the mounted checkout", () => {
-  test("carries only the source tree and links the image's dependencies", () => {
-    expect(runCopy(() => {})).toEqual({
+  test("carries only the source tree and links the image's dependencies", async () => {
+    expect(await runCopy(() => {})).toEqual({
       ok: true,
       stdout: HANDOFF,
       work: [
@@ -90,11 +78,14 @@ describe.skipIf(WINDOWS)("the entrypoint's copy from the mounted checkout", () =
 
   // Root reads a 0000 file through CAP_DAC_OVERRIDE, so this scene only proves anything for an
   // unprivileged suite. The file carries bytes because bsdtar never opens a zero-length entry.
-  test.skipIf(process.getuid?.() === 0)("stops before the handoff on an unreadable file", () => {
-    const outcome = runCopy((repo) => {
-      writeFileSync(join(repo, "src", "secret"), "token\n");
-      chmodSync(join(repo, "src", "secret"), 0o000);
-    });
-    expect(outcome).toEqual({ ok: false, stdout: "", work: [] });
-  });
+  test.skipIf(process.getuid?.() === 0)(
+    "stops before the handoff on an unreadable file",
+    async () => {
+      const outcome = await runCopy((repo) => {
+        writeFileSync(join(repo, "src", "secret"), "token\n");
+        chmodSync(join(repo, "src", "secret"), 0o000);
+      });
+      expect(outcome).toEqual({ ok: false, stdout: "", work: [] });
+    },
+  );
 });

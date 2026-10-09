@@ -9,21 +9,19 @@
 import { expect, test } from "bun:test";
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, parse, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { VERSION } from "../src/version.ts";
 import { WINDOWS } from "./shared/platform.ts";
+import { removerOfCreated } from "./shared/strays.ts";
+import { withTempDir } from "./shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const buildScript = join(repoRoot, "scripts", "build.ts");
@@ -100,33 +98,10 @@ function entriesOf(dir: string, prefix = ""): string[] {
   return entries.sort();
 }
 
-// A red run of the relative case writes into the checkout. The shallowest missing ancestor of each
-// path is what such a run would create, and removing it afterwards takes everything under it along
-// without touching what was already there. Descent stops at an entry that is not a directory, so a
-// stray file or a dangling link is neither probed beneath nor removed.
-function removerOfCreated(paths: string[]): () => void {
-  const created = new Set<string>();
-  for (const path of paths) {
-    let current = parse(path).root;
-    for (const segment of relative(current, path).split(sep)) {
-      current = join(current, segment);
-      if (lstatSync(current, { throwIfNoEntry: false }) === undefined) {
-        created.add(current);
-        break;
-      }
-      if (!statSync(current, { throwIfNoEntry: false })?.isDirectory()) break;
-    }
-  }
-  return () => {
-    for (const path of created) rmSync(path, { recursive: true, force: true });
-  };
-}
-
 test.each(invocations)(
   "bun scripts/build.ts with %s writes an executable single-file bundle that runs under node",
-  (_name, invocation) => {
-    const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
-    try {
+  async (_name, invocation) => {
+    await withTempDir((dir) => {
       const { cwd, outfileArg, sizeJsonArg, outfile, sizeJson, strays } = invocation(dir);
       const removeStrays = removerOfCreated(strays);
       try {
@@ -155,18 +130,15 @@ test.each(invocations)(
       } finally {
         removeStrays();
       }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   },
 );
 
 // A dependency whose `main` is a UMD bundle that `require`s its siblings at runtime breaks only
 // inside the shipped artifact, where node resolves that require against a file the bundle no
 // longer has; every unit test imports src/ directly and never sees it.
-test("a bundle whose entry imports jsonc-parser runs under node", () => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
-  try {
+test("a bundle whose entry imports jsonc-parser runs under node", async () => {
+  await withTempDir((dir) => {
     const entry = join("tests", "fixtures", "build", "jsonc-entry.ts");
     const outfile = join(dir, "jsonc.js");
     const build = runBuild(["--entry", entry, "--outfile", outfile], repoRoot);
@@ -177,9 +149,7 @@ test("a bundle whose entry imports jsonc-parser runs under node", () => {
     expect(run.stderr.toString()).toBe("");
     expect(run.exitCode).toBe(0);
     expect(run.stdout.toString()).toBe('jsonc: {"a": 1, "b": 2}\n');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]][] = [
@@ -234,9 +204,8 @@ const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]
 
 test.each(usageErrors)(
   "bun scripts/build.ts with %s exits 2 before writing anything",
-  (_name, args, fragments) => {
-    const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
-    try {
+  async (_name, args, fragments) => {
+    await withTempDir((dir) => {
       const argv = args(dir);
       const before = entriesOf(dir);
       const build = runBuild(argv, dir);
@@ -246,15 +215,12 @@ test.each(usageErrors)(
       for (const fragment of fragments(dir)) expect(stderr).toContain(fragment);
       expect(stderr.endsWith(USAGE)).toBe(true);
       expect(entriesOf(dir)).toEqual(before);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   },
 );
 
-test("an entry that does not parse exits 1 with the bundler's message and writes no bundle", () => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-build-"));
-  try {
+test("an entry that does not parse exits 1 with the bundler's message and writes no bundle", async () => {
+  await withTempDir((dir) => {
     const entry = join(dir, "broken.ts");
     writeFileSync(entry, "const x = ;\n");
     const outfile = join(dir, "cli.js");
@@ -266,7 +232,5 @@ test("an entry that does not parse exits 1 with the bundler's message and writes
     expect(stderr).toContain(`${entry}:1:11`);
     expect(stderr.endsWith("build: bundling failed\n")).toBe(true);
     expect(existsSync(outfile)).toBe(false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });

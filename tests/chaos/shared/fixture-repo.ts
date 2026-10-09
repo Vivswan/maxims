@@ -2,6 +2,7 @@
 // git repository holding them, so a source can be served over git://, moved away, or rewound.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { commitAll, gitInit } from "../../shared/git_fixture.ts";
 
 export type MemorySpec = { description: string; body?: string };
 
@@ -31,22 +32,6 @@ export function manyMemories(count: number): Record<string, MemorySpec> {
   return memories;
 }
 
-// The git identity comes from the launcher's GIT_* environment; the repository gets no config of
-// its own, so a fixture never differs by the machine it was made on.
-export function git(dir: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} in ${dir} exited ${result.exitCode}:\n${result.stderr}`);
-  }
-  return result.stdout.toString("utf8").trim();
-}
-
-export function commitAll(dir: string, message: string): string {
-  git(dir, ["add", "--all"]);
-  git(dir, ["commit", "--quiet", "--message", message]);
-  return git(dir, ["rev-parse", "HEAD"]);
-}
-
 // A repository on branch `main` with one commit holding the given files and a README beside the
 // memories folder, so a sparse checkout has something to leave behind.
 export function fixtureRepo(
@@ -56,7 +41,7 @@ export function fixtureRepo(
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "README.md"), "# fixture source\n");
   writeMemories(dir, files);
-  git(dir, ["init", "--quiet", "--initial-branch", "main"]);
+  gitInit(dir);
   const head = commitAll(dir, "one");
   return { dir, head };
 }

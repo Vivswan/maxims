@@ -4,6 +4,7 @@
 // agent markers and harness overrides, which would change what the binary detects.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { gitInit } from "../shared/git_fixture.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const buildScript = join(repoRoot, "scripts", "build.ts");
@@ -38,8 +39,7 @@ export function makeHome(dir: string): Home {
   const project = join(dir, "project");
   mkdirSync(maximsHome, { recursive: true });
   mkdirSync(project, { recursive: true });
-  const init = Bun.spawnSync(["git", "init", "-q", project], { stdout: "pipe", stderr: "pipe" });
-  if (init.exitCode !== 0) throw new Error(`git init failed:\n${init.stderr.toString()}`);
+  gitInit(project);
   return { root, maximsHome, project };
 }
 

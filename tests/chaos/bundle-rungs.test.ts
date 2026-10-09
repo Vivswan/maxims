@@ -25,11 +25,11 @@ import {
   runMaxims,
 } from "../e2e/binary.ts";
 import { snapshot } from "../e2e/fixtures.ts";
+import { commitAll } from "../shared/git_fixture.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
-  commitAll,
   fixtureRepo,
   type MemorySpec,
   manyMemories,

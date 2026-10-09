@@ -7,8 +7,7 @@
 // can be written inside the repository, where a commit would publish one machine's timings,
 // including through a symlink or a /proc alias whose lexical path lies outside the checkout.
 import { expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { realpathSync, symlinkSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import {
   compare,
@@ -22,6 +21,7 @@ import {
   type Signal,
   verdict,
 } from "../scripts/bench_ci.ts";
+import { withTempDir } from "./shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const realRepoRoot = realpathSync.native(repoRoot);
@@ -488,12 +488,12 @@ const outTargets: [string, (dir: string, token: string) => OutTarget][] = [
     : []),
 ];
 
-test.each(outTargets)("--out with %s is refused by where the bytes would land", (_name, plan) => {
-  const dir = mkdtempSync(join(tmpdir(), "maxims-bench-ci-"));
-  try {
-    const { outArg, refusal } = plan(dir, basename(dir));
-    expectRefused(runBenchCi(["--base", UNRESOLVED_BASE, "--out", outArg]), refusal);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+test.each(outTargets)(
+  "--out with %s is refused by where the bytes would land",
+  async (_name, plan) => {
+    await withTempDir((dir) => {
+      const { outArg, refusal } = plan(dir, basename(dir));
+      expectRefused(runBenchCi(["--base", UNRESOLVED_BASE, "--out", outArg]), refusal);
+    });
+  },
+);

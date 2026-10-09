@@ -10,6 +10,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join, parse, relative, resolve } from "node:path";
 import { isInside, outsideCheckouts, whereBytesLand } from "../scripts/lib/paths.ts";
+import { gitInit } from "./shared/git_fixture.ts";
 import { withTempDir } from "./shared/temp_dir.ts";
 
 const refuse = (message: string): never => {
@@ -125,11 +126,6 @@ function copyOfTree(parent: string): string {
   mkdirSync(root);
   writeFileSync(join(root, "package.json"), "{}\n");
   return root;
-}
-
-function gitInit(dir: string): void {
-  const init = Bun.spawnSync(["git", "-C", dir, "init", "--quiet"], { stderr: "pipe" });
-  if (init.exitCode !== 0) throw new Error(init.stderr.toString());
 }
 
 const copyAlone = (dir: string): Fixture => ({ root: copyOfTree(dir), ceiling: dir });

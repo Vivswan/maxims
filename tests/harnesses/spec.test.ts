@@ -6,6 +6,7 @@
 // it.
 import { expect, test } from "bun:test";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
+import { isRecord } from "../shared/record.ts";
 
 function base(): Record<string, unknown> {
   return {
@@ -43,10 +44,6 @@ function base(): Record<string, unknown> {
 }
 
 type Mutation = (spec: Record<string, unknown>) => Record<string, unknown>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function at(path: string[], value: unknown): Mutation {
   return (spec) => {

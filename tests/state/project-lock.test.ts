@@ -3,18 +3,12 @@
 // fact (an absolute path, a fetch timestamp) must be refused so it never lands in a repository,
 // and a hand edit that breaks the shape must be refused whole rather than half obeyed.
 import { describe, expect, test } from "bun:test";
-import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import {
   type ProjectLock,
   parseProjectLock,
   serializeProjectLock,
 } from "../../src/state/project-lock.ts";
-
-function memoryName(candidate: string): MemoryName {
-  const name = parseMemoryName(candidate);
-  if (name === null) throw new Error(`test fixture name is not kebab-case: ${candidate}`);
-  return name;
-}
+import { memoryName } from "../engine/harness.ts";
 
 // Sources and rename keys are given out of order on purpose: the serializer must sort them.
 const LOCK: ProjectLock = {
