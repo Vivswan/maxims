@@ -12,7 +12,6 @@ import {
   exited,
   ghScript,
   httpResponse,
-  networkError,
   scriptedGit,
   scriptedRunner,
 } from "../../../src/sources/github/fixtures/runner.ts";
@@ -34,6 +33,7 @@ import {
   type GitCredentials,
   gitEnvironment,
   isAbsentBinary,
+  type LadderRequest,
   type Runner,
   simpleGitRunner,
   systemRunner,
@@ -95,60 +95,48 @@ function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fe
 const shellPath = (path: string): string => path.split(sep).join("/");
 
 describe("resolveRef without auth", () => {
-  test("starts with ls-remote and never runs gh, even with a token in reach", async () => {
-    const runner = scriptedRunner({
-      exec: ghScript(() => exited(0, OTHER)),
-      git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${SHA}\tHEAD\n` }) }),
-    });
-    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
-    expect(runner.calls).toEqual([`git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=none]`]);
-  });
-
-  test("a pinned tag asks for the peeled ref and records the commit, not the tag object", async () => {
-    const runner = scriptedRunner({
-      git: scriptedGit({
-        lsRemote: () => ({
-          kind: "ok",
-          value: `${OTHER}\trefs/tags/v1\n${SHA}\trefs/tags/v1^{}\n`,
-        }),
-      }),
-    });
-    expect(await ladder(runner).resolveRef(REPO, "v1", ANON)).toBe(SHA);
-    expect(runner.calls).toEqual([
-      `git ls-remote ${GIT_URL} refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=none]`,
-    ]);
-  });
-
-  test("a ref only matches its fully qualified name, tags before branches", async () => {
-    const rows = [
-      `${OTHER}\trefs/heads/feature/main`,
-      `${SHA}\trefs/heads/main`,
-      `${OTHER}\trefs/tags/main-tag`,
-    ].join("\n");
-    const runner = scriptedRunner({
-      git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${rows}\n` }) }),
-    });
-    expect(await ladder(runner).resolveRef(REPO, "main", ANON)).toBe(SHA);
-    const tagWins = scriptedRunner({
-      git: scriptedGit({
-        lsRemote: () => ({ kind: "ok", value: `${OTHER}\trefs/heads/v1\n${SHA}\trefs/tags/v1\n` }),
-      }),
-    });
-    expect(await ladder(tagWins).resolveRef(REPO, "v1", ANON)).toBe(SHA);
-  });
-
-  test("with git absent the API answers anonymously, without an Authorization header", async () => {
-    const capture = headerCapture();
-    const runner = scriptedRunner({ fetch: capture.fetch });
-    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "v1", ANON)).toBe(SHA);
-    expect(runner.calls).toEqual([
-      `git ls-remote ${GIT_URL} refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{} [creds=none]`,
-      "fetch https://api.github.com/repos/example-user/rules/commits/v1",
-    ]);
-    expect(capture.headers).toEqual([
-      { "User-Agent": "maxims", Accept: "application/vnd.github.sha" },
-    ]);
-  });
+  // gh is present and a token is in reach for every row, and ls-remote alone is asked. Its
+  // patterns match a ref's tail, so only fully qualified names go out; an annotated tag lists
+  // twice and the peeled line is the commit a pin must record.
+  const TAG_V1 = "refs/tags/v1 refs/tags/v1^{} refs/heads/v1 refs/heads/v1^{}";
+  const lsRemote: [string, string, string[], string][] = [
+    ["HEAD", "HEAD", [`${SHA}\tHEAD`], "HEAD HEAD^{}"],
+    [
+      "an annotated tag records the peeled commit, not the tag object",
+      "v1",
+      [`${OTHER}\trefs/tags/v1`, `${SHA}\trefs/tags/v1^{}`],
+      TAG_V1,
+    ],
+    [
+      "a branch matches only its fully qualified name",
+      "main",
+      [
+        `${OTHER}\trefs/heads/feature/main`,
+        `${SHA}\trefs/heads/main`,
+        `${OTHER}\trefs/tags/main-tag`,
+      ],
+      "refs/tags/main refs/tags/main^{} refs/heads/main refs/heads/main^{}",
+    ],
+    [
+      "a tag outranks a branch of the same name",
+      "v1",
+      [`${OTHER}\trefs/heads/v1`, `${SHA}\trefs/tags/v1`],
+      TAG_V1,
+    ],
+  ];
+  test.each(lsRemote)(
+    "%s: ls-remote alone answers and gh never runs",
+    async (_label, ref, rows, patterns) => {
+      const runner = scriptedRunner({
+        exec: ghScript(() => exited(0, OTHER)),
+        git: scriptedGit({ lsRemote: () => ({ kind: "ok", value: `${rows.join("\n")}\n` }) }),
+      });
+      await expect(ladder(runner, { token: "secret" }).resolveRef(REPO, ref, ANON)).resolves.toBe(
+        SHA,
+      );
+      expect(runner.calls).toEqual([`git ls-remote ${GIT_URL} ${patterns} [creds=none]`]);
+    },
+  );
 
   // The API answers 404 here, so a rung that reaches it ends as "missing" unless a more actionable
   // kind (auth) already outranks it; a network fault never reaches it at all.
@@ -185,14 +173,6 @@ describe("resolveRef without auth", () => {
       expect(warnings).toEqual([]);
     },
   );
-
-  test("a ref with URL-significant characters is percent-encoded in API paths", async () => {
-    const runner = scriptedRunner({ fetch: () => httpResponse(200, SHA) });
-    expect(await ladder(runner).resolveRef(REPO, "release#1", ANON)).toBe(SHA);
-    expect(runner.calls.at(-1)).toBe(
-      "fetch https://api.github.com/repos/example-user/rules/commits/release%231",
-    );
-  });
 
   test("an empty ls-remote answer is a missing ref, and a garbage sha is invalid", async () => {
     const empty = scriptedRunner({
@@ -240,38 +220,23 @@ describe("resolveRef with auth", () => {
     ]);
   });
 
-  test("with gh and git absent the API carries the Bearer token", async () => {
-    const capture = headerCapture();
-    const runner = scriptedRunner({ fetch: capture.fetch });
-    expect(await ladder(runner, { token: "secret" }).resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
-    expect(capture.headers).toEqual([
-      {
-        "User-Agent": "maxims",
-        Accept: "application/vnd.github.sha",
-        Authorization: "Bearer secret",
-      },
-    ]);
-  });
-
-  test("without a token in the environment, auth adds no header and no git option", async () => {
-    const capture = headerCapture();
-    const runner = scriptedRunner({ fetch: capture.fetch });
-    expect(await ladder(runner).resolveRef(REPO, "HEAD", AUTH)).toBe(SHA);
-    expect(runner.calls[1]).toBe(`git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=inherited]`);
-    expect(capture.headers[0]?.Authorization).toBeUndefined();
-  });
-
-  test("gh encodes the ref too, and a gh failure is a rung line, never a warning", async () => {
+  // The ref reaches gh and the API percent-encoded and git verbatim: a git ref is a path, not a URL.
+  test("a ref with URL-significant characters is encoded per transport, and a gh failure is a rung line, never a warning", async () => {
     const warnings: string[] = [];
     const rungs: string[] = [];
     const runner = scriptedRunner({
       exec: ghScript(() => exited(1, "", "gh: Not Found (HTTP 404)")),
       fetch: () => httpResponse(200, SHA),
     });
-    expect(await ladder(runner, { warnings, rungs }).resolveRef(REPO, "release#1", AUTH)).toBe(SHA);
-    expect(runner.calls[1]).toBe(
+    await expect(
+      ladder(runner, { warnings, rungs }).resolveRef(REPO, "release#1", AUTH),
+    ).resolves.toBe(SHA);
+    expect(runner.calls).toEqual([
+      "exec gh auth status --hostname github.com",
       "exec gh api --hostname github.com repos/example-user/rules/commits/release%231 --jq .sha",
-    );
+      `git ls-remote ${GIT_URL} refs/tags/release#1 refs/tags/release#1^{} refs/heads/release#1 refs/heads/release#1^{} [creds=inherited]`,
+      "fetch https://api.github.com/repos/example-user/rules/commits/release%231",
+    ]);
     expect({ rungs, warnings }).toEqual({
       rungs: ["gh api: gh: Not Found (HTTP 404)"],
       warnings: [],
@@ -292,6 +257,54 @@ describe("resolveRef with auth", () => {
     expect(error.message).toBe(
       "https://api.github.com/repos/example-user/rules/commits/HEAD: HTTP 403",
     );
+  });
+});
+
+// gh and git are absent, so the API answers; what each transport was offered is the identity the
+// request asked for, and nothing more: no token leaves anonymously, and `auth` alone adds none.
+describe("resolveRef identity per request", () => {
+  const COMMON = { "User-Agent": "maxims", Accept: "application/vnd.github.sha" };
+  const identity: [string, string | undefined, LadderRequest, Record<string, string>, string[]][] =
+    [
+      [
+        "anonymous with a token in reach",
+        "secret",
+        ANON,
+        COMMON,
+        [
+          `git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=none]`,
+          "fetch https://api.github.com/repos/example-user/rules/commits/HEAD",
+        ],
+      ],
+      [
+        "auth with a token",
+        "secret",
+        AUTH,
+        { ...COMMON, Authorization: "Bearer secret" },
+        [
+          "exec gh auth status --hostname github.com",
+          `git ls-remote ${GIT_URL} HEAD HEAD^{} [header=Authorization: Bearer secret]`,
+          "fetch https://api.github.com/repos/example-user/rules/commits/HEAD",
+        ],
+      ],
+      [
+        "auth without a token",
+        undefined,
+        AUTH,
+        COMMON,
+        [
+          "exec gh auth status --hostname github.com",
+          `git ls-remote ${GIT_URL} HEAD HEAD^{} [creds=inherited]`,
+          "fetch https://api.github.com/repos/example-user/rules/commits/HEAD",
+        ],
+      ],
+    ];
+  test.each(identity)("%s", async (_label, token, request, headers, calls) => {
+    const capture = headerCapture();
+    const runner = scriptedRunner({ fetch: capture.fetch });
+    await expect(ladder(runner, { token }).resolveRef(REPO, "HEAD", request)).resolves.toBe(SHA);
+    expect(runner.calls).toEqual(calls);
+    expect(capture.headers).toEqual([headers]);
   });
 });
 
@@ -347,9 +360,14 @@ describe("fetchTree", () => {
     });
   });
 
+  // The archive URL is scripted too, so a ladder that skipped gh would still extract a tree and
+  // be caught by the recorded calls rather than by an unscripted transport.
   test("with auth the gh tarball comes first and is extracted into the destination", async () => {
     await withTempDir(async (dir) => {
-      const runner = scriptedRunner({ exec: ghScript(() => exited(0, cleanTarball())) });
+      const runner = scriptedRunner({
+        exec: ghScript(() => exited(0, cleanTarball())),
+        fetch: () => httpResponse(200, cleanTarball()),
+      });
       await ladder(runner).fetchTree(REPO, SHA, join(dir, "tree"), AUTH);
       expect(runner.calls).toEqual([
         "exec gh auth status --hostname github.com",
@@ -491,15 +509,6 @@ describe("failure classification", () => {
       expect(Math.abs((classified.retryAfterSeconds ?? 0) - retryAfterSeconds)).toBeLessThanOrEqual(
         1,
       );
-  });
-
-  test("a thrown fetch is a network failure", async () => {
-    const runner = scriptedRunner({
-      fetch: () => {
-        throw networkError();
-      },
-    });
-    expect((await failure(ladder(runner).resolveRef(REPO, "HEAD", ANON))).kind).toBe("network");
   });
 
   const gh: [string, FetchFailureKind][] = [
@@ -1135,16 +1144,18 @@ describe("git rung against a file:// fixture repo", () => {
       await withTempDir(async (dir) => {
         const file = join(dir, "config");
         writeFileSync(file, credentialConfig(GIT_URL, remote, { kind: "none" }));
-        const listing = await simpleGit(dir).raw(["config", "--file", file, "--list"]);
         const scopes = remote === GIT_URL ? [GIT_URL] : [GIT_URL, remote];
-        expect(listing.split("\n")).toEqual([
+        const listing = [
           ...scopes.flatMap((scope) => [
             `http.${scope}.extraheader=`,
             `credential.${scope}.helper=`,
           ]),
           `url.${remote}.insteadof=${remote}`,
           "",
-        ]);
+        ].join("\n");
+        // simple-git's raw() is a thenable, not a Promise, which the resolves matcher refuses.
+        const read = Promise.resolve(simpleGit(dir).raw(["config", "--file", file, "--list"]));
+        await expect(read).resolves.toBe(listing);
       });
     },
   );

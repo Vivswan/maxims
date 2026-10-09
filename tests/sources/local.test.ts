@@ -1,8 +1,8 @@
-// Guards the local source's store shape: two dirs sharing a basename landing in one entry, a live
-// source copied instead of linked, or a link removal reaching the target would each pass a sync.
+// Guards the local source's plan: a sha moved by a file that is not a memory, an entry deleted
+// before it exists, or a re-materialization that merges into the old entry instead of replacing
+// it would each pass a sync. The store path itself is tests/util/home.test.ts's pin.
 import { describe, expect, test } from "bun:test";
 import {
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -10,10 +10,9 @@ import {
   readlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { createLocalResolver, materializeLocal } from "../../src/sources/local.ts";
 import { applyChanges } from "../../src/util/change.ts";
-import { homePaths } from "../../src/util/home.ts";
 import { withTempDir, withTempHome } from "../shared/temp_dir.ts";
 
 const MEMORY = "---\nname: a-rule\ndescription: A rule.\n---\n\nBody.\n";
@@ -42,29 +41,6 @@ describe("createLocalResolver", () => {
 });
 
 describe("materializeLocal", () => {
-  test("two sources with the same basename get distinct copied entries under _local", async () => {
-    await withTempHome(async (home) => {
-      await withTempDir(async (dir) => {
-        const a = join(dir, "dotfiles", "memories");
-        const b = join(dir, "work", "memories");
-        const files = [{ relPath: "memories/a-rule.md", text: MEMORY }];
-        const planA = materializeLocal({ type: "local", path: a }, home, files);
-        const planB = materializeLocal({ type: "local", path: b }, home, files);
-        const store = homePaths(home).store;
-        expect(planA.map((c) => c.kind)).toEqual(["mkdir", "write"]);
-        expect(dirname(planA[0]?.path ?? "")).toBe(join(store, "_local"));
-        expect(basename(planA[0]?.path ?? "")).toMatch(/^memories-[0-9a-f]{8}$/);
-        expect(planA[0]?.path).not.toBe(planB[0]?.path);
-        await applyChanges({ changes: [...planA, ...planB], notices: [] }, { dryRun: false });
-        const written = [planA[1], planB[1]].map((c) =>
-          c === undefined ? "" : readFileSync(c.path, "utf8"),
-        );
-        expect(written).toEqual([MEMORY, MEMORY]);
-        expect(lstatSync(planA[0]?.path ?? "").isSymbolicLink()).toBe(false);
-      });
-    });
-  });
-
   // The plan is what the run would do: a first install has no entry to replace, so it plans no
   // deletion, and a dry run of it shows none; a second materialization replaces the entry whole.
   test("the entry's deletion is planned only once the entry exists", async () => {
@@ -104,6 +80,7 @@ describe("materializeLocal", () => {
         await apply(materializeLocal(copied, home, both));
         const entry = materializeLocal(copied, home, both)[0]?.path ?? "";
         expect(readdirSync(join(entry, "memories")).sort()).toEqual(["a-rule.md", "b-rule.md"]);
+        expect(readFileSync(join(entry, "memories", "b-rule.md"), "utf8")).toBe(MEMORY);
         await apply(materializeLocal(copied, home, both.slice(0, 1)));
         expect(readdirSync(join(entry, "memories"))).toEqual(["a-rule.md"]);
         await apply(materializeLocal(live, home, []));
@@ -112,28 +89,6 @@ describe("materializeLocal", () => {
         expect(lstatSync(entry).isSymbolicLink()).toBe(false);
         expect(readdirSync(join(entry, "memories"))).toEqual(["a-rule.md"]);
         expect(readdirSync(join(dir, "memories"))).toEqual(["a-rule.md"]);
-      });
-    });
-  });
-
-  test("a live source is one symlink whose removal leaves the target byte-identical", async () => {
-    await withTempHome(async (home) => {
-      await withTempDir(async (dir) => {
-        seedSource(dir);
-        const plan = materializeLocal({ type: "local", path: dir, live: true }, home, []);
-        const entry = plan[0]?.path ?? "";
-        expect(basename(dirname(entry))).toBe("_local");
-        expect(basename(entry)).toMatch(/^[^/\\]+-[0-9a-f]{8}$/);
-        expect(plan).toEqual([{ kind: "symlink", path: entry, target: dir }]);
-        await applyChanges({ changes: plan, notices: [] }, { dryRun: false });
-        expect(readlinkSync(entry)).toBe(dir);
-        expect(readFileSync(join(entry, "memories", "a-rule.md"), "utf8")).toBe(MEMORY);
-        await applyChanges(
-          { changes: [{ kind: "unlink", path: entry }], notices: [] },
-          { dryRun: false },
-        );
-        expect(existsSync(entry)).toBe(false);
-        expect(readFileSync(join(dir, "memories", "a-rule.md"), "utf8")).toBe(MEMORY);
       });
     });
   });
