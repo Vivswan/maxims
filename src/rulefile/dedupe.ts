@@ -1,7 +1,7 @@
 import type { ContentHash, MemoryName } from "../memory/contract.ts";
 import type { RenameMap, Select, SourceIntent } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
-import { compareSourceKeys } from "./block.ts";
+import { compareCodeUnits } from "./block.ts";
 import { type CapCheck, checkCap } from "./budget.ts";
 import type { RuleLine } from "./types.ts";
 
@@ -20,7 +20,7 @@ export type Installed = Pick<IndexedSource, "key" | "addedAt">;
 // not strings: `...:00Z` and `...:00.001Z` are both valid spellings and their string order is
 // not their time order. The key breaks a tie so two machines order the same.
 export function compareInstalled(a: Installed, b: Installed): number {
-  return Date.parse(a.addedAt) - Date.parse(b.addedAt) || compareSourceKeys(a.key, b.key);
+  return Date.parse(a.addedAt) - Date.parse(b.addedAt) || compareCodeUnits(a.key, b.key);
 }
 
 // Derived on every run from intent plus each source's current memory names, which the caller
@@ -88,7 +88,7 @@ export type ResolveInput = {
 export function resolveSourceCandidates(input: ResolveInput): Resolution {
   const candidates = applySelect(input.memories, input.select, (memory) => memory.name)
     .map((memory) => ({ memory, name: renamed(input.rename, memory.name) }))
-    .sort((a, b) => compare(a.name, b.name));
+    .sort((a, b) => compareCodeUnits(a.name, b.name));
   const collisions: Collision[] = [];
   const lines: RuleLine[] = [];
   const taken = new Set<MemoryName>();
@@ -109,11 +109,6 @@ export function resolveSourceCandidates(input: ResolveInput): Resolution {
   if (collisions.length > 0) return { ok: false, code: ExitCode.NameCollision, collisions };
   const cap = checkCap(lines.length, input.cap);
   return cap.ok ? { ok: true, lines } : cap;
-}
-
-function compare(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
 }
 
 const SHORT_HASH_LENGTH = 7;
