@@ -566,26 +566,22 @@ function stubRow(): Row {
   return { ...CLAUDE, command: [process.execPath, ready().stub] };
 }
 
-describe("the smoke's own logic on a stub CLI", () => {
-  test(
-    "a stub that runs the hook and loads the rules passes",
-    async () => {
-      expect(await smoke("stub", stubRow())).toEqual(PASSED);
-    },
-    ROW_TIMEOUT_MS,
-  );
+// A stub that withholds nothing is the positive control; one that withholds a step must fail on
+// that step's finding and no other.
+type StubRow = [label: string, withhold: string, verdict: unknown];
 
-  const withheld: [string, string][] = [
-    ["hooks", "hook never ran"],
-    ["rules", "rule line absent"],
-  ];
-  test.each(withheld)(
-    "a stub that withholds its %s fails on that finding alone",
-    async (step, finding) => {
-      expect(await smoke("stub", stubRow(), { MAXIMS_STUB_WITHHOLD: step })).toEqual({
-        ok: false,
-        problems: [expect.stringMatching(new RegExp(`^${finding}:`))],
-      });
+const stubRows: StubRow[] = [
+  ["nothing", "", PASSED],
+  ["its hooks", "hooks", { ok: false, problems: [expect.stringMatching(/^hook never ran:/)] }],
+  ["its rules", "rules", { ok: false, problems: [expect.stringMatching(/^rule line absent:/)] }],
+];
+
+describe("the smoke's own logic on a stub CLI", () => {
+  test.each(stubRows)(
+    "a stub that withholds %s gets the verdict that step alone earns",
+    async (_label, withhold, verdict) => {
+      const run = await smoke("stub", stubRow(), { MAXIMS_STUB_WITHHOLD: withhold });
+      expect<unknown>(run).toEqual(verdict);
     },
     ROW_TIMEOUT_MS,
   );
