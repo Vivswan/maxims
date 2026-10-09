@@ -383,21 +383,21 @@ type FailureContext = {
   verb: string;
 };
 
-// One place turns a thrown error into an exit code. Under `--quiet` every failure becomes exit 0
-// after a log line: a session-start hook that exits non-zero renders an error in the user's
-// transcript every session, and a broken hook must never break a session start. A failure the
-// engine already printed (as its `--json` document or its interactive lines) is only mapped.
+// One place turns a thrown error into an exit code. Under `--quiet` every failure is exit 0 after
+// one log line, whichever channel printed it: a hook that exits non-zero renders an error in the
+// user's transcript every session. A failure already printed (as the `--json` document or the
+// interactive lines) is only mapped, and under `--quiet` logged like any other.
 async function reportFailure(error: unknown, ctx: FailureContext): Promise<number> {
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
-  if (error instanceof ReportedMaximsError) return ctx.quiet ? ExitCode.Ok : code;
   const message = error instanceof Error ? error.message : String(error);
-  const hint = error instanceof MaximsError ? error.hint : undefined;
-  if (ctx.json) ctx.io.stdout.write(errorDocument(error));
+  const reported = error instanceof ReportedMaximsError;
+  if (ctx.json && !reported) ctx.io.stdout.write(errorDocument(error));
   if (ctx.quiet) {
     await logQuietly(ctx, `maxims: ${ctx.verb} failed (exit ${code}): ${message}`);
     return ExitCode.Ok;
   }
-  if (ctx.json) return code;
+  if (ctx.json || reported) return code;
+  const hint = error instanceof MaximsError ? error.hint : undefined;
   ctx.io.stderr.write(` ERROR  ${message}\n`);
   if (hint !== undefined) ctx.io.stderr.write(`Tip: ${hint}\n`);
   return code;

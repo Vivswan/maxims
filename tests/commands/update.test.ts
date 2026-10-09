@@ -1,7 +1,9 @@
 // What would drift silently: a dry run over a failed fetch that shows the failure line alone
 // where `sync --dry-run` shows the writes, or one that writes on its way to that exit.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homePaths } from "../../src/util/home.ts";
 import { realEngineBundle, runCli, type Scenario, snapshot, withScenario } from "../cli/harness.ts";
 import {
   ADDED_AT,
@@ -59,9 +61,10 @@ test("update --dry-run over a failed fetch prints the plan sync --dry-run prints
   });
 });
 
-// The failure document is the success document with the failure in front, so a CI job reads one
-// shape from `sync --json` and `update --json` alike: `update --dry-run --json` over a failed
-// fetch carries the plan `sync --dry-run --json` carries, the writes the engine would make.
+// The failure document is the success document with the failure in front, so a CI job reads the
+// shared ok/code/message/hint head from `sync --json` and `update --json` alike, then each verb's
+// own fields: `update --dry-run --json` over a failed fetch carries the plan `sync --dry-run
+// --json` carries, the writes the engine would make.
 test("update --json over a failed fetch carries the plan and the keys sync --json carries", async () => {
   await withScenario({}, async (scenario) => {
     await lastGoodThenUnreachable(scenario);
@@ -87,6 +90,21 @@ test("update --json over a failed fetch carries the plan and the keys sync --jso
       document.plan.changes.filter((change) => change.kind === "write").map((c) => c.path);
     expect(writes(updateDocument)).toEqual(writes(syncDocument));
     expect(writes(updateDocument)).toHaveLength(2);
+  });
+});
+
+// Under `--quiet` every failure is exit 0 after one log line, whichever channel printed it: a
+// hook-mode `update --json --quiet` whose failed fetch left refresh.log silent would hide the
+// failure from the one place a hook's user can read it.
+test("update --json --quiet over a failed fetch exits 0 and logs the failure line the bare --quiet run logs", async () => {
+  await withScenario({}, async (scenario) => {
+    await lastGoodThenUnreachable(scenario);
+    const run = await runCli(scenario, ["update", "--json", "--quiet"]);
+    expect([run.code, run.stderr]).toEqual([0, ""]);
+    expect(JSON.parse(run.stdout)).toMatchObject({ ok: false, code: 2, hint: expect.any(String) });
+    const line = `maxims: update failed (exit 2): Failed to update ${KEY}: scripted network`;
+    const log = readFileSync(homePaths(scenario.home).log, "utf8").split("\n");
+    expect(log.filter((entry) => entry === line)).toHaveLength(1);
   });
 });
 

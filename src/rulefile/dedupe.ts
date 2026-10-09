@@ -71,9 +71,10 @@ export type Collision = {
   ownedBy: string;
 };
 
+// A collision refusal names at least one memory, so its consumers read the first without a guard.
 export type Resolution =
   | { ok: true; lines: RuleLine[] }
-  | { ok: false; code: ExitCode.NameCollision; collisions: Collision[] }
+  | { ok: false; code: ExitCode.NameCollision; collisions: [Collision, ...Collision[]] }
   | Exclude<CapCheck, { ok: true }>;
 
 export type ResolveInput = {
@@ -106,7 +107,10 @@ export function resolveSourceCandidates(input: ResolveInput): Resolution {
       shortHash: shortHash(memory.contentHash),
     });
   }
-  if (collisions.length > 0) return { ok: false, code: ExitCode.NameCollision, collisions };
+  const [first, ...rest] = collisions;
+  if (first !== undefined) {
+    return { ok: false, code: ExitCode.NameCollision, collisions: [first, ...rest] };
+  }
   const cap = checkCap(lines.length, input.cap);
   return cap.ok ? { ok: true, lines } : cap;
 }

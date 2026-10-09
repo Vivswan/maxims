@@ -24,8 +24,8 @@ import {
 } from "../../memory/contract.ts";
 import {
   buildNameIndex,
-  type Collision,
   type IndexedSource,
+  type Resolution,
   resolveSourceCandidates,
 } from "../../rulefile/dedupe.ts";
 import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/tree.ts";
@@ -202,15 +202,9 @@ export type ResolveIncomingInput = {
   installed: readonly IndexedSource[];
 };
 
-// A collision refusal names at least one memory, so its consumers read the first without a guard.
 export type ResolveIncomingOutcome =
   | { ok: true; names: MemoryName[] }
-  | {
-      ok: false;
-      code: ExitCode.NameCollision;
-      collisions: [Collision, ...Collision[]];
-    }
-  | { ok: false; code: ExitCode.RuleCapExceeded; count: number; cap: number; hint: string };
+  | Exclude<Resolution, { ok: true }>;
 
 // The dedupe walk and the cap check a source about to be recorded is judged by, the same ones
 // every sync runs: what is installed owns its names in installation order, the incoming memories
@@ -228,13 +222,7 @@ export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOut
     cap: input.rule ? input.cap : Number.MAX_SAFE_INTEGER,
   });
   if (resolution.ok) return { ok: true, names: resolution.lines.map((line) => line.name) };
-  if (resolution.code === ExitCode.NameCollision) {
-    const [first, ...rest] = resolution.collisions;
-    if (first === undefined) throw new Error("a collision refusal names at least one memory");
-    return { ok: false, code: resolution.code, collisions: [first, ...rest] };
-  }
-  const { code, count, cap, hint } = resolution;
-  return { ok: false, code, count, cap, hint };
+  return resolution;
 }
 
 // The refusal `add` and `update` throw for a source over the cap, with the count the walk

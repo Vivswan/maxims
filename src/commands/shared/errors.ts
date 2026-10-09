@@ -5,13 +5,11 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 // report module so the command line can recognize it without drawing the planner in.
 export class ReportedMaximsError extends MaximsError {}
 
-// The one `--json` failure document, whatever printed it: the command line for a failure no verb
-// caught, the engine for a sync that failed, a verb for a run that finished with a failure to
-// report. A defect with no exit code of its own is reported as the usage code, the one every
-// unmapped failure maps to; `hint` is null rather than absent so a reader can always address it.
-// `extra` is what the verb still has to report beside the failure, the fields its success
-// document carries (a dry run's plan, the warnings of the sources a partly failed update did
-// refresh).
+// The one `--json` failure document, whichever printer: the command line for an uncaught failure,
+// the engine for a failed sync, a verb for a run that finished with a failure to report. A defect
+// with no exit code takes the usage code, and `hint` is null rather than absent so a reader can
+// always address it. `extra` is the verb's own fields beside the failure (a dry run's plan, a
+// partly failed update's warnings).
 export function errorDocument(error: unknown, extra: Record<string, unknown> = {}): string {
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
   const hint = error instanceof MaximsError ? (error.hint ?? null) : null;

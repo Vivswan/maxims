@@ -35,11 +35,10 @@ export function finish(ctx: CommandContext, console: Console, outcome: Outcome):
 }
 
 // The exit of a verb that finished its work and failed: the frame a finished run ends in, then
-// the failure for the command line to print. Under `--json` the one document is the failure's,
-// with the fields the success document carries, so a dry run's plan is in it as `sync --json`
-// puts it; the error comes back already reported. The flags compose as in `finish`: `--json`
-// wins, and `--quiet` prints the notices alone and hands the failure back bare for the command
-// line's log line.
+// the failure for the command line to print. Under `--json` the one document is the failure's
+// with the success document's fields (a dry run's plan as `sync --json` puts it), and the error
+// comes back already reported. `--quiet` prints the notices alone, and the command line logs
+// either error once.
 export function failed(
   ctx: CommandContext,
   console: Console,

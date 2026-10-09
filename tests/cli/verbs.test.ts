@@ -511,6 +511,16 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
   });
 });
 
+// The cap counts the rule lines an install publishes, as the planner counts them; a memory marked
+// internal is hidden from a `*` install, so a lint that counted it would tell an author to trim a
+// folder that already fits.
+test("lint measures only the memories an install publishes against the cap: an internal one is no rule line", async () => {
+  await withScenario({}, async (scenario) => {
+    const run = await runCli(scenario, ["lint", join(DOTFILES, "memories"), "--cap", "1"]);
+    expect(run).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+});
+
 test("install --strict refuses a manifest entry with a risky description before anything is recorded", async () => {
   await withScenario({ project: true, github: { "a/r": RISKY } }, async (scenario) => {
     mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });

@@ -100,11 +100,14 @@ export function lintFolder(
       });
     }
   }
-  if (memories.length > cap) {
+  // The cap counts rule lines, so a memory marked internal, hidden from a `*` install, is not
+  // measured against it, as the planner measures a source.
+  const published = memories.filter(({ memory }) => memory.metadata.internal !== true).length;
+  if (published > cap) {
     problems.push({
       path: relative(cwd, root) || ".",
       line: 1,
-      reason: overRuleCap("this folder", memories.length, cap),
+      reason: overRuleCap("this folder", published, cap),
     });
   }
   return problems.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
