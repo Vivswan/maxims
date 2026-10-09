@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { parseGitSha } from "../../contracts/git-sha.ts";
 import { isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import type { FetchResult, SourceResolver } from "../contract.ts";
 import { readMemoryTree, type WarnSink } from "../tree.ts";
@@ -29,8 +30,6 @@ export type GithubResolverOptions = {
 export interface GithubResolver extends SourceResolver<GithubSourceFrom> {
   resolveRef(from: GithubSourceFrom, pin?: string, options?: { auth?: boolean }): Promise<string>;
 }
-
-const FULL_SHA = /^[0-9a-f]{40}$/i;
 
 // Only with `auth` may `gh` run or a token leave the process; the CLI's `--auth` flag and a stored
 // `intent.auth` are what supply it. A ref that is already a full sha never touches the network,
@@ -65,7 +64,8 @@ export function createGithubResolver(options: GithubResolverOptions): GithubReso
     request: { auth?: boolean } = {},
   ): Promise<string> => {
     const ref = pin ?? from.ref;
-    if (FULL_SHA.test(ref)) return ref.toLowerCase();
+    const sha = parseGitSha(ref);
+    if (sha !== null) return sha;
     return ladderFor(from).resolveRef(coordinate(from), ref, { auth: request.auth === true });
   };
   return {

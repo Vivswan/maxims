@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 import { validateMemoryFiles } from "../../src/commands/shared/memories.ts";
 import type { EngineIo, SymlinkSupport } from "../../src/commands/types.ts";
+import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
 import {
   type HarnessContext,
@@ -25,9 +26,7 @@ import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import {
   canonicalSourceKey,
   type Fetched,
-  type GitSha,
   type Pending,
-  parseGitSha,
   type SourceEntry,
   type SourceIntent,
   type State,

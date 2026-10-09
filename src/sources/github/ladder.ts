@@ -2,10 +2,12 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { format } from "node:url";
 import { promisify } from "node:util";
 import { isGitEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
+import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { LastError } from "../../contracts/last-error.ts";
 import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
 import type { WarnSink } from "../tree.ts";
@@ -140,7 +142,6 @@ export interface Ladder {
 
 export const DEFAULT_FETCH_TIMEOUT_SECONDS = 60;
 const EXEC_MAX_BYTES = 256 * 1024 * 1024;
-const FULL_SHA = /^[0-9a-f]{40}$/;
 
 export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   const raw = env.MAXIMS_FETCH_TIMEOUT?.trim() ?? "";
@@ -404,8 +405,8 @@ async function extract(
 }
 
 function parseSha(text: string): RungOutcome<string> {
-  const sha = text.trim().toLowerCase();
-  if (FULL_SHA.test(sha)) return { kind: "ok", value: sha };
+  const sha = parseGitSha(text.trim());
+  if (sha !== null) return { kind: "ok", value: sha };
   return failed("invalid", `expected a commit sha, got ${JSON.stringify(text.trim())}`);
 }
 
@@ -749,8 +750,13 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   };
   // An anonymous call hands git the URL it would have reached anyway, minus any `user:password@`
   // the user's `insteadOf` rule wrote into it: git would send those as Basic auth after a 401.
-  const target = async (url: string, credentials: GitCredentials): Promise<string> =>
-    credentials.kind === "none" ? withoutUserinfo(await effectiveUrl(client([]), url)) : url;
+  // Only http(s) is stripped: an ssh user is the login the transport needs, and an scp-like remote
+  // is not a URL at all.
+  const target = async (url: string, credentials: GitCredentials): Promise<string> => {
+    if (credentials.kind !== "none") return url;
+    const expanded = await effectiveUrl(client([]), url);
+    return /^https?:\/\//i.test(expanded) ? withoutUserinfo(expanded) : expanded;
+  };
   return {
     lsRemote: (url, patterns, call) =>
       gitAttempt(binary, async () => {
@@ -778,15 +784,11 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   };
 }
 
-// Only http(s) carries credentials in its URL that git would replay; an ssh user is the login the
-// transport needs, and an scp-like remote is not a URL at all.
-function withoutUserinfo(url: string): string {
-  if (!/^https?:\/\//i.test(url)) return url;
+// A URL that is not one (the scp-like `git@host:path`) is returned as written; a notice shows
+// it, and the transport is never handed a credential it did not already have.
+export function withoutUserinfo(url: string): string {
   try {
-    const parsed = new URL(url);
-    parsed.username = "";
-    parsed.password = "";
-    return parsed.toString();
+    return format(new URL(url), { auth: false });
   } catch {
     return url;
   }

@@ -14,17 +14,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import { type ContentHash, parseContentHash } from "../../src/memory/contract.ts";
 import { legacyHooksStep } from "../../src/state/fixtures/migration-step-v0.ts";
 import type { MigrationStep } from "../../src/state/migrations/index.ts";
-import {
-  emptyState,
-  type GitSha,
-  parseGitSha,
-  parseState,
-  type SourceEntry,
-  type State,
-} from "../../src/state/schema.ts";
+import { emptyState, parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
 import {
   inspectState,
   readState,

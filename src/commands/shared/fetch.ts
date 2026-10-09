@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { heldRevisionAltered, heldRevisionGone } from "../../console/strings.ts";
+import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { LastError } from "../../contracts/last-error.ts";
 import {
   contentHashOf,
@@ -14,14 +15,7 @@ import { pruneRenames, shortHash } from "../../rulefile/dedupe.ts";
 import { needsFetch } from "../../sources/github/index.ts";
 import { FetchFailure } from "../../sources/github/ladder.ts";
 import type { TreeFile } from "../../sources/tree.ts";
-import {
-  type Fetched,
-  type Pending,
-  parseGitSha,
-  type RenameMap,
-  type Select,
-  type SourceEntry,
-} from "../../state/schema.ts";
+import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
