@@ -87,7 +87,7 @@ export function exportedNames(file: string): ReadonlySet<string> {
 export interface Fence {
   /** Zero-based line of the opening fence. */
   line: number;
-  /** Zero-based line of the closing fence (or the last line when the fence never closes). */
+  /** Zero-based line of the closing fence, or the last line of a fence that never closes: the end of the block quote or list item holding it, or of the page. */
   end: number;
   /** The info string names mermaid; other fences are text the page quotes. */
   mermaid: boolean;
@@ -110,12 +110,12 @@ interface OpenFence {
 }
 
 /**
- * A blank line inside a fence has no codeFlowValue token, so the body is rebuilt line by line from
- * the tokens there are; a fence with one codeFencedFence token never closed and runs to the last
- * line. The info line is judged whole, since micromark moves whitespace it does not split on into
- * the meta token.
+ * A blank line inside a fence has no codeFlowValue token, so the body is rebuilt from the tokens
+ * present. One codeFencedFence token means the fence never closed and ends where the codeFenced
+ * token does: with the block quote or list item holding it, or the page. The opener's text after
+ * the marker is judged whole: micromark moves a space into the meta token but keeps a NBSP in info.
  */
-function fences(markdown: string, lineCount: number): Fence[] {
+function fences(markdown: string): Fence[] {
   const events = postprocess(
     parse()
       .document()
@@ -139,7 +139,7 @@ function fences(markdown: string, lineCount: number): Fence[] {
       open.values.set(token.start.line - 1, context.sliceSerialize(token));
     else if (token.type === "codeFenced") {
       const closed = open.fenceTokens === 2;
-      const end = closed ? token.end.line - 1 : lineCount - 1;
+      const end = token.end.line - 1;
       const body: string[] = [];
       for (let line = open.line + 1; line <= (closed ? end - 1 : end); line++)
         body.push(open.values.get(line) ?? "");
@@ -172,7 +172,7 @@ export interface Page {
 
 export function readPage(markdown: string): Page {
   const lines = normalizedLines(markdown);
-  const all = fences(markdown, lines.length);
+  const all = fences(markdown);
   const text = lines.map((line, index) =>
     all.some((fence) => index >= fence.line && index <= fence.end) ? undefined : line,
   );
