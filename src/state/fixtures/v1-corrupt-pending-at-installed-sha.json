@@ -17,7 +17,10 @@
           "scope": "global"
         },
         "copy": false,
+        "auth": false,
         "harnesses": ["codex"],
+        "memoryPath": "memories",
+        "fullDepth": false,
         "review": true
       },
       "fetched": {

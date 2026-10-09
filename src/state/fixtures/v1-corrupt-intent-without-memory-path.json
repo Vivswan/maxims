@@ -1,19 +1,18 @@
 {
   "version": 1,
   "writtenBy": "maxims@0.4.1",
-  "hooks": { "global": ["claude-code", "codex"] },
+  "hooks": { "global": ["claude-code"] },
   "sources": {
     "@example-user/rules": {
       "intent": {
-        "from": { "type": "github", "repo": "example-user/rules", "ref": "main" },
-        "select": ["rubber-duck-before-every-commit"],
+        "from": { "type": "github", "repo": "example-user/rules", "ref": "HEAD" },
+        "select": "*",
         "rename": {},
         "rule": true,
         "destination": { "scope": "global" },
         "copy": false,
         "auth": false,
-        "harnesses": ["claude-code", "codex"],
-        "memoryPath": "memories",
+        "harnesses": ["claude-code"],
         "fullDepth": false
       },
       "addedAt": "2026-08-20T08:38:04.471Z"

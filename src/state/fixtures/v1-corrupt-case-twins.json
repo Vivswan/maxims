@@ -11,7 +11,10 @@
         "rule": true,
         "destination": { "scope": "global" },
         "copy": false,
-        "harnesses": ["claude-code"]
+        "auth": false,
+        "harnesses": ["claude-code"],
+        "memoryPath": "memories",
+        "fullDepth": false
       },
       "addedAt": "2026-08-20T08:38:04.471Z"
     },
@@ -23,7 +26,10 @@
         "rule": false,
         "destination": { "scope": "project", "root": "/home/user/project" },
         "copy": false,
-        "harnesses": ["claude-code"]
+        "auth": false,
+        "harnesses": ["claude-code"],
+        "memoryPath": "memories",
+        "fullDepth": false
       },
       "addedAt": "2026-08-21T08:38:04.471Z"
     }

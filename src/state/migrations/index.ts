@@ -11,7 +11,7 @@ export type MigrationStep = {
 };
 
 // Every shipped step is registered here, one line each; a step is deleted once no installation
-// can still hold its `from` version. Version 1 is the only one that has shipped.
+// can still hold its `from` version. No version below the current one has ever been written.
 export const MIGRATIONS: readonly MigrationStep[] = [];
 
 export type MigrationResult =

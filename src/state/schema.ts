@@ -88,10 +88,10 @@ const IntentFields = {
   rule: z.boolean(),
   destination: DestinationSchema,
   copy: z.boolean(),
-  auth: z.boolean().default(false),
+  auth: z.boolean(),
   harnesses: z.array(HarnessIdSchema),
-  memoryPath: z.string().min(1).default("memories"),
-  fullDepth: z.boolean().default(false),
+  memoryPath: z.string().min(1),
+  fullDepth: z.boolean(),
   paths: z.array(z.string().min(1)).optional(),
   // Set by `add --allow-hidden`, or by `install` replaying a lock entry carrying it. Absent means
   // `add` refuses a description with a hidden character. The check runs at `add` time only, never

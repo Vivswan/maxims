@@ -108,7 +108,7 @@ describe("parseMemory", () => {
       },
     },
     {
-      title: "an older file without metadata and with an empty body",
+      title: "a file without metadata and with an empty body",
       filename: "short-rule.md",
       text: SHORT,
       memory: {

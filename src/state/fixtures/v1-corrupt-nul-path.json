@@ -11,7 +11,10 @@
         "rule": true,
         "destination": { "scope": "global" },
         "copy": true,
-        "harnesses": ["claude-code"]
+        "auth": false,
+        "harnesses": ["claude-code"],
+        "memoryPath": "memories",
+        "fullDepth": false
       },
       "addedAt": "2026-08-20T08:38:04.471Z"
     }
