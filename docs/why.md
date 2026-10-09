@@ -19,12 +19,12 @@ Before, the rule lived in a memory directory the agent searched only when it jud
    result:  a session that never looked committed unreviewed
 ```
 
-After, the same rule's one-liner sits in the rules layer the harness reads at launch, and the body lives in the store:
+After, the same rule's one-liner sits in the rules layer the harness reads at launch, and the body lives in the store, the hash illustrative:
 
 ```text
 ~/.claude/rules/maxims-vivswan-skills.md
    - Codex rubber-duck review before EVERY commit, however trivial.
-     (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
+     (detail: ~/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
    loaded:  at every session start                 (guaranteed)
    result:  every session opens already holding the rule
 ```

@@ -46,10 +46,16 @@ The store is single-writer. A writer creates `state.json.lock` atomically, holdi
 | situation | behavior |
 | --- | --- |
 | two adds, different sources | the second polls up to 5 seconds, then exits 5 naming the holder's command line |
-| a hook fires during a manual add | the hook does not wait: exit 0 at once, logged as "skipped, lock held" |
+| a hook fires during a manual add | the hook does not wait: exit 0 at once, and `refresh.log` names the holder |
 | two syncs at once | one wins, the other exits 0; both would compute the same output |
 | the holder crashed and left the lock | a lock older than 60 seconds is stolen, and the theft is logged |
 | NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
+
+The line a skipped hook leaves in `log/refresh.log`, with an illustrative holder:
+
+```text
+2026-10-09T12:00:00.000Z sync --quiet: skipped, store is locked by "maxims add @octocat/rules" (pid 4242 on example.com, since 2026-10-09T00:00:00.000Z)
+```
 
 The theft log records whether the holder's pid was still alive.
 

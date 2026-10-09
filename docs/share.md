@@ -33,7 +33,7 @@ Strategy B rule files also land in the repo, but as the harness's target, never 
 
 - **Keys sorted, no timestamps, no fetch facts.** Two teammates running the same `add` produce the same bytes, so the file's diff is the intent change and nothing else.
 - **A projection of intent only.** Every `intent` field `add` recorded for each shared source, plus the project's disabled names that belong to a shared source. A sha or a fetched-at would churn on every refresh and say nothing a teammate needs, and a missing `--from` would send the replay to the wrong folder.
-- **The fields:** `from` with its ref, the selection, renames, the rule flag, harnesses, the memory folder, full depth, copy, and paths. The memory folder, full depth, and copy appear only when they differ from what `add` records without a flag.
+- **The fields:** `from` with its ref, the selection, renames, the rule flag, harnesses, the memory folder, full depth, copy, paths, `auth`, and `allowHidden`. The memory folder, full depth, and copy appear only when they differ from what `add` records without a flag. `auth` appears when true, and `allowHidden` when set.
 - **Written whole, temp plus rename, like state.** A half-written lock has no representation.
 - **Absent means no shared sources.** `install` with no lock exits 0 and prints "no manifest".
 

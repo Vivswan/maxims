@@ -16,7 +16,7 @@ npx -y @vivswan/maxims remove rubber-duck-before-every-commit  # one memory by n
 
 `remove` takes the source or memory out of state and syncs; there is no separate uninstall path, because the regenerated output no longer contains those lines.
 
-In a terminal it lists "Memories to remove:" and asks "Are you sure you want to uninstall 2 memory(s)?" before acting, then reports "Removed 2 memories". The [non-interactive rules](install.md#non-interactive-behavior) own what happens without a TTY.
+In a terminal it lists "Memories to remove:" and asks "Are you sure you want to remove them?" before acting, then reports "Removed 2 memories". The [non-interactive rules](install.md#non-interactive-behavior) own what happens without a TTY.
 
 | after `remove` | result |
 | --- | --- |

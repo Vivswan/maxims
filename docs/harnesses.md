@@ -59,11 +59,11 @@ The tier a harness achieves is a sync-time result that `list` reports. It is not
 
 ## The rule file
 
-Generated on every sync, compared to what is on disk, and written only on a difference. Hand edits inside the block are overwritten by design; `--dry-run` shows what would be lost, and the marker text says where the real edit belongs. The block below carries an illustrative revision.
+Generated on every sync, compared to what is on disk, and written only on a difference. Hand edits inside the block are overwritten by design; `--dry-run` shows what would be lost, and the marker text says where the real edit belongs. The block below carries an illustrative revision and hash.
 
 ```markdown
 <!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
-- Codex rubber-duck review before EVERY commit, however trivial. (detail: ~/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md)
+- Codex rubber-duck review before EVERY commit, however trivial. (detail: ~/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
 
