@@ -1,7 +1,7 @@
-// Guards the upgrade path: a step applied out of order, a slice that skips or repeats a rung, a
-// step that forgets to stamp `version`, or a rung whose "before" document no longer lands on the
-// current fixture would each corrupt every upgraded install, and none of it is visible until a
-// user's file is older than the binary.
+// Guards the upgrade path: a slice that skips or repeats a rung, a step that forgets to stamp
+// `version`, or a rung whose "before" document no longer lands on the current fixture would each
+// refuse or misread every upgraded install, and none of it is visible until a user's file is older
+// than the binary.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -51,7 +51,7 @@ describe("the shipped ladder", () => {
     const current = fixture("current.json");
     expect(versionOf(current)).toBe(CURRENT_STATE_VERSION);
     expect(parseState(current)).toMatchObject({ ok: "parsed" });
-    const befores = readdirSync(FIXTURES)
+    const priorDocuments = readdirSync(FIXTURES)
       .filter((name) => name.startsWith("before-"))
       .map((name) => {
         const json = fixture(name);
@@ -63,8 +63,8 @@ describe("the shipped ladder", () => {
       { length: CURRENT_STATE_VERSION - FIRST_VERSION },
       (_, index) => FIRST_VERSION + index,
     );
-    expect(befores.map(({ version }) => version).sort((a, b) => a - b)).toEqual(rungs);
-    for (const { json, version } of befores) {
+    expect(priorDocuments.map(({ version }) => version).sort((a, b) => a - b)).toEqual(rungs);
+    for (const { json, version } of priorDocuments) {
       expect(migrateState(json, version)).toEqual({ kind: "migrated", json: current });
     }
   });

@@ -491,7 +491,9 @@ describe("writeState", () => {
       const bytes = readFileSync(homePaths(home).state, "utf8");
       expect(bytes).toBe(serializeState(VALID_STATE));
       expect(
-        bytes.startsWith(`{\n  "version": ${CURRENT_STATE_VERSION},\n  "writtenBy": "maxims@0.4.1",\n`),
+        bytes.startsWith(
+          `{\n  "version": ${CURRENT_STATE_VERSION},\n  "writtenBy": "maxims@0.4.1",\n`,
+        ),
       ).toBe(true);
       expect(bytes.endsWith("}\n")).toBe(true);
       expect(parseState(JSON.parse(bytes))).toEqual({ ok: "parsed", state: VALID_STATE });

@@ -11,7 +11,7 @@
 // `import X = require("./x")`. Only relative specifiers are edges; a path
 // alias is invisible here, so the declaration names the tree, not the alias.
 
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Node, parseSync as ParseSync, TemplateElement } from "oxc-parser";
 import { parseArgv, usageRefuser } from "./lib/argv.ts";
@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG = "architecture.yml";
 export interface Architecture {
   /** layer -> the repo-relative paths it owns; a trailing slash means a directory. */
   readonly layers: Readonly<Record<string, readonly string[]>>;
-  /** Glob patterns of files that are not sources of the graph (tests, fixtures). An import INTO one is still an edge. */
+  /** Glob patterns of files neither lint reads (tests, fixtures). An import INTO one is still an edge. */
   readonly exclude: readonly string[];
   /** from -> the layers it may import; a layer absent here imports nothing outside itself. */
   readonly edges: Readonly<Record<string, readonly string[]>>;
@@ -259,7 +259,6 @@ export function lintArchitecture(
   arch: Architecture,
   configLabel = DEFAULT_CONFIG,
 ): string[] {
-  const excluded = arch.exclude.map((pattern) => new Bun.Glob(pattern));
   const drawn = new Map<string, string[]>();
   const problems: string[] = [];
   for (const [layer, paths] of Object.entries(arch.layers)) {
@@ -274,18 +273,7 @@ export function lintArchitecture(
       }
     }
   }
-  const files: string[] = [];
-  // A layer may own a root-level file (main.ts); no scan root reaches it, so it is seeded by name.
-  for (const paths of Object.values(arch.layers)) {
-    for (const path of paths) {
-      if (path.includes("/") || !SOURCE_EXTENSIONS.some((ext) => path.endsWith(ext))) continue;
-      if (isFile(join(root, path)) && !excluded.some((glob) => glob.match(path))) files.push(path);
-    }
-  }
-  for (const file of sourcesUnder(root, arch)) {
-    if (!excluded.some((glob) => glob.match(file))) files.push(file);
-  }
-  for (const file of files.sort()) {
+  for (const file of sourcesOf(root, arch)) {
     const from = layerOf(arch, file);
     if (from === undefined) {
       problems.push(`${file} belongs to no layer in ${configLabel}`);
@@ -321,18 +309,32 @@ export function lintArchitecture(
   return problems;
 }
 
-/** Every source file under the scan roots, repo-relative, in no particular order. */
-function sourcesUnder(root: string, arch: Architecture): string[] {
-  const files: string[] = [];
-  for (const scanRoot of scanRoots(arch)) {
-    if (!existsSync(join(root, scanRoot))) continue;
-    for (const entry of readdirSync(join(root, scanRoot), { recursive: true, encoding: "utf8" })) {
-      const file = toPosix(join(scanRoot, entry));
-      if (!SOURCE_EXTENSIONS.some((ext) => file.endsWith(ext))) continue;
-      if (isFile(join(root, file))) files.push(file);
+/**
+ * Every source file both lints read, repo-relative and sorted: the files under the scan roots plus
+ * a layer's root-level file (main.ts, which no scan root reaches), minus the exclude globs. One
+ * list for both lints, so a file the import lint skips is never a vocabulary hit.
+ */
+function sourcesOf(root: string, arch: Architecture): string[] {
+  const excluded = arch.exclude.map((pattern) => new Bun.Glob(pattern));
+  const files = new Set<string>();
+  for (const paths of Object.values(arch.layers)) {
+    for (const path of paths) {
+      if (path.includes("/") || !SOURCE_EXTENSIONS.some((ext) => path.endsWith(ext))) continue;
+      if (isFile(join(root, path))) files.add(path);
     }
   }
-  return files;
+  // A file behind a symlink, under a symlinked directory, or on a hidden path is source too; each
+  // of the three defaults would drop one of them before isFile sees it.
+  const sources = new Bun.Glob(`**/*{${SOURCE_EXTENSIONS.join(",")}}`);
+  const scan = { onlyFiles: false, followSymlinks: true, dot: true };
+  for (const scanRoot of scanRoots(arch)) {
+    if (!existsSync(join(root, scanRoot))) continue;
+    for (const entry of sources.scanSync({ cwd: join(root, scanRoot), ...scan })) {
+      const file = toPosix(join(scanRoot, entry));
+      if (isFile(join(root, file))) files.add(file);
+    }
+  }
+  return [...files].filter((file) => !excluded.some((glob) => glob.match(file))).sort();
 }
 
 // --- accommodation vocabulary ------------------------------------------------
@@ -345,10 +347,10 @@ const ACCOMMODATION_VOCABULARY =
 
 const LADDER_DIRECTORY = "migrations";
 
-/** Every accommodation word under the scan roots outside a `migrations/` folder, one problem per hit. */
+/** Every accommodation word in a file the import lint reads, outside a `migrations/` folder, one problem per hit. */
 export function lintAccommodationVocabulary(root: string, arch: Architecture): string[] {
   const problems: string[] = [];
-  for (const file of sourcesUnder(root, arch).sort()) {
+  for (const file of sourcesOf(root, arch)) {
     if (file.split("/").includes(LADDER_DIRECTORY)) continue;
     const lines = readFileSync(join(root, file), "utf8").split("\n");
     for (const [index, line] of lines.entries()) {
