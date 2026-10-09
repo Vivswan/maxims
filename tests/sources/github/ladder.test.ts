@@ -1017,6 +1017,51 @@ describe("git rung against a file:// fixture repo", () => {
     });
   });
 
+  test("a transport setting reaches git while an unrelated GIT_* variable is dropped instead of failing the rung", async () => {
+    const agents: (string | null)[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        agents.push(request.headers.get("user-agent"));
+        return new Response("not here", { status: 404 });
+      },
+    });
+    try {
+      const env = gitEnvironment({
+        ...process.env,
+        GIT_HTTP_USER_AGENT: "maxims-fixture-agent",
+        GIT_PS1_SHOWDIRTYSTATE: "1",
+      });
+      const outcome = await simpleGitRunner({ env }).lsRemote(
+        `http://127.0.0.1:${server.port ?? 0}/rules.git`,
+        ["HEAD"],
+        INHERITED,
+      );
+      expect(outcome.kind).toBe("failed");
+      expect(new Set(agents)).toEqual(new Set(["maxims-fixture-agent"]));
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("an insteadOf rewrite carried by the caller's own GIT_CONFIG_COUNT entries still applies", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createFixtureRepo(join(dir, "repo"));
+      const env = gitEnvironment({
+        ...process.env,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: `url.${repo.url}.insteadOf`,
+        GIT_CONFIG_VALUE_0: "https://example.com/rules.git",
+      });
+      const outcome = await simpleGitRunner({ env }).lsRemote(
+        "https://example.com/rules.git",
+        ["HEAD"],
+        INHERITED,
+      );
+      expect(outcome).toEqual({ kind: "ok", value: `${repo.head}\tHEAD\n` });
+    });
+  });
+
   test("a git binary that does not exist drops the rung silently", async () => {
     const warnings: string[] = [];
     const rungs: string[] = [];

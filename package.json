@@ -45,6 +45,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.11",
     "@clack/prompts": "1.8.1",
+    "@simple-git/argv-parser": "2.0.1",
     "@types/bun": "1.4.2",
     "@types/debug": "4.1.13",
     "@types/picomatch": "4.0.3",
@@ -71,7 +72,7 @@
     "picomatch": "4.0.7",
     "semver": "7.8.5",
     "signal-exit": "4.1.0",
-    "simple-git": "3.36.0",
+    "simple-git": "4.0.2",
     "smol-toml": "1.8.0",
     "tar": "7.5.22",
     "typescript": "7.0.2",

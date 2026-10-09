@@ -12,6 +12,17 @@ export type FixtureRepo = {
 // A fixture command silent for this long is killed, and the failure names the command.
 const FIXTURE_GIT_STALL_MS = 20_000;
 
+// The test runner's commit identity and its config isolation travel in these variables, which
+// simple-git drops from the ambient environment unless they are named.
+const FIXTURE_GIT_ENV = [
+  "GIT_AUTHOR_NAME",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_COMMITTER_NAME",
+  "GIT_COMMITTER_EMAIL",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+];
+
 // Two commits, an annotated tag on the first, an unrelated `src/` tree beside `memories/`, and a
 // folder whose name starts like an option, so a sparse checkout has something to leave behind, a
 // tag pin has something to differ from, and a memory path can look like a flag.
@@ -23,7 +34,11 @@ export async function createFixtureRepo(dir: string): Promise<FixtureRepo> {
   writeFileSync(join(dir, "-dashed", "odd-rule.md"), "odd\n");
   writeFileSync(join(dir, "src", "deep", "unrelated.txt"), "not a memory\n");
   writeFileSync(join(dir, "README.md"), "# fixture\n");
-  const git = simpleGit({ baseDir: dir, timeout: { block: FIXTURE_GIT_STALL_MS } });
+  const git = simpleGit({
+    baseDir: dir,
+    timeout: { block: FIXTURE_GIT_STALL_MS },
+    allowEnvironment: FIXTURE_GIT_ENV,
+  });
   await git.raw(["init", "--quiet", "-b", "main"]);
   await git.add(".");
   await git.commit("one");
