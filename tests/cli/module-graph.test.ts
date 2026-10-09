@@ -6,9 +6,11 @@
 // which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { extname, relative, resolve, sep } from "node:path";
+import { resolveImport, SOURCE_EXTENSIONS } from "../../scripts/arch_lint.mts";
 
 const SRC = resolve(import.meta.dir, "..", "..", "src");
+const scanner = new Bun.Transpiler({ loader: "ts" });
 
 const HEAVY = [
   "@clack/prompts",
@@ -35,16 +37,18 @@ const HOOK_PATH_ROOTS = ["cli.ts", "commands/engine.ts", "commands/engine-verbs.
   resolve(SRC, path),
 );
 
-const STATIC_IMPORT = /^\s*(?:import|export)\s(?!type\s)[^;]*?\sfrom\s+["']([^"']+)["']/gm;
-const BARE_IMPORT = /^\s*import\s+["']([^"']+)["']/gm;
-
+/**
+ * The specifiers a module loads when imported: its import and re-export statements after the
+ * bundler's own type erasure. A non-source path (package.json) is a data leaf and imports
+ * nothing; a source file that does not parse throws rather than reading as import-free.
+ */
 function staticImports(file: string): string[] {
-  const text = readFileSync(file, "utf8");
-  const specifiers: string[] = [];
-  for (const regex of [STATIC_IMPORT, BARE_IMPORT]) {
-    for (const match of text.matchAll(regex)) if (match[1] !== undefined) specifiers.push(match[1]);
-  }
-  return specifiers;
+  if (!SOURCE_EXTENSIONS.includes(extname(file))) return [];
+  const text = readFileSync(file, "utf8").replace(/^#!.*\n/, "");
+  return scanner
+    .scanImports(text)
+    .filter((entry) => entry.kind === "import-statement")
+    .map((entry) => entry.path);
 }
 
 function walk(entry: string): Set<string> {
@@ -55,7 +59,7 @@ function walk(entry: string): Set<string> {
     if (file === undefined || seen.has(file)) continue;
     seen.add(file);
     for (const specifier of staticImports(file)) {
-      if (specifier.startsWith(".")) queue.push(resolve(dirname(file), specifier));
+      if (specifier.startsWith(".")) queue.push(resolveImport(file, specifier));
       else seen.add(specifier);
     }
   }
