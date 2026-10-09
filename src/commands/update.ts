@@ -144,7 +144,14 @@ export const update: Command = {
       }),
       ...report.held.map((key) => heldUpdate(key, (report.upstreamChanges[key] ?? []).length)),
     ];
+    const changes = [...(preview?.changes ?? persisted.changes), ...report.plan.changes];
     if (report.failed.length > 0) {
+      // The failure is the run's exit, dry run or not, and the plan a dry run exists to show is
+      // still printed, through the same frame a finished run ends in; `--json` has its one
+      // document below.
+      if (!ctx.global.json) {
+        finish(ctx, console, { plan: { changes, notices: [] }, notices: [], json: {}, lines: [] });
+      }
       showRiskWarnings(console, warnings);
       for (const line of lines) console.step(line);
       const failures = report.failed.map((failure) => failedToUpdate(failure.key, failure.message));
@@ -162,10 +169,7 @@ export const update: Command = {
     const found = report.fetched.length + report.held.length;
     const summary = found === 0 ? STRINGS.allUpToDate : foundUpdates(found);
     return finish(ctx, console, {
-      plan: {
-        changes: [...(preview?.changes ?? persisted.changes), ...report.plan.changes],
-        notices: [],
-      },
+      plan: { changes, notices: [] },
       notices: [...warnings.map(riskLine), ...report.notices],
       json: {
         fetched: report.fetched,
