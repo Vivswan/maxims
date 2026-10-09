@@ -8,6 +8,7 @@ import {
   type HiddenCharacter,
   hiddenCharacters,
   type Memory,
+  type MemoryMetadata,
   parseContentHash,
   parseMemory,
   parseMemoryName,
@@ -66,12 +67,10 @@ describe("parseContentHash", () => {
     [` sha256:${hex}`, false],
     ["", false],
   ];
+  // The parser answers null for a malformed digest; a definition's hash is a literal in source, so
+  // the same digest minted as a literal must fail at load, naming itself.
   test.each(cases)("%j is a content hash: %p", (candidate, ok) => {
     expect(parseContentHash(candidate)).toBe(ok ? (candidate as ContentHash) : null);
-  });
-
-  // A definition's hash is a literal in source, so a typo must fail at load, naming itself.
-  test.each(cases)("contentHashLiteral(%j) round-trips or throws: %p", (candidate, ok) => {
     if (ok) expect(contentHashLiteral(candidate)).toBe(candidate as ContentHash);
     else
       expect(() => contentHashLiteral(candidate)).toThrow(
@@ -81,79 +80,117 @@ describe("parseContentHash", () => {
 });
 
 describe("parseMemory", () => {
-  test("a conforming file yields the whole memory with the body byte-identical", () => {
-    const result = parseMemory("/store/x/gate-exit-conditions-the-merge.md", FILE);
-    const expected: Memory = {
-      name: "gate-exit-conditions-the-merge" as Memory["name"],
-      description:
-        "Never chain a merge in the same command as reading a gate log - condition it on the exit code",
-      body: BODY,
-      metadata: {
-        nodeType: "memory",
-        type: "feedback",
-        scope: "common",
-        extra: { originSessionId: "abc123" },
+  const SHORT = "---\nname: short-rule\ndescription: keep it short\n---\n";
+  const FOLDED = "---\nname: folded\ndescription: >-\n  first part\n  second part\n---\nbody\n";
+
+  // Each accepted file yields the whole memory: the body byte-identical to what follows the fence,
+  // and the digest over the file bytes as authored, frontmatter included, since a hash over the
+  // body alone would miss a description edit, which is the change a rule line has to notice.
+  const accepted: { title: string; filename: string; text: string; memory: Memory }[] = [
+    {
+      title: "a conforming file with metadata",
+      filename: "/store/x/gate-exit-conditions-the-merge.md",
+      text: FILE,
+      memory: {
+        name: "gate-exit-conditions-the-merge" as Memory["name"],
+        description:
+          "Never chain a merge in the same command as reading a gate log - condition it on the exit code",
+        body: BODY,
+        metadata: {
+          nodeType: "memory",
+          type: "feedback",
+          scope: "common",
+          extra: { originSessionId: "abc123" },
+        },
+        raw: FILE,
+        contentHash:
+          "sha256:a59fc98b89dd2709b679b583e870430f043175b628e8b23f4d08ced89f998978" as ContentHash,
       },
-      raw: FILE,
-      // The digest of the file bytes as authored, frontmatter included: a hash over the body alone
-      // would miss a description edit, which is the change a rule line has to notice.
-      contentHash:
-        "sha256:a59fc98b89dd2709b679b583e870430f043175b628e8b23f4d08ced89f998978" as ContentHash,
-    };
-    expect(result).toEqual({ ok: true, memory: expected });
-  });
-
-  test("an unknown metadata.type passes with a warning and the value kept in extra", () => {
-    const text = FILE.replace("type: feedback", "type: insight");
-    const result = parseMemory("gate-exit-conditions-the-merge.md", text);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.warning).toBe(
-      'metadata.type "insight" is not one of user, feedback, project, reference',
-    );
-    expect(result.memory.metadata).toEqual({
-      nodeType: "memory",
-      scope: "common",
-      extra: { originSessionId: "abc123", type: "insight" },
-    });
-  });
-
-  test("metadata.internal is kept when boolean and warned about otherwise", () => {
-    const yes = parseMemory(
-      "gate-exit-conditions-the-merge.md",
-      FILE.replace("  scope: common", "  scope: common\n  internal: true"),
-    );
-    expect(yes.ok && yes.memory.metadata.internal).toBe(true);
-    expect(yes.ok && yes.warning).toBeUndefined();
-    const bad = parseMemory(
-      "gate-exit-conditions-the-merge.md",
-      FILE.replace("  scope: common", "  scope: common\n  internal: soon"),
-    );
-    expect(bad.ok && bad.warning).toBe('metadata.internal "soon" is not a boolean');
-    expect(bad.ok && bad.memory.metadata.internal).toBeUndefined();
-    expect(bad.ok && bad.memory.metadata.extra.internal).toBe("soon");
-  });
-
-  test("older files without metadata, and an empty body, are accepted", () => {
-    const text = "---\nname: short-rule\ndescription: keep it short\n---\n";
-    expect(parseMemory("short-rule.md", text)).toEqual({
-      ok: true,
+    },
+    {
+      title: "an older file without metadata and with an empty body",
+      filename: "short-rule.md",
+      text: SHORT,
       memory: {
         name: "short-rule" as Memory["name"],
         description: "keep it short",
         body: "",
         metadata: { extra: {} },
-        raw: text,
+        raw: SHORT,
         contentHash:
           "sha256:c53d42ccc1b710646b0ae0f5f2e6475a463600e01d6976d10a53cc9516ec9a49" as ContentHash,
       },
-    });
+    },
+    {
+      title: "a folded YAML description unquoted to one line",
+      filename: "folded.md",
+      text: FOLDED,
+      memory: {
+        name: "folded" as Memory["name"],
+        description: "first part second part",
+        body: "body\n",
+        metadata: { extra: {} },
+        raw: FOLDED,
+        contentHash:
+          "sha256:af5a87609914eb4b96ab350f96c3d216a95ee64afeb1f5b8751238bfd5aaf52c" as ContentHash,
+      },
+    },
+  ];
+  test.each(accepted)("accepts: $title", ({ filename, text, memory }) => {
+    expect(parseMemory(filename, text)).toEqual({ ok: true, memory });
   });
 
-  test("a folded YAML description unquotes to one line and passes", () => {
-    const text = "---\nname: folded\ndescription: >-\n  first part\n  second part\n---\nbody\n";
-    const result = parseMemory("folded.md", text);
-    expect(result.ok && result.memory.description).toBe("first part second part");
+  // An unknown `type` or a non-boolean `internal` is kept in `extra` with a warning rather than
+  // refused, so an upstream that adds a type keeps installing.
+  const warned: {
+    title: string;
+    line: string;
+    warning: string | undefined;
+    metadata: MemoryMetadata;
+  }[] = [
+    {
+      title: "an unknown metadata.type",
+      line: "  type: insight",
+      warning: 'metadata.type "insight" is not one of user, feedback, project, reference',
+      metadata: {
+        nodeType: "memory",
+        scope: "common",
+        extra: { originSessionId: "abc123", type: "insight" },
+      },
+    },
+    {
+      title: "a boolean metadata.internal",
+      line: "  type: feedback\n  internal: true",
+      warning: undefined,
+      metadata: {
+        nodeType: "memory",
+        type: "feedback",
+        scope: "common",
+        internal: true,
+        extra: { originSessionId: "abc123" },
+      },
+    },
+    {
+      title: "a non-boolean metadata.internal",
+      line: "  type: feedback\n  internal: soon",
+      warning: 'metadata.internal "soon" is not a boolean',
+      metadata: {
+        nodeType: "memory",
+        type: "feedback",
+        scope: "common",
+        extra: { originSessionId: "abc123", internal: "soon" },
+      },
+    },
+  ];
+  test.each(warned)("$title passes with the whole metadata kept", ({ line, warning, metadata }) => {
+    const text = FILE.replace("  type: feedback", line);
+    const result = parseMemory("gate-exit-conditions-the-merge.md", text);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect({ warning: result.warning, metadata: result.memory.metadata }).toEqual({
+      warning,
+      metadata,
+    });
   });
 
   const rejected: { title: string; filename: string; text: string; reason: RegExp }[] = [
