@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { util } from "zod";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -202,7 +203,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     const stdin = def.fixtures?.hookStdin;
     if (stdin === undefined) return;
     const parsed: unknown = JSON.parse(readFileSync(fixturePath(def, stdin), "utf8"));
-    expect(typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)).toBe(true);
+    expect(util.isObject(parsed)).toBe(true);
   });
 
   // A home that is a regular file puts every config directory under a file, the lookup Bun

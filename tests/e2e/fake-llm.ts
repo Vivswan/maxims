@@ -6,6 +6,8 @@
 // One canned reply answers every route. The frame sequences follow what the vendors' own
 // clients require to end a turn cleanly; a CLI that hangs or errors on them is the drift the
 // container tier exists to catch.
+import { util } from "zod";
+
 export const REPLY_TEXT = "The fake model endpoint answered.";
 
 export type Wire = "anthropic-messages" | "openai-chat" | "openai-responses" | "gemini";
@@ -114,9 +116,7 @@ type Body = Record<string, unknown>;
 function parseBody(body: string): Body | null {
   try {
     const value: unknown = JSON.parse(body);
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Body)
-      : null;
+    return util.isObject(value) ? value : null;
   } catch {
     return null;
   }

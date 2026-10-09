@@ -1,4 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
+import { util } from "zod";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { HarnessDefinition, HookStdout } from "../../harnesses/contract.ts";
 
@@ -98,14 +99,10 @@ export function classifyInvoker(text: string | null): InvokerClassification {
   } catch {
     return { kind: "unknown-json" };
   }
-  if (!isPayload(json)) return { kind: "unknown-json" };
+  if (!util.isObject(json)) return { kind: "unknown-json" };
   const rule = INVOKER_RULES.find((candidate) => candidate.matches(json));
   if (rule === undefined) return { kind: "unknown-json" };
   return { kind: "harness", id: rule.id, startDir: rule.startDir(json) };
-}
-
-function isPayload(value: unknown): value is Payload {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // The protocol the invoker reads is the definition's declaration, never a table here; a harness

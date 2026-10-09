@@ -14,6 +14,7 @@ import {
   type JSONPath,
   type Node,
 } from "jsonc-parser";
+import { util } from "zod";
 import { spec as claudeCodeSpec } from "../../src/harnesses/claude-code/spec.ts";
 import { codex } from "../../src/harnesses/codex/index.ts";
 import type { HarnessContext, HookSpec } from "../../src/harnesses/contract.ts";
@@ -358,7 +359,7 @@ test(
         for (const issue of issues) expect(issue).not.toBe("");
         // A document that is at least an object fails on a named field, so a refusal that lost
         // its field prefixes ("Invalid input" alone) is caught here.
-        if (typeof json === "object" && json !== null && !Array.isArray(json)) {
+        if (util.isObject(json)) {
           expect(issues.some(namesASpecField)).toBe(true);
         }
         return;
