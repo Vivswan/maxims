@@ -117,7 +117,7 @@ interface Fixture {
 }
 
 interface Listing {
-  arrange: (dir: string) => Fixture;
+  arrange: (dir: string) => Promise<Fixture> | Fixture;
   target: (dir: string, root: string) => string;
   expected: { path: (dir: string) => string } | { refusal: (dir: string) => string };
 }
@@ -153,10 +153,10 @@ const checkoutListings: [string, Listing][] = [
   [
     "a path beside a copy inside a checkout git was kept from seeing is refused",
     {
-      arrange: (dir) => {
+      arrange: async (dir) => {
         const checkout = join(dir, "checkout");
         mkdirSync(checkout);
-        gitInit(checkout);
+        await gitInit(checkout);
         return { root: copyOfTree(checkout), ceiling: checkout };
       },
       target: (dir) => join(dir, "checkout", "bench.json"),
@@ -182,9 +182,9 @@ const checkoutListings: [string, Listing][] = [
   [
     "a checkout whose own .git is damaged is refused before the path is judged",
     {
-      arrange: (dir) => {
+      arrange: async (dir) => {
         const fixture = copyAlone(dir);
-        gitInit(fixture.root);
+        await gitInit(fixture.root);
         rmSync(join(fixture.root, ".git", "HEAD"));
         return fixture;
       },
@@ -211,9 +211,9 @@ const checkoutListings: [string, Listing][] = [
 // no ceiling, so the two rows about a copy on its own need a temp HOME that no checkout encloses:
 // a TMPDIR inside a checkout turns both into refusals naming that checkout.
 test.each(checkoutListings)("outsideCheckouts: %s", async (_name, listing) => {
-  await withTempDir((dir) => {
+  await withTempDir(async (dir) => {
     const ceiling = process.env.GIT_CEILING_DIRECTORIES;
-    const { root, ceiling: stop } = listing.arrange(dir);
+    const { root, ceiling: stop } = await listing.arrange(dir);
     process.env.GIT_CEILING_DIRECTORIES = stop;
     try {
       const out = listing.target(dir, root);

@@ -42,5 +42,24 @@
       "trailingCommas": "all",
       "arrowParentheses": "always"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["tests/**", "!tests/container/runner.ts", "!tests/shared/preload.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "node:os": "A test's scratch directory lives under the launcher HOME (tests/shared/temp_dir.ts), never under the OS tmpdir."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

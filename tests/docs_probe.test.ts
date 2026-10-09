@@ -580,12 +580,12 @@ const inheritedGitEnv: [name: string, env: (dir: string) => Record<string, strin
 test.each(inheritedGitEnv)(
   "the command lists the root's tracked files through git under %s",
   async (_name, env) => {
-    await withTempDir((dir) => {
+    await withTempDir(async (dir) => {
       mkdirSync(join(dir, "docs"));
       writeFileSync(join(dir, "docs", "page.md"), ownershipPage("docs/gone.md"));
       writeFileSync(join(dir, "README.md"), "# Readme\n");
-      gitInit(dir);
-      commitAll(dir, "pages");
+      await gitInit(dir);
+      await commitAll(dir, "pages");
       mkdirSync(join(dir, ".claude"));
       const proc = Bun.spawnSync(
         ["bun", resolve(import.meta.dir, "..", "scripts", "docs_probe.mts"), "docs/page.md"],

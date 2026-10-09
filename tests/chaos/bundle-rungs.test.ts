@@ -89,7 +89,7 @@ type World = { dir: string; home: Home; remotes: string; daemon: GitDaemon };
 
 async function withWorld<T>(fn: (world: World) => Promise<T>): Promise<T> {
   return withTempDir(async (dir) => {
-    const home = makeHome(dir);
+    const home = await makeHome(dir);
     const remotes = join(dir, "remotes");
     mkdirSync(remotes);
     return withGitDaemon(remotes, (daemon) => fn({ dir, home, remotes, daemon }));
@@ -104,7 +104,7 @@ async function install(
   files: Parameters<typeof fixtureRepo>[1],
   extraFlags: string[] = [],
 ): Promise<{ key: string; repo: string; run: Run }> {
-  const repo = fixtureRepo(join(world.remotes, name), files).dir;
+  const repo = (await fixtureRepo(join(world.remotes, name), files)).dir;
   const key = world.daemon.url(name);
   const run = await runMaxims(bundle, world.home, ["add", key, ...ADD_FLAGS, ...extraFlags]);
   return { key, repo, run };
@@ -279,7 +279,7 @@ row(
     await withWorld(async (world) => {
       const { run } = await install(world, "rules", RULES);
       expectClean(run);
-      fixtureRepo(join(world.remotes, "other"), OTHER);
+      await fixtureRepo(join(world.remotes, "other"), OTHER);
       const paths = homePaths(world.home.maximsHome);
       clearDebounce(world.home.maximsHome);
       const before = snapshot(world.home.root, LOCK_ROW_RECORDS);
@@ -369,7 +369,7 @@ row(
       const store = storeSnapshot(world.home);
       const statePath = homePaths(world.home.maximsHome).state;
       writeMemories(repo, manyMemories(26));
-      commitAll(repo, "grown");
+      await commitAll(repo, "grown");
       setCooldownDays(world.home.maximsHome, 1);
       ageFetch(world.home.maximsHome, key, 2);
       const aged = readFileSync(statePath, "utf8");
@@ -467,7 +467,7 @@ row.each(zeroValidRows)(
       const before = readFileSync(rule, "utf8");
       const store = storeSnapshot(world.home);
       writeMemories(repo, { README: { raw: "# memories\n\nNothing here any more.\n" } });
-      commitAll(repo, "layout changed");
+      await commitAll(repo, "layout changed");
       setCooldownDays(world.home.maximsHome, 1);
       ageFetch(world.home.maximsHome, key, 2);
       clearDebounce(world.home.maximsHome);
