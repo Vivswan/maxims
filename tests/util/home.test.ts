@@ -4,165 +4,144 @@
 // Also guards the pending root: a held revision must land where the store entry would, under
 // `pending/` instead of `store/`, or a pinned source's hold would be swapped into its tracking
 // twin's slot.
-import { describe, expect, test } from "bun:test";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { expect, test } from "bun:test";
+import { basename, relative, resolve, sep } from "node:path";
 import type { SourceFrom } from "../../src/contracts/source.ts";
 import type { RootedPath } from "../../src/util/fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../src/util/home.ts";
 
-describe("storePathFor", () => {
-  const home = resolve("/home/user/.agents/maxims");
-  const store = homePaths(home).store;
+const home = resolve("/home/user/.agents/maxims");
 
-  test("github sources key on lower-cased owner/repo", () => {
-    const path: RootedPath = storePathFor(home, {
-      type: "github",
-      repo: "Example-User/Rules",
-      ref: "HEAD",
-    });
-    expect<string>(path).toBe(join(store, "example-user", "rules"));
-    expect<string>(
-      storePathFor(home, { type: "github", repo: "example-user/rules", ref: "HEAD" }),
-    ).toBe(path);
-  });
+// The layout is spelled with forward slashes so one table holds on either separator.
+function under(root: string, path: string): string {
+  return relative(root, path).split(sep).join("/");
+}
 
-  test("a pin or an enterprise host gives a source its own store entry", () => {
-    const tracking = storePathFor(home, { type: "github", repo: "acme/rules", ref: "HEAD" });
-    const pinnedV2 = storePathFor(home, { type: "github", repo: "acme/rules", ref: "v2" });
-    const pinnedSlash = storePathFor(home, {
-      type: "github",
-      repo: "acme/rules",
-      ref: "release/1.0",
-    });
-    const pinnedDash = storePathFor(home, {
-      type: "github",
-      repo: "acme/rules",
-      ref: "release-1.0",
-    });
-    const hosted = storePathFor(home, {
-      type: "github",
-      repo: "acme/rules",
-      ref: "HEAD",
-      host: "github.example.com",
-    });
-    expect<string>(tracking).toBe(join(store, "acme", "rules"));
-    expect(dirname(pinnedV2)).toBe(join(store, "acme"));
-    expect(basename(pinnedV2)).toMatch(/^rules@v2-[0-9a-f]{8}$/);
-    expect(new Set([tracking, pinnedV2, pinnedSlash, pinnedDash, hosted]).size).toBe(5);
-    const longRef = storePathFor(home, {
-      type: "github",
-      repo: "acme/rules",
-      ref: "r".repeat(250),
-    });
-    expect(basename(longRef).length).toBeLessThan(80);
-    expect<string>(longRef).not.toBe(
-      storePathFor(home, { type: "github", repo: "acme/rules", ref: "r".repeat(251) }),
-    );
-    expect<string>(hosted).toBe(join(store, "_github", "github.example.com", "acme", "rules"));
-    const gitPinned = storePathFor(home, {
-      type: "git",
-      url: "https://gitlab.example.com/team/rules.git",
-      ref: "v2",
-    });
-    expect(dirname(gitPinned)).toBe(join(store, "_git", "gitlab.example.com", "team"));
-    expect(basename(gitPinned)).toMatch(/^rules@v2-[0-9a-f]{8}$/);
-  });
+// An entry's trailing eight-hex-digit digest is spelled `<hex8>`, so every row stays a literal
+// path with its dots and separators exact; a digest of the wrong length is left unmasked.
+function masked(layout: string): string {
+  return layout.replace(/-[0-9a-f]{8}$/, "-<hex8>");
+}
 
-  test("git remotes key on host and path under _git, with .git stripped and slashes kept", () => {
-    const https = storePathFor(home, {
-      type: "git",
-      url: "https://GitLab.example.com/team/sub/rules.git",
-      ref: "HEAD",
-    });
-    expect<string>(https).toBe(join(store, "_git", "gitlab.example.com", "team", "sub", "rules"));
-    expect<string>(
-      storePathFor(home, {
-        type: "git",
-        url: "git@gitlab.example.com:team/sub/rules",
-        ref: "HEAD",
-      }),
-    ).toBe(https);
-    expect<string>(
-      storePathFor(home, { type: "git", url: "ssh://git@gitea.example.com/a/b", ref: "HEAD" }),
-    ).toBe(join(store, "_git", "gitea.example.com", "a", "b"));
-    expect<string>(
-      storePathFor(home, { type: "git", url: "git@gitea.example.com:/srv/a/b.git", ref: "HEAD" }),
-    ).toBe(join(store, "_git", "gitea.example.com", "srv", "a", "b"));
-  });
-
-  test("local sources with the same basename get distinct entries under _local", () => {
-    const a = storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories" });
-    const b = storePathFor(home, { type: "local", path: "/home/user/work/notes/memories" });
-    expect<string>(a).not.toBe(b);
-    for (const entry of [a, b]) {
-      expect(dirname(entry)).toBe(join(store, "_local"));
-      expect(basename(entry)).toMatch(/^memories-[0-9a-f]{8}$/);
-    }
-    expect<string>(
-      storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
-    ).toBe(a);
-  });
-});
-
-// Every source variant, pins and hosts included, pinned to the layout the store test pins for the
-// same sources: a held revision lands at the store entry's own place under `pending/`, so a hold of
-// a pinned source can never be swapped into its tracking twin's slot.
-const HEX8 = "[0-9a-f]{8}";
-const heldSources: [string, SourceFrom, string | RegExp][] = [
+// Every source variant, pins, hosts and ports included: its entry under the store, which a held
+// revision mirrors under the pending root.
+const layouts: [string, SourceFrom, string][] = [
   [
-    "a tracking github source",
-    { type: "github", repo: "Acme/Rules", ref: "HEAD" },
-    "pending/acme/rules",
+    "a github source, owner and repo folded to lower case",
+    { type: "github", repo: "Example-User/Rules", ref: "HEAD" },
+    "example-user/rules",
+  ],
+  [
+    "the same github source already in lower case",
+    { type: "github", repo: "example-user/rules", ref: "HEAD" },
+    "example-user/rules",
+  ],
+  [
+    "an enterprise github host",
+    { type: "github", repo: "acme/rules", ref: "HEAD", host: "github.example.com" },
+    "_github/github.example.com/acme/rules",
   ],
   [
     "a pinned github source",
+    { type: "github", repo: "acme/rules", ref: "v2" },
+    "acme/rules@v2-<hex8>",
+  ],
+  [
+    "a pin holding a character no directory name takes",
     { type: "github", repo: "acme/rules", ref: "release/1.0" },
-    new RegExp(`^pending/acme/rules@release-1.0-${HEX8}$`),
+    "acme/rules@release-1.0-<hex8>",
   ],
   [
-    "an enterprise github source",
-    { type: "github", repo: "acme/rules", ref: "HEAD", host: "github.example.com" },
-    "pending/_github/github.example.com/acme/rules",
+    "an https git remote, host folded, .git stripped, slashes kept",
+    { type: "git", url: "https://GitLab.example.com/team/sub/rules.git", ref: "HEAD" },
+    "_git/gitlab.example.com/team/sub/rules",
   ],
   [
-    "a git remote with a port and a pin",
+    "the same git remote in scp form",
+    { type: "git", url: "git@gitlab.example.com:team/sub/rules", ref: "HEAD" },
+    "_git/gitlab.example.com/team/sub/rules",
+  ],
+  [
+    "an ssh git remote",
+    { type: "git", url: "ssh://git@gitea.example.com/a/b", ref: "HEAD" },
+    "_git/gitea.example.com/a/b",
+  ],
+  [
+    "an scp git remote with an absolute path",
+    { type: "git", url: "git@gitea.example.com:/srv/a/b.git", ref: "HEAD" },
+    "_git/gitea.example.com/srv/a/b",
+  ],
+  [
+    "a git remote with a port",
+    { type: "git", url: "ssh://git@git.example.com:2222/team/rules", ref: "HEAD" },
+    "_git/git.example.com_2222/team/rules",
+  ],
+  [
+    "a git remote with another port",
+    { type: "git", url: "ssh://git@git.example.com:2223/team/rules", ref: "HEAD" },
+    "_git/git.example.com_2223/team/rules",
+  ],
+  [
+    "a git remote on its scheme's default port",
+    { type: "git", url: "https://git.example.com:443/team/rules", ref: "HEAD" },
+    "_git/git.example.com/team/rules",
+  ],
+  [
+    "a pinned git remote",
+    { type: "git", url: "https://gitlab.example.com/team/rules.git", ref: "v2" },
+    "_git/gitlab.example.com/team/rules@v2-<hex8>",
+  ],
+  [
+    "a pinned git remote with a port",
     { type: "git", url: "ssh://git@git.example.com:2222/team/rules.git", ref: "v2" },
-    new RegExp(`^pending/_git/git.example.com_2222/team/rules@v2-${HEX8}$`),
+    "_git/git.example.com_2222/team/rules@v2-<hex8>",
   ],
   [
     "a copied local directory",
     { type: "local", path: "/home/user/dotfiles/memories" },
-    new RegExp(`^pending/_local/memories-${HEX8}$`),
+    "_local/memories-<hex8>",
+  ],
+  [
+    "a second local directory sharing the basename",
+    { type: "local", path: "/home/user/work/notes/memories" },
+    "_local/memories-<hex8>",
   ],
 ];
-test.each(heldSources)("pendingPathFor lays %s out under the pending root", (_title, from, at) => {
-  const home = resolve("/home/user/.agents/maxims");
+
+test.each(layouts)("%s lays out alike under the store and the pending root", (_title, from, at) => {
+  const entry: RootedPath = storePathFor(home, from);
   const held: RootedPath = pendingPathFor(home, from);
-  // The layout is spelled with forward slashes so the same table holds on either separator.
-  const inHome = relative(home, held).split(sep).join("/");
-  if (typeof at === "string") expect(inHome).toBe(at);
-  else expect(inHome).toMatch(at);
-  expect(relative(homePaths(home).store, storePathFor(home, from))).toBe(
-    relative(homePaths(home).pending, held),
-  );
+  const inStore = under(homePaths(home).store, entry);
+  expect(masked(inStore)).toBe(at);
+  expect(under(home, held)).toBe(`pending/${inStore}`);
 });
 
-// The canonical key keeps the URL verbatim, so two ports are two sources; the store must not fold
-// them onto one directory where a fetch of one would overwrite the other.
-test("a git remote's port becomes part of the store host segment", () => {
-  const home = resolve("/home/user/.agents/maxims");
-  const store = homePaths(home).store;
-  const at = (url: string) => storePathFor(home, { type: "git", url, ref: "HEAD" });
-  expect<string>(at("ssh://git@git.example.com:2222/team/rules")).toBe(
-    join(store, "_git", "git.example.com_2222", "team", "rules"),
-  );
-  expect<string>(at("ssh://git@git.example.com:2223/team/rules")).toBe(
-    join(store, "_git", "git.example.com_2223", "team", "rules"),
-  );
-  expect<string>(at("ssh://git@git.example.com/team/rules")).toBe(
-    join(store, "_git", "git.example.com", "team", "rules"),
-  );
-  expect<string>(at("https://git.example.com:443/team/rules")).toBe(
-    join(store, "_git", "git.example.com", "team", "rules"),
-  );
+// What the rows above cannot show through a masked digest: a pin stays apart from its tracking
+// twin, from the same repo on an enterprise host, and from a ref that sanitizes or truncates alike;
+// two local directories sharing a basename stay apart; the capped name stays well under NAME_MAX;
+// and copying or living in place is not a different source.
+test("distinct sources get distinct entries, and a live local source shares its copied twin's", () => {
+  const github = (ref: string) => storePathFor(home, { type: "github", repo: "acme/rules", ref });
+  const local = (path: string) => storePathFor(home, { type: "local", path });
+  const entries = [
+    github("HEAD"),
+    github("v2"),
+    github("release/1.0"),
+    github("release-1.0"),
+    github("r".repeat(250)),
+    github("r".repeat(251)),
+    storePathFor(home, {
+      type: "github",
+      repo: "acme/rules",
+      ref: "HEAD",
+      host: "github.example.com",
+    }),
+    local("/home/user/dotfiles/memories"),
+    local("/home/user/work/notes/memories"),
+  ];
+  expect(new Set(entries).size).toBe(entries.length);
+  expect(basename(github("r".repeat(250))).length).toBeLessThan(80);
+  expect<string>(
+    storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
+  ).toBe(local("/home/user/dotfiles/memories"));
 });

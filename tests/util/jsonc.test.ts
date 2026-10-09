@@ -13,6 +13,7 @@ import {
   removeChild,
   replaceValue,
 } from "../../src/util/jsonc.ts";
+import { outcome } from "../fuzz/shared.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const path = "/home/user/project/example.json";
@@ -281,27 +282,29 @@ describe("replaceValue", () => {
 });
 
 describe("assertParses", () => {
-  test.each([
-    ["a truncated file", '{ "a": ['],
-    ["an empty file", ""],
-    ["a top-level array", "[]"],
-    ["a top-level string", '"x"'],
-  ])("refuses %s as exit 4 naming the file", (_, text) => {
-    let caught: unknown;
-    try {
-      assertParses(text, path);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (!(caught instanceof MaximsError)) return;
-    expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
-    expect(caught.message).toContain(path);
-  });
+  // The value read back from the returned root, or "refused" for an exit 4 naming the file.
+  const cases: [string, string, Record<string, unknown> | "refused"][] = [
+    [
+      "comments and a trailing comma give the object root",
+      '// note\n{"a": [1,], /* c */}\n',
+      { a: [1] },
+    ],
+    ["a truncated file", '{ "a": [', "refused"],
+    ["an empty file", "", "refused"],
+    ["a top-level array", "[]", "refused"],
+    ["a top-level string", '"x"', "refused"],
+  ];
 
-  test("accepts comments and trailing commas and returns the object root", () => {
-    const root = assertParses('// note\n{"a": [1,], /* c */}\n', path);
-    expect(getNodeValue(root)).toEqual({ a: [1] });
+  test.each(cases)("%s", (_, text, expected) => {
+    const verdict = outcome(() => getNodeValue(assertParses(text, path)));
+    if (expected !== "refused") {
+      expect(verdict).toEqual({ kind: "value", value: expected });
+      return;
+    }
+    const error = verdict.kind === "threw" ? verdict.error : verdict;
+    expect(error).toBeInstanceOf(MaximsError);
+    expect((error as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+    expect((error as MaximsError).message).toContain(path);
   });
 });
 
