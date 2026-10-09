@@ -8,17 +8,21 @@
 // CommonMark: a tight item would be reported as a paragraph, or a loose one as a list item. Also
 // fails if a link's #anchor stops being judged against the target page's heading slugs and ids:
 // a renamed heading would leave every link to it dead on GitHub and on the site while the probe
-// stayed clean.
+// stayed clean. Also fails if a path token's ownership goes back to being read off the disk: a
+// `.claude/` an agent created in one checkout would then turn a page naming a user's
+// `.claude/settings.json` into a finding there and nowhere else.
 
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   DEFAULT_MAX_CELL_WORDS,
   DEFAULT_MAX_WORDS,
   probePage,
   scanPage,
+  trackedPaths,
 } from "../scripts/docs_probe.mts";
+import { commitAll, gitInit } from "./shared/git_fixture.ts";
 import { withTempDir } from "./shared/temp_dir.ts";
 
 const words = (count: number) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
@@ -27,7 +31,7 @@ const options = {
   root: "/",
   maxWords: DEFAULT_MAX_WORDS,
   maxCellWords: DEFAULT_MAX_CELL_WORDS,
-  paths: false,
+  tracked: null,
 };
 
 const cases: [name: string, paragraph: string, reportedWords: number | null][] = [
@@ -523,7 +527,75 @@ test.each(anchorCases)("%s", async (_name, href, message) => {
     writeFileSync(join(dir, "target.txt"), "one\ntwo\nthree\n");
     const text = `# Own heading\n\n[a](${href}) words\n`;
     writeFileSync(join(dir, "page.md"), text);
-    const findings = probePage(text, "page.md", { ...options, root: dir, paths: true });
+    const findings = probePage(text, "page.md", { ...options, root: dir, tracked: new Set() });
     expect(findings).toEqual(message === null ? [] : [{ file: "page.md", line: 3, message }]);
   });
 });
+
+// Git tracks `docs/page.md`, `README.md`, and `..notes/kept.md` and nothing under `.claude`, so
+// each verdict holds with or without a planted `.claude/`. The stale `docs/gone.md` is the
+// positive control. A token resolving to the root names the repository, and a directory whose
+// name opens with `..` sits inside it.
+const ownershipCases: [token: string, message: string | null][] = [
+  [".claude/settings.json", null],
+  ["docs/gone.md", "`docs/gone.md` does not exist"],
+  ["docs/", null],
+  ["../README.md", null],
+  ["./page.md", null],
+  ["./../", null],
+  ["../..notes/kept.md", null],
+  ["docs/../../outside.md", "`docs/../../outside.md` escapes the repository"],
+  ["scratch/../../outside.md", "`scratch/../../outside.md` escapes the repository"],
+];
+const ownershipPage = (token: string) => `# Title\n\nRead \`${token}\` first.\n`;
+
+test.each(ownershipCases)(
+  "%s is judged by what git tracks, with and without a planted untracked directory",
+  async (token, message) => {
+    for (const planted of [false, true]) {
+      await withTempDir((dir) => {
+        mkdirSync(join(dir, "docs"));
+        if (planted) mkdirSync(join(dir, ".claude"));
+        const tracked = trackedPaths(["docs/page.md", "README.md", "..notes/kept.md"]);
+        const findings = probePage(ownershipPage(token), "docs/page.md", {
+          ...options,
+          root: dir,
+          tracked,
+        });
+        expect(findings).toEqual(
+          message === null ? [] : [{ file: "docs/page.md", line: 3, message }],
+        );
+      });
+    }
+  },
+);
+
+// The command reads the listing from the root's own repository: a `GIT_INDEX_FILE` a git hook
+// hands down names no index here, and git then lists nothing with exit 0.
+const inheritedGitEnv: [name: string, env: (dir: string) => Record<string, string>][] = [
+  ["a clean environment", () => ({})],
+  ["an inherited GIT_INDEX_FILE", (dir) => ({ GIT_INDEX_FILE: join(dir, "no-such-index") })],
+];
+
+test.each(inheritedGitEnv)(
+  "the command lists the root's tracked files through git under %s",
+  async (_name, env) => {
+    await withTempDir((dir) => {
+      mkdirSync(join(dir, "docs"));
+      writeFileSync(join(dir, "docs", "page.md"), ownershipPage("docs/gone.md"));
+      writeFileSync(join(dir, "README.md"), "# Readme\n");
+      gitInit(dir);
+      commitAll(dir, "pages");
+      mkdirSync(join(dir, ".claude"));
+      const proc = Bun.spawnSync(
+        ["bun", resolve(import.meta.dir, "..", "scripts", "docs_probe.mts"), "docs/page.md"],
+        { cwd: dir, env: { ...process.env, ...env(dir) }, stdout: "pipe", stderr: "pipe" },
+      );
+      expect(proc.stdout.toString()).toBe("");
+      expect(proc.stderr.toString()).toBe(
+        "docs-probe: 1 finding(s)\n  docs/page.md:3: `docs/gone.md` does not exist\n",
+      );
+      expect(proc.exitCode).toBe(1);
+    });
+  },
+);

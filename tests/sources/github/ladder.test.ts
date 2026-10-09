@@ -38,6 +38,7 @@ import {
   simpleGitRunner,
   systemRunner,
 } from "../../../src/sources/github/ladder.ts";
+import { git } from "../../shared/git_fixture.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { tmpdirEnv, withTempDir } from "../../shared/temp_dir.ts";
 
@@ -1011,9 +1012,8 @@ describe("git rung against a file:// fixture repo", () => {
         "first-rule.md",
         "second-rule.md",
       ]);
-      const untouched = simpleGit(join(dir, "victim"));
-      expect((await untouched.revparse(["HEAD"])).trim()).toBe(victim.head);
-      expect((await untouched.raw(["remote"])).trim()).toBe("");
+      expect(git(join(dir, "victim"), ["rev-parse", "HEAD"])).toBe(victim.head);
+      expect(git(join(dir, "victim"), ["remote"])).toBe("");
     });
   });
 
