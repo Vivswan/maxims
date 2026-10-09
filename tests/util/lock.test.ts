@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { readIfPresent } from "../../src/util/fs.ts";
 import { type LockOptions, withLock } from "../../src/util/lock.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
@@ -20,6 +21,13 @@ async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
   expect(caught).toBeInstanceOf(MaximsError);
   expect((caught as MaximsError).code).toBe(ExitCode.StoreLocked);
   return caught as MaximsError;
+}
+
+// The pid the lock on disk records, or null once the file is gone: a read that threw on absence
+// would fail ahead of the comparison that says whose record was expected there.
+function holderPid(lockPath: string): number | null {
+  const text = readIfPresent(lockPath);
+  return text === null ? null : (JSON.parse(text) as { pid: number }).pid;
 }
 
 function writeStaleLock(lockPath: string, holder: Record<string, unknown>, ageMs: number): void {
@@ -229,11 +237,11 @@ describe("withLock", () => {
       await withLock(lockPath, {}, async () => {
         writeFileSync(lockPath, newer);
       });
-      expect(readFileSync(lockPath, "utf8")).toBe(newer);
+      expect(readIfPresent(lockPath)).toBe(newer);
       await withLock(lockPath, { staleMs: 0 }, async () => {
         writeFileSync(lockPath, "");
       });
-      expect(readFileSync(lockPath, "utf8")).toBe("");
+      expect(readIfPresent(lockPath)).toBe("");
     });
   });
 
@@ -247,7 +255,7 @@ describe("withLock", () => {
       await withTempDir(async (dir) => {
         const lockPath = join(dir, "state.json.lock");
         await withChildHolder(lockPath, {}, async (child) => {
-          expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(child.pid);
+          expect(holderPid(lockPath)).toBe(child.pid);
           expect(await child.kill("SIGTERM")).toEqual({ exitCode: null, signalCode: "SIGTERM" });
         });
         expect(readdirSync(dir)).toEqual([]);
@@ -263,7 +271,7 @@ describe("withLock", () => {
         utimesSync(lockPath, then, then);
         const seen = await withLock(lockPath, { waitMs: 0, staleMs: 60_000 }, async (lock) => {
           await displaced.kill("SIGTERM");
-          expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+          expect(holderPid(lockPath)).toBe(process.pid);
           return lock;
         });
         expect(seen.stolen?.holder?.pid).toBe(displaced.pid);
