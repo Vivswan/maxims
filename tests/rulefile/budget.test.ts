@@ -16,7 +16,7 @@ const INPUT: BlockInput = {
       name: "rubber-duck-before-every-commit" as MemoryName,
       description: "Codex rubber-duck review before EVERY commit",
       detailPath:
-        "/home/user/.agents/maxims/store/Vivswan/skills/rubber-duck-before-every-commit.md",
+        "/home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md",
       shortHash: "a1b2c3d",
     },
   ],
@@ -36,31 +36,13 @@ describe("estimateTokens", () => {
     expect(estimateTokens(stripped, "stripped")).toBeLessThan(estimateTokens(counted, "counted"));
   });
 
-  test("under stripping, a comment inside a fence and a multi-line comment follow the harness rule", () => {
-    const file = [
-      "<!-- gone -->",
-      "<!--",
-      "also gone",
-      "-->",
-      "kept",
-      "```",
-      "<!-- kept: fenced comments survive stripping -->",
-      "```",
-      "",
-    ].join("\n");
-    const injected = [
-      "kept",
-      "```",
-      "<!-- kept: fenced comments survive stripping -->",
-      "```",
-      "",
-    ].join("\n");
-    expect(estimateTokens(file, "stripped")).toBe(Math.ceil(injected.length / 4));
-    expect(estimateTokens(file, "counted")).toBe(Math.ceil(file.length / 4));
-    expect(estimateTokens("<!--\n```\n-->\n", "stripped")).toBe(0);
-  });
-
-  const besideComments: [string, string, string][] = [
+  const stripping: [string, string, string][] = [
+    [
+      "a comment inside a fence, behind a one-line and a multi-line comment",
+      "<!-- gone -->\n<!--\nalso gone\n-->\nkept\n```\n<!-- kept: fenced comments survive stripping -->\n```\n",
+      "kept\n```\n<!-- kept: fenced comments survive stripping -->\n```\n",
+    ],
+    ["a fence quoted inside a comment", "<!--\n```\n-->\n", ""],
     ["text after a comment on its line", "<!-- gone -->KEEP THIS\n", "KEEP THIS\n"],
     ["an unclosed comment", "<!-- open\nimportant text\n", "<!-- open\nimportant text\n"],
     ["text between two comments on one line", "<!-- a --> KEEP <!-- b -->\nrest\n", "KEEP\nrest\n"],
@@ -72,10 +54,11 @@ describe("estimateTokens", () => {
       "- <!-- open\nrest\n",
     ],
   ];
-  test.each(besideComments)(
-    "under stripping, %s is kept the way the harness keeps it",
+  test.each(stripping)(
+    "under stripping, %s is kept the way the harness keeps it; under counting, nothing is stripped",
     (_label, file, injected) => {
       expect(estimateTokens(file, "stripped")).toBe(Math.ceil(injected.length / 4));
+      expect(estimateTokens(file, "counted")).toBe(Math.ceil(file.length / 4));
     },
   );
 });
