@@ -9,17 +9,29 @@ import { ExitCode, MaximsError } from "./exit-codes.ts";
 // touches, and a compact hand-written file does not survive that. Every splice invalidates the
 // offsets of the tree it was computed from: callers re-parse before the next edit.
 
-// Only a file that is ABSENT reads as null; a file that exists but cannot be read must not be
-// replaced by a fresh one, which is what treating every read failure as absence would do.
+// Null means "no config here": the file is missing, or it exists and holds only whitespace
+// (`touch` creates one, and nobody has put a config in it yet), so a fresh config may replace it. A
+// file that exists but cannot be read is exit 4, never a fresh file.
 export async function readConfigText(path: string): Promise<string | null> {
   try {
-    return await readFile(path, "utf8");
+    return await readPresentText(path);
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
       cause,
     });
+  }
+}
+
+// The same "no config here" reading with every other failure thrown as it came, for a probe that
+// reports the reason instead of refusing.
+export async function readPresentText(path: string): Promise<string | null> {
+  try {
+    const text = await readFile(path, "utf8");
+    return text.trim() === "" ? null : text;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
+    throw cause;
   }
 }
 

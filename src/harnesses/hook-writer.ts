@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   createScanner,
@@ -8,8 +9,9 @@ import {
   type Node,
   type ParseError,
   parseTree,
+  printParseErrorCode,
 } from "jsonc-parser";
-import { parse as parseToml } from "smol-toml";
+import { parse as parseToml, TomlError } from "smol-toml";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
@@ -17,6 +19,7 @@ import {
   appendChild,
   assertParses,
   readConfigText,
+  readPresentText,
   removeChild,
   replaceValue,
 } from "../util/jsonc.ts";
@@ -341,12 +344,14 @@ export type FileHookWriteInput = HookIntent & {
   current: FileState | null;
 };
 
+// A file hook is a script, not a config: a blank file at its path is still a file to delete on
+// removal, so this read does not share `readConfigText`'s blank-is-absent policy.
 async function readFileState(path: string): Promise<FileState | null> {
-  const text = await readConfigText(path);
-  if (text === null) return null;
   try {
-    return { text, mode: (await stat(path)).mode & 0o7777 };
+    const [text, stats] = await Promise.all([readFile(path, "utf8"), stat(path)]);
+    return { text, mode: stats.mode & 0o7777 };
   } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot inspect ${path}: ${detail}`, {
       cause,
@@ -373,43 +378,80 @@ export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
 }
 
 // The tier a harness reaches on this machine: a definition's own probe wins, then a declared
-// config flag holding its demoting value demotes to 2, else the declared tier. A missing or
-// unreadable config means the harness runs on its defaults, which the declaration already
-// accounts for.
+// config flag holding its demoting value demotes to 2, else the declared tier. A missing config
+// means the harness runs on its defaults, which the declaration already accounts for.
 export async function achievedTier(
   def: HarnessDefinition,
   scope: Scope,
   ctx: HarnessContext,
 ): Promise<AchievedTier> {
   if (def.achievedTier !== undefined) return def.achievedTier(ctx);
-  return { tier: await declaredTier(def, scope, ctx), unreadable: null };
-}
-
-async function declaredTier(
-  def: HarnessDefinition,
-  scope: Scope,
-  ctx: HarnessContext,
-): Promise<1 | 2> {
-  if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return def.tier;
+  const declared: AchievedTier = { tier: def.tier, unreadable: null };
+  if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return declared;
   const check = def.hook.tierCheck;
-  const text = await readFile(check.path(scope, ctx), "utf8").catch(() => null);
-  if (text === null) return def.tier;
-  const config = parseConfig(text, check.format);
-  if (config === undefined) return def.tier;
-  const value = valueAt(config, check.key.split("."));
-  if (value !== undefined && sameJson(value, check.demotesWhen)) return 2;
-  return def.tier;
+  const path = check.path(scope, ctx);
+  const config = await readConfigValue(path, check.format);
+  if (config.kind === "absent") return declared;
+  if (config.kind === "unreadable") {
+    return { tier: 2, unreadable: unreadableNotice(path, config.reason) };
+  }
+  const value = valueAt(config.value, check.key.split("."));
+  const demoted = value !== undefined && sameJson(value, check.demotesWhen);
+  return demoted ? { tier: 2, unreadable: null } : declared;
 }
 
-function parseConfig(text: string, format: ConfigFormat): unknown {
+// The notice an `AchievedTier` carries for a config the probe could not read; the file's own name
+// leads so the line reads the same whichever harness owns it.
+export function unreadableNotice(path: string, reason: string): string {
+  return `${basename(path)} could not be read (${path}: ${reason}); assuming hooks off`;
+}
+
+export type ConfigReading =
+  | { kind: "absent" }
+  | { kind: "unreadable"; reason: string }
+  | { kind: "value"; value: unknown };
+
+// A config maxims only reads, as a tier probe sees it. A regular file where the config directory
+// would be (ENOTDIR) sets nothing, like a missing file; anything else that stops the read is the
+// reason the probe reports, never a throw that would abort a sync over a file maxims never writes.
+export async function readConfigValue(path: string, format: ConfigFormat): Promise<ConfigReading> {
+  let text: string | null;
   try {
-    if (format === "toml") return parseToml(text);
-    const errors: ParseError[] = [];
-    const root = parseTree(text, errors, { allowTrailingComma: true });
-    return errors.length > 0 || root === undefined ? undefined : getNodeValue(root);
-  } catch {
-    return undefined;
+    text = await readPresentText(path);
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOTDIR") {
+      return { kind: "absent" };
+    }
+    return { kind: "unreadable", reason: cause instanceof Error ? cause.message : String(cause) };
   }
+  if (text === null) return { kind: "absent" };
+  return format === "toml" ? parseTomlConfig(text) : parseJsonConfig(text);
+}
+
+// smol-toml's message carries a source excerpt with a caret on the lines after the first; the
+// reason keeps the first line and names the position instead.
+function parseTomlConfig(text: string): ConfigReading {
+  try {
+    return { kind: "value", value: parseToml(text) };
+  } catch (cause) {
+    if (!(cause instanceof TomlError)) throw cause;
+    const [reason = cause.message] = cause.message.split("\n");
+    return { kind: "unreadable", reason: `${reason} (line ${cause.line}, column ${cause.column})` };
+  }
+}
+
+function parseJsonConfig(text: string): ConfigReading {
+  const errors: ParseError[] = [];
+  const root = parseTree(text, errors, { allowTrailingComma: true });
+  const [first] = errors;
+  if (first !== undefined) {
+    return {
+      kind: "unreadable",
+      reason: `${printParseErrorCode(first.error)} at offset ${first.offset}`,
+    };
+  }
+  if (root === undefined) return { kind: "unreadable", reason: "no JSON value" };
+  return { kind: "value", value: getNodeValue(root) };
 }
 
 function valueAt(value: unknown, path: string[]): unknown {

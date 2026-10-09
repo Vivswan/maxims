@@ -540,7 +540,6 @@ ${flatOurs} ]}}`,
   const refusals: { name: string; text: string; wanted: boolean }[] = [
     { name: "a truncated file", text: '{ "hooks": { "SessionStart": [', wanted: true },
     { name: "a truncated file on removal", text: "{ bad", wanted: false },
-    { name: "an empty file", text: "", wanted: true },
     { name: "a top-level array", text: "[]", wanted: true },
     { name: "an event that is an object", text: '{"hooks":{"SessionStart":{}}}', wanted: true },
     { name: "an event object on removal", text: '{"hooks":{"SessionStart":{}}}', wanted: false },
@@ -627,6 +626,24 @@ describe("planFileHookWrite", () => {
     expect(result.changes).toEqual(changes);
   });
 
+  // The config reader's blank-is-absent policy must not reach file hooks: a blank file at the hook
+  // path is still a file removal has to take away.
+  test("a blank file at the hook path is still deleted on removal", async () => {
+    await withTempDir(async (root) => {
+      const local: HarnessContext = { ...ctx, projectRoot: root };
+      const file = join(root, ".clinerules", "hooks", "TaskStart");
+      mkdirSync(join(root, ".clinerules", "hooks"), { recursive: true });
+      writeFileSync(file, " \n");
+      const gone = await planHookWrite({
+        def: fileDef,
+        scope: "project",
+        ctx: local,
+        wanted: false,
+      });
+      expect(gone.changes).toEqual([{ kind: "delete", path: assertInsideRoot(root, file) }]);
+    });
+  });
+
   test.skipIf(WINDOWS)(
     "a hook whose execute bit was stripped is repaired through applyChanges (mode bits are POSIX)",
     async () => {
@@ -690,6 +707,29 @@ describe("planHookWrite against a real directory", () => {
       expect(readFileSync(file, "utf8")).toBe(original);
     });
   });
+
+  // `touch ~/.claude/settings.json` is how many users create the file; a registry that refuses to
+  // edit it would block every add and remove on that machine.
+  test.each(["", " \n\t\n"])(
+    "a registry file holding only whitespace (%j) is registered into fresh and left alone on removal",
+    async (text) => {
+      await withTempDir(async (root) => {
+        const local: HarnessContext = { ...ctx, projectRoot: root };
+        const file = join(root, ".claude", "settings.json");
+        mkdirSync(join(root, ".claude"), { recursive: true });
+        writeFileSync(file, text);
+        const intent = { def: grouped, scope: "project" as const, ctx: local };
+        expect((await planHookWrite({ ...intent, wanted: true })).changes).toEqual([
+          {
+            kind: "write",
+            path: assertInsideRoot(root, file),
+            content: textOf(plan(grouped, true, null)),
+          },
+        ]);
+        expect(await planHookWrite({ ...intent, wanted: false })).toEqual({ changes: [] });
+      });
+    },
+  );
 
   test("a directory at the registry path is refused as exit 4", async () => {
     await withTempDir(async (root) => {
@@ -792,54 +832,131 @@ describe("achievedTier", () => {
       demotesWhen: false,
     },
   });
-  const cases: { name: string; config: string | null; tier: 1 | 2 }[] = [
-    { name: "no config file keeps the declared tier", config: null, tier: 1 },
+  const jsonCheck = registryDef({
+    path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
+    tierCheck: {
+      path: (_, ctx) => join(ctx.home, ".example", "settings.json"),
+      format: "json",
+      key: "hooks.enabled",
+      demotesWhen: false,
+    },
+  });
+  type Case = {
+    name: string;
+    def: HarnessWithHook<"registry">;
+    config: string | null;
+    tier: 1 | 2;
+    unreadable: RegExp | null;
+  };
+  // A config that exists but cannot be read is the AchievedTier contract's tier 2 with the reason,
+  // the reading the Codex probe already gives; the declared tier would call a broken config
+  // "hooks on" and doctor would report nothing.
+  const cases: Case[] = [
+    {
+      name: "no config file keeps the declared tier",
+      def: codexLike,
+      config: null,
+      tier: 1,
+      unreadable: null,
+    },
     {
       name: "the flag set to false demotes to tier 2",
+      def: codexLike,
       config: "[features]\nhooks = false\n",
       tier: 2,
+      unreadable: null,
     },
-    { name: "the flag set to true keeps tier 1", config: "[features]\nhooks = true\n", tier: 1 },
-    { name: "an absent key means the default, tier 1", config: "[features]\nother = 1\n", tier: 1 },
+    {
+      name: "the flag set to true keeps tier 1",
+      def: codexLike,
+      config: "[features]\nhooks = true\n",
+      tier: 1,
+      unreadable: null,
+    },
+    {
+      name: "an absent key means the default, tier 1",
+      def: codexLike,
+      config: "[features]\nother = 1\n",
+      tier: 1,
+      unreadable: null,
+    },
     {
       name: "a value other than the demoting one keeps the declared tier",
+      def: codexLike,
       config: '[features]\nhooks = "off"\n',
       tier: 1,
+      unreadable: null,
     },
     {
-      name: "an unparsable config keeps the declared tier",
+      name: "an unparsable TOML config is tier 2 with the reason and its position",
+      def: codexLike,
       config: "[features\nhooks =",
+      tier: 2,
+      unreadable:
+        /^config\.toml could not be read \(.*config\.toml: Invalid TOML document: .* \(line 1, column \d+\)\); assuming hooks off$/,
+    },
+    {
+      name: "a JSON flag set to false demotes to tier 2",
+      def: jsonCheck,
+      config: '{ "hooks": { "enabled": false } }',
+      tier: 2,
+      unreadable: null,
+    },
+    {
+      name: "a whitespace-only JSON config is a file nobody wrote yet, the declared tier",
+      def: jsonCheck,
+      config: " \n",
       tier: 1,
+      unreadable: null,
+    },
+    {
+      name: "a truncated JSON config is tier 2 with the reason and its offset",
+      def: jsonCheck,
+      config: '{ "hooks": { "enabled": false }',
+      tier: 2,
+      unreadable:
+        /^settings\.json could not be read \(.*settings\.json: .+ at offset \d+\); assuming hooks off$/,
+    },
+    {
+      name: "a JSON config holding a list has no flag, the declared tier",
+      def: jsonCheck,
+      config: "[]",
+      tier: 1,
+      unreadable: null,
     },
   ];
-  test.each(cases)("$name", async ({ config, tier }) => {
+  test.each(cases)("$name", async ({ def, config, tier, unreadable }) => {
     await withTempDir(async (home) => {
       const local: HarnessContext = { home, projectRoot: null, env: {} };
+      const file = def.hook.tierCheck?.path("global", local);
+      if (file === undefined) throw new Error("every case declares a tier check");
       if (config !== null) {
-        mkdirSync(join(home, ".codex"), { recursive: true });
-        writeFileSync(join(home, ".codex", "config.toml"), config);
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, config);
       }
-      expect(await achievedTier(codexLike, "global", local)).toEqual({ tier, unreadable: null });
+      const probed = await achievedTier(def, "global", local);
+      expect(probed.tier).toBe(tier);
+      if (unreadable === null) expect(probed.unreadable).toBeNull();
+      else expect(probed.unreadable).toMatch(unreadable);
     });
   });
 
-  test("a JSON tier check and a definition's own probe are honoured", async () => {
+  test("a directory at the config path is tier 2 with the error named", async () => {
     await withTempDir(async (home) => {
       const local: HarnessContext = { home, projectRoot: null, env: {} };
-      const jsonCheck = registryDef({
-        path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
-        tierCheck: {
-          path: (_, ctx) => join(ctx.home, ".example", "settings.json"),
-          format: "json",
-          key: "hooks.enabled",
-          demotesWhen: false,
-        },
-      });
+      mkdirSync(join(home, ".example", "settings.json"), { recursive: true });
+      const probed = await achievedTier(jsonCheck, "global", local);
+      expect(probed.tier).toBe(2);
+      expect(probed.unreadable).toMatch(
+        /^settings\.json could not be read \(.*settings\.json: EISDIR.*\); assuming hooks off$/,
+      );
+    });
+  });
+
+  test("a definition's own probe wins, and a hookless definition is its declared tier", async () => {
+    await withTempDir(async (home) => {
+      const local: HarnessContext = { home, projectRoot: null, env: {} };
       mkdirSync(join(home, ".example"), { recursive: true });
-      writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false } }');
-      expect(await achievedTier(jsonCheck, "global", local)).toEqual({ tier: 2, unreadable: null });
-      writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false }');
-      expect(await achievedTier(jsonCheck, "global", local)).toEqual({ tier: 1, unreadable: null });
       writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false } }');
       const probed: HarnessDefinition = {
         ...jsonCheck,

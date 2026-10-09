@@ -165,6 +165,7 @@ test("adding then removing the instructions entry returns a hand-formatted openc
 
 const creations: [string, string | null, string][] = [
   ["a missing file", null, `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`],
+  ["a touched, empty file", "", `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`],
   [
     "a file without the key, keeping its tab indentation",
     '{\n\t"model": "x"\n}\n',
@@ -179,6 +180,11 @@ const creations: [string, string | null, string][] = [
     "an opencode.jsonc, which wins over a missing opencode.json",
     "// comment\n{}\n",
     `// comment\n{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
+  ],
+  [
+    "an opencode.jsonc holding only whitespace, which is filled rather than left beside a new opencode.json",
+    " \n",
+    `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
   ],
 ];
 
