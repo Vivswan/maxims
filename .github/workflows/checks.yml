@@ -41,6 +41,28 @@ jobs:
       - name: Dead code
         run: bun run knip
 
+  # These checks read the repository's pages and import graph, not the built CLI, so one platform
+  # proves them; the three-OS matrix above is for the code paths that differ per platform.
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Docs
+        run: bun run docs:check
+      - name: Harness matrix
+        run: bun run docs:matrix:check
+      - name: Architecture lint
+        run: bun run lint:arch
+      - name: Architecture page
+        run: bun run test:arch
+      - name: Architecture map
+        run: bun run docs:arch:check
+
   # Latency and bundle-size tripwire: HEAD and the base ref are built and timed on this runner,
   # and a gross regression on the hook path or the bundle fails the job. The report goes to the
   # step summary here; the sticky PR comment is posted by bench-comment.yml from the uploaded
