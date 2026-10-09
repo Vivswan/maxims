@@ -1,16 +1,20 @@
 // Strategy B shares a file with the user: a splice that shifts a byte outside the pair, a
 // separator that add-then-remove fails to undo, a block appended inside a fence the user left
 // open (invisible to the parser, so every sync would append again), or a leftover empty file
-// would each corrupt or litter the AGENTS.md family silently.
+// would each corrupt or litter the AGENTS.md family silently. The engine writes a block with the
+// grammar's own `replaceBlock` over the file's current text (an absent file is "") and judges the
+// budget once on the finished text, so those two calls stand in for the write here.
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessContext, HarnessDefinition, Scope } from "../../../src/harnesses/contract.ts";
+import { assertWithinBudget } from "../../../src/harnesses/strategies/rules-dir.ts";
 import {
   planSharedBlockRemove,
-  planSharedBlockWrite,
   type SharedBlockTarget,
+  sharedBlockPath,
 } from "../../../src/harnesses/strategies/shared-block.ts";
+import { replaceBlock } from "../../../src/rulefile/block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -46,7 +50,13 @@ const location = (source: string, currentText: string | null) => ({
   currentText,
 });
 
-describe("planSharedBlockWrite then planSharedBlockRemove", () => {
+const write = (text: string | null, source: string, block: string): string =>
+  replaceBlock(text ?? "", source, block);
+
+// Add-then-remove leaves three residues by design: a missing final newline on the user's text,
+// which gains one; the closer the first block wrote for a construct the user's text left open,
+// which stays; and a CRLF or lone-CR line ending that closed a block on disk, which becomes LF.
+describe("replaceBlock then planSharedBlockRemove", () => {
   const cases: { name: string; before: string | null; after: string; restored: string | null }[] = [
     { name: "no file", before: null, after: ours, restored: null },
     {
@@ -88,9 +98,8 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
   ];
 
   test.each(cases)("$name", ({ before, after, restored }) => {
-    const written = planSharedBlockWrite({ ...location("@a/b", before), block: ours });
-    expect(written).toEqual([{ kind: "write", path, content: after }]);
-    expect(planSharedBlockWrite({ ...location("@a/b", after), block: ours })).toEqual([]);
+    expect(write(before, "@a/b", ours)).toBe(after);
+    expect(write(after, "@a/b", ours)).toBe(after);
     const removed = planSharedBlockRemove(location("@a/b", after));
     expect(removed).toEqual(
       restored === null ? [{ kind: "delete", path }] : [{ kind: "write", path, content: restored }],
@@ -99,12 +108,7 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
 
   test("replacing one source's block leaves the other source's bytes untouched", () => {
     const before = `${ours}\n${theirs}\ntrailing notes\n`;
-    const [change] = planSharedBlockWrite({ ...location("@a/b", before), block: oursV2 });
-    expect(change).toEqual({
-      kind: "write",
-      path,
-      content: `${oursV2}\n${theirs}\ntrailing notes\n`,
-    });
+    expect(write(before, "@a/b", oursV2)).toBe(`${oursV2}\n${theirs}\ntrailing notes\n`);
     expect(planSharedBlockRemove(location("@c/d", before))).toEqual([
       { kind: "write", path, content: `${ours}\ntrailing notes\n` },
     ]);
@@ -113,10 +117,6 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
   // `add alpha; add beta; link beta; link alpha` and `add alpha -a codex; add beta -a codex` are
   // one intent; the shared file they leave must be one set of bytes.
   test("two sources reaching one file in either order leave the same bytes", () => {
-    const write = (text: string | null, source: string, block: string): string => {
-      const [change] = planSharedBlockWrite({ ...location(source, text), block });
-      return change?.kind === "write" ? change.content : (text ?? "");
-    };
     const oursFirst = write(write("# Agents\n", "@a/b", ours), "@c/d", theirs);
     const theirsFirst = write(write("# Agents\n", "@c/d", theirs), "@a/b", ours);
     expect(theirsFirst).toBe(oursFirst);
@@ -128,9 +128,7 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
   test("a block added after another one and removed again leaves the glued text as it was", () => {
     const before = `${ours}user notes\n`;
     const joined = `${ours}\n${theirs}user notes\n`;
-    expect(planSharedBlockWrite({ ...location("@c/d", before), block: theirs })).toEqual([
-      { kind: "write", path, content: joined },
-    ]);
+    expect(write(before, "@c/d", theirs)).toBe(joined);
     expect(planSharedBlockRemove(location("@c/d", joined))).toEqual([
       { kind: "write", path, content: before },
     ]);
@@ -163,14 +161,9 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
     expect(planSharedBlockRemove(location("@a/b", null))).toEqual([]);
   });
 
-  test("a global install writes under the home", () => {
-    const global = planSharedBlockWrite({
-      ...location("@a/b", null),
-      scope: "global",
-      block: ours,
-    });
-    expect(global).toEqual([
-      { kind: "write", path: assertInsideRoot(ctx.home, "/home/user/AGENTS.md"), content: ours },
+  test("a global install's file is under the home", () => {
+    expect(planSharedBlockRemove({ ...location("@a/b", ours), scope: "global" })).toEqual([
+      { kind: "delete", path: assertInsideRoot(ctx.home, "/home/user/AGENTS.md") },
     ]);
   });
 
@@ -221,24 +214,15 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
   ];
 
   test.each(budgets)("$name", ({ byteBudget, scope, refused }) => {
-    const notes = "x".repeat(40);
-    const run = () =>
-      planSharedBlockWrite({
-        ...location("@a/b", notes),
-        def: { ...def, byteBudget },
-        scope,
-        block: ours,
-      });
+    const text = write("x".repeat(40), "@a/b", ours);
+    const judge = () => assertWithinBudget({ ...def, byteBudget }, scope, path, text);
     if (!refused) {
-      const file = scope === "project" ? "/home/user/project/AGENTS.md" : "/home/user/AGENTS.md";
-      expect(run()).toEqual([
-        { kind: "write", path: assertInsideRoot(ctx.home, file), content: `${notes}\n\n${ours}` },
-      ]);
+      expect(judge).not.toThrow();
       return;
     }
     let caught: unknown;
     try {
-      run();
+      judge();
     } catch (error) {
       caught = error;
     }
@@ -248,9 +232,9 @@ describe("planSharedBlockWrite then planSharedBlockRemove", () => {
 });
 
 // Zed reads only the first of its instruction files that exists, so a block planned for AGENTS.md
-// beside a `.rules` file would never load; the plan must follow the target's precedence list
+// beside a `.rules` file would never load; the path must follow the target's precedence list
 // against the real root and fall back to the declared file only when none of them exists.
-test("a precedence target plans the block into the file the harness reads first", async () => {
+test("a precedence target resolves to the file the harness reads first", async () => {
   const preferring: SharedBlockTarget = {
     kind: "shared-block",
     file: "AGENTS.md",
@@ -263,13 +247,9 @@ test("a precedence target plans the block into the file the harness reads first"
       scope: "project" as const,
       ctx: { ...ctx, projectRoot: root },
     };
-    const plan = (currentText: string | null) =>
-      planSharedBlockWrite({ ...at, source: "@a/b", currentText, block: ours });
-    expect(plan(null).map((change) => String(change.path))).toEqual([join(root, "AGENTS.md")]);
+    expect(String(sharedBlockPath(at))).toBe(join(root, "AGENTS.md"));
     writeFileSync(join(root, ".rules"), "house rules\n");
-    expect(plan("house rules\n").map((change) => String(change.path))).toEqual([
-      join(root, ".rules"),
-    ]);
+    expect(String(sharedBlockPath(at))).toBe(join(root, ".rules"));
     expect(
       planSharedBlockRemove({
         ...at,

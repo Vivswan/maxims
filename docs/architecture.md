@@ -36,7 +36,7 @@ flowchart LR
   userdef["src/harnesses/user-defined.ts<br>loadUserDefinedHarnesses()"]
   plock["src/state/project-lock.ts<br>PROJECT_LOCK_RELATIVE_PATH serializeProjectLock() parseProjectLock()"]
   local["src/sources/local.ts<br>materializeLocal()"]
-  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/harnesses/strategies/shared-block.ts<br>planSharedBlockWrite()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/harnesses/mcp-stub/register.ts<br>reconcileMcpServer()"]
+  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/commands/shared/rules.ts<br>planRuleFile()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/harnesses/mcp-stub/register.ts<br>reconcileMcpServer()"]
   apply["src/util/change.ts<br>applyChanges()"]
   sync[["maxims sync: the only writer of destinations and of the stamp"]]
   home -->|"homePaths(): the store, state, lock, log, stamp and config paths, derived once"| homedir
@@ -150,7 +150,7 @@ flowchart LR
   block["src/rulefile/block.ts<br>renderBlock() parseBlocks() replaceBlock() stripBlock()"]
   selfrefresh["src/harnesses/strategies/once-per-target.ts<br>chooseSelfRefreshSource()"]
   rulesdir["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite() planRulesDirRemove()"]
-  shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockWrite() planSharedBlockRemove()"]
+  shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockRemove()"]
   memory -->|"name, description, contentHash"| dedupe
   intent -->|"select and rename, sources walk in installation order, so the first installed keeps a contested name"| dedupe
   dedupe -->|"a name another source owns: exit 6 with every collision"| exit
@@ -160,7 +160,7 @@ flowchart LR
   types -->|"BlockInput: source, sha, lines, markers, expands, staleness"| block
   selfrefresh -->|"the self-refresh line once per file, in the first stale block by name, tier 2 only"| block
   block -->|"the whole file: frontmatter plus block"| rulesdir
-  block -->|"replaceBlock() over the current text: every byte outside the pair survives"| shared
+  block -->|"stripBlock() over the current text on removal: the block and the separator it brought leave, the rest survives byte for byte; the engine's write splice is replaceBlock() over the same text"| shared
 ```
 
 The block `renderBlock()` produces for two rule lines under stripped markers, in the shape [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins, with an illustrative revision:
@@ -196,7 +196,7 @@ flowchart LR
   userfile[("your own harness specs: harnesses.json")]
   userdef["src/harnesses/user-defined.ts<br>loadUserDefinedHarnesses()"]
   rulesdir["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite() rulesDirPath()"]
-  shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockWrite() sharedBlockPath()"]
+  shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockRemove() sharedBlockPath()"]
   hook["src/harnesses/hook-writer.ts<br>planHookWrite() achievedTier()"]
   specfile -->|"satisfies HarnessSpec: paths relative to the scope root, a hook as a template"| folder
   quirks -->|"achievedTier: the project config read over the user one, which one file per scope cannot say"| folder
@@ -225,7 +225,7 @@ Demonstrated by: [tests/harnesses/from-spec.test.ts](../tests/harnesses/from-spe
 
 ```mermaid
 flowchart LR
-  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/harnesses/strategies/shared-block.ts<br>planSharedBlockWrite()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/sources/local.ts<br>materializeLocal()<br>src/state/store.ts<br>writeState()"]
+  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/commands/shared/rules.ts<br>planRuleFile()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/sources/local.ts<br>materializeLocal()<br>src/state/store.ts<br>writeState()"]
   fs["src/util/fs.ts<br>assertInsideRoot() RootedPath writeFileAtomic()"]
   change["src/util/change.ts<br>Change Plan applyChanges() renderPlan() planToJson()"]
   exit["src/util/exit-codes.ts<br>ExitCode MaximsError"]

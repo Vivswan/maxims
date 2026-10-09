@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { type HarnessContext, hookSpecFor, type Scope } from "../../../src/harnesses/contract.ts";
 import { dsh } from "../../../src/harnesses/dsh/index.ts";
 import { BRIDGE_ROW_ID } from "../../../src/harnesses/dsh/quirks.ts";
-import { planSharedBlockWrite } from "../../../src/harnesses/strategies/shared-block.ts";
+import { assertWithinBudget } from "../../../src/harnesses/strategies/rules-dir.ts";
+import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { applyChanges } from "../../../src/util/change.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
@@ -255,8 +256,6 @@ const ctx: HarnessContext = {
   projectRoot: "/home/user/project",
   env: { DSH_HOME: "/home/user/dsh-home" },
 };
-const block =
-  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
 function sharedBlock(scope: Scope) {
   const target = dsh.targets[scope];
@@ -270,19 +269,11 @@ const blocks: [Scope, string, string][] = [
 ];
 
 test.each(blocks)(
-  "the %s block is written to the AGENTS.md dsh reads, under $DSH_HOME for the user",
+  "the %s block lands in the AGENTS.md dsh reads, under $DSH_HOME for the user",
   (scope, root, path) => {
-    expect(
-      planSharedBlockWrite({
-        def: dsh,
-        target: sharedBlock(scope),
-        scope,
-        ctx,
-        source: "@example-user/doctrine",
-        currentText: null,
-        block,
-      }),
-    ).toEqual([{ kind: "write", path: assertInsideRoot(root, path), content: block }]);
+    expect(sharedBlockPath({ def: dsh, target: sharedBlock(scope), scope, ctx })).toBe(
+      assertInsideRoot(root, path),
+    );
   },
 );
 
@@ -293,19 +284,10 @@ test("a block at the dsh line is written and one byte past it is refused", () =>
   const frame =
     "<!-- maxims:begin @example-user/doctrine sha=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
   const atLine = frame.replace("\n\n", `\n${"x".repeat(64_512 - frame.length)}\n`);
-  const write = (content: string) =>
-    planSharedBlockWrite({
-      def: dsh,
-      target: sharedBlock("project"),
-      scope: "project",
-      ctx,
-      source: "@example-user/doctrine",
-      currentText: null,
-      block: content,
-    });
-  expect(
-    write(atLine).map((change) => change.kind === "write" && Buffer.byteLength(change.content)),
-  ).toEqual([64_512]);
+  const path = sharedBlockPath({ def: dsh, target: sharedBlock("project"), scope: "project", ctx });
+  const write = (content: string) => assertWithinBudget(dsh, "project", path, content);
+  expect(Buffer.byteLength(atLine)).toBe(64_512);
+  expect(() => write(atLine)).not.toThrow();
   let caught: unknown;
   try {
     write(atLine.replace("xx", "xxx"));

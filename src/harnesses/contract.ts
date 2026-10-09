@@ -109,7 +109,7 @@ export type McpRegistry = {
 export type RegistryHook = {
   kind: "registry";
   path: (scope: Scope, ctx: HarnessContext) => string;
-  format: ConfigFormat;
+  format: "json";
   eventPath: string[];
   grouped: boolean;
   wrapper?: Record<string, unknown>;

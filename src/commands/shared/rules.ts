@@ -126,12 +126,11 @@ export async function planRuleFile(
   if (primary === undefined || primary.target.kind !== "shared-block") {
     return { writes, removals, notices, tokens };
   }
-  // One shared file carries a block per source. The strategy writes one block and judges the
-  // byte budget on the result, which for the second of two blocks is the text with the first
-  // already replaced: a source that grew while a later one shrank would be refused on that
-  // intermediate text even when the finished file fits. So the blocks are spliced here with the
-  // grammar's own splicer (which closes a construct the user left open, as the strategy does) and
-  // the budget is judged once, on the finished text, against every reader of the file.
+  // One shared file carries a block per source. The blocks are spliced here with the grammar's
+  // own splicer (which closes a construct the user left open) and the byte budget is judged once,
+  // on the finished text, against every reader of the file: a per-block write would judge the
+  // second of two blocks on the text with the first already replaced, and refuse a source that
+  // grew while a later one shrank even when the finished file fits.
   const sharedTarget = primary.target;
   const remove = (source: string, from: string): Change | undefined => {
     try {
