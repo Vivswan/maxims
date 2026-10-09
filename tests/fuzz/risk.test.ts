@@ -10,6 +10,7 @@ import {
   anyText,
   budgetMs,
   describeError,
+  type FuzzOptions,
   fragments,
   fuzz,
   latin1Text,
@@ -155,16 +156,9 @@ function check(text: string): void {
   if (text === "") expect(warnings).toEqual([]);
 }
 
-test(
-  "riskWarnings answers in order, inside the text, within budget for any description",
-  async () => {
-    await fuzz("riskWarnings", description, check);
-  },
-  PROPERTY_TIMEOUT_MS,
-);
-
 // Up to 64 KiB of bytes or of grammar tokens, where a quadratic detector would overshoot the
-// budget by a hundredfold and a linear one stays far under it.
+// budget by a hundredfold and a linear one stays far under it; an input of that size costs
+// milliseconds, so that corpus runs at the knob's own count.
 const LARGE_CHARS = 65536;
 const large = fc.oneof(
   latin1Text({ maxLength: LARGE_CHARS, size: "max" }),
@@ -173,10 +167,15 @@ const large = fc.oneof(
   ),
 );
 
-test(
-  "riskWarnings stays linear on random inputs up to 64 KiB",
-  async () => {
-    await fuzz("riskWarnings large", large, check, { multiplier: 1 });
+const corpora: [string, fc.Arbitrary<string>, FuzzOptions][] = [
+  ["any description", description, {}],
+  ["random inputs up to 64 KiB", large, { multiplier: 1 }],
+];
+
+test.each(corpora)(
+  "riskWarnings answers in order, inside the text, within budget for %s",
+  async (label, corpus, options) => {
+    await fuzz(`riskWarnings on ${label}`, corpus, check, options);
   },
   PROPERTY_TIMEOUT_MS,
 );
