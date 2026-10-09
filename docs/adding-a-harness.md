@@ -73,7 +73,7 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 ## A full example
 
-The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. Its `verifiedAgainst` is abridged to one page with an illustrative note: the spec file holds the current date and every page, and each re-verification moves them.
+The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. Its `verifiedAgainst` is abridged to one source with an illustrative note: the spec file holds the current date and every source, and each re-verification moves them.
 
 A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; Codex adds one quirk in code beside it, the tier probe that reads the project `config.toml` over the user one, because a `tierCheck` reads one file per scope.
 
@@ -88,7 +88,7 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
       {
         "kind": "page",
         "url": "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
-        "claims": ["AGENTS.override.md", "AGENTS.md", "project_doc_max_bytes"],
+        "claims": ["it checks for `AGENTS.override.md`, then `AGENTS.md`", "only the first non-empty file", "project_doc_max_bytes"],
         "why": "the AGENTS.md precedence is prose with no single source constant beyond the two loaders",
         "note": "AGENTS.override.md over AGENTS.md"
       }
@@ -160,7 +160,7 @@ Each source goes into `verifiedAgainst.sources` with the facts the nightly re-re
 | --- | --- | --- |
 | `schema` | `{ kind, url, paths, note? }` | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that value |
 | `file` | `{ kind, repo, ref, path, claims, note? }` | each claim appears in the raw file at `<repo>/<ref>/<path>` on GitHub |
-| `page` | `{ kind, url, claims, why, note? }` | each claim appears in the words of the page, read as below |
+| `page` | `{ kind, url, claims, why, note? }` | each claim appears in the page's text, a markdown rendition served as text |
 
 A claim is a short literal phrase that would disappear if the fact changed: a file name (`.claude/rules`), a key (`disableAllHooks`), a config path, a limit (`12,000 characters`), a frontmatter key (`alwaysApply`). Prefer identifiers over prose, since prose is reworded without the fact moving, and two to five claims per source is the usual count.
 
@@ -168,7 +168,7 @@ A pointer is an RFC 6901 JSON pointer, so a dotted key such as `amp.mcpServers` 
 
 Matching is a fixed-string search with whitespace runs on both sides read as one space, and a claim that begins or ends in a word character (`[A-Za-z0-9_-]`) must begin or end at a word boundary, so `hooks` never holds on `webhooks` and `.claude/rules` needs no boundary before its dot.
 
-The words of an HTML page are the text of the first of `main`, `article`, `[role=main]`, else the whole document, with the `script`, `style` and `noscript` bodies dropped, so a claim cannot hold on a sidebar link or on data a site embeds for its scripts. A raw file or a markdown rendition is the whole body.
+Every source is read as the text it is, a raw repository file or a page's markdown rendition, so a fence quoting markup is just more text. A page that answers HTML has no markdown rendition and is not a source the nightly reads.
 
 One source rarely states every fact: Pi's context-file order is in its resource loader, not its extensions page. A source's `note` names the fact it justifies, so a drift row says what to re-check.
 
@@ -178,12 +178,12 @@ The nightly `harness-drift` category fetches every source and gives each a verdi
 | --- | --- | --- |
 | `match` | every claim holds and every pointer resolves | passes |
 | `DRIFT` | a claim or pointer is missing or a value differs; the row names it | fails |
-| `UNREACHABLE` | anything but the content came back: a status, a timeout, a network error, non-JSON | fails |
+| `UNREACHABLE` | the source answered with a status, a redirect, a timeout, a network error, or non-JSON | fails |
 
-A definition takes the worst verdict of its sources and the run the worst of its definitions, so a run that read nothing fails. To clear a `DRIFT` row, open the source, re-verify the facts it justifies, fix the definition or its claims to what the source states now, and set `verifiedAgainst.date` to today. `bun scripts/nightly.ts harness-drift --report-dir <dir>` runs the category locally:
+A definition takes the worst verdict of its sources and the run the worst of its definitions, so a run that read nothing fails. To clear a `DRIFT` row, open the source, re-verify the facts it justifies, fix the definition or its claims and pointers to what the source states now, and set `verifiedAgainst.date` to today. `bun scripts/nightly.ts harness-drift --report-dir <dir>` runs the category locally:
 
 ```text
 | id | kind | source | note | verdict | result |
 |---|---|---|---|---|---|
-| codex | page | https://learn.chatgpt.com/docs/hooks | hooks.json and SessionStart | DRIFT | missing: `SessionStart` |
+| codex | page | https://learn.chatgpt.com/docs/agent-configuration/agents-md.md | AGENTS.override.md over AGENTS.md | DRIFT | missing: "only the first non-empty file" |
 ```

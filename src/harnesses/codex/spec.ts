@@ -53,7 +53,7 @@ export const spec = {
         repo: "openai/codex",
         ref: "main",
         path: "codex-rs/hooks/src/engine/discovery.rs",
-        claims: ["hooks.json"],
+        claims: ['join("hooks.json")'],
         note: "hooks.json discovery",
       },
       {
@@ -101,7 +101,11 @@ export const spec = {
       {
         kind: "page",
         url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
-        claims: ["AGENTS.override.md", "AGENTS.md", "project_doc_max_bytes"],
+        claims: [
+          "it checks for `AGENTS.override.md`, then `AGENTS.md`",
+          "only the first non-empty file",
+          "project_doc_max_bytes",
+        ],
         why: "the AGENTS.md precedence and the 32 KiB default are prose with no single source constant beyond the two loaders; this is the page's markdown rendition",
         note: "AGENTS.override.md over AGENTS.md in each project directory and in the Codex home, blank files skipped",
       },

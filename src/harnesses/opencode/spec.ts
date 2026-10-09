@@ -30,7 +30,7 @@ export const spec = {
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/core/src/global.ts",
-        claims: ["xdg-basedir", '"opencode"', "OPENCODE_CONFIG_DIR"],
+        claims: ["path.join(xdgConfig!, app)", 'const app = "opencode"', "OPENCODE_CONFIG_DIR"],
         note: "~/.config/opencode as the global root",
       },
       {
@@ -38,7 +38,7 @@ export const spec = {
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/opencode/src/session/instruction.ts",
-        claims: ['"AGENTS.md"', 'startsWith("~/")'],
+        claims: ['path.join(global.config, "AGENTS.md")'],
         note: "AGENTS.md and ~/.config/opencode/AGENTS.md",
       },
       {

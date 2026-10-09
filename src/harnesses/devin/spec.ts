@@ -16,7 +16,7 @@ export const spec = {
         kind: "page",
         url: "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
         claims: [
-          "SessionStart",
+          "for `UserPromptSubmit`, `SessionStart`, `PostToolUse`",
           '"timeout"',
           "hookSpecificOutput.additionalContext",
           ".devin/config.json",

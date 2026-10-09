@@ -28,7 +28,12 @@ export const spec = {
         repo: "zed-industries/zed",
         ref: "main",
         path: "crates/paths/src/paths.rs",
-        claims: ["FLATPAK_XDG_CONFIG_HOME", "config_dir()", "AGENTS.md", "settings.json"],
+        claims: [
+          'home_dir().join(".config").join(APP_NAME_LOWERCASE)',
+          'cfg!(any(target_os = "linux", target_os = "freebsd")) { if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME")',
+          "AGENTS.md",
+          "settings.json",
+        ],
         note: "XDG_CONFIG_HOME on Linux and FreeBSD, ~/.config/zed on macOS",
       },
       {

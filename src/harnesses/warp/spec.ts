@@ -17,7 +17,10 @@ export const spec = {
         repo: "warpdotdev/docs",
         ref: "main",
         path: "src/content/docs/agents/capabilities/rules.mdx",
-        claims: ["WARP.md", "AGENTS.md", "all caps", "Global Rules"],
+        claims: [
+          "If both `WARP.md` and `AGENTS.md` exist in the same directory, `WARP.md` takes priority.",
+          "Global Rules",
+        ],
         note: "WARP.md over AGENTS.md in the project, global rules only in the app",
       },
       {

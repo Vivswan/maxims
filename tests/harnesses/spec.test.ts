@@ -191,17 +191,17 @@ const refusals: [string, Mutation, string][] = [
   [
     "a definition verified against no source",
     at(["verifiedAgainst", "sources"], []),
-    "verifiedAgainst.sources: at least one source justifies the definition",
+    "verifiedAgainst.sources.0: Invalid input: expected object, received undefined",
   ],
   [
     "a page without claims",
     at(["verifiedAgainst", "sources", "0", "claims"], undefined),
-    "verifiedAgainst.sources.0.claims: Invalid input: expected array, received undefined",
+    "verifiedAgainst.sources.0.claims: Invalid input: expected tuple, received undefined",
   ],
   [
     "a page with an empty claims list",
     at(["verifiedAgainst", "sources", "0", "claims"], []),
-    "verifiedAgainst.sources.0.claims: at least one claim must hold on the source",
+    "verifiedAgainst.sources.0.claims.0: Invalid input: expected string, received undefined",
   ],
   [
     "a claim with an edge space",
@@ -212,6 +212,11 @@ const refusals: [string, Mutation, string][] = [
     "a page without a why",
     at(["verifiedAgainst", "sources", "0", "why"], undefined),
     "verifiedAgainst.sources.0.why: Invalid input: expected string, received undefined",
+  ],
+  [
+    "a page whose why is only whitespace",
+    at(["verifiedAgainst", "sources", "0", "why"], "  "),
+    "verifiedAgainst.sources.0.why: a page is the last resort: say what programmatic source was looked for",
   ],
   [
     "a schema pointer without its leading slash",
@@ -241,6 +246,17 @@ const refusals: [string, Mutation, string][] = [
       claims: ["SessionStart"],
     }),
     "verifiedAgainst.sources.0.repo: expected a GitHub owner/name",
+  ],
+  [
+    "a repository file whose repo would normalize into another path",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "../example",
+      ref: "main",
+      path: "docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.repo: a repo has no . or .. segment",
   ],
   [
     "a repository file whose ref would end the URL path early",
@@ -274,6 +290,17 @@ const refusals: [string, Mutation, string][] = [
       claims: ["SessionStart"],
     }),
     "verifiedAgainst.sources.0.path: a repository path carries only letters, digits, and ._/-",
+  ],
+  [
+    "a repository file whose path has a dot segment",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "docs/./hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.path: a repository path has no empty or . segment",
   ],
   [
     "a repository file whose path climbs out",

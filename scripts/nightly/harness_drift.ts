@@ -6,7 +6,6 @@
 // proves nothing about the facts.
 import { isDeepStrictEqual } from "node:util";
 import jsonpointer from "jsonpointer";
-import { HTMLElement, type Node, parse } from "node-html-parser";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -14,100 +13,12 @@ import { markdownTable, type Outcome } from "./report.ts";
 export const FETCH_TIMEOUT_MS = 20_000;
 const USER_AGENT = "maxims-nightly";
 
-// Two constructs node-html-parser reads wrongly on its own: a doctype rides along as page text,
-// and a raw-text element's end tag is found only as the exact `</name>`, so `</script >` swallows
-// the rest of the page.
-const DOCTYPE = /<!DOCTYPE[^>]*>/gi;
-const UNSEEN_END_TAG = /<\/(script|style|noscript)\s+>/gi;
-
-// The elements whose bodies the parser drops (false) are the ones no reader with scripts enabled
-// sees; sites embed the page's own data as JSON in them, so a claim would hold there on an
-// identifier no reader was shown. `pre` is left out of the list so its inner markup is parsed
-// instead of read as text.
-const PARSE_OPTIONS = {
-  lowerCaseTagName: true,
-  blockTextElements: { script: false, style: false, noscript: false },
-};
-
-// A raw file is read as the text it is; only an HTML page is parsed, so markup quoted inside a
-// markdown code fence never counts as the page's structure.
-export type Media = "html" | "text";
-
-export function mediaOf(contentType: string | null): Media {
-  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
-  return type === "text/html" || type === "application/xhtml+xml" ? "html" : "text";
-}
-
-// The words outside the content element are left out: a site's sidebar names every page on the
-// site, so a claim such as `hooks` would hold on a page that lost its hooks section.
-const CONTENT_SELECTORS = ["main", "article", '[role="main"]'];
-
-// A reader sees a block element start on its own line, so its words never join the words beside
-// it. The parser's `textContent` glues `<p>SessionStart</p><p>SessionEnd</p>` into one word, and
-// its `structuredText` drops the space a line break carries between inline elements, so the walk
-// is this file's own: a block's words get a space on each side, everything else reads as is.
-const BLOCK_TAGS = new Set(
-  [
-    "address",
-    "article",
-    "aside",
-    "blockquote",
-    "br",
-    "dd",
-    "details",
-    "dialog",
-    "div",
-    "dl",
-    "dt",
-    "fieldset",
-    "figcaption",
-    "figure",
-    "footer",
-    "form",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "header",
-    "hgroup",
-    "hr",
-    "li",
-    "main",
-    "nav",
-    "ol",
-    "p",
-    "pre",
-    "section",
-    "summary",
-    "table",
-    "tbody",
-    "td",
-    "tfoot",
-    "th",
-    "thead",
-    "tr",
-    "ul",
-  ].map((tag) => tag.toUpperCase()),
-);
-
-function wordsOf(node: Node): string {
-  if (!(node instanceof HTMLElement)) return node.textContent;
-  const inner = node.childNodes.map(wordsOf).join("");
-  return BLOCK_TAGS.has(node.tagName) ? ` ${inner} ` : inner;
-}
-
+// Every source is read as the text it is (a raw repository file, a markdown rendition of a page),
+// with each whitespace run as one space, so a claim holds across a line break.
 const squashWhitespace = (text: string): string => text.replace(/\s+/g, " ");
 
-export function normalizeDocument(body: string, media: Media): string {
-  if (media === "text") return squashWhitespace(body).trim();
-  const root = parse(body.replace(DOCTYPE, "").replace(UNSEEN_END_TAG, "</$1>"), PARSE_OPTIONS);
-  const content =
-    CONTENT_SELECTORS.map((selector) => root.querySelector(selector)).find(
-      (element) => element !== null,
-    ) ?? root;
-  return squashWhitespace(wordsOf(content)).trim();
+export function normalizeText(body: string): string {
+  return squashWhitespace(body).trim();
 }
 
 // A claim is a literal phrase, matched case-sensitively with every whitespace run on both sides
@@ -125,7 +36,8 @@ export function claimPresent(text: string, claim: string): boolean {
 }
 
 export type Fetched =
-  | { kind: "body"; text: string; media: Media }
+  | { kind: "body"; text: string }
+  | { kind: "redirect"; location: string }
   | { kind: "status"; status: number }
   | { kind: "timeout" }
   | { kind: "error"; message: string };
@@ -136,16 +48,21 @@ export function sourceUrl(source: VerifiedSource): string {
     : source.url;
 }
 
+// A redirect is not followed: a vendor that moved a page answers a landing page at the new URL,
+// and a landing page can hold a claim by accident, so the move must show in the row instead. A
+// 3xx with no Location (a 304, a bare redirect) names nowhere, so it reads as its status.
 export async function fetchSource(url: string, fetchImpl: typeof fetch): Promise<Fetched> {
   try {
     const response = await fetchImpl(url, {
       headers: { "User-Agent": USER_AGENT },
-      redirect: "follow",
+      redirect: "manual",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location !== null)
+      return { kind: "redirect", location: new URL(location, url).href };
     if (response.status !== 200) return { kind: "status", status: response.status };
-    const media = mediaOf(response.headers.get("content-type"));
-    return { kind: "body", text: await response.text(), media };
+    return { kind: "body", text: await response.text() };
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") return { kind: "timeout" };
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
@@ -184,10 +101,15 @@ const NO_NOTE = "-";
 
 type Reading = Pick<Row, "verdict" | "result">;
 
+// A missing claim or pointer is quoted as a JSON string: claims carry backticks, which a
+// backtick fence in a markdown cell would end early.
+const quoted = (items: readonly string[]): string =>
+  items.map((item) => JSON.stringify(item)).join(", ");
+
 function readClaims(text: string, claims: readonly string[]): Reading {
   const missing = claims.filter((claim) => !claimPresent(text, claim));
   if (missing.length === 0) return { verdict: "match", result: `${claims.length} claims hold` };
-  return { verdict: "DRIFT", result: `missing: ${missing.map((c) => `\`${c}\``).join(", ")}` };
+  return { verdict: "DRIFT", result: `missing: ${quoted(missing)}` };
 }
 
 // A pointer paired with a value drifts when the schema still has the key but says something else,
@@ -209,15 +131,15 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   for (const check of paths) {
     const pointer = typeof check === "string" ? check : check.pointer;
     const value: unknown = jsonpointer.get(document, pointer);
-    if (value === undefined) missing.push(`\`${pointer}\``);
+    if (value === undefined) missing.push(pointer);
     else if (typeof check !== "string" && !isDeepStrictEqual(value, check.equals))
       differing.push(
-        `\`${pointer}\` is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
+        `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
       );
   }
   if (missing.length === 0 && differing.length === 0)
     return { verdict: "match", result: `${paths.length} pointers resolve` };
-  const parts = [...(missing.length === 0 ? [] : [`missing: ${missing.join(", ")}`]), ...differing];
+  const parts = [...(missing.length === 0 ? [] : [`missing: ${quoted(missing)}`]), ...differing];
   return { verdict: "DRIFT", result: parts.join("; ") };
 }
 
@@ -225,6 +147,8 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
 // the reading would be, and the run reads nothing of the facts it carries.
 function read(source: VerifiedSource, fetched: Fetched): Reading {
   switch (fetched.kind) {
+    case "redirect":
+      return { verdict: "UNREACHABLE", result: `moved to ${fetched.location}` };
     case "status":
       return { verdict: "UNREACHABLE", result: `HTTP ${fetched.status}` };
     case "timeout":
@@ -232,14 +156,9 @@ function read(source: VerifiedSource, fetched: Fetched): Reading {
     case "error":
       return { verdict: "UNREACHABLE", result: `network error: ${fetched.message}` };
     case "body":
-      switch (source.kind) {
-        case "schema":
-          return readSchema(fetched.text, source.paths);
-        case "file":
-          return readClaims(normalizeDocument(fetched.text, "text"), source.claims);
-        case "page":
-          return readClaims(normalizeDocument(fetched.text, fetched.media), source.claims);
-      }
+      return source.kind === "schema"
+        ? readSchema(fetched.text, source.paths)
+        : readClaims(normalizeText(fetched.text), source.claims);
   }
 }
 
@@ -267,11 +186,11 @@ export function renderRows(rows: readonly Row[]): string {
 
 const FIX = [
   "To clear a DRIFT row: open the source, re-verify the definition's facts it justifies, fix the",
-  "definition or its claims to what the source states now, and set that definition's",
+  "definition or its claims and pointers to what the source states now, and set that definition's",
   "`verifiedAgainst.date` to today. An UNREACHABLE row shows the answer the source gave in place",
   "of its content: the run read nothing of that source, so it fails until the source reads again",
-  "or the definition points at one that does. The run passes only when every claim of every",
-  "source of every definition holds.",
+  "or the definition points at one that does. The run passes only when every claim and pointer of",
+  "every source of every definition holds.",
 ].join(" ");
 
 function tally(label: string, verdicts: readonly Verdict[]): string {

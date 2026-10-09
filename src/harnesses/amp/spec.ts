@@ -26,8 +26,7 @@ export const spec = {
         claims: [
           "`AGENTS.md` files in the current working directory",
           "$HOME/.config/amp/AGENTS.md",
-          "AGENT.md",
-          "CLAUDE.md",
+          "If no `AGENTS.md` exists in a directory, but a file named `AGENT.md` (without an `S`) or `CLAUDE.md` does exist, that file will be included.",
           "AMP_IGNORE_GUIDANCE_FILES",
         ],
         why: "Amp is closed source and its settings schema covers settings keys only, not file discovery; this is the page's markdown rendition",

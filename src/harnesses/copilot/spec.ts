@@ -23,7 +23,7 @@ export const spec = {
           "COPILOT_HOME",
           "sessionStart",
           "timeoutSec",
-          "additionalContext",
+          "Only `additionalContext` is consumed for `sessionStart`",
           '"bash"',
           '"powershell"',
         ],

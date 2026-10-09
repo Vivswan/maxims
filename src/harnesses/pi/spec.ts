@@ -44,7 +44,10 @@ export const spec = {
         repo: "earendil-works/pi",
         ref: "main",
         path: "packages/coding-agent/src/core/extensions/loader.ts",
-        claims: ['"extensions"'],
+        claims: [
+          'path.join(resolvedAgentDir, "extensions")',
+          'path.join(resolvedCwd, CONFIG_DIR_NAME, "extensions")',
+        ],
         note: "the extensions directories",
       },
       {

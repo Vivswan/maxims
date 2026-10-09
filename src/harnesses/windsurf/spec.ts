@@ -35,8 +35,8 @@ export const spec = {
         url: "https://docs.devin.ai/desktop/cascade/memories.md",
         claims: [
           "global_rules.md",
-          "6,000 characters",
-          "12,000 characters",
+          "The global rules file is limited to 6,000 characters.",
+          "Workspace rule files are limited to 12,000 characters each.",
           "trigger:",
           "always_on",
           "globs:",

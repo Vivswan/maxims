@@ -25,7 +25,13 @@ export const spec = {
       {
         kind: "page",
         url: "https://code.claude.com/docs/en/memory.md",
-        claims: ["`.claude/rules/`", "`~/.claude/rules/`", "paths:", "4 MiB", "@path/to/import"],
+        claims: [
+          "`.claude/rules/`",
+          "`~/.claude/rules/`",
+          "paths:",
+          "Claude Code loads a CLAUDE.md file of up to 4 MiB in full and skips a larger file.",
+          "@path/to/import",
+        ],
         why: "Claude Code is closed source and the SchemaStore schema covers settings keys, not the rules directories; this is the page's markdown rendition",
         note: "the rules directories, the paths frontmatter, the 4 MiB cap and @imports",
       },

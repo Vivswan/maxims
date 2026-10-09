@@ -67,7 +67,6 @@
     "micromark-util-normalize-identifier": "2.0.1",
     "micromark-util-subtokenize": "2.1.0",
     "micromark-util-types": "2.0.2",
-    "node-html-parser": "9.0.4",
     "oxc-parser": "0.148.0",
     "picocolors": "1.1.1",
     "pretty-bytes": "7.2.0",

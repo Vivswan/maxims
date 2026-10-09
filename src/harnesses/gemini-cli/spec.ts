@@ -17,17 +17,14 @@ export const spec = {
         paths: [
           "/properties/hooks/properties/SessionStart",
           "/$defs/HookDefinitionArray",
+          {
+            pointer:
+              "/$defs/HookDefinitionArray/items/properties/hooks/items/properties/timeout/description",
+            equals: "Timeout in milliseconds for hook execution.",
+          },
           "/properties/context/properties/fileName",
         ],
-        note: "the SessionStart hook list and the context file name setting",
-      },
-      {
-        kind: "file",
-        repo: "google-gemini/gemini-cli",
-        ref: "main",
-        path: "packages/core/src/hooks/hookRunner.ts",
-        claims: ["DEFAULT_HOOK_TIMEOUT = 60000"],
-        note: "the hook timeout is in milliseconds",
+        note: "the SessionStart hook list, the millisecond timeout and the context file name setting",
       },
       {
         kind: "file",
@@ -42,7 +39,10 @@ export const spec = {
         repo: "google-gemini/gemini-cli",
         ref: "main",
         path: "packages/core/src/hooks/types.ts",
-        claims: ["additionalContext", "SessionStart = 'SessionStart'"],
+        claims: [
+          "hookEventName: 'SessionStart'; additionalContext?: string;",
+          "SessionStart = 'SessionStart'",
+        ],
         note: "the SessionStart event and the additionalContext output",
       },
       {
