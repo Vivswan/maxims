@@ -1101,7 +1101,7 @@ async function readTrees(
         disabled: new Set(),
         detailPath: () => "",
       }).ownedUpstreamNames,
-      storeChanges: isLiveLocal(from)
+      storeChanges: live
         ? liveStoreChanges(from, storeEntry, ctx.home)
         : (refreshed.storeChanges.get(key) ?? []),
     });
@@ -1141,8 +1141,9 @@ export async function readInstalledTree(
   warn: (line: string) => void,
 ): Promise<TreeRead> {
   const { intent } = entry;
-  const live = isLiveLocal(intent.from);
-  const root = live && intent.from.type === "local" ? intent.from.path : storeEntry;
+  const { from } = intent;
+  const live = isLiveLocal(from);
+  const root = live ? from.path : storeEntry;
   if (!live && !(await storeEntryPresent(storeEntry))) {
     const lastError = isFetchedEntry(entry) ? entry.fetched?.lastError : undefined;
     return {
