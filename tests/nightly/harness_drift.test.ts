@@ -14,7 +14,6 @@ import {
   claimPresent,
   mediaOf,
   normalizeDocument,
-  resolvePointer,
   runHarnessDrift,
   type VerifiedDefinition,
 } from "../../scripts/nightly/harness_drift.ts";
@@ -148,8 +147,8 @@ describe("claimPresent", () => {
   });
 });
 
-// RFC 6901 as a published schema needs it: a dotted key such as `amp.mcpServers` is one token, a
-// slash inside a key is escaped as `~1`, and an array is entered only by a canonical index.
+// A published schema as the pointers must read it: a dotted key such as `amp.mcpServers` is one
+// token, a slash inside a key is escaped as `~1`, and a value check compares what the key holds.
 const SCHEMA = {
   properties: {
     "amp.mcpServers": { type: "object" },
@@ -157,20 +156,6 @@ const SCHEMA = {
     hooks: { items: [{ const: "SessionStart" }, { const: "SessionEnd" }] },
   },
 };
-
-test.each([
-  ["/properties/amp.mcpServers", { found: true, value: { type: "object" } }],
-  ["/properties/amp.mcpServers/type", { found: true, value: "object" }],
-  ["/properties/a~1b", { found: true, value: { type: "string" } }],
-  ["/properties/hooks/items/1/const", { found: true, value: "SessionEnd" }],
-  ["/properties/hooks/items/01", { found: false }],
-  ["/properties/hooks/items/2", { found: false }],
-  ["/properties/webhooks", { found: false }],
-  ["/properties/amp", { found: false }],
-  ["/properties/amp.mcpServers/type/length", { found: false }],
-] as const)("resolvePointer(%s) is %j", (pointer, resolved) => {
-  expect(resolvePointer(SCHEMA, pointer)).toEqual(resolved);
-});
 
 const RAW = "# Hooks\n\nThe `TaskStart` file runs on each task.\n\n<main>quoted</main>\n";
 const HTML = { headers: { "content-type": "text/html; charset=utf-8" } };
@@ -243,6 +228,7 @@ describe("runHarnessDrift", () => {
     [url("gone")]: () => new Response("", { status: 503 }),
     [url("slow")]: timeoutError,
     [url("schema-moved")]: () => new Response("<p>moved</p>", HTML),
+    [url("schema-null")]: () => new Response("null", JSON_TYPE),
   };
   const table = (rows: string[]): string =>
     ["| id | kind | source | note | verdict | result |", "|---|---|---|---|---|---|", ...rows].join(
@@ -313,7 +299,8 @@ describe("runHarnessDrift", () => {
   // Every way a run can fail to read a source, each as the one source of its run, so none hides
   // behind another's failure. Without this the run stays green on sources it never read, and a
   // vendor that starts answering 403 to the nightly's user agent turns the whole category green
-  // for good. A schema URL that answers markup read nothing of the schema either.
+  // for good. A schema URL that answers markup, or a JSON document with no keys to point into,
+  // read nothing of the schema either.
   test.each([
     ["gone", page("gone", ["SessionStart"]), "page", "HTTP 503"],
     ["slow", page("slow", ["SessionStart"]), "page", "timeout after 20 s"],
@@ -324,6 +311,7 @@ describe("runHarnessDrift", () => {
       "network error: getaddrinfo ENOTFOUND example.com",
     ],
     ["schema-moved", schema("schema-moved", ["/properties"]), "schema", `not JSON: ${notJson()}`],
+    ["schema-null", schema("schema-null", ["/properties"]), "schema", "not a JSON object: null"],
   ] as const)(
     "the %s source, which the run could not read, fails the run with its answer in its row",
     async (name, source, kind, result) => {

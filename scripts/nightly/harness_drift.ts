@@ -5,6 +5,7 @@
 // and every claim held: a source the run could not read fails it, since a run that read nothing
 // proves nothing about the facts.
 import { isDeepStrictEqual } from "node:util";
+import jsonpointer from "jsonpointer";
 import { HTMLElement, type Node, parse } from "node-html-parser";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
@@ -123,28 +124,6 @@ export function claimPresent(text: string, claim: string): boolean {
   return new RegExp(`${before}${literal}${after}`).test(text);
 }
 
-// RFC 6901: `/a~1b/0` names the key `a/b`, then index 0 inside it. An array is entered only by a
-// canonical index, so `/items/01` resolves nowhere.
-const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
-
-export type Resolved = { found: true; value: unknown } | { found: false };
-
-export function resolvePointer(value: unknown, pointer: string): Resolved {
-  let cursor = value;
-  for (const token of pointer.split("/").slice(1)) {
-    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
-    if (Array.isArray(cursor)) {
-      if (!ARRAY_INDEX.test(key) || Number(key) >= cursor.length) return { found: false };
-      cursor = cursor[Number(key)];
-    } else if (typeof cursor === "object" && cursor !== null && Object.hasOwn(cursor, key)) {
-      cursor = (cursor as Record<string, unknown>)[key];
-    } else {
-      return { found: false };
-    }
-  }
-  return { found: true, value: cursor };
-}
-
 export type Fetched =
   | { kind: "body"; text: string; media: Media }
   | { kind: "status"; status: number }
@@ -212,24 +191,28 @@ function readClaims(text: string, claims: readonly string[]): Reading {
 }
 
 // A pointer paired with a value drifts when the schema still has the key but says something else,
-// and the row quotes both so a reader sees whether the fact or the definition moved.
+// and the row quotes both so a reader sees whether the fact or the definition moved. JSON carries
+// no undefined, so an undefined lookup is a missing pointer; a document that is not an object
+// (jsonpointer refuses a primitive and trips on null) is no schema at all.
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
-  let value: unknown;
+  let document: unknown;
   try {
-    value = JSON.parse(text);
+    document = JSON.parse(text);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { verdict: "UNREACHABLE", result: `not JSON: ${message}` };
   }
+  if (typeof document !== "object" || document === null)
+    return { verdict: "UNREACHABLE", result: `not a JSON object: ${JSON.stringify(document)}` };
   const missing: string[] = [];
   const differing: string[] = [];
   for (const check of paths) {
     const pointer = typeof check === "string" ? check : check.pointer;
-    const resolved = resolvePointer(value, pointer);
-    if (!resolved.found) missing.push(`\`${pointer}\``);
-    else if (typeof check !== "string" && !isDeepStrictEqual(resolved.value, check.equals))
+    const value: unknown = jsonpointer.get(document, pointer);
+    if (value === undefined) missing.push(`\`${pointer}\``);
+    else if (typeof check !== "string" && !isDeepStrictEqual(value, check.equals))
       differing.push(
-        `\`${pointer}\` is ${JSON.stringify(resolved.value)}, not ${JSON.stringify(check.equals)}`,
+        `\`${pointer}\` is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
       );
   }
   if (missing.length === 0 && differing.length === 0)

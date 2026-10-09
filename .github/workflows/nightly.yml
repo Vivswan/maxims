@@ -131,7 +131,7 @@ jobs:
           label: nightly-parity-drift
           stream: generic
 
-  # Every harness definition's verified documentation page re-fetched and hashed.
+  # Every harness definition's verified source re-fetched and its claims re-matched.
   harness-drift:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -172,9 +172,9 @@ jobs:
         with:
           mode: report
           label: nightly-harness-drift
-          title: A harness definition's verified documentation page changed
+          title: A harness definition's verified source drifted or was unreachable
           label-color: D93F0B
-          label-description: A harness definition's verified documentation page changed
+          label-description: A harness definition's verified source drifted or was unreachable
           stream: generic
           artifacts-dir: nightly-report
           artifact-name: nightly-harness-drift

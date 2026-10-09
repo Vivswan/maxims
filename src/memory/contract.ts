@@ -23,8 +23,8 @@ export function contentHashOf(text: string | Uint8Array): ContentHash {
   return sha256(text) as ContentHash;
 }
 
-// A digest written in source (a harness definition's verified page) is minted here; a malformed
-// literal throws at module load, naming itself, before any definition registers.
+// A digest spelled as a literal (a test fixture) is minted here so a malformed one fails at module
+// load, naming itself, instead of reaching a comparison as an ordinary string.
 export function contentHashLiteral(literal: string): ContentHash {
   const parsed = parseContentHash(literal);
   if (parsed === null) throw new Error(`not a sha256:<64 hex digits> digest: ${literal}`);
