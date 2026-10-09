@@ -69,26 +69,27 @@ export function trackedPaths(files: Iterable<string>): TrackedPaths {
   return out;
 }
 
-// The variables that point git at a repository (`git rev-parse --local-env-vars`): a `GIT_DIR` or
-// `GIT_INDEX_FILE` inherited from a git hook would list another repository, or nothing. The config
-// overrides (GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM) stay: a checkout may need their safe.directory.
-const GIT_REPOSITORY_ENV = new Set([
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_CONFIG",
-  "GIT_CONFIG_PARAMETERS",
-  "GIT_CONFIG_COUNT",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_IMPLICIT_WORK_TREE",
-  "GIT_GRAFT_FILE",
-  "GIT_INDEX_FILE",
-  "GIT_NO_REPLACE_OBJECTS",
-  "GIT_REPLACE_REF_BASE",
-  "GIT_PREFIX",
-  "GIT_SHALLOW_FILE",
-  "GIT_COMMON_DIR",
-]);
+/**
+ * The variables that point git at a repository: a `GIT_DIR` or `GIT_INDEX_FILE` a git hook hands
+ * down would list another repository, or nothing. The command itself needs no repository.
+ * GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM are not on git's list and survive: a checkout may need
+ * the safe.directory override they carry.
+ */
+function gitRepositoryEnv(): Set<string> {
+  const proc = Bun.spawnSync(["git", "rev-parse", "--local-env-vars"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (proc.exitCode !== 0)
+    throw new Error(`git rev-parse --local-env-vars failed: ${proc.stderr.toString().trim()}`);
+  const names = proc.stdout.toString("utf8").split("\n").filter(Boolean);
+  if (names.length === 0)
+    throw new Error(
+      "git rev-parse --local-env-vars named nothing; the listing cannot be kept to the root's repository",
+    );
+  return new Set(names);
+}
 
 /**
  * The files git tracks under `root`, as git prints them: slash-separated, relative to the root.
@@ -96,9 +97,10 @@ const GIT_REPOSITORY_ENV = new Set([
  * page, so an empty listing is refused rather than read as "nothing to check".
  */
 function gitTrackedFiles(root: string): string[] {
+  const stripped = gitRepositoryEnv();
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env))
-    if (value !== undefined && !GIT_REPOSITORY_ENV.has(key)) env[key] = value;
+    if (value !== undefined && !stripped.has(key)) env[key] = value;
   const proc = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"], {
     env,
     stdin: "ignore",

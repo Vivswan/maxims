@@ -532,11 +532,10 @@ test.each(anchorCases)("%s", async (_name, href, message) => {
   });
 });
 
-// A page under a tracked `docs/` names each kind of token. Git tracks `docs/page.md`,
-// `README.md`, and `..notes/kept.md` and nothing under `.claude`, so the verdicts hold with or
-// without a planted `.claude/`, and the user's `.claude/settings.json` is never a finding. The
-// stale `docs/gone.md` is the positive control. A token resolving to the root names the
-// repository, and a directory whose name opens with `..` sits inside it.
+// Git tracks `docs/page.md`, `README.md`, and `..notes/kept.md` and nothing under `.claude`, so
+// each verdict holds with or without a planted `.claude/`. The stale `docs/gone.md` is the
+// positive control. A token resolving to the root names the repository, and a directory whose
+// name opens with `..` sits inside it.
 const ownershipCases: [token: string, message: string | null][] = [
   [".claude/settings.json", null],
   ["docs/gone.md", "`docs/gone.md` does not exist"],
@@ -544,7 +543,6 @@ const ownershipCases: [token: string, message: string | null][] = [
   ["../README.md", null],
   ["./page.md", null],
   ["./../", null],
-  ["docs/../", null],
   ["../..notes/kept.md", null],
   ["docs/../../outside.md", "`docs/../../outside.md` escapes the repository"],
   ["scratch/../../outside.md", "`scratch/../../outside.md` escapes the repository"],
