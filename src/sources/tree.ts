@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { isMemoryFile } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { isInside } from "../util/fs.ts";
 import type { FetchOptions } from "./contract.ts";
 
 export type WarnSink = (message: string) => void;
@@ -26,7 +27,7 @@ export async function readMemoryTree(
   const sourceRoot = resolve(root);
   const scannedRoot = scope.fullDepth ? sourceRoot : resolve(sourceRoot, scope.memoryPath);
   const prefix = relative(sourceRoot, scannedRoot);
-  if (prefix === ".." || prefix.startsWith(`..${sep}`) || isAbsolute(prefix)) {
+  if (!isInside(sourceRoot, scannedRoot)) {
     throw new MaximsError(
       ExitCode.SourceUnresolvable,
       `memory path ${scope.memoryPath} escapes the source ${sourceRoot}`,

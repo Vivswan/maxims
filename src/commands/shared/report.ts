@@ -1,8 +1,8 @@
-import { isAbsolute, relative } from "node:path";
 import type { State } from "../../state/schema.ts";
 import { inspectState, type LoadedState } from "../../state/store.ts";
 import { applyChanges, type Change, planToJson, renderPlan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { isInside } from "../../util/fs.ts";
 import { appendRefreshLog } from "../../util/log.ts";
 import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
 import type { EngineContext } from "./context.ts";
@@ -143,11 +143,6 @@ export function summaryLine(report: SyncReport): string {
 
 function installedCounts(report: SyncReport): string {
   return `${countOf(report.memories, "memory", "memories")}, ${countOf(report.rules, "rule line")}`;
-}
-
-function isInside(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export function countOf(count: number, singular: string, plural = `${singular}s`): string {

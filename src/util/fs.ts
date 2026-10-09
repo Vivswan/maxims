@@ -3,8 +3,10 @@ import {
   closeSync,
   fchmodSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
   renameSync,
   unlinkSync,
@@ -45,6 +47,10 @@ export function writeFileAtomic(
     } finally {
       closeSync(fd);
     }
+    // A link at the destination is removed once the replacement is complete, right before the
+    // rename: the file written here is a real file wherever the link pointed, and Windows refuses
+    // to rename over a link to a directory.
+    if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(path);
     renameSync(tempPath, path);
   } catch (cause) {
     try {
@@ -88,8 +94,7 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
     resolved === resolvedRoot || dirname(resolved) === resolved
       ? realpathOfExistingPrefix(resolved)
       : join(realpathOfExistingPrefix(dirname(resolved)), basename(resolved));
-  const rel = relative(realRoot, realCandidate);
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (!isInside(realRoot, realCandidate)) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
       `refusing to write outside ${realRoot}: ${resolved}`,
@@ -98,19 +103,60 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
   return resolved as RootedPath;
 }
 
-function realpathOfExistingPrefix(path: string): string {
+// Whether `path` is `root` or lies below it, judged by path segment: a sibling named `..cache` is
+// outside, a child named `..cache` is inside. Both arguments are compared as given, so a caller
+// that needs real paths resolves them first.
+export function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+// The real path of a location that may not exist yet: its deepest existing prefix resolved, the
+// rest appended as typed. Only "nothing is there" walks up; a prefix that exists but cannot be
+// inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
+// built on a path nobody looked at.
+export function realpathOfExistingPrefix(path: string): string {
   let prefix = path;
   const tail: string[] = [];
   for (;;) {
     try {
       return join(realpathSync(prefix), ...tail.reverse());
-    } catch {
+    } catch (cause) {
+      if (!isAbsent(cause)) throw cannotInspect(prefix, cause);
       const parent = dirname(prefix);
       if (parent === prefix) return path;
       tail.push(basename(prefix));
       prefix = parent;
     }
   }
+}
+
+// The one reading of "nothing is there": a missing entry, or a regular file where a directory was
+// expected on the way. A directory where a file was expected (EISDIR) is NOT absent: something is
+// there, and it is not what maxims owns, so the caller refuses it by name instead of planning over
+// it. Any other failure (EACCES, EIO) means the probe could not look, and is never an answer.
+export function isAbsent(cause: unknown): boolean {
+  const code = (cause as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+export function readIfPresent(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (cause) {
+    if (isAbsent(cause)) return null;
+    throw cannotInspect(path, cause);
+  }
+}
+
+export function cannotInspect(path: string, cause: unknown): MaximsError {
+  return new MaximsError(
+    ExitCode.DestinationWriteFailed,
+    `cannot inspect ${path}: ${describe(cause)}`,
+    {
+      cause,
+    },
+  );
 }
 
 export function sha256(text: string | Uint8Array): string {

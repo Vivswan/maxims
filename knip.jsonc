@@ -8,5 +8,7 @@
     "tests/fixtures/**/*.ts"
   ],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  // mkfifo is the system binary the FIFO test spawns; no package provides it.
+  "ignoreBinaries": ["mkfifo"]
 }

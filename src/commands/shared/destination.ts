@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { type HarnessId, isBuiltInHarnessId } from "../../contracts/harness-id.ts";
 import {
@@ -12,7 +12,7 @@ import { rulesDirPath } from "../../harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../harnesses/strategies/shared-block.ts";
 import type { SourceIntent } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { RootedPath } from "../../util/fs.ts";
+import { type RootedPath, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 
@@ -123,25 +123,5 @@ function destinationConflict(
 // because the final entry is what a write replaces (a leaf that is a symlink becomes the real
 // file), while two spellings of the directory above it are one place.
 export function realKeyOf(path: string): string {
-  return join(realDirOf(dirname(path)), basename(path));
-}
-
-// The identity of a DIRECTORY: fully resolved, so a folder reached through a symlink and the
-// folder itself are one place to sweep and to protect.
-export function realDirOf(dir: string): string {
-  let prefix = dir;
-  const tail: string[] = [];
-  for (;;) {
-    if (existsSync(prefix)) {
-      try {
-        return join(realpathSync(prefix), ...tail.reverse());
-      } catch {
-        return dir;
-      }
-    }
-    const parent = dirname(prefix);
-    if (parent === prefix) return dir;
-    tail.push(basename(prefix));
-    prefix = parent;
-  }
+  return join(realpathOfExistingPrefix(dirname(path)), basename(path));
 }

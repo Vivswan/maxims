@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type HarnessDefinition, type Scope, scopeRoot } from "../../harnesses/contract.ts";
 import { achievedTier } from "../../harnesses/hook-writer.ts";
@@ -16,11 +16,18 @@ import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
 import { MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import {
+  assertInsideRoot,
+  cannotInspect,
+  isAbsent,
+  type RootedPath,
+  readIfPresent,
+  realpathOfExistingPrefix,
+} from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { parseRuleLines, ruleLineName } from "./blocks.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { type HarnessTarget, realDirOf, realKeyOf } from "./destination.ts";
+import { type HarnessTarget, realKeyOf } from "./destination.ts";
 
 export type BlockRequest = {
   key: string;
@@ -387,17 +394,17 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
       const orphans = names.filter((name) => {
         const path = join(dir, name);
         if (input.planned.has(realKeyOf(path))) return false;
-        let text: string;
+        let text: string | null;
         try {
-          text = readFileSync(path, "utf8");
+          text = regularFileText(path);
         } catch (error) {
-          if (!isAbsent(error)) input.warn(`cannot read ${path}: ${describe(error)}`);
+          input.warn(describe(error));
           return false;
         }
-        return claimedByMaxims(text);
+        return text !== null && claimedByMaxims(text);
       });
       if (orphans.length === 0) continue;
-      const realDir = realDirOf(dir);
+      const realDir = realpathOfExistingPrefix(dir);
       const plannedHere = [...input.planned].some((path) => dirname(path) === realDir);
       if (orphans.length === names.length && !plannedHere) {
         changes.push({ kind: "delete", path: assertInsideRoot(root, dir) });
@@ -418,24 +425,28 @@ export function claimedByMaxims(text: string): boolean {
 }
 
 function isSymlink(path: string): boolean {
-  return lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() === true;
-}
-
-// Absent means nothing is there; a file that exists but cannot be read propagates, so a plan
-// never treats an unreadable destination as empty and writes over it blind.
-export function readIfPresent(path: string): string | null {
   try {
-    return readFileSync(path, "utf8");
-  } catch (error) {
-    if (isAbsent(error)) return null;
-    throw error;
+    return lstatSync(path).isSymbolicLink();
+  } catch (cause) {
+    if (isAbsent(cause)) return false;
+    throw cannotInspect(path, cause);
   }
 }
 
-// A directory in the path, or a plain file where a directory was expected, both mean absent.
-export function isAbsent(error: unknown): boolean {
-  const code = error instanceof Error && "code" in error ? error.code : undefined;
-  return code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR";
+// The text of the file at a derived rule-file name, read through a link, for the reads that take
+// only a file carrying a managed block (the sweeps, the names a block still reserves). Anything
+// there that is not a regular file (a directory or a link to one; a FIFO, whose read would block
+// the run) is nobody's rule file and is passed over unread rather than refused: only the
+// planner's own read of a file it will write refuses it (`readIfPresent`).
+export function regularFileText(path: string): string | null {
+  let target: Stats;
+  try {
+    target = statSync(path);
+  } catch (cause) {
+    if (isAbsent(cause)) return null;
+    throw cannotInspect(path, cause);
+  }
+  return target.isFile() ? readIfPresent(path) : null;
 }
 
 function describe(error: unknown): string {

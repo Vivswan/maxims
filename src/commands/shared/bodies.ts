@@ -1,12 +1,10 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { type ContentHash, contentHashOf, parseMemory } from "../../memory/contract.ts";
 import type { Change } from "../../util/change.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, isAbsent, isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { SymlinkSupport } from "../types.ts";
-import { realDirOf } from "./destination.ts";
-import { isAbsent } from "./rules.ts";
 
 export type BodyFile = {
   localName: string;
@@ -69,7 +67,10 @@ export function planBodies(input: BodiesInput): BodiesPlan {
         if (!input.replaceCopies) continue;
         changes.push({ kind: "delete", path });
       }
-      const target = relative(realDirOf(dirname(path)), inStore(input.store, file.storeFile));
+      const target = relative(
+        realpathOfExistingPrefix(dirname(path)),
+        inStore(input.store, file.storeFile),
+      );
       if (existing?.isSymbolicLink() && readlinkSync(path) === target) continue;
       changes.push({ kind: "symlink", path, target });
     } else {
@@ -110,9 +111,8 @@ export function planBodySweep(input: {
     const entry = lstatSync(path, { throwIfNoEntry: false });
     if (entry === undefined) continue;
     if (entry.isSymbolicLink()) {
-      const target = resolve(realDirOf(dirname(path)), readlinkSync(path));
-      const store = realDirOf(input.store);
-      if (target === store || target.startsWith(`${store}${sep}`)) {
+      const target = resolve(realpathOfExistingPrefix(dirname(path)), readlinkSync(path));
+      if (isInside(realpathOfExistingPrefix(input.store), target)) {
         changes.push({ kind: "unlink", path });
       }
       continue;
@@ -124,8 +124,8 @@ export function planBodySweep(input: {
 }
 
 // A store file's location with the store root resolved and the path below it kept as spelled.
-function inStore(store: string, storeFile: string): string {
-  return join(realDirOf(store), relative(store, storeFile));
+export function inStore(store: string, storeFile: string): string {
+  return join(realpathOfExistingPrefix(store), relative(store, storeFile));
 }
 
 // A copy maxims wrote: its bytes are a memory text maxims knows, or it is a memory file by the

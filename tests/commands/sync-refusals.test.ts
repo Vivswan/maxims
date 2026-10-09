@@ -3,6 +3,7 @@
 // that takes a file this run recreates or reaches through a symlink, and a vanished source's
 // destination that a sync visits when it has nothing to render there.
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -10,11 +11,12 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
@@ -44,6 +46,7 @@ import {
   writeState,
 } from "../engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { DAY_MS, fetchedOf, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
 
 // A run that refuses several sources exits with the first failure in key order. A local source's
@@ -110,6 +113,127 @@ describe("what a refused or departed source leaves behind", () => {
       expect(lstatSync(rules).isFile()).toBe(true);
     });
   });
+
+  // A directory where the rule file belongs read as "absent" to the planner, which then planned a
+  // write over it; the refusal names the path before anything is applied.
+  test("a directory where a rule file belongs is refused by name, not planned over", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      rmSync(rules);
+      mkdirSync(rules);
+      writeFileSync(join(rules, "keep.md"), "the user's own file\n");
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toBe(
+        `cannot inspect ${rules}: EISDIR: illegal operation on a directory, read`,
+      );
+      expect(readFileSync(join(rules, "keep.md"), "utf8")).toBe("the user's own file\n");
+    });
+  });
+
+  // A symlink where the rule file belongs is replaced whatever it points at: the file maxims owns
+  // is always real. Reading through the link to learn the retained names would refuse a link to a
+  // directory before the planner reached it.
+  test("a symlink to a directory where a rule file belongs is replaced by a real file", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      const folder = join(dir, "folder");
+      mkdirSync(folder);
+      writeFileSync(join(folder, "keep.md"), "the user's own file\n");
+      rmSync(rules);
+      symlinkSync(folder, rules);
+      await runSync(SYNC, io);
+      expect(lstatSync(rules).isFile()).toBe(true);
+      expect(readFileSync(rules, "utf8")).toContain("Never merge red.");
+      expect(readFileSync(join(folder, "keep.md"), "utf8")).toBe("the user's own file\n");
+    });
+  });
+
+  // The sweep reads every entry of a rules directory to find maxims blocks; an entry that is not
+  // a regular file (a folder of nested rules, reached directly or through a link; a FIFO, whose
+  // read would block the run) would otherwise be warned about on every run or hang it. `plant`
+  // puts the entry at `nested` and returns the check that it was left alone.
+  async function sweptAround(plant: (rulesDir: string, scratch: string) => () => void) {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      const untouched = plant(dirname(rules), join(dir, "folder"));
+      const report = await runSync(SYNC, io);
+      expect(report.notices).toEqual([]);
+      untouched();
+      expect(existsSync(rules)).toBe(true);
+    });
+  }
+  function nestedRule(folder: string): () => void {
+    const own = join(folder, "own.md");
+    writeFileSync(own, "the user's nested rule\n");
+    return () => expect(readFileSync(own, "utf8")).toBe("the user's nested rule\n");
+  }
+  const nestedFolders: [string, (rulesDir: string, scratch: string) => () => void][] = [
+    [
+      "a folder",
+      (rulesDir) => {
+        mkdirSync(join(rulesDir, "nested"));
+        return nestedRule(join(rulesDir, "nested"));
+      },
+    ],
+    [
+      "a link to a folder",
+      (rulesDir, scratch) => {
+        mkdirSync(scratch);
+        symlinkSync(scratch, join(rulesDir, "nested"));
+        return nestedRule(join(rulesDir, "nested"));
+      },
+    ],
+  ];
+  test.each(nestedFolders)(
+    "%s inside a rules directory is left alone by the sweep, without a warning",
+    (_label, plant) => sweptAround(plant),
+  );
+
+  // Windows has no FIFOs.
+  test.skipIf(WINDOWS)(
+    "a FIFO inside a rules directory is left alone by the sweep, without a warning",
+    () =>
+      sweptAround((rulesDir) => {
+        const fifo = join(rulesDir, "nested");
+        execFileSync("mkfifo", [fifo]);
+        return () => expect(lstatSync(fifo).isFIFO()).toBe(true);
+      }),
+  );
+
+  // The sweep lists every project bodies folder a harness declares, written to by nobody this
+  // run; one it cannot resolve is not a place to write, so a global-only run says so and goes on
+  // where the probe used to refuse the whole run. The errno Windows gives a looping link is not
+  // pinned here.
+  test.skipIf(WINDOWS)(
+    "a project bodies folder that cannot be resolved is left out of the sweep with a notice",
+    async () => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const bodies = join(project, ".agents", "memories");
+        mkdirSync(dirname(bodies));
+        symlinkSync("memories", bodies);
+        const report = await runSync(SYNC, io);
+        expect(report.notices).toHaveLength(1);
+        expect(report.notices[0]).toStartWith(`maxims: cannot inspect ${bodies}: ELOOP: `);
+        expect(existsSync(globalRulesFile(userHome, sourceSlug(localFrom(source))))).toBe(true);
+      });
+    },
+  );
 
   test("a body copied while symlinks were unavailable becomes a link once they are", async () => {
     await world(async ({ home, dir, userHome, project }) => {
@@ -339,6 +463,30 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
+  // The cleanup of a retired -o rule file takes only a file carrying a managed block; a directory
+  // at the derived name is nobody's rule file, and refusing it would abort a run that asked for no
+  // rule file there.
+  test("a directory at a retired -o rule file's name is passed over, not refused", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const out = join(dir, "out");
+      const rulesOff = entryFor(localFrom(source), {
+        destination: { scope: "out", path: out },
+        rule: false,
+      });
+      const ruleFile = join(out, `maxims-${sourceSlug(localFrom(source))}.md`);
+      mkdirSync(ruleFile, { recursive: true });
+      writeFileSync(join(ruleFile, "keep.md"), "the user's own file\n");
+      writeState(home, stateWith({ [source]: rulesOff }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const report = await runSync(SYNC, io);
+      expect(report.notices).toEqual([]);
+      expect(readFileSync(join(ruleFile, "keep.md"), "utf8")).toBe("the user's own file\n");
+      expect(lstatSync(join(out, "memories", "always-review.md")).isSymbolicLink()).toBe(true);
+    });
+  });
+
   test("switching rules off removes an -o rule file even when the source cannot be read", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
@@ -431,6 +579,59 @@ describe("what a refused or departed source leaves behind", () => {
       expect(readlinkSync(body)).toBe(target);
     });
   });
+
+  // The names a shared file's block still holds are read through a link: a dotfiles checkout keeps
+  // the file as a symlink, and a reader that skipped links let a rival take a name the block
+  // still referenced, overwriting the copied body it pointed at. The bodies are copies so that
+  // the block is the only place the name is still recorded.
+  const sharedFileKinds: [string, (shared: string, aside: string) => void][] = [
+    ["a regular file", () => undefined],
+    [
+      "a symlink into dotfiles",
+      (shared, aside) => {
+        renameSync(shared, aside);
+        symlinkSync(aside, shared);
+      },
+    ],
+  ];
+  test.each(sharedFileKinds)(
+    "an unreadable live source keeps owning the names in its shared block, kept as %s",
+    async (_label, keep) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
+        const liveEntry = entryFor(localFrom(live, true), {
+          destination: { scope: "project", root: project },
+          harnesses: ["codex"],
+          copy: true,
+        });
+        writeState(home, stateWith({ [live]: liveEntry }));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const body = join(project, ".agents", "memories", "alpha.md");
+        const copied = readFileSync(body, "utf8");
+        expect(copied).toContain("Body of alpha.");
+        keep(join(project, "FIXTURE.md"), join(dir, "dotfiles-FIXTURE.md"));
+        rmSync(live, { recursive: true });
+        const rival = writeSource(join(dir, "rival"), { alpha: { description: "Rival alpha." } });
+        writeState(
+          home,
+          stateWith({
+            [live]: liveEntry,
+            [rival]: {
+              ...entryFor(localFrom(rival), {
+                destination: { scope: "project", root: project },
+                harnesses: ["codex"],
+              }),
+              addedAt: "2026-08-02T00:00:00.000Z",
+            },
+          }),
+        );
+        const error = await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
+        expect(error.message).toBe(`${rival}: name collision on alpha`);
+        expect(readFileSync(body, "utf8")).toBe(copied);
+      });
+    },
+  );
 
   test("copies written before upstream changed are still ours: relinked, or swept when retired", async () => {
     await world(async ({ home, dir, userHome, project }) => {

@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { heldForReview } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { LastError } from "../../contracts/last-error.ts";
@@ -26,7 +26,13 @@ import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/sche
 import { serializeState, WRITTEN_BY } from "../../state/store.ts";
 import type { Change, Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import {
+  assertInsideRoot,
+  isAbsent,
+  isInside,
+  type RootedPath,
+  realpathOfExistingPrefix,
+} from "../../util/fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../util/home.ts";
 import type {
   EngineIo,
@@ -37,9 +43,9 @@ import type {
   SyncReport,
 } from "../types.ts";
 import { parseRuleBlocks } from "./blocks.ts";
-import { planBodies, planBodySweep } from "./bodies.ts";
+import { inStore, planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { type HarnessTarget, realDirOf, realKeyOf, resolveTargets } from "./destination.ts";
+import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";
 import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { hookedAt, planHooks } from "./hooks.ts";
@@ -57,13 +63,12 @@ import {
   type BlockRequest,
   changingBlocks,
   claimedByMaxims,
-  isAbsent,
   planRuleFile,
   planRulesDirSweep,
   type RuleFile,
   RuleFileHeld,
   type RuleFilePlan,
-  readIfPresent,
+  regularFileText,
 } from "./rules.ts";
 import { disabledNames, inSelect, renamed, selectMemories } from "./select.ts";
 import { sourceSlug } from "./slug.ts";
@@ -703,10 +708,10 @@ async function planInstall(
     }),
   );
   const store = resolve(ctx.paths.store);
-  for (const dir of allBodiesDirs(ctx, io, extras.removed)) {
+  const warn = (line: string): void => notices.notice(`maxims: ${line}`);
+  for (const dir of allBodiesDirs(ctx, io, extras.removed, warn)) {
     bodiesWanted.set(dir.id, bodiesWanted.get(dir.id) ?? { ...dir, wanted: new Set() });
   }
-  const warn = (line: string): void => notices.notice(`maxims: ${line}`);
   for (const [id, { dir, root, wanted }] of bodiesWanted) {
     if (unsweepable.has(id)) continue;
     builder.add("removal", planBodySweep({ dir, root, store, wanted, knownCopies, warn }));
@@ -1185,10 +1190,11 @@ function previewStoreTrees(preview: SyncPreview | undefined, ctx: EngineContext)
     const path = storePathFor(ctx.home, entry.intent.from);
     const files: TreeFile[] = [];
     for (const change of preview.changes) {
-      if (change.kind !== "write") continue;
-      const rel = relative(path, change.path);
-      if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
-      files.push({ relPath: rel.split(sep).join("/"), text: change.content });
+      if (change.kind !== "write" || !isInside(path, change.path)) continue;
+      files.push({
+        relPath: relative(path, change.path).split(sep).join("/"),
+        text: change.content,
+      });
     }
     if (files.length > 0)
       overlay.set(path, { sha: hashFiles(files), ...validateMemoryFiles(files) });
@@ -1255,34 +1261,56 @@ function bodiesDirsFor(
 
 // Every bodies directory this run can reach, whatever `-a` limited it to, so a source that left
 // intent has its links and copies swept even when no surviving source shares the directory; a
-// removed `-o` source contributes its own memories folder.
+// removed `-o` source contributes its own memories folder. Nothing here writes to these, so one
+// that cannot be looked at (a link that loops, a folder without search permission) is warned
+// about and left out of the sweep; a source's own directory refuses the run in `bodiesDirsFor`.
 function allBodiesDirs(
   ctx: EngineContext,
   io: EngineIo,
   removed: readonly SourceEntry[],
+  warn: (line: string) => void,
 ): BodiesDir[] {
   const dirs = new Map<string, BodiesDir>();
+  // One look per spelled directory, so two harnesses naming the same folder warn once; a later
+  // entry for the same folder still supplies the root (a removed `-o` folder that is also a
+  // project's bodies directory is swept inside its own root).
+  const looked = new Map<string, string | null>();
+  const idOf = (dir: string): string | null => {
+    const known = looked.get(dir);
+    if (known !== undefined) return known;
+    let id: string | null = null;
+    try {
+      id = realpathOfExistingPrefix(dir);
+    } catch (error) {
+      if (!destinationUnresolvable(error)) throw error;
+      warn(error instanceof Error ? error.message : String(error));
+    }
+    looked.set(dir, id);
+    return id;
+  };
+  const sweepable = (dir: string, root: string): void => {
+    const id = idOf(dir);
+    if (id !== null) dirs.set(id, { id, dir, root });
+  };
   if (ctx.projectRoot !== null) {
     const projectRoot = ctx.projectRoot;
     const harnessCtx = { ...harnessContext(ctx), projectRoot };
     for (const def of io.harnesses) {
       const dir = def.bodiesDir("project", harnessCtx);
       if (dir === null) continue;
-      const entry = bodiesDir(resolve(dir), projectRoot);
-      dirs.set(entry.id, entry);
+      sweepable(resolve(dir), projectRoot);
     }
   }
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
-    const out = bodiesDir(join(root, "memories"), root);
-    dirs.set(out.id, out);
+    sweepable(join(root, "memories"), root);
   }
   return [...dirs.values()];
 }
 
 function bodiesDir(dir: string, root: string): BodiesDir {
-  return { id: realDirOf(dir), dir, root };
+  return { id: realpathOfExistingPrefix(dir), dir, root };
 }
 
 // The local names a source holds installed right now, read from what the last run left behind:
@@ -1332,14 +1360,14 @@ export async function retainedNames(
   }
   const upstreamPaths = intent.destination.scope === "global";
   for (const path of retainedRuleFiles(entry, ctx, io)) {
-    const text = readIfPresent(path);
+    const text = regularFileText(path);
     if (text === null) continue;
     const block = parseRuleBlocks(text).find((candidate) => candidate.source === key);
     for (const name of block?.names ?? []) {
       names.add(upstreamPaths ? renamed(intent.rename, name) : name);
     }
   }
-  const entryReal = join(realDirOf(ctx.paths.store), relative(ctx.paths.store, storeEntry));
+  const entryReal = inStore(ctx.paths.store, storeEntry);
   const own = new Set(
     (installed?.memories ?? [])
       .map((memory) => memory.memory.contentHash)
@@ -1395,8 +1423,8 @@ function installedBodies(
     const parsed = parseMemoryName(name.slice(0, -".md".length));
     if (parsed === null) continue;
     if (stat.isSymbolicLink()) {
-      const target = resolve(realDirOf(dir), readlinkSync(path));
-      if (target === entryReal || target.startsWith(`${entryReal}${sep}`)) names.push(parsed);
+      const target = resolve(realpathOfExistingPrefix(dir), readlinkSync(path));
+      if (isInside(entryReal, target)) names.push(parsed);
     } else if (stat.isFile() && own.has(contentHashOf(readFileSync(path, "utf8")))) {
       names.push(parsed);
     }
@@ -1436,7 +1464,7 @@ function removedOutRuleFiles(
     const root = entry.intent.destination.path;
     const path = join(root, `maxims-${sourceSlug(entry.intent.from)}.md`);
     if (planned.has(realKeyOf(path))) continue;
-    const text = readIfPresent(path);
+    const text = regularFileText(path);
     if (text === null || !claimedByMaxims(text)) continue;
     changes.push({ kind: "delete", path: assertInsideRoot(root, path) });
   }
@@ -1531,7 +1559,7 @@ function addSharedFilesWithOrphans(
         explicit: [],
       }).targets;
       if (only === undefined || files.has(only.realKey)) continue;
-      if (readIfPresent(only.path) === null) continue;
+      if (regularFileText(only.path) === null) continue;
       files.set(only.realKey, {
         kind: "harness",
         path: only.path,

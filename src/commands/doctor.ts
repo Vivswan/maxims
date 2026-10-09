@@ -6,11 +6,12 @@ import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
+import { readIfPresent } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
 import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere, harnessContext } from "./shared/context.ts";
-import { pathAbsent, readTextIfPresent } from "./shared/fs-probe.ts";
+import { pathAbsent } from "./shared/fs-probe.ts";
 import { hookedAt } from "./shared/hooks.ts";
 import {
   type Command,
@@ -195,7 +196,7 @@ async function checkHarness(
       source: key,
       path,
       present: (blocks ?? []).some((block) => block.source === key),
-      preamble: preambleCheck(def, scope, entry, readTextIfPresent(path)),
+      preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
     });
   }
   const wanted = hookedAt(state, scope, ctx.io.projectRoot).includes(def.id);
@@ -212,7 +213,7 @@ async function checkHarness(
 
 // Null when the file is absent; an empty list when it exists but carries no managed block.
 function ruleBlocks(path: string): RuleBlock[] | null {
-  const text = readTextIfPresent(path);
+  const text = readIfPresent(path);
   return text === null ? null : parseRuleBlocks(text);
 }
 
