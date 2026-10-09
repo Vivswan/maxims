@@ -65,10 +65,6 @@ export type RefreshOptions = {
   fetch: FetchIntent;
 };
 
-export function storeEntryPath(home: string, entry: SourceEntry): RootedPath {
-  return storePathFor(home, entry.intent.from);
-}
-
 // Only "nothing is there" reads as absent; an entry that cannot be inspected is treated as present
 // so the read that follows reports the real error instead of a needless fetch hiding it.
 export async function storeEntryPresent(path: string): Promise<boolean> {
@@ -111,7 +107,7 @@ export async function refreshSource(
   options: RefreshOptions,
 ): Promise<RefreshResult> {
   if (options.fetch === "none") return { outcome: "skipped", entry };
-  const entryPath = storeEntryPath(ctx.home, entry);
+  const entryPath = storePathFor(ctx.home, entry.intent.from);
   const storePresent = await storeEntryPresent(entryPath);
   if (!isDue(entry.fetched, ctx.now, ctx.cooldownDays, storePresent, options.fetch === "force")) {
     return { outcome: "not-due", entry };

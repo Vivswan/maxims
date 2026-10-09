@@ -5,8 +5,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { realLocal } from "../../../src/commands/shared/sources.ts";
+import { realLocal, withIntent } from "../../../src/commands/shared/sources.ts";
+import { parseState, type SourceEntry } from "../../../src/state/schema.ts";
+import { serializeState } from "../../../src/state/store.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
+import { entryFor, githubFrom, localFrom, stateWith } from "../../engine/harness.ts";
 import { WINDOWS } from "../../shared/platform.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
@@ -47,6 +50,30 @@ describe("realLocal", () => {
           live: true,
         });
       });
+    },
+  );
+});
+
+// What would drift silently: the state file is parsed into schema order, `from` first, and an
+// editor that rejoins `from` after the edited fields rewrites every edited entry with `from` last,
+// so `update`, `link`, `review` and `remove` churn the bytes of state.json without changing it.
+describe("withIntent", () => {
+  const variants: [string, string, SourceEntry][] = [
+    ["a live local entry", "/home/user/live", entryFor(localFrom("/home/user/live", true))],
+    ["a copied local entry", "/home/user/copied", entryFor(localFrom("/home/user/copied"))],
+    ["a remote entry", "@acme/rules", entryFor(githubFrom("acme/rules"))],
+  ];
+  test.each(variants)(
+    "an edit that changes nothing leaves the loaded state bytes as they were on %s",
+    (_label, key, entry) => {
+      const loaded = parseState(JSON.parse(serializeState(stateWith({ [key]: entry }))));
+      if (loaded.ok !== "parsed") throw new Error(JSON.stringify(loaded));
+      const before = loaded.state.sources[key];
+      if (before === undefined) throw new Error(`no entry at ${key}`);
+      const edited = withIntent(before, (fields) => ({ ...fields }));
+      expect(serializeState({ ...loaded.state, sources: { [key]: edited } })).toBe(
+        serializeState(loaded.state),
+      );
     },
   );
 });

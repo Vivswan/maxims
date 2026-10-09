@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { applyChanges, type Plan, planToJson, renderPlan } from "../../src/util/change.ts";
+import { applyChanges, type Plan, renderPlan } from "../../src/util/change.ts";
 import { ExitCode, type MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
@@ -216,7 +216,7 @@ describe("applyChanges", () => {
   );
 });
 
-test("renderPlan and planToJson describe the same plan for humans and for --json", () => {
+test("renderPlan describes the plan for humans, one line per change", () => {
   const project = resolve("/home/user/project");
   const at = (...parts: string[]) => join(project, ...parts);
   const plan = planFor(project);
@@ -232,8 +232,4 @@ test("renderPlan and planToJson describe the same plan for humans and for --json
     ].join("\n"),
   );
   expect(renderPlan({ changes: [], notices: [] })).toBe("nothing to change\n");
-  const json = planToJson(plan);
-  expect(json.endsWith("\n")).toBe(true);
-  expect(json.split("\n")[1]).toBe('  "changes": [');
-  expect(JSON.parse(json)).toEqual(plan);
 });

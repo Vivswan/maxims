@@ -4,7 +4,7 @@ import type { AchievedTier, Scope } from "../harnesses/contract.ts";
 import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
-import { buildNameIndex, type NameIndex } from "../rulefile/dedupe.ts";
+import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import {
@@ -27,7 +27,7 @@ import { pathAbsent } from "./shared/fs-probe.ts";
 import { hookedAt, planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
-import { disabledNames, selectMemories, shortHashOf } from "./shared/select.ts";
+import { disabledNames, selectMemories } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import type {
   EngineIo,
@@ -151,7 +151,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
         memories.push({
           upstreamName: selected.upstreamName,
           localName: selected.localName,
-          shortHash: shortHashOf(selected.memory),
+          shortHash: shortHash(selected.memory.memory.contentHash),
           disabled: false,
         });
       }

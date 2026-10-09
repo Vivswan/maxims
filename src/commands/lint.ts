@@ -2,8 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { hiddenCharacters, isMemoryFile, type Memory, parseMemory } from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
+import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { DEFAULT_RULE_CAP } from "./add.ts";
 import { type Command, FLAGS, type FlagSpec, INTEGER, parseInteger } from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
 

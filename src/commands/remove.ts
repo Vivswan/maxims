@@ -1,9 +1,9 @@
+import { memories } from "../console/strings.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import {
   canonicalSourceKey,
   parseSourceArgument,
   type SourceEntry,
-  type SourceIntent,
   type State,
 } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
@@ -12,12 +12,10 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { actsHere, type EngineContext, loadContext } from "./shared/context.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
-import { isRemoteEntry } from "./shared/fetch.ts";
 import { prunedHooks } from "./shared/hooks.ts";
 import type { SourceTree } from "./shared/memories.ts";
 import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
-  countOf,
   EMPTY_REPORT,
   emptyDocument,
   finishSync,
@@ -26,6 +24,7 @@ import {
   unusableStateLine,
 } from "./shared/report.ts";
 import { selectMemories } from "./shared/select.ts";
+import { withIntent } from "./shared/sources.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "./types.ts";
 
 // Intent mutation, then the same convergence that installs: with the entry gone the regenerated
@@ -89,7 +88,7 @@ async function runRemoveChecked(options: RemoveOptions, io: EngineIo): Promise<S
     // whether or not the source itself went with its last harness.
     if (!options.dryRun) {
       if (options.agents === undefined) {
-        step(`Removed ${countOf(removal.labels.length, "memory", "memories")}`);
+        step(`Removed ${memories(removal.labels.length)}`);
       } else {
         for (const label of removal.labels) step(`Removed ${label}`);
       }
@@ -151,7 +150,7 @@ async function resolveRemoval(
       for (const id of dropped) labels.push(`${key} from ${id}`);
       const remaining = entry.intent.harnesses.filter((id) => !dropped.includes(id));
       if (remaining.length > 0) {
-        const next = withIntent(entry, { harnesses: remaining });
+        const next = withIntent(entry, (fields) => ({ ...fields, harnesses: remaining }));
         sources[key] = next;
         item.entry = next;
         return;
@@ -345,16 +344,8 @@ function withoutMemory(
   const rename = Object.fromEntries(
     Object.entries(entry.intent.rename).filter(([from, to]) => from !== upstream && to !== local),
   );
-  return { entry: withIntent(entry, { select: remaining, rename }), hash: removedMemory.hash };
-}
-
-// The entry keeps its variant (remote, copied local or live) through the intent edit; a spread
-// over the union would let the type checker pair a live `from` with a fetched record.
-function withIntent(
-  entry: SourceEntry,
-  patch: Partial<Pick<SourceIntent, "select" | "rename" | "harnesses">>,
-): SourceEntry {
-  if (!isFetchedEntry(entry)) return { ...entry, intent: { ...entry.intent, ...patch } };
-  if (isRemoteEntry(entry)) return { ...entry, intent: { ...entry.intent, ...patch } };
-  return { ...entry, intent: { ...entry.intent, ...patch } };
+  return {
+    entry: withIntent(entry, (fields) => ({ ...fields, select: remaining, rename })),
+    hash: removedMemory.hash,
+  };
 }

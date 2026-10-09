@@ -209,9 +209,3 @@ function describeChange(change: Change): string {
       return `mkdir   ${change.path}`;
   }
 }
-
-// The `--json` wire format: the plan as two-space-indented JSON with a trailing newline, so a CI
-// assertion can diff it byte for byte across runs.
-export function planToJson(plan: Plan): string {
-  return `${JSON.stringify(plan, null, 2)}\n`;
-}
