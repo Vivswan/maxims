@@ -8,6 +8,7 @@ import {
   STRINGS,
   updated,
 } from "../console/strings.ts";
+import { isLiveLocal } from "../contracts/source.ts";
 import { contentHashOf, parseMemoryName } from "../memory/contract.ts";
 import type { UserConfig } from "../state/config.ts";
 import type { RenameMap, State } from "../state/schema.ts";
@@ -120,9 +121,7 @@ export const update: Command = {
     const liveKeys = Object.entries(before.state.sources)
       .filter(
         ([key, entry]) =>
-          (only === undefined || only.includes(key)) &&
-          entry.intent.from.type === "local" &&
-          entry.intent.from.live === true,
+          (only === undefined || only.includes(key)) && isLiveLocal(entry.intent.from),
       )
       .map(([key]) => key);
     for (const key of liveKeys) console.step(isLive(key));

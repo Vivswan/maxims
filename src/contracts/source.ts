@@ -81,6 +81,13 @@ export const LiveLocalFrom = z.strictObject({
 export const RemoteFrom = z.union([GithubFrom, GitFrom]);
 export const SourceFromSchema = z.union([GithubFrom, GitFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
+export type LiveLocalSourceFrom = z.infer<typeof LiveLocalFrom>;
+
+// Every verb that treats a live source apart (no store copy, no sha, no revision to hold) asks
+// here rather than spelling the comparison, so the live variant's shape is known to one line.
+export function isLiveLocal(from: SourceFrom): from is LiveLocalSourceFrom {
+  return from.type === "local" && from.live === true;
+}
 
 export const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const GIT_SCHEMES = new Set(["https", "http", "ssh", "git"]);

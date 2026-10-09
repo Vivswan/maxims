@@ -1,7 +1,12 @@
 import { statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { HarnessId } from "../../contracts/harness-id.ts";
-import { AbsolutePathSchema, DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
+import {
+  AbsolutePathSchema,
+  DEFAULT_GIT_REF,
+  isLiveLocal,
+  type SourceFrom,
+} from "../../contracts/source.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -92,8 +97,7 @@ export async function upstreamNamesIfReadable(
   io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<MemoryName[] | null> {
   const { from } = entry.intent;
-  const root =
-    from.type === "local" && from.live === true ? from.path : storePathFor(io.home, from);
+  const root = isLiveLocal(from) ? from.path : storePathFor(io.home, from);
   const memories = await validMemoriesAt(root, entry.intent);
   if (memories === null) {
     if (!("fetched" in entry) || entry.fetched === undefined) return null;
@@ -432,11 +436,11 @@ type LiveEntry = Extract<SourceEntry, { intent: { from: { live: true } } }>;
 type CopiedEntry = Extract<SourceEntry, { intent: { from: { type: "local"; live?: false } } }>;
 
 function isLiveEntry(entry: SourceEntry): entry is LiveEntry {
-  return entry.intent.from.type === "local" && entry.intent.from.live === true;
+  return isLiveLocal(entry.intent.from);
 }
 
 function isCopiedEntry(entry: SourceEntry): entry is CopiedEntry {
-  return entry.intent.from.type === "local" && entry.intent.from.live !== true;
+  return entry.intent.from.type === "local" && !isLiveLocal(entry.intent.from);
 }
 
 export function knownHarnessIds(io: Pick<CliIo, "harnesses">): HarnessId[] {

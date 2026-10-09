@@ -1,6 +1,7 @@
 import { isAbsolute, relative, sep } from "node:path";
 import type { Console } from "../../console/contract.ts";
 import { riskWarning } from "../../console/strings.ts";
+import { isLiveLocal } from "../../contracts/source.ts";
 import type { Memory, MemoryName } from "../../memory/contract.ts";
 import { type RiskKind, riskWarnings } from "../../memory/risk.ts";
 import type { TreeFile, TreeScope } from "../../sources/tree.ts";
@@ -69,10 +70,9 @@ export async function refreshWarnings(
   for (const [key, entry] of Object.entries(state.sources)) {
     if (!actsHere(entry, io)) continue;
     const { from, destination } = entry.intent;
-    const memories =
-      from.type === "local" && from.live === true
-        ? await memoriesAt(from.path, entry.intent)
-        : await fetchedMemories(plan, storePathFor(io.home, from), entry.intent, only, key);
+    const memories = isLiveLocal(from)
+      ? await memoriesAt(from.path, entry.intent)
+      : await fetchedMemories(plan, storePathFor(io.home, from), entry.intent, only, key);
     const { selected } = selectMemories({
       memories,
       intent: entry.intent,

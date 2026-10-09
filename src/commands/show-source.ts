@@ -1,6 +1,6 @@
 import { createTwoFilesPatch } from "diff";
 import type { HarnessId } from "../contracts/harness-id.ts";
-import { DEFAULT_GIT_REF } from "../contracts/source.ts";
+import { DEFAULT_GIT_REF, isLiveLocal } from "../contracts/source.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { Pending, RenameMap, Select, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
@@ -110,7 +110,7 @@ export async function sourceFacts(
 function refOf(entry: SourceEntry): SourceRef {
   const { from } = entry.intent;
   if (from.type === "local") {
-    return { kind: from.live === true ? "live" : "copied", path: from.path };
+    return { kind: isLiveLocal(from) ? "live" : "copied", path: from.path };
   }
   return from.ref === DEFAULT_GIT_REF
     ? { kind: "tracking", ref: from.ref }

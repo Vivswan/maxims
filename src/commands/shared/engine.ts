@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { heldForReview } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { LastError } from "../../contracts/last-error.ts";
+import { isLiveLocal } from "../../contracts/source.ts";
 import type { Scope } from "../../harnesses/contract.ts";
 import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
 import {
@@ -129,7 +130,7 @@ const STALE_REASON: Record<Staleness["kind"], string> = {
 };
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
-  return !(entry.intent.from.type === "local" && entry.intent.from.live === true);
+  return !isLiveLocal(entry.intent.from);
 }
 
 // The content hashes a set of entries recorded at their last fetch: what a copy of theirs in a
@@ -1075,7 +1076,7 @@ async function readTrees(
       continue;
     }
     const storeEntry = storePathFor(ctx.home, from);
-    const live = from.type === "local" && from.live === true;
+    const live = isLiveLocal(from);
     const read = await treeFor(key, entry, storeEntry, refreshed.freshTrees, overlay, notices);
     if (read.kind === "unreadable") {
       notices.notice(`maxims: ${key}: ${read.reason}; kept whatever is installed`);
@@ -1100,10 +1101,9 @@ async function readTrees(
         disabled: new Set(),
         detailPath: () => "",
       }).ownedUpstreamNames,
-      storeChanges:
-        from.type === "local" && from.live === true
-          ? liveStoreChanges(from, storeEntry, ctx.home)
-          : (refreshed.storeChanges.get(key) ?? []),
+      storeChanges: live
+        ? liveStoreChanges(from, storeEntry, ctx.home)
+        : (refreshed.storeChanges.get(key) ?? []),
     });
   }
   return { works, unreadable, failed };
@@ -1141,8 +1141,9 @@ export async function readInstalledTree(
   warn: (line: string) => void,
 ): Promise<TreeRead> {
   const { intent } = entry;
-  const live = intent.from.type === "local" && intent.from.live === true;
-  const root = live && intent.from.type === "local" ? intent.from.path : storeEntry;
+  const { from } = intent;
+  const live = isLiveLocal(from);
+  const root = live ? from.path : storeEntry;
   if (!live && !(await storeEntryPresent(storeEntry))) {
     const lastError = isFetchedEntry(entry) ? entry.fetched?.lastError : undefined;
     return {
@@ -1305,7 +1306,7 @@ export async function retainedNames(
   const names = new Set<MemoryName>();
   const { intent } = entry;
   const storeEntry = storePathFor(ctx.home, intent.from);
-  const live = intent.from.type === "local" && intent.from.live === true;
+  const live = isLiveLocal(intent.from);
   const installed =
     installedSnapshot === undefined
       ? await installedTree(installedRoot(entry, ctx), intent)
@@ -1354,7 +1355,7 @@ export async function retainedNames(
 // store copy.
 function installedRoot(entry: SourceEntry, ctx: EngineContext): string {
   const { from } = entry.intent;
-  return from.type === "local" && from.live === true ? from.path : storePathFor(ctx.home, from);
+  return isLiveLocal(from) ? from.path : storePathFor(ctx.home, from);
 }
 
 async function installedTree(root: string, intent: SourceIntent): Promise<SourceTree | null> {

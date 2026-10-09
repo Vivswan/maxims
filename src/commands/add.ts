@@ -25,6 +25,7 @@ import type { HarnessId } from "../contracts/harness-id.ts";
 import {
   DEFAULT_GIT_REF,
   GitRefSchema,
+  isLiveLocal,
   parseRemote,
   type SourceFrom,
 } from "../contracts/source.ts";
@@ -276,7 +277,7 @@ export async function admitIntent(
 // has no hook list to record the wish in.
 export function hookWanted(from: SourceFrom, destination: Destination, wanted: boolean): boolean {
   if (destination.scope === "out") return false;
-  return wanted && !(from.type === "local" && from.live === true);
+  return wanted && !isLiveLocal(from);
 }
 
 export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<AddRequest> {
@@ -302,7 +303,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     from =
       link || sourceArg === "." ? { type: "local", path, live: true } : { type: "local", path };
     // A live directory is read in place at every sync, so there is no fetch to hold back.
-    if (review && from.live === true) {
+    if (review && isLiveLocal(from)) {
       throw usage("--review applies to a fetched source; a live directory is read in place");
     }
   } else {
@@ -1187,7 +1188,7 @@ function buildEntry(
     ]),
   );
   if (from.type === "local") {
-    if (from.live === true) return { intent: { from, ...base }, addedAt };
+    if (isLiveLocal(from)) return { intent: { from, ...base }, addedAt };
     const sha = parseContentHash(tree.sha);
     if (sha === null) throw badSha(request.key, tree.sha, "a sha256 content hash");
     const fetched = {

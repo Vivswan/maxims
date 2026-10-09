@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { SourceFrom } from "../../contracts/source.ts";
+import { isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import type { FetchResult, SourceResolver } from "../contract.ts";
 import { readMemoryTree, type WarnSink } from "../tree.ts";
 import {
@@ -89,7 +89,7 @@ export function needsFetch(
   fetchedSha: string | undefined,
   remoteSha: string,
 ): boolean {
-  if (from.type === "local" && from.live === true) return false;
+  if (isLiveLocal(from)) return false;
   return fetchedSha !== remoteSha;
 }
 
