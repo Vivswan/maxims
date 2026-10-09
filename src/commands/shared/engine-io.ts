@@ -27,6 +27,7 @@ export function engineIo(io: CliIo, options: EngineIoOptions): EngineIo {
     env: io.env,
     cwd: io.cwd,
     userHome: io.userHome,
+    installInternal: io.installInternal,
     readStdin: options.readStdin ?? (() => readHookStdin(io.stdin)),
     symlinkSupport: () => {
       symlink ??= probeSymlinkSupport();

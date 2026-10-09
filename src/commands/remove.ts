@@ -134,8 +134,7 @@ async function resolveRemoval(
   ctx: EngineContext,
   io: EngineIo,
 ): Promise<Removal> {
-  const installInternal = ctx.env.MAXIMS_INSTALL_INTERNAL === "1";
-  const installed = await readInstalled(state, ctx, io, installInternal);
+  const installed = await readInstalled(state, ctx, io);
   const sources = { ...state.sources };
   const labels: string[] = [];
   const notices: string[] = [];
@@ -267,12 +266,7 @@ async function resolveRemoval(
 // (the recorded fetch through the selection and renames, and the retained blocks on disk), so a
 // source whose files are gone is still found by the names it installed and told apart from a name
 // nobody provides.
-async function readInstalled(
-  state: State,
-  ctx: EngineContext,
-  io: EngineIo,
-  installInternal: boolean,
-): Promise<Installed[]> {
+async function readInstalled(state: State, ctx: EngineContext, io: EngineIo): Promise<Installed[]> {
   const installed: Installed[] = [];
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
@@ -293,7 +287,7 @@ async function readInstalled(
         : selectMemories({
             memories: tree.memories,
             intent: entry.intent,
-            installInternal,
+            installInternal: ctx.installInternal,
             disabled: new Set(),
             detailPath: () => "",
           }).selected.map((selected) => ({

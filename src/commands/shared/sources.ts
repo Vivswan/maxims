@@ -79,7 +79,7 @@ export function targetPath(
 // is not there to read.
 export async function upstreamNames(
   entry: SourceEntry,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<MemoryName[]> {
   return (await upstreamNamesIfReadable(entry, io)) ?? [];
 }
@@ -89,7 +89,7 @@ export async function upstreamNames(
 // caller that must tell "nothing installable" from "nothing readable" asks here; the rest read `[]`.
 export async function upstreamNamesIfReadable(
   entry: SourceEntry,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<MemoryName[] | null> {
   const { from } = entry.intent;
   const root =
@@ -103,9 +103,10 @@ export async function upstreamNamesIfReadable(
     });
   }
   const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
-  const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
   return memories.flatMap(({ memory }) => {
-    if (memory.metadata.internal === true && !installInternal && !named.has(memory.name)) return [];
+    if (memory.metadata.internal === true && !io.installInternal && !named.has(memory.name)) {
+      return [];
+    }
     return [memory.name];
   });
 }
@@ -142,14 +143,14 @@ export function localName(entry: SourceEntry, name: MemoryName): MemoryName {
 
 export async function effectiveNames(
   entry: SourceEntry,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<MemoryName[]> {
   return (await effectiveNamesIfReadable(entry, io)) ?? [];
 }
 
 export async function effectiveNamesIfReadable(
   entry: SourceEntry,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<MemoryName[] | null> {
   const select = entry.intent.select;
   const upstream = await upstreamNamesIfReadable(entry, io);
@@ -167,7 +168,7 @@ export function sourcesHere(state: State, io: Pick<CliIo, "projectRoot">): [stri
 
 export async function installedSources(
   state: State,
-  io: Pick<CliIo, "home" | "env" | "projectRoot">,
+  io: Pick<CliIo, "home" | "installInternal" | "projectRoot">,
 ): Promise<IndexedSource[]> {
   return Promise.all(
     sourcesHere(state, io).map(async ([key, entry]) => ({
@@ -355,7 +356,7 @@ export type ResolvedMemory = { key: string; name: MemoryName };
 // the qualified `@owner/repo/name` forms are the way out. A qualified name looks up one source.
 export async function resolveMemoryName(
   state: State,
-  io: Pick<CliIo, "home" | "env" | "projectRoot">,
+  io: Pick<CliIo, "home" | "installInternal" | "projectRoot">,
   raw: string,
 ): Promise<ResolvedMemory> {
   const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);

@@ -94,7 +94,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
         ? selectMemories({
             memories: tree.tree.memories,
             intent: entry.intent,
-            installInternal: ctx.env.MAXIMS_INSTALL_INTERNAL === "1",
+            installInternal: ctx.installInternal,
             disabled: new Set(),
             detailPath: () => "",
           }).ownedUpstreamNames
@@ -143,7 +143,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
       const selection = selectMemories({
         memories: source.tree.tree.memories,
         intent: entry.intent,
-        installInternal: ctx.env.MAXIMS_INSTALL_INTERNAL === "1",
+        installInternal: ctx.installInternal,
         disabled,
         detailPath: () => "",
       });

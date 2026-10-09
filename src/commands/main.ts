@@ -298,7 +298,7 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     if (!loaded.ok && entry.brokenConfig === "refuse") throw configRefusal(loaded.issue);
     const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet, rung: rungs.rung });
     const ctx: CommandContext = {
-      io: { ...io, harnesses, resolvers },
+      io: { ...io, harnesses, resolvers, installInternal: io.env.MAXIMS_INSTALL_INTERNAL === "1" },
       engine,
       global,
       config: loaded.ok ? loaded.config : {},

@@ -380,7 +380,6 @@ async function planInstall(
     for (const facts of Object.values(fetched?.memories ?? {})) knownCopies.add(facts.content);
   }
   const symlink = await io.symlinkSupport();
-  const installInternal = ctx.env.MAXIMS_INSTALL_INTERNAL === "1";
   const hookRun = extras.verb === "sync" && options.quiet;
   const agents = widenedAgents(options.agents, refreshed);
   const explicit = options.agents ?? [];
@@ -397,7 +396,7 @@ async function planInstall(
     const selection = selectMemories({
       memories: work.tree.memories,
       intent,
-      installInternal,
+      installInternal: ctx.installInternal,
       disabled,
       detailPath: () => "",
     });
@@ -1061,7 +1060,6 @@ async function readTrees(
   const works: SourceWork[] = [];
   const unreadable: ReadTrees["unreadable"] = [];
   const failed: ReadTrees["failed"] = [];
-  const installInternal = ctx.env.MAXIMS_INSTALL_INTERNAL === "1";
   for (const key of Object.keys(refreshed.sources).sort()) {
     const entry = refreshed.sources[key];
     if (entry === undefined) continue;
@@ -1098,7 +1096,7 @@ async function readTrees(
       ownedUpstreamNames: selectMemories({
         memories: read.tree.memories,
         intent,
-        installInternal,
+        installInternal: ctx.installInternal,
         disabled: new Set(),
         detailPath: () => "",
       }).ownedUpstreamNames,
@@ -1316,7 +1314,7 @@ export async function retainedNames(
     for (const selected of selectMemories({
       memories: installed.memories,
       intent,
-      installInternal: ctx.env.MAXIMS_INSTALL_INTERNAL === "1",
+      installInternal: ctx.installInternal,
       disabled: new Set(),
       detailPath: () => "",
     }).selected) {

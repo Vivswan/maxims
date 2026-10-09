@@ -57,7 +57,6 @@ export async function sourceFacts(
   const notices: string[] = [];
   const { intent } = entry;
   const { destination } = intent;
-  const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
   const tree = await readInstalledTree(entry, storePathFor(io.home, intent.from), (line) =>
     notices.push(`maxims: ${key}: ${line}`),
   );
@@ -67,7 +66,7 @@ export async function sourceFacts(
       ? selectMemories({
           memories: tree.tree.memories,
           intent,
-          installInternal,
+          installInternal: io.installInternal,
           disabled: new Set(),
           detailPath: () => "",
         }).selected
@@ -103,7 +102,7 @@ export async function sourceFacts(
     held:
       pending === undefined || !isFetchedEntry(entry)
         ? null
-        : await heldChanges(key, entry, installed, pending, installInternal, io.home),
+        : await heldChanges(key, entry, installed, pending, io.installInternal, io.home),
   };
   return { facts, notices };
 }

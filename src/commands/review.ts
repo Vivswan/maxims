@@ -77,13 +77,7 @@ type Acceptance = { entry: SourceEntry; changes: Change[]; line: string; applied
 async function acceptHeld(key: string, held: Held, io: CliIo): Promise<Acceptance> {
   const { entry, pending } = held;
   const { from, memoryPath } = entry.intent;
-  const revision = await readHeldRevision(
-    key,
-    entry,
-    pending,
-    io.home,
-    io.env.MAXIMS_INSTALL_INTERNAL === "1",
-  );
+  const revision = await readHeldRevision(key, entry, pending, io.home, io.installInternal);
   if (revision.kind === "forgotten") {
     return { entry: withoutPending(entry), changes: [], line: revision.line, applied: false };
   }

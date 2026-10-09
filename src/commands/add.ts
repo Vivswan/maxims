@@ -438,7 +438,7 @@ export async function stageAdd(
     : await loadIntentFor(io.home, ctx.global.dryRun);
   for (const notice of intent.notices) console.warn(notice);
   const request = adoptRecordedKey(requested, intent.state, io);
-  const scan = scanMemories(request, tree.files, io.env, console);
+  const scan = scanMemories(request, tree.files, io.installInternal, console);
   console.step(found(scan.memories.length, scan.internalHidden));
   const chosen = filterSelection(request.select, scan.memories);
   if (chosen.length === 0) {
@@ -836,11 +836,10 @@ type Scan = { memories: Memory[]; recorded: Memory[]; internalHidden: number };
 function scanMemories(
   request: AddRequest,
   files: readonly TreeFile[],
-  env: Record<string, string | undefined>,
+  installInternal: boolean,
   console: Console,
 ): Scan {
   const named = new Set<string>(request.select === "*" ? [] : request.select);
-  const installInternal = env.MAXIMS_INSTALL_INTERNAL === "1";
   const memories: Memory[] = [];
   const recorded: Memory[] = [];
   let internalHidden = 0;
