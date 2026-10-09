@@ -5,8 +5,8 @@ import { assertInsideRoot, ensureDir0700, type RootedPath } from "../util/fs.ts"
 import { homePaths } from "../util/home.ts";
 import { type StolenLock, withLock } from "../util/lock.ts";
 import { VERSION } from "../version.ts";
-import { type MigrationStep, migrateState, versionOf } from "./migrations/index.ts";
-import { CURRENT_STATE_VERSION, parseState, type State } from "./schema.ts";
+import { type MigrationStep, migrateState } from "./migrations/index.ts";
+import { CURRENT_STATE_VERSION, parseState, type State, versionOf } from "./schema.ts";
 
 export const WRITTEN_BY = `maxims@${VERSION}`;
 

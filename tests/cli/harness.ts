@@ -30,8 +30,9 @@ import { achievedTier, planHookOnly } from "../../src/harnesses/hook-writer.ts";
 import type { FetchOptions, ResolverFor } from "../../src/sources/contract.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
-import { assertInsideRoot, hashDirectory } from "../../src/util/fs.ts";
+import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { hashDirectory } from "../shared/hash_directory.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { FIXTURE_HARNESSES } from "./fixture-harnesses.ts";
 

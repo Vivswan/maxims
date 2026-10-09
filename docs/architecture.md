@@ -66,8 +66,8 @@ Demonstrated by: [tests/util/home.test.ts](../tests/util/home.test.ts), [tests/s
 flowchart LR
   statefile[("the file: state.json")]
   store["src/state/store.ts<br>readState() writeState() withStateLock() serializeState() LoadedState"]
-  migrations["src/state/migrations/index.ts<br>MIGRATIONS migrateState() versionOf()"]
-  schema["src/state/schema.ts<br>StateSchema parseState() SourceEntry SourceIntent Destination Disabled canonicalSourceKey()"]
+  migrations["src/state/migrations/index.ts<br>MIGRATIONS migrateState()"]
+  schema["src/state/schema.ts<br>StateSchema parseState() versionOf() SourceEntry SourceIntent Destination Disabled canonicalSourceKey()"]
   intent["intent: the source, its selection and renames, whether it publishes rule lines, its harnesses, its destination"]
   fetched["fetch facts: the sha, when, the content hashes, the last error"]
   derived["derived on every sync, never stored: store paths, installed paths, hook registration, tiers, collisions"]

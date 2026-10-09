@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { chmod, readdir, readFile } from "node:fs/promises";
+import { chmod } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
@@ -115,35 +115,6 @@ function realpathOfExistingPrefix(path: string): string {
 
 export function sha256(text: string | Uint8Array): string {
   return `sha256:${createHash("sha256").update(text).digest("hex")}`;
-}
-
-// A symlink inside a source could point at a secret elsewhere on the machine, so the hash covers
-// only regular files; the same skip keeps a live tree's hash equal to its copied twin's.
-export async function hashDirectory(dir: string): Promise<string> {
-  const files = await collectRegularFiles(dir, "");
-  files.sort();
-  const hash = createHash("sha256");
-  for (const relPath of files) {
-    const content = await readFile(join(dir, relPath));
-    hash.update(relPath);
-    hash.update("\0");
-    hash.update(String(content.byteLength));
-    hash.update("\0");
-    hash.update(content);
-    hash.update("\0");
-  }
-  return `sha256:${hash.digest("hex")}`;
-}
-
-async function collectRegularFiles(root: string, relDir: string): Promise<string[]> {
-  const entries = await readdir(join(root, relDir), { withFileTypes: true });
-  const out: string[] = [];
-  for (const entry of entries) {
-    const rel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
-    if (entry.isDirectory()) out.push(...(await collectRegularFiles(root, rel)));
-    else if (entry.isFile()) out.push(rel);
-  }
-  return out;
 }
 
 export async function ensureDir0700(dir: string): Promise<void> {
