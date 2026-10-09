@@ -13,7 +13,7 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-09",
     pages: [
       {
         url: "https://learn.chatgpt.com/docs/hooks",
@@ -24,7 +24,7 @@ export const spec = {
       {
         url: "https://developers.openai.com/codex/config-reference",
         contentHash: contentHashLiteral(
-          "sha256:377e4fb9764496ba6217eafb79475b0976243327cbca7101b98b34fc4d2e9a24",
+          "sha256:cfb5fca42d598180ffff565eb51ba38b96762276cee76df31973ec3661309268",
         ),
         note: "CODEX_HOME and features.hooks",
       },
