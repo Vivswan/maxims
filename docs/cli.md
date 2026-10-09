@@ -63,7 +63,7 @@ These flags work on every verb.
 
 | flag | default | what it does |
 | --- | --- | --- |
-| `--dry-run` | off | prints the exact plan and diff, writes nothing, exit 0 |
+| `--dry-run` | off | prints the exact plan and diff, writes nothing; a failed fetch still exits [non-zero](#exit-codes) |
 | `--json` | off | the same plan as one JSON document, for CI assertions |
 | `--quiet` | off | one-line output and fail-soft, see the exit codes below; the hook's mode |
 | `--verbose` | off | adds fetch details to the output |
