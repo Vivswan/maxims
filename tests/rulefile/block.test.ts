@@ -18,7 +18,7 @@ import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { propertyOptions } from "../shared/property.ts";
 
 const SOURCE = "@Vivswan/skills";
-const STORE = "/home/user/.agents/maxims/store/Vivswan/skills";
+const STORE = "/home/user/.agents/maxims/store/vivswan/skills/memories";
 
 function line(name: string, description: string, shortHash = "a1b2c3d"): RuleLine {
   return { name: name as MemoryName, description, detailPath: `${STORE}/${name}.md`, shortHash };
@@ -304,24 +304,20 @@ describe("parseBlocks", () => {
     expect(parseBlocks(text)).toEqual({ blocks: [], warnings: [] });
   });
 
-  test("a block that ended before the markers hides nothing after it", () => {
-    for (const comment of ["<!-- note -->", "<!-->", "<pre>x</pre>", "<div>\n", "<?x?>", "<!X>"]) {
-      const text = `${comment}\n${BLOCK}`;
-      expect(parseBlocks(text).blocks.map((block) => text.slice(block.start, block.end))).toEqual([
-        BLOCK,
-      ]);
-    }
-  });
-
-  test("a fence closes at a fence at least as long, so a shorter one keeps the markers quoted", () => {
-    const text = ["````\n", BEGIN, "\n```\n", END, "\n`````\n", BLOCK].join("");
-    const parsed = parseBlocks(text);
-    expect(parsed.blocks.map((block) => text.slice(block.start, block.end))).toEqual([BLOCK]);
-  });
-
   // Each prefix is followed by the block at column 0. Whether CommonMark leaves the marker lines
   // outside every fence and raw HTML block the prefix opened decides whether they form a block.
   const contexts: [string, string, boolean][] = [
+    ["a one-line comment", "<!-- note -->\n", true],
+    ["a self-closing comment", "<!-->\n", true],
+    ["a one-line pre block", "<pre>x</pre>\n", true],
+    ["a block tag ended by a blank line", "<div>\n\n", true],
+    ["a one-line processing instruction", "<?x?>\n", true],
+    ["a one-line declaration", "<!X>\n", true],
+    [
+      "a fence closed only by a fence at least as long, with a shorter fence and the markers quoted in it",
+      ["````\n", BEGIN, "\n```\n", END, "\n`````\n"].join(""),
+      true,
+    ],
     ["a fence inside a list item, ended by the next item", "- a\n  ```\n  x\n- b\n", true],
     ["a fence inside a list item, ended by the markers themselves", "- a\n  ```\n  x\n", true],
     ["a fence inside a nested item, ended by the outer item", "- a\n  - b\n    ```\n  - c\n", true],
@@ -621,13 +617,6 @@ describe("replaceBlock and stripBlock", () => {
     expect(afterBoth).toBe(`${BLOCK}\nuser notes\n${OTHER}`);
     expect(replaceBlock(afterBoth, OTHER_SOURCE, OTHER)).toBe(afterBoth);
     expect(replaceBlock(afterBoth, SOURCE, BLOCK)).toBe(afterBoth);
-  });
-
-  test("stripping the block that heads a run shifts the rest into its slots and closes the last slot", () => {
-    expect(stripBlock(`intro\n${ORDERED}`, SOURCE)).toEqual({
-      text: `intro\n${OTHER}`,
-      emptied: false,
-    });
   });
 
   // A BEGIN and END the user left around a block are plain text only while a marker stands between
@@ -1013,6 +1002,11 @@ describe("replaceBlock and stripBlock", () => {
     ["a block glued to user text", `a\n\n${BLOCK}b\n`, { text: "a\n\nb\n", emptied: false }],
     ["a block beside another source's", `${OTHER}\n${BLOCK}`, { text: OTHER, emptied: false }],
     [
+      "the block heading a run, whose slot the rest shift into",
+      `intro\n${ORDERED}`,
+      { text: `intro\n${OTHER}`, emptied: false },
+    ],
+    [
       "a block after another source's with text glued below it",
       `${OTHER}\n${BLOCK}notes\n`,
       { text: `${OTHER}notes\n`, emptied: false },
@@ -1191,7 +1185,7 @@ const DESCRIPTION_PIECES = [
 const join = (parts: string[]): string => parts.join("");
 
 function piecesOf(pieces: readonly string[], maxLength: number): fc.Arbitrary<string> {
-  return fc.array(fc.constantFrom(...pieces), { maxLength }).map(join);
+  return fc.string({ unit: fc.constantFrom(...pieces), maxLength });
 }
 
 // Any scalar value: fc.string's binary unit draws from the same range but builds its code point table
@@ -1205,21 +1199,21 @@ const anyCodePoint = fc
 const descriptions = fc.oneof(
   {
     weight: 19,
-    arbitrary: fc
-      .array(
-        fc.oneof(
-          { weight: 8, arbitrary: fc.constantFrom(...DESCRIPTION_PIECES) },
-          { weight: 1, arbitrary: anyCodePoint },
-        ),
-        { maxLength: 24 },
-      )
-      .map(join),
+    arbitrary: fc.string({
+      unit: fc.oneof(
+        { weight: 8, arbitrary: fc.constantFrom(...DESCRIPTION_PIECES) },
+        { weight: 1, arbitrary: anyCodePoint },
+      ),
+      maxLength: 24,
+    }),
   },
   {
     weight: 1,
-    arbitrary: fc
-      .array(fc.constantFrom(...DESCRIPTION_PIECES), { minLength: 301, maxLength: 600 })
-      .map(join),
+    arbitrary: fc.string({
+      unit: fc.constantFrom(...DESCRIPTION_PIECES),
+      minLength: 301,
+      maxLength: 600,
+    }),
   },
 );
 
