@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promise
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { isGitEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import type { LastError } from "../../contracts/last-error.ts";
@@ -672,9 +673,7 @@ export type GitRunnerOptions = {
 
 // `protocol.allow=never` closes `ext::` and any other transport that runs a command named in a
 // URL; the listed ones are re-opened one by one. A `core.askPass` from the user's own gitconfig
-// would still open a prompt with the environment scrubbed, so it is emptied per command. The
-// inherited config-path variables and these constants pass simple-git's unsafe plugin because
-// they are the caller's own, not values read from a source.
+// would still open a prompt with the environment scrubbed, so it is emptied per command.
 const GIT_CONFIG = [
   "core.askPass=",
   "credential.interactive=false",
@@ -685,6 +684,35 @@ const GIT_CONFIG = [
   "protocol.git.allow=always",
   "protocol.file.allow=always",
 ];
+
+// simple-git refuses a variable its environment guard covers (any `GIT_*`, plus the keys
+// `isGitEnvKey` names) that arrives through `.env()` unless `allowEnvironment` lists it, and drops
+// an ambient one silently. Named: this module's own settings, the config variables the unsafe
+// flags below admit, libcurl's transport settings (none names a program), and PREFIX, git's
+// install prefix. The rest are dropped the way simple-git drops an ambient one, so an exported
+// prompt switch cannot fail a fetch.
+const isGuardedEnvKey = (key: string): boolean => {
+  const normalized = key.toLowerCase().trim();
+  return normalized.startsWith("git_") || isGitEnvKey(normalized);
+};
+const ALLOWED_GUARDED_ENV =
+  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
+
+function guardedEnvironment(env: Record<string, string>): {
+  env: Record<string, string>;
+  allowEnvironment: string[];
+} {
+  const kept: Record<string, string> = {};
+  const allowEnvironment: string[] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (isGuardedEnvKey(key)) {
+      if (!ALLOWED_GUARDED_ENV.test(key)) continue;
+      allowEnvironment.push(key);
+    }
+    kept[key] = value;
+  }
+  return { env: kept, allowEnvironment };
+}
 
 // A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
 // prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
@@ -697,20 +725,27 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   const env = options.env ?? gitEnvironment();
   const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_SECONDS * 1000;
   const client = (config: string[], baseDir?: string, callEnv = env): SimpleGit => {
+    const guarded = guardedEnvironment(callEnv);
     const settings: Partial<SimpleGitOptions> = {
       binary,
       config: [...GIT_CONFIG, ...config],
       timeout: { block: timeoutMs },
+      allowEnvironment: guarded.allowEnvironment,
+      // Each flag admits something the caller's own, never a value read from a source: the
+      // constants above, inherited config-path and config-count variables, the include file
+      // written below, and an `insteadOf` those entries may carry (a rewrite runs no command).
       unsafe: {
         allowUnsafeConfigPaths: true,
         allowUnsafeConfigEnvCount: true,
         allowUnsafeAskPass: true,
+        allowUnsafeInclude: true,
         allowUnsafeProtocolOverride: true,
         allowUnsafeSshCommand: true,
+        allowUnsafeUrlRewrite: true,
       },
     };
     if (baseDir !== undefined) settings.baseDir = baseDir;
-    return simpleGit(settings).env(callEnv);
+    return simpleGit(settings).env(guarded.env);
   };
   // An anonymous call hands git the URL it would have reached anyway, minus any `user:password@`
   // the user's `insteadOf` rule wrote into it: git would send those as Basic auth after a 401.
