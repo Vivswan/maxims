@@ -6,19 +6,20 @@ import type { HarnessSpec } from "../spec.ts";
 // of being injected every session. Scoped rules swap that flag for `globs`, listed before it.
 // User rules live in Cursor's settings UI, not in a file, so there is no global target.
 // `sessionStart` is fire-and-forget on Cursor's side, so the harness never waits on the sync;
-// `debounceMs` keeps a burst of new conversations from paying the npx cost each time. `@file`
-// attaches a file to the rule's context and its literal-escaping is undocumented.
+// `debounceMs` keeps a burst of new conversations from paying the npx cost each time. Rule text
+// reaches the agent as written: an `@file` mention is not inlined, the agent reads the file with
+// its tools when it wants the content.
 export const spec = {
   id: "cursor",
   displayName: "Cursor",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-09",
     pages: [
       {
         url: "https://cursor.com/docs/context/rules",
         contentHash: contentHashLiteral(
-          "sha256:05781c233f0a2302f7cefa20f960849b3f53a1ee14423fa81e4bea8041621f9e",
+          "sha256:2888238949a6de6b9c8ddc571026717ad51f1ebc32464dda91b115cf2462c77a",
         ),
       },
       {
@@ -52,7 +53,7 @@ export const spec = {
   },
   bodiesDir: { project: ".agents/memories", global: null },
   markers: "counted",
-  expands: ["at-import"],
+  expands: ["none"],
   detect: { dirs: [".cursor"] },
   hook: {
     kind: "registry",
