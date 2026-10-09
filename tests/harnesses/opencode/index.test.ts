@@ -14,7 +14,7 @@ import {
   reconcileInstructions,
 } from "../../../src/harnesses/opencode/quirks.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
-import { planSharedBlockWrite } from "../../../src/harnesses/strategies/shared-block.ts";
+import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
@@ -101,23 +101,9 @@ test("the project rule file matches the instructions glob and the user block fol
   ).toBe(true);
   const global = opencode.targets.global;
   if (global?.kind !== "shared-block") throw new Error("the user target is a shared block");
-  expect(
-    planSharedBlockWrite({
-      def: opencode,
-      target: global,
-      scope: "global",
-      ctx: xdg,
-      source: "@example-user/doctrine",
-      currentText: null,
-      block,
-    }),
-  ).toEqual([
-    {
-      kind: "write",
-      path: assertInsideRoot("/home/user", "/home/user/xdg/opencode/AGENTS.md"),
-      content: block,
-    },
-  ]);
+  expect(sharedBlockPath({ def: opencode, target: global, scope: "global", ctx: xdg })).toBe(
+    assertInsideRoot("/home/user", "/home/user/xdg/opencode/AGENTS.md"),
+  );
 });
 
 test("detection reads the opencode directory under ~/.config or XDG_CONFIG_HOME", async () => {

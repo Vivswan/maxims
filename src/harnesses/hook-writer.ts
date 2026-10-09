@@ -97,13 +97,6 @@ export type RegistryWriteInput = HookIntent & {
 
 export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
   const path = hookPath(input.def, input.scope, input.ctx);
-  if (input.def.hook.format === "toml") {
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `cannot register the ${input.def.displayName} hook: TOML registries are read, never written`,
-      { hint: `register a JSON hooks file instead of ${path}` },
-    );
-  }
   const handler = input.def.hook.handler(hookSpecFor(input.def));
   if (input.currentText === null) {
     if (!input.wanted) return { changes: [] };

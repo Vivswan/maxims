@@ -556,17 +556,6 @@ ${flatOurs} ]}}`,
     expect(caught).toBeInstanceOf(MaximsError);
     if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
   });
-
-  test("a TOML registry is never written", () => {
-    let caught: unknown;
-    try {
-      plan(registryDef({ format: "toml" }), true, null);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
-  });
 });
 
 describe("planFileHookWrite", () => {

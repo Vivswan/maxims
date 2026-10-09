@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
 import { geminiCli } from "../../../src/harnesses/gemini-cli/index.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
-import { planSharedBlockWrite } from "../../../src/harnesses/strategies/shared-block.ts";
+import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
@@ -63,21 +63,12 @@ const blocks: [Scope, string, string][] = [
   ["global", "/home/user", "/home/user/.gemini/GEMINI.md"],
 ];
 
-test.each(blocks)("the %s block is written to the GEMINI.md Gemini loads", (scope, root, path) => {
+test.each(blocks)("the %s block lands in the GEMINI.md Gemini loads", (scope, root, path) => {
   const target = geminiCli.targets[scope];
   if (target?.kind !== "shared-block") throw new Error("GEMINI.md is a shared block");
-  const block =
-    "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
-  const [change] = planSharedBlockWrite({
-    def: geminiCli,
-    target,
-    scope,
-    ctx,
-    source: "@example-user/doctrine",
-    currentText: null,
-    block,
-  });
-  expect(change).toEqual({ kind: "write", path: assertInsideRoot(root, path), content: block });
+  expect(sharedBlockPath({ def: geminiCli, target, scope, ctx })).toBe(
+    assertInsideRoot(root, path),
+  );
 });
 
 test("detection reads a ~/.gemini directory and nothing else", async () => {

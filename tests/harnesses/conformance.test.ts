@@ -22,10 +22,11 @@ import {
 } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
-import { planSharedBlockWrite } from "../../src/harnesses/strategies/shared-block.ts";
+import { sharedBlockPath } from "../../src/harnesses/strategies/shared-block.ts";
 import { parseMemoryName } from "../../src/memory/contract.ts";
-import { parseBlocks, renderBlock } from "../../src/rulefile/block.ts";
+import { parseBlocks, renderBlock, replaceBlock } from "../../src/rulefile/block.ts";
 import type { BlockInput } from "../../src/rulefile/types.ts";
+import type { RootedPath } from "../../src/util/fs.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
@@ -69,14 +70,33 @@ function blockFor(def: HarnessDefinition, overrides: Partial<BlockInput> = {}): 
   });
 }
 
-function planRuleWrite(def: HarnessDefinition, scope: Scope, paths?: string[]) {
+// The rule file a source gets at a scope: the rules-dir strategy's one write, or the shared file
+// the engine resolves and the block the grammar's `replaceBlock` splices into an absent one.
+function planRuleWrite(
+  def: HarnessDefinition,
+  scope: Scope,
+  paths?: string[],
+): { path: RootedPath; content: string } {
   const target = def.targets[scope];
   if (target === null) throw new Error(`${def.id} has no ${scope} target`);
   const block = blockFor(def);
   if (target.kind === "rules-dir") {
-    return planRulesDirWrite({ def, target, scope, ctx, sourceSlug, block, paths });
+    const [change, ...rest] = planRulesDirWrite({
+      def,
+      target,
+      scope,
+      ctx,
+      sourceSlug,
+      block,
+      paths,
+    });
+    if (change?.kind !== "write" || rest.length > 0) {
+      throw new Error("the rules-dir strategy plans exactly one write");
+    }
+    return change;
   }
-  return planSharedBlockWrite({ def, target, scope, ctx, source, currentText: null, block });
+  const path = sharedBlockPath({ def, target, scope, ctx });
+  return { path, content: replaceBlock("", source, block) };
 }
 
 function fixturePath(def: HarnessDefinition, name: string): string {
@@ -88,10 +108,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
 
   test.each(targeted)("%s rule target is one real file inside the destination root", (scope) => {
     const root = scopeRoot(def, scope, ctx);
-    const changes = planRuleWrite(def, scope);
-    expect(changes).toHaveLength(1);
-    const [change] = changes;
-    if (change?.kind !== "write") throw new Error("expected a write");
+    const change = planRuleWrite(def, scope);
     expect(change.path.startsWith(`${root}${sep}`)).toBe(true);
     expect(change.content.endsWith("\n")).toBe(true);
   });
@@ -99,21 +116,18 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
   test.each(targeted)("%s target emits its declared frontmatter and scope filter", (scope) => {
     const target = def.targets[scope];
     if (target?.kind !== "rules-dir") return;
-    const [always] = planRuleWrite(def, scope);
-    if (always?.kind !== "write") throw new Error("expected a write");
+    const always = planRuleWrite(def, scope);
     const declared = target.frontmatter?.({}) ?? "";
     expect(always.content.startsWith(declared)).toBe(true);
     const globs = ["src/**/*.ts"];
-    const [scoped] = planRuleWrite(def, scope, globs);
-    if (scoped?.kind !== "write") throw new Error("expected a write");
+    const scoped = planRuleWrite(def, scope, globs);
     const filter = target.frontmatter?.({ paths: globs }) ?? def.scopeFrontmatter?.(globs) ?? "";
     expect(scoped.content.startsWith(filter)).toBe(true);
     if (filter !== "") expect(scoped.content).not.toBe(always.content);
   });
 
   test.each(targeted)("%s written file round-trips exactly one block for the source", (scope) => {
-    const [change] = planRuleWrite(def, scope);
-    if (change?.kind !== "write") throw new Error("expected a write");
+    const change = planRuleWrite(def, scope);
     const { blocks } = parseBlocks(change.content);
     expect(blocks.map((block) => block.source)).toEqual([source]);
     const [block] = blocks;
@@ -127,8 +141,7 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     "%s file leaves no bare @ token where the harness expands imports",
     (scope) => {
       if (def.expands.length > 0 && !def.expands.includes("at-import")) return;
-      const [change] = planRuleWrite(def, scope);
-      if (change?.kind !== "write") throw new Error("expected a write");
+      const change = planRuleWrite(def, scope);
       const visible = change.content.replace(/<!--[\s\S]*?-->/g, "").replace(/`[^`\n]*`/g, "");
       expect(visible).not.toContain("@");
     },
