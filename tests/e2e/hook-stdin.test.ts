@@ -32,9 +32,9 @@ beforeAll(async () => {
   bundleDir = mkdtempSync(join(launcherHome(), "maxims-e2e-bundle-"));
   bundle = buildBundle(bundleDir);
   scratch = mkdtempSync(join(launcherHome(), "maxims-fixture-"));
-  home = await makeHome(scratch);
+  home = makeHome(scratch);
   mkdirSync(join(home.root, ".claude"));
-  source = await fixtureRepo(scratch, "skills");
+  source = fixtureRepo(scratch, "skills");
   const add = await runMaxims(bundle, home, [
     "add",
     source,

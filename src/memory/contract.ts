@@ -1,6 +1,5 @@
 import { basename } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { util } from "zod";
 import { sha256 } from "../util/fs.ts";
 
 declare const memoryNameBrand: unique symbol;
@@ -119,7 +118,7 @@ function parseMemoryChecked(filename: string, text: string): ParsedMemory {
   } catch (error) {
     return { ok: false, reason: `frontmatter is not valid YAML: ${describe(error)}` };
   }
-  if (!util.isObject(frontmatter)) return { ok: false, reason: "frontmatter is not a mapping" };
+  if (!isRecord(frontmatter)) return { ok: false, reason: "frontmatter is not a mapping" };
 
   if (frontmatter.name !== name) {
     return {
@@ -156,7 +155,7 @@ type ReadMetadata =
 
 function readMetadata(value: unknown): ReadMetadata {
   if (value === undefined || value === null) return { ok: true, metadata: { extra: {} } };
-  if (!util.isObject(value)) return { ok: false, reason: "metadata is not a mapping" };
+  if (!isRecord(value)) return { ok: false, reason: "metadata is not a mapping" };
   const { node_type: nodeType, type, scope, internal, ...extra } = value;
   if (nodeType !== undefined && nodeType !== "memory") {
     return { ok: false, reason: `metadata.node_type is ${show(nodeType)}, expected "memory"` };
@@ -200,6 +199,10 @@ function show(value: unknown): string {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : show(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // The body is everything after the closing fence, byte for byte: the file is installed as it was

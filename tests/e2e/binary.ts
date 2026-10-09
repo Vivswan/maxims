@@ -33,13 +33,13 @@ export function buildBundle(dir: string): Bundle {
 // beside it for the project-scoped verbs.
 export type Home = { root: string; maximsHome: string; project: string };
 
-export async function makeHome(dir: string): Promise<Home> {
+export function makeHome(dir: string): Home {
   const root = join(dir, "home");
   const maximsHome = join(root, ".agents", "maxims");
   const project = join(dir, "project");
   mkdirSync(maximsHome, { recursive: true });
   mkdirSync(project, { recursive: true });
-  await gitInit(project);
+  gitInit(project);
   return { root, maximsHome, project };
 }
 

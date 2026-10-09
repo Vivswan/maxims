@@ -34,14 +34,14 @@ export function manyMemories(count: number): Record<string, MemorySpec> {
 
 // A repository on branch `main` with one commit holding the given files and a README beside the
 // memories folder, so a sparse checkout has something to leave behind.
-export async function fixtureRepo(
+export function fixtureRepo(
   dir: string,
   files: Record<string, FileSpec>,
-): Promise<{ dir: string; head: string }> {
+): { dir: string; head: string } {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "README.md"), "# fixture source\n");
   writeMemories(dir, files);
-  await gitInit(dir);
-  const head = await commitAll(dir, "one");
+  gitInit(dir);
+  const head = commitAll(dir, "one");
   return { dir, head };
 }

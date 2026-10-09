@@ -229,15 +229,15 @@ function copyBenchInto(root: string): string {
   return bench;
 }
 
-async function fixtureWorktree(dir: string): Promise<Fixture> {
+function fixtureWorktree(dir: string): Fixture {
   const primary = join(dir, "primary");
   const linked = join(dir, "linked");
   const other = join(dir, "other");
   mkdirSync(primary);
-  await gitInit(primary);
-  await git(primary, ["commit", "--quiet", "--allow-empty", "-m", "root"]);
-  await git(primary, ["worktree", "add", "--quiet", linked]);
-  await git(primary, ["worktree", "add", "--quiet", other]);
+  gitInit(primary);
+  git(primary, ["commit", "--quiet", "--allow-empty", "-m", "root"]);
+  git(primary, ["worktree", "add", "--quiet", linked]);
+  git(primary, ["worktree", "add", "--quiet", other]);
   return { primary, linked, other, bench: copyBenchInto(linked) };
 }
 
@@ -251,8 +251,8 @@ const worktreeTargets: [string, (fixture: Fixture) => string, boolean][] = [
 test.each(worktreeTargets)(
   "--json into %s, from a linked worktree, is refused when it lands in any checkout",
   async (_name, target, refused) => {
-    await withTempDir(async (dir) => {
-      const fixture = await fixtureWorktree(dir);
+    await withTempDir((dir) => {
+      const fixture = fixtureWorktree(dir);
       const out = target(fixture);
       const log = join(dir, "runs.log");
       const command = [
@@ -299,13 +299,13 @@ interface GitFailure {
 // cannot read, while that checkout's linked worktrees may still exist. The ceiling keeps git from
 // adopting a repository that happens to enclose the fixture. With an empty PATH only git goes
 // missing: the bench and its child are named by absolute path.
-const gitFailures: [string, (dir: string) => Promise<GitFailure> | GitFailure][] = [
+const gitFailures: [string, (dir: string) => GitFailure][] = [
   [
     "a checkout whose own .git is damaged",
-    async (dir) => {
+    (dir) => {
       const fixture = join(dir, "fixture");
       mkdirSync(fixture);
-      await gitInit(fixture);
+      gitInit(fixture);
       rmSync(join(fixture, ".git", "HEAD"));
       return {
         bench: copyBenchInto(fixture),
@@ -331,8 +331,8 @@ const gitFailures: [string, (dir: string) => Promise<GitFailure> | GitFailure][]
 test.each(gitFailures)(
   "--json with %s is refused with exit 2 before the child runs or anything is written",
   async (_name, plan) => {
-    await withTempDir(async (dir) => {
-      const { bench, env, fragments } = await plan(dir);
+    await withTempDir((dir) => {
+      const { bench, env, fragments } = plan(dir);
       const out = join(dir, "bench.json");
       const log = join(dir, "runs.log");
       const command = [

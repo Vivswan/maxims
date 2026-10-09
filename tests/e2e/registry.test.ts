@@ -278,11 +278,11 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
     "add installs the target and the hook; remove takes both back byte for byte",
     async () => {
       await withTempDir(async (dir) => {
-        const home = await makeHome(dir);
+        const home = makeHome(dir);
         const ctx = contextFor(home);
         prepareRoots(def, scope, ctx);
         const seeded = seedFixture(def, scope, ctx);
-        const source = await fixtureRepo(dir, "skills");
+        const source = fixtureRepo(dir, "skills");
         const slug = sourceSlug({ type: "local", path: source });
         const destination: Destination =
           scope === "project"
@@ -321,10 +321,10 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
 describe.each(missingScope)("%s has no %s target", (_id, scope, def) => {
   test("an install there is warned about and skipped", async () => {
     await withTempDir(async (dir) => {
-      const home = await makeHome(dir);
+      const home = makeHome(dir);
       const ctx = contextFor(home);
       prepareRoots(def, scope, ctx);
-      const source = await fixtureRepo(dir, "skills");
+      const source = fixtureRepo(dir, "skills");
       const scopeFlag = scope === "global" ? "-g" : "-p";
       const run = await runMaxims(
         bundle,

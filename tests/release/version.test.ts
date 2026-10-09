@@ -58,39 +58,36 @@ const AUTHOR_DATE = "2026-01-01T12:00:00+00:00";
 const COMMITTER_DATE = "2026-03-15T23:30:00-05:00";
 
 /** main: one, two, three, a merge of the two-commit topic branch, four (with the dates above), then four.txt renamed to a path with a space. */
-async function fixtureRepo(root: string): Promise<{
+function fixtureRepo(root: string): {
   shas: string[];
   merge: string;
   branchTip: string;
   moved: string;
-}> {
-  await gitInit(root);
-  const commit = (message: string, env: Record<string, string> = {}): Promise<string> => {
+} {
+  gitInit(root);
+  const commit = (message: string, env: Record<string, string> = {}): string => {
     writeFileSync(join(root, `${message.replaceAll(" ", "-")}.txt`), `${message}\n`);
     return commitAll(root, message, env);
   };
-  const one = await commit("one");
-  const two = await commit("two");
-  await git(root, ["checkout", "-q", "-b", "topic"]);
-  await commit("topic one");
-  const branchTip = await commit("topic two");
-  await git(root, ["checkout", "-q", "main"]);
-  const three = await commit("three");
-  await git(root, ["merge", "-q", "--no-ff", "-m", "merge topic", "topic"]);
-  const merge = await git(root, ["rev-parse", "HEAD"]);
-  const four = await commit("four", {
-    GIT_AUTHOR_DATE: AUTHOR_DATE,
-    GIT_COMMITTER_DATE: COMMITTER_DATE,
-  });
-  await git(root, ["mv", "four.txt", "moved four.txt"]);
-  const moved = await commitAll(root, "move four");
+  const one = commit("one");
+  const two = commit("two");
+  git(root, ["checkout", "-q", "-b", "topic"]);
+  commit("topic one");
+  const branchTip = commit("topic two");
+  git(root, ["checkout", "-q", "main"]);
+  const three = commit("three");
+  git(root, ["merge", "-q", "--no-ff", "-m", "merge topic", "topic"]);
+  const merge = git(root, ["rev-parse", "HEAD"]);
+  const four = commit("four", { GIT_AUTHOR_DATE: AUTHOR_DATE, GIT_COMMITTER_DATE: COMMITTER_DATE });
+  git(root, ["mv", "four.txt", "moved four.txt"]);
+  const moved = commitAll(root, "move four");
   return { shas: [one, two, three, merge, four], merge, branchTip, moved };
 }
 
 describe("git facts", () => {
   test("the first-parent count steps once per merge, the date is the committer's in UTC, ancestry answers yes, no, and unknown, and a diff lists every path", async () => {
-    await withTempDir(async (root) => {
-      const { shas, merge, branchTip, moved } = await fixtureRepo(root);
+    await withTempDir((root) => {
+      const { shas, merge, branchTip, moved } = fixtureRepo(root);
       const [one, , , , four] = shas as [string, string, string, string, string];
       expect(shas.map((sha) => mainPosition(root, sha).count)).toEqual([1, 2, 3, 4, 5]);
       expect(mainPosition(root, four).date).toBe("20260316");

@@ -133,9 +133,9 @@ function withoutStamp(home: Home): void {
 
 test("1: add --dry-run prints the plan and writes nothing, not even state", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const out = join(dir, "out");
-    const source = await fixtureRepo(dir, "skills");
+    const source = fixtureRepo(dir, "skills");
     const before = snapshot(home.root);
     const run = ok(
       await runMaxims(bundle, home, [
@@ -167,7 +167,7 @@ test("1: add --dry-run prints the plan and writes nothing, not even state", asyn
 
 test("2: add installs a real rule file, one hook per registry and intent-only state", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
     const { stdout } = ok(installed.run);
     const warnings = stdout.split("\n").filter((line) => line.startsWith("!  "));
@@ -226,7 +226,7 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
 
 test("3a: a second sync changes nothing but the stamp and the log; a quiet one says nothing", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
     ok(installed.run);
     ok(await runMaxims(bundle, home, ["sync"]));
@@ -253,7 +253,7 @@ test("3a: a second sync changes nothing but the stamp and the log; a quiet one s
 
 test("3b: a hook run over a vanished source keeps last-good, records missing and says so", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
     ok(installed.run);
     const ruleBefore = readFileSync(installed.ruleFile, "utf8");
@@ -289,10 +289,10 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
 
 test("3c: a held lock turns a manual add into exit 5 naming the holder, with nothing written", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     ok((await installDotfiles(bundle, dir, home)).run);
     // A source whose names collide with the installed one is refused before the lock is taken.
-    const second = await memoriesRepo(dir, 3);
+    const second = memoriesRepo(dir, 3);
     await withLock(homePaths(home.maximsHome).lock, { staleMs: 60_000 }, async () => {
       const before = snapshot(home.root);
       const started = Date.now();
@@ -309,7 +309,7 @@ test("3c: a held lock turns a manual add into exit 5 naming the holder, with not
 
 test("3d: a held lock makes a hook run exit 0 at once, writing only the stamp and the log", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     ok((await installDotfiles(bundle, dir, home)).run);
     withoutStamp(home);
     await withLock(homePaths(home.maximsHome).lock, { staleMs: 60_000 }, async () => {
@@ -329,7 +329,7 @@ test("3d: a held lock makes a hook run exit 0 at once, writing only the stamp an
 
 test("4: remove takes back the rule file, the block, both registry entries and the store entry", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
     ok(installed.run);
     const store = storePathFor(home.maximsHome, { type: "local", path: installed.source });
@@ -350,7 +350,7 @@ test("4: remove takes back the rule file, the block, both registry entries and t
 
 test("5: list --json is one document showing the rename and the stale source", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home, [
       "--rename",
       "gate-exit-conditions-the-merge=merge-gate",
@@ -393,7 +393,7 @@ test("5: list --json is one document showing the rename and the stale source", a
 
 test("6: init scaffolds a memory that passes the contract", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const run = ok(await runMaxims(bundle, home, ["init", "test-rule"], { cwd: home.project }));
     expect(run.stdout).toBe(`o  Created ${join("memories", "test-rule.md")}\n`);
     const path = join(home.project, "memories", "test-rule.md");
@@ -404,8 +404,8 @@ test("6: init scaffolds a memory that passes the contract", async () => {
 
 test("7: a project install writes under the project and nothing under the user home", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
-    const source = await fixtureRepo(dir, "skills");
+    const home = makeHome(dir);
+    const source = fixtureRepo(dir, "skills");
     mkdirSync(join(home.project, ".claude"));
     ok(
       await runMaxims(bundle, home, ["add", source, "-p", "--rule", "-a", "claude-code", "-y"], {
@@ -459,7 +459,7 @@ test.each(usageRows)(
   "8: maxims %j exits %i and leaves the home untouched",
   async (argv, code, stderr) => {
     await withTempDir(async (dir) => {
-      const home = await makeHome(dir);
+      const home = makeHome(dir);
       const before = snapshot(home.root);
       const run = await runMaxims(bundle, home, argv);
       expect({ code: run.code, stderr: run.stderr }).toEqual({ code, stderr });
@@ -473,7 +473,7 @@ test.each(usageRows)(
 // a run could leave behind, or an unconditional empty map would pass them all.
 test("the home snapshot names a new empty directory, file and symlink", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const before = snapshot(home.root);
     mkdirSync(join(home.root, ".claude", "rules"), { recursive: true });
     mkdirSync(join(home.root, ".codex"));
@@ -493,8 +493,8 @@ test("the home snapshot names a new empty directory, file and symlink", async ()
 
 test("9: a source over the rule cap is refused whole with exit 8 and nothing written", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
-    const source = await memoriesRepo(dir, 30);
+    const home = makeHome(dir);
+    const source = memoriesRepo(dir, 30);
     const before = snapshot(home.root);
     const run = await runMaxims(bundle, home, ["add", source, "-g", "--rule", "-a", "codex", "-y"]);
     expect(run.code).toBe(ExitCode.RuleCapExceeded);

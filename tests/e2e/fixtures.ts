@@ -41,13 +41,13 @@ const TREE_ROOT = resolve(import.meta.dir, "..", "fixtures", "cli");
 
 // Copies `tests/fixtures/cli/<tree>/` to `<dir>/<tree>` and commits it; returns the path the
 // bundle installs from.
-export async function fixtureRepo(dir: string, tree: string): Promise<string> {
+export function fixtureRepo(dir: string, tree: string): string {
   const source = join(TREE_ROOT, tree);
   if (!existsSync(source)) throw new Error(`no fixture tree named ${tree}`);
   const repo = join(dir, tree);
   cpSync(source, repo, { recursive: true });
-  await gitInit(repo);
-  await commitAll(repo, "fixture");
+  gitInit(repo);
+  commitAll(repo, "fixture");
   return repo;
 }
 
@@ -81,7 +81,7 @@ export function ruleDescriptions(text: string): string[] {
 }
 
 // `count` rule-flagged memories named m-001.. so a row can cross the rule cap on purpose.
-export async function memoriesRepo(dir: string, count: number): Promise<string> {
+export function memoriesRepo(dir: string, count: number): string {
   const repo = join(dir, `memories-${count}`);
   mkdirSync(join(repo, "memories"), { recursive: true });
   for (let index = 1; index <= count; index += 1) {
@@ -102,8 +102,8 @@ export async function memoriesRepo(dir: string, count: number): Promise<string> 
       ].join("\n"),
     );
   }
-  await gitInit(repo);
-  await commitAll(repo, "fixture");
+  gitInit(repo);
+  commitAll(repo, "fixture");
   return repo;
 }
 
@@ -158,7 +158,7 @@ export async function installDotfiles(
   extra: string[] = [],
 ): Promise<Installed> {
   const registries = seedRegistries(home);
-  const source = await fixtureRepo(dir, "dotfiles");
+  const source = fixtureRepo(dir, "dotfiles");
   const slug = sourceSlug({ type: "local", path: source });
   const run = await runMaxims(bundle, home, [
     "add",

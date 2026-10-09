@@ -28,7 +28,7 @@ afterAll(() => {
 // like any other change to what the user sees.
 test("add prints the plain frame byte for byte at width 80 with color off", async () => {
   await withTempDir(async (dir) => {
-    const home = await makeHome(dir);
+    const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home);
     expect({ code: installed.run.code, stderr: installed.run.stderr }).toEqual({
       code: ExitCode.Ok,

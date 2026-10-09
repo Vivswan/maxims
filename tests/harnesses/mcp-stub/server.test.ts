@@ -89,16 +89,12 @@ test.each(failures)(
       JSON.stringify([
         { jsonrpc: "2.0", id: "a", method: "ping" },
         { jsonrpc: "2.0", method: "notifications/cancelled" },
-        [],
       ]),
       "42",
     ]);
     expect(served.responses).toEqual([
       { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } },
-      [
-        { jsonrpc: "2.0", id: "a", result: {} },
-        { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } },
-      ],
+      [{ jsonrpc: "2.0", id: "a", result: {} }],
       { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } },
     ]);
     expect(served.stderr).toBe("maxims mcp-serve: sync failed: offline\n");

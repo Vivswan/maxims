@@ -1012,8 +1012,8 @@ describe("git rung against a file:// fixture repo", () => {
         "first-rule.md",
         "second-rule.md",
       ]);
-      expect(await git(join(dir, "victim"), ["rev-parse", "HEAD"])).toBe(victim.head);
-      expect(await git(join(dir, "victim"), ["remote"])).toBe("");
+      expect(git(join(dir, "victim"), ["rev-parse", "HEAD"])).toBe(victim.head);
+      expect(git(join(dir, "victim"), ["remote"])).toBe("");
     });
   });
 
