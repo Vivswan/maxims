@@ -22,17 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # enough to push regenerated files back to the PR branch
+      contents: read # nothing here writes yet; a regenerating step needs jobs.update-release-pr.permissions.contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.head_branch }}
       - name: Update the release PR
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_BRANCH: ${{ inputs.head_branch }}
-        # Repository-specific release-PR preparation goes here, e.g.:
+        # Repository-specific release-PR preparation goes here. A step that regenerates files first checks out
+        # `inputs.head_branch` (actions/checkout with ref), with this job's permissions.contents raised to write, e.g.:
         #   ./regenerate-versioned-files.sh
         #   git commit -am "chore: regenerate for release" && git push origin "$HEAD_BRANCH"
         run: echo "nothing to add to release PR $PR_NUMBER yet"
