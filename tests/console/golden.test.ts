@@ -10,9 +10,10 @@ import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { createClackConsole } from "../../src/console/clack.ts";
-import type { Console, ConsoleMode } from "../../src/console/contract.ts";
+import { type Console, type ConsoleMode, promptsAllowed } from "../../src/console/contract.ts";
 import { agentIdFrom, consoleMode } from "../../src/console/mode.ts";
 import { createPlainConsole } from "../../src/console/plain.ts";
+import { STRINGS } from "../../src/console/strings.ts";
 import {
   FIXTURES,
   fixtureResolvers,
@@ -233,13 +234,14 @@ const matrix: [string, { isTTY: boolean }, boolean, string | null, boolean, bool
   ["no tty", { isTTY: false }, true, "claude", false, false, false],
 ];
 
-test.each(matrix)("mode row %s", async (_name, stdout, stdinTty, agent, yes, prompts, banner) => {
-  const { promptsAllowed } = await import("../../src/console/contract.ts");
+test.each(matrix)("mode row %s", (_name, stdout, stdinTty, agent, yes, prompts, banner) => {
   const mode = consoleMode({ stdout, stdinTty, agent, yes, quiet: false, json: false });
-  expect(promptsAllowed(mode)).toBe(prompts);
   let out = "";
   createPlainConsole(mode, { write: (chunk: string) => (out += chunk) }).intro();
-  expect(out.includes("Agent detected")).toBe(banner && agent !== null && stdout.isTTY);
+  expect({ prompts: promptsAllowed(mode), banner: out.includes(STRINGS.agentDetected) }).toEqual({
+    prompts,
+    banner,
+  });
 });
 
 // The detector reads the real environment, so each row runs against a process env holding only
