@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { basename } from "node:path";
 import fc from "fast-check";
+import { stringify } from "yaml";
 import {
   hiddenCharacters,
   type Memory,
@@ -77,9 +78,7 @@ const stem = fc.oneof(
   fc.stringMatching(/^[a-z0-9]+(-[a-z0-9]+){0,4}$/),
   fc.stringMatching(/^[a-zA-Z0-9._-]{0,12}$/),
   anyText({ maxLength: 20 }),
-  fc
-    .array(fc.constantFrom("a", "z", "0", "-"), { minLength: 190, maxLength: 212, size: "max" })
-    .map((chars) => chars.join("")),
+  fragments(["a", "z", "0", "-"], { minLength: 190, maxLength: 212, size: "max" }),
 );
 
 const filename = fc.oneof(
@@ -268,7 +267,9 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-const memoryName = fc.stringMatching(/^[a-z][a-z0-9]{0,3}(-[a-z0-9]{1,3}){0,2}$/);
+// Six names shared by every slot: the rename rule fires only when a rename key reuses a name an
+// incoming memory or a link carries, and draws from a space of thousands of names rarely reuse one.
+const memoryName = fc.constantFrom("a", "b", "c", "d-e", "f1", "g");
 
 // A body is built from the links it is meant to carry, so the expected unmet set comes from the
 // generator and not from the extractor under test.
@@ -276,9 +277,8 @@ function bodyWith(links: readonly string[], noise: string): string {
   return links.map((link) => `[[${link}]]`).join(noise === "" ? " " : noise);
 }
 
-// The name is quoted: YAML would read a generated "null" or "true" as a non-string scalar.
 function memoryOf(name: string, text: string): Memory {
-  const file = `---\nname: ${JSON.stringify(name)}\ndescription: d\n---\n${text}`;
+  const file = `---\n${stringify({ name, description: "d" })}---\n${text}`;
   const parsed = parseMemory(`${name}.md`, file);
   if (!parsed.ok) throw new Error(`fixture memory ${name} did not parse: ${parsed.reason}`);
   return parsed.memory;
