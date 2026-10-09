@@ -17,6 +17,7 @@ import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.t
 import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { expectExit } from "../../engine/world.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -243,21 +244,18 @@ test.skipIf(!CHMOD_DENIES)(
       mkdirSync(locked);
       chmodSync(locked, 0o000);
       try {
-        let caught: unknown;
-        try {
-          await reconcileInstructions(locked, true);
-        } catch (error) {
-          caught = error;
-        }
-        expect(caught).toBeInstanceOf(MaximsError);
-        // Both config names are read at once and both reads are denied, so whichever rejects
-        // first names the failure.
-        expect(caught).toMatchObject({
-          code: ExitCode.DestinationWriteFailed,
-          message: expect.stringMatching(
-            /^cannot read .*\/opencode\.jsonc?: EACCES: permission denied, open '.*\/opencode\.jsonc?'$/,
+        const error = await expectExit(
+          reconcileInstructions(locked, true),
+          ExitCode.DestinationWriteFailed,
+        );
+        // Which look trips first is the platform's: Linux resolves a directory it cannot search
+        // and refuses at the config read inside it, macOS refuses the realpath of the project.
+        const project = RegExp.escape(locked);
+        expect(error.message).toMatch(
+          new RegExp(
+            `^cannot (read ${project}/[^:]+|inspect ${project}): EACCES: permission denied, `,
           ),
-        });
+        );
       } finally {
         chmodSync(locked, 0o700);
       }
