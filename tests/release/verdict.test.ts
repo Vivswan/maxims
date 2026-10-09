@@ -354,12 +354,8 @@ describe("parsePackument", () => {
 });
 
 describe("confirmPublish", () => {
-  function confirm(
-    channel: Channel,
-    version: string,
-    reads: (Packument | null | Error)[],
-    attempts = 3,
-  ) {
+  type Reads = (Packument | null | Error)[];
+  function confirm(channel: Channel, version: string, reads: Reads, attempts = 3) {
     let pauses = 0;
     let read = 0;
     return confirmPublish({
@@ -382,33 +378,49 @@ describe("confirmPublish", () => {
     }).then((verdict) => ({ verdict, pauses }));
   }
 
-  test("holds the lane through reads that lack the version or fail, and settles once it shows", async () => {
-    const shown = packument([VERSION], { next: VERSION });
-    expect(await confirm("next", VERSION, [null, new Error("503"), shown])).toEqual({
-      verdict: { outcome: "settled", version: VERSION, reads: 3 },
-      pauses: 2,
-    });
+  const shown = packument([VERSION], { next: VERSION });
+
+  const verdicts: [string, Reads, number, { verdict: ConfirmVerdict; pauses: number }][] = [
+    [
+      "holds the lane through reads that lack the version or fail, and settles once it shows",
+      [null, new Error("503"), shown],
+      3,
+      { verdict: { outcome: "settled", version: VERSION, reads: 3 }, pauses: 2 },
+    ],
+    [
+      "reports a record that never shows the version once the budget is spent",
+      [packument(["0.0.1"], { latest: "0.0.1" })],
+      3,
+      {
+        verdict: {
+          outcome: "unsettled",
+          version: VERSION,
+          reason: `the registry's record still lacks ${VERSION} after 3 reads; a run judged before it shows may move next back, and the next publish on the lane moves it forward`,
+        },
+        pauses: 2,
+      },
+    ],
+  ];
+  test.each(verdicts)("%s", async (_case, reads, attempts, expected) => {
+    await expect(confirm("next", VERSION, reads, attempts)).resolves.toEqual(expected);
   });
 
-  test("reports a record that never shows the version once the budget is spent", async () => {
-    const { verdict, pauses } = await confirm("next", VERSION, [
-      packument(["0.0.1"], { latest: "0.0.1" }),
-    ]);
-    expect(verdict).toMatchObject({ outcome: "unsettled", version: VERSION });
-    expect(pauses).toBe(2);
-  });
-
-  test("a read that fails on the last attempt is the failure reported", async () => {
-    await expect(confirm("next", VERSION, [new Error("registry down")], 2)).rejects.toThrow(
+  const stops: [string, Reads, number, string][] = [
+    [
+      "a read that fails on the last attempt is the failure reported",
+      [new Error("registry down")],
+      2,
       "registry down",
-    );
-  });
-
-  test("an unreadable record stops the run at once, whatever the budget", async () => {
-    const shown = packument([VERSION], { next: VERSION });
-    await expect(
-      confirm("next", VERSION, [new UnreadablePackument("not a packument"), shown], 5),
-    ).rejects.toThrow("not a packument");
+    ],
+    [
+      "an unreadable record stops the run at once, whatever the budget",
+      [new UnreadablePackument("not a packument"), shown],
+      5,
+      "not a packument",
+    ],
+  ];
+  test.each(stops)("%s", async (_case, reads, attempts, message) => {
+    await expect(confirm("next", VERSION, reads, attempts)).rejects.toThrow(message);
   });
 
   const tags: [string, Channel, string, Packument, ConfirmVerdict["outcome"]][] = [
