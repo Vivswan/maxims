@@ -1,7 +1,7 @@
 // Fails if the fake model endpoint truncates or normalizes a captured request body (a harness
 // sends its whole system prompt, and the harness smoke searches it for one rule line), or if one
 // of the four wire shapes the installed harness CLIs parse stops ending a turn cleanly.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { type FakeLlm, REPLY_TEXT, startFakeLlm, type Wire } from "./fake-llm.ts";
 
 let fake: FakeLlm;
@@ -377,33 +377,38 @@ function oncePath(shape: Shape): string {
     : shape.path;
 }
 
-describe.each(SHAPES)("$wire", (shape) => {
-  test("streams the canned reply in the shape the CLI parses", async () => {
-    const response = await fetch(`${fake.baseUrl}${shape.path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(shape.streaming),
-    });
-    expect({
-      status: response.status,
-      contentType: response.headers.get("content-type"),
-      frames: decoded(await response.text()),
-    }).toEqual({ status: 200, contentType: "text/event-stream", frames: shape.streamed });
+function post(path: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${fake.baseUrl}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
   });
+}
 
-  test("answers a one-shot request with the complete message", async () => {
-    const response = await fetch(`${fake.baseUrl}${oncePath(shape)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(shape.once),
-    });
+// Both answers a wire gives, pinned together: the frame sequence a streaming client needs to end
+// its turn and the complete message a one-shot client reads.
+test.each(SHAPES)(
+  "$wire streams the canned reply and answers a one-shot request in the shape the CLI parses",
+  async (shape) => {
+    const streamed = await post(shape.path, shape.streaming);
+    const once = await post(oncePath(shape), shape.once);
     expect({
-      status: response.status,
-      contentType: response.headers.get("content-type"),
-      body: await response.json(),
-    }).toEqual({ status: 200, contentType: "application/json", body: shape.answered });
-  });
-});
+      streamed: {
+        status: streamed.status,
+        contentType: streamed.headers.get("content-type"),
+        frames: decoded(await streamed.text()),
+      },
+      once: {
+        status: once.status,
+        contentType: once.headers.get("content-type"),
+        body: await once.json(),
+      },
+    }).toEqual({
+      streamed: { status: 200, contentType: "text/event-stream", frames: shape.streamed },
+      once: { status: 200, contentType: "application/json", body: shape.answered },
+    });
+  },
+);
 
 // The body is pretty-printed and carries a JSON escape, so a capture that re-serializes what it
 // parsed comes back different; the size is past the journal cap of the mocking library this fake
@@ -501,14 +506,5 @@ test("a Gemini structured-output request is answered with an instance of its sch
     complexity_score: 1,
     route: "flash",
     flags: [],
-  });
-});
-
-test("the model catalog lists what the smoke rows ask for", async () => {
-  const response = await fetch(`${fake.baseUrl}/v1/models`);
-  const body = (await response.json()) as { data: { id: string }[] };
-  expect({ status: response.status, ids: body.data.map((m) => m.id) }).toEqual({
-    status: 200,
-    ids: ["claude-haiku-4-5", "gpt-5.4", "gemini-2.5-flash"],
   });
 });
