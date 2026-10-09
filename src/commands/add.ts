@@ -301,7 +301,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
     // on one location whether the user typed the directory or a symlink to it.
     const path = realLocal(from).path;
     from =
-      link || sourceArg === "." ? { type: "local", path, live: true } : { type: "local", path };
+      link || from.live === true ? { type: "local", path, live: true } : { type: "local", path };
     // A live directory is read in place at every sync, so there is no fetch to hold back.
     if (review && isLiveLocal(from)) {
       throw usage("--review applies to a fetched source; a live directory is read in place");

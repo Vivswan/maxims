@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Stats } from "node:fs";
+import { lstatSync, type Stats } from "node:fs";
 import {
   chmod,
   lstat,
@@ -133,6 +133,14 @@ export function lstatOrNull(path: string): Promise<Stats | null> {
   return probe(path, lstat);
 }
 
+export function lstatOrNullSync(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    return absentOrThrow(path, error);
+  }
+}
+
 // A directory reached through a link already exists for mkdir's purposes, so this probe follows.
 function statOrNull(path: string): Promise<Stats | null> {
   return probe(path, stat);
@@ -142,16 +150,20 @@ async function probe(path: string, look: (path: string) => Promise<Stats>): Prom
   try {
     return await look(path);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return null;
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `cannot inspect ${path}: ${detail(error)}`,
-      {
-        cause: error,
-      },
-    );
+    return absentOrThrow(path, error);
   }
+}
+
+function absentOrThrow(path: string, error: unknown): null {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT" || code === "ENOTDIR") return null;
+  throw new MaximsError(
+    ExitCode.DestinationWriteFailed,
+    `cannot inspect ${path}: ${detail(error)}`,
+    {
+      cause: error,
+    },
+  );
 }
 
 async function guarded(path: string, action: () => Promise<unknown>): Promise<void> {

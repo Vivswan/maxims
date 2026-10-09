@@ -16,11 +16,11 @@ import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   assertInsideRoot,
   ensureDir0700,
-  hashDirectory,
   type RootedPath,
   sha256,
   writeFileAtomic,
 } from "../../src/util/fs.ts";
+import { hashDirectory } from "../shared/hash_directory.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 

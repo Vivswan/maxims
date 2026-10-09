@@ -288,20 +288,19 @@ export type ParsedState =
   | { ok: "corrupt"; issues: string[] }
   | { ok: "newer"; version: number };
 
+// The version is read before any shape judgment: the migration runner routes an older document
+// by it and `parseState` refuses a newer one by it, so neither ever parses a shape it cannot know.
+export function versionOf(json: unknown): number | null {
+  if (typeof json !== "object" || json === null || !("version" in json)) return null;
+  return typeof json.version === "number" && Number.isInteger(json.version) ? json.version : null;
+}
+
 // A version above the current one is a clean stop, never a parse attempt: an older binary cannot
 // see the fields a newer one wrote, so a rewrite would destroy them. A version below the current
 // one reaches here only if the migration runner did not intercept it, which is corruption.
 export function parseState(json: unknown): ParsedState {
-  if (typeof json === "object" && json !== null && "version" in json) {
-    const version = (json as { version: unknown }).version;
-    if (
-      typeof version === "number" &&
-      Number.isInteger(version) &&
-      version > CURRENT_STATE_VERSION
-    ) {
-      return { ok: "newer", version };
-    }
-  }
+  const version = versionOf(json);
+  if (version !== null && version > CURRENT_STATE_VERSION) return { ok: "newer", version };
   const result = StateSchema.safeParse(json);
   if (result.success) return { ok: "parsed", state: result.data };
   return { ok: "corrupt", issues: flattenIssues(result.error.issues) };

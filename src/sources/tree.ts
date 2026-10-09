@@ -96,8 +96,9 @@ async function walkRegularFiles(root: string, rel: string[], warn: WarnSink): Pr
   return out;
 }
 
-// Same framing as `hashDirectory` in util/fs.ts, applied to the collected memory files only, so a
-// symlink, a hidden file, or an unrelated README cannot change a source's sha.
+// Only the collected memory files are hashed, so a symlink, a hidden file, or an unrelated README
+// cannot change a source's sha. Path, byte length and content are NUL-framed per file so that no
+// two file sets can produce one stream.
 export function hashFiles(files: TreeFile[]): string {
   const hash = createHash("sha256");
   for (const file of [...files].sort((a, b) => (a.relPath < b.relPath ? -1 : 1))) {

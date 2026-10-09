@@ -1,4 +1,4 @@
-import { CURRENT_STATE_VERSION } from "../schema.ts";
+import { CURRENT_STATE_VERSION, versionOf } from "../schema.ts";
 
 // A step is authored against the version it leaves, so the file that carries it is named for
 // `from` (v3.ts migrates 3 away) and needs no guess at the next release number. `migrate` must be a
@@ -62,9 +62,4 @@ function contiguousChain(registry: readonly MigrationStep[], target: number): Mi
     throw new Error(`migration chain ends at ${expected}, not the current version ${target}`);
   }
   return chain;
-}
-
-export function versionOf(json: unknown): number | null {
-  if (typeof json !== "object" || json === null || !("version" in json)) return null;
-  return typeof json.version === "number" && Number.isInteger(json.version) ? json.version : null;
 }
