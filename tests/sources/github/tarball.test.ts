@@ -98,28 +98,24 @@ describe("extractTarball", () => {
     },
   );
 
-  test("an archive cut off inside a file rejects instead of waiting forever", async () => {
+  // An archive cut off inside a file never ends that file's stream, so the race is what tells a
+  // rejection from a hang; the tree left behind is what the next rung would have merged into.
+  const broken: [string, () => Uint8Array, string[]][] = [
+    ["an archive cut off inside a file", truncatedTarball, ["memories/"]],
+    ["bytes that are not an archive", () => new TextEncoder().encode("not a tarball"), []],
+  ];
+  test.each(broken)("%s rejects instead of waiting or extracting", async (_label, bytes, tree) => {
     await withTempDir(async (dir) => {
       const dest = join(dir, "tree");
       const outcome = await Promise.race([
-        extractTarball(truncatedTarball(), dest, () => {}).then(
+        extractTarball(bytes(), dest, () => {}).then(
           () => "resolved",
           (error: Error) => `rejected: ${error.message}`,
         ),
         new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 2000)),
       ]);
       expect(outcome).toMatch(/^rejected: /);
-      expect(listTree(dest)).toEqual(["memories/"]);
-    });
-  });
-
-  test("bytes that are not an archive reject instead of producing an empty tree", async () => {
-    await withTempDir(async (dir) => {
-      const dest = join(dir, "tree");
-      await expect(
-        extractTarball(new TextEncoder().encode("not a tarball"), dest, () => {}),
-      ).rejects.toThrow();
-      expect(listTree(dest)).toEqual([]);
+      expect(listTree(dest)).toEqual(tree);
     });
   });
 });

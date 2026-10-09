@@ -47,7 +47,7 @@ describe("resolveRef", () => {
       rung: () => {},
       env: { GITHUB_TOKEN: "secret" },
     });
-    expect(await resolver.resolveRef(FROM, "v2")).toBe(SHA);
+    await expect(resolver.resolveRef(FROM, "v2")).resolves.toBe(SHA);
     expect(runner.calls).toEqual([
       "git ls-remote https://github.com/Example-User/rules.git refs/tags/v2 refs/tags/v2^{} refs/heads/v2 refs/heads/v2^{} [creds=none]",
       "fetch https://api.github.com/repos/Example-User/rules/commits/v2",
@@ -99,6 +99,8 @@ describe("fetch", () => {
     });
   });
 
+  // The API and the archive are scripted too, so a fetch that bypassed gh would still complete
+  // and show up in the recorded calls instead of failing on an unscripted transport.
   test("with auth: gh resolves and fetches first, and a pre-resolved sha skips resolution", async () => {
     await withTempDir(async (tempDir) => {
       const runner = scriptedRunner({
@@ -107,6 +109,7 @@ describe("fetch", () => {
             ? exited(0, SHA)
             : exited(0, cleanTarball()),
         ),
+        fetch: (url) => httpResponse(200, url.includes("/commits/") ? SHA : cleanTarball()),
       });
       const resolver = createGithubResolver({
         runner,

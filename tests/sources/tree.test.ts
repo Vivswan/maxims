@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readMemoryTree } from "../../src/sources/tree.ts";
+import { readMemoryTree, type TreeFile, type TreeScope } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
@@ -27,115 +27,117 @@ function seed(root: string): void {
   symlinkSync(join(root, "docs"), join(root, "memories", "linked-dir"));
 }
 
+// The root is seeded in place, or seeded under `real` and reached through a link beside it: the
+// source root may itself be a symlink (a dotfiles checkout often is), and that link is the one
+// the walk may follow.
+function seededRoot(dir: string): string {
+  seed(dir);
+  return dir;
+}
+
+function linkedRoot(dir: string): string {
+  seed(join(dir, "real"));
+  symlinkSync(join(dir, "real"), join(dir, "root-link"));
+  return join(dir, "root-link");
+}
+
+const MEMORIES: TreeFile[] = [
+  { relPath: "memories/a-rule.md", text: "a\n" },
+  { relPath: "memories/b-rule.md", text: "b\n" },
+  { relPath: "memories/nested/c-rule.md", text: "c\n" },
+];
+const NEVER_FOLLOWED = "links inside a source are never followed";
+
 describe("readMemoryTree", () => {
-  test("collects sorted memory files under memoryPath, relative to the source root", async () => {
-    await withTempDir(async (root) => {
-      seed(root);
+  const scans: [string, (dir: string) => string, TreeScope, string, TreeFile[], string[]][] = [
+    [
+      "collects sorted memory files under memoryPath, relative to the source root",
+      seededRoot,
+      { memoryPath: "memories", fullDepth: false },
+      "memories",
+      MEMORIES,
+      [`skipped symlink linked-dir: ${NEVER_FOLLOWED}`, `skipped symlink x.md: ${NEVER_FOLLOWED}`],
+    ],
+    [
+      "fullDepth walks from the source root, keeps every .md but the reserved names, and still skips hidden entries",
+      seededRoot,
+      { memoryPath: "memories", fullDepth: true },
+      "",
+      [{ relPath: "docs/d-rule.md", text: "d\n" }, ...MEMORIES],
+      [
+        `skipped symlink memories/linked-dir: ${NEVER_FOLLOWED}`,
+        `skipped symlink memories/x.md: ${NEVER_FOLLOWED}`,
+      ],
+    ],
+    [
+      "a source root that is itself a symlink scans like a real one",
+      linkedRoot,
+      { memoryPath: "memories", fullDepth: false },
+      "memories",
+      MEMORIES,
+      [`skipped symlink linked-dir: ${NEVER_FOLLOWED}`, `skipped symlink x.md: ${NEVER_FOLLOWED}`],
+    ],
+  ];
+  test.each(scans)("%s", async (_label, rootOf, scope, scanned, files, expectedWarnings) => {
+    await withTempDir(async (dir) => {
+      const root = rootOf(dir);
       const warnings: string[] = [];
-      const tree = await readMemoryTree(root, { memoryPath: "memories", fullDepth: false }, (m) =>
-        warnings.push(m),
-      );
-      expect(tree.scannedRoot).toBe(join(root, "memories"));
-      expect(tree.files).toEqual([
-        { relPath: "memories/a-rule.md", text: "a\n" },
-        { relPath: "memories/b-rule.md", text: "b\n" },
-        { relPath: "memories/nested/c-rule.md", text: "c\n" },
-      ]);
-      expect(warnings).toEqual([
-        "skipped symlink linked-dir: links inside a source are never followed",
-        "skipped symlink x.md: links inside a source are never followed",
-      ]);
+      await expect(readMemoryTree(root, scope, (m) => warnings.push(m))).resolves.toEqual({
+        scannedRoot: join(root, scanned),
+        files,
+      });
+      expect(warnings).toEqual(expectedWarnings);
     });
   });
 
-  test("fullDepth walks from the source root, keeps every .md but the reserved names, and still skips hidden entries", async () => {
-    await withTempDir(async (root) => {
-      seed(root);
-      const tree = await readMemoryTree(
-        root,
-        { memoryPath: "memories", fullDepth: true },
-        () => {},
-      );
-      expect(tree.scannedRoot).toBe(root);
-      expect(tree.files.map((f) => f.relPath)).toEqual([
-        "docs/d-rule.md",
-        "memories/a-rule.md",
-        "memories/b-rule.md",
-        "memories/nested/c-rule.md",
-      ]);
-    });
-  });
+  function leakedRoot(dir: string): string {
+    const real = seededRoot(join(dir, "real"));
+    mkdirSync(join(dir, "elsewhere"));
+    writeFileSync(join(dir, "elsewhere", "leak-rule.md"), "leak\n");
+    symlinkSync(join(dir, "elsewhere"), join(real, "linked"));
+    return real;
+  }
 
-  const failures: [string, { memoryPath: string; fullDepth: boolean }, RegExp][] = [
-    ["a missing memoryPath", { memoryPath: "rules", fullDepth: false }, /has no rules directory/],
+  const failures: [string, (dir: string) => string, TreeScope, RegExp][] = [
+    [
+      "a missing memoryPath",
+      seededRoot,
+      { memoryPath: "rules", fullDepth: false },
+      /has no rules directory/,
+    ],
     [
       "a memoryPath that escapes the source",
+      seededRoot,
       { memoryPath: "../outside", fullDepth: false },
       /escapes/,
     ],
     [
       "a memoryPath that is a file",
+      seededRoot,
       { memoryPath: "README.md", fullDepth: false },
       /not a directory/,
     ],
+    [
+      "a missing source directory",
+      (dir) => join(dir, "gone"),
+      { memoryPath: "memories", fullDepth: true },
+      /gone is not a directory/,
+    ],
+    [
+      "a memoryPath reached through a symlink",
+      leakedRoot,
+      { memoryPath: "linked", fullDepth: false },
+      /reached through a symlink/,
+    ],
   ];
-  test.each(failures)("%s is exit 2", async (_label, scope, message) => {
-    await withTempDir(async (root) => {
-      seed(root);
-      let caught: unknown;
-      try {
-        await readMemoryTree(root, scope, () => {});
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(MaximsError);
-      expect((caught as MaximsError).code).toBe(ExitCode.SourceUnresolvable);
-      expect((caught as MaximsError).message).toMatch(message);
-    });
-  });
-
-  test("a memoryPath reached through a symlink is exit 2, even when the root is a symlink", async () => {
+  test.each(failures)("%s is exit 2", async (_label, rootOf, scope, message) => {
     await withTempDir(async (dir) => {
-      const real = join(dir, "real");
-      seed(real);
-      mkdirSync(join(dir, "elsewhere"));
-      writeFileSync(join(dir, "elsewhere", "leak-rule.md"), "leak\n");
-      symlinkSync(real, join(dir, "root-link"));
-      const viaRootLink = await readMemoryTree(
-        join(dir, "root-link"),
-        { memoryPath: "memories", fullDepth: false },
-        () => {},
-      );
-      expect(viaRootLink.files.map((f) => f.relPath)).toEqual([
-        "memories/a-rule.md",
-        "memories/b-rule.md",
-        "memories/nested/c-rule.md",
-      ]);
-      symlinkSync(join(dir, "elsewhere"), join(real, "linked"));
-      let caught: unknown;
-      try {
-        await readMemoryTree(real, { memoryPath: "linked", fullDepth: false }, () => {});
-      } catch (error) {
-        caught = error;
-      }
-      expect((caught as MaximsError).code).toBe(ExitCode.SourceUnresolvable);
-      expect((caught as MaximsError).message).toMatch(/reached through a symlink/);
-    });
-  });
-
-  test("a missing source directory is exit 2", async () => {
-    await withTempDir(async (root) => {
-      let caught: unknown;
-      try {
-        await readMemoryTree(
-          join(root, "gone"),
-          { memoryPath: "memories", fullDepth: true },
-          () => {},
-        );
-      } catch (error) {
-        caught = error;
-      }
-      expect((caught as MaximsError).code).toBe(ExitCode.SourceUnresolvable);
+      const attempt = readMemoryTree(rootOf(dir), scope, () => {});
+      await expect(attempt).rejects.toBeInstanceOf(MaximsError);
+      await expect(attempt).rejects.toMatchObject({
+        code: ExitCode.SourceUnresolvable,
+        message: expect.stringMatching(message),
+      });
     });
   });
 });
