@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
@@ -16,40 +15,67 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/extensions.md",
-        contentHash: contentHashLiteral(
-          "sha256:37064e6b9f44d2aa699dfc5ca3cfcfc2ba76de63d231abad8fdffeeec0ce78b1",
-        ),
-      },
-      {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/configuration.md",
-        contentHash: contentHashLiteral(
-          "sha256:e75ac4732847833b53b9a2e9223443e460df42b3da035a9f1071f8ab1f9b33f2",
-        ),
-        note: "PI_CODING_AGENT_DIR, AGENTS.override.md and the extensions directories",
-      },
-      {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/src/core/resource-loader.ts",
-        contentHash: contentHashLiteral(
-          "sha256:194fac4a6276180ed109f3ca77f40abbb25acd4a28ae55ba98232cfde6ad69db",
-        ),
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/core/resource-loader.ts",
+        claims: [
+          'candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]',
+        ],
         note: "context-file order",
       },
       {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/src/core/exec.ts",
-        contentHash: contentHashLiteral(
-          "sha256:ecc0ba197ae2a9f1f2dcea9c7ccf9bff46b319eb70c1200e06d0c95540737a36",
-        ),
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/config.ts",
+        claims: [
+          'APP_NAME: string = piConfigName || "pi"',
+          "toUpperCase()}_CODING_AGENT_DIR",
+          '".pi"',
+          '"agent"',
+        ],
+        note: "PI_CODING_AGENT_DIR and the ~/.pi/agent root",
+      },
+      {
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/core/extensions/loader.ts",
+        claims: ['"extensions"'],
+        note: "the extensions directories",
+      },
+      {
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/core/extensions/types.ts",
+        claims: ['"session_start"', "exec(command: string, args: string[]"],
+        note: "the session_start event and pi.exec's argv",
+      },
+      {
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/core/exec.ts",
+        claims: ["shell: false", "Timeout in milliseconds"],
         note: "pi.exec takes an argv with no shell and a timeout in milliseconds",
       },
       {
-        url: "https://raw.githubusercontent.com/earendil-works/pi/refs/heads/main/packages/coding-agent/docs/mcp.md",
-        contentHash: contentHashLiteral(
-          "sha256:981d9cad82507437b0d873c2d854b841f2dfa0c01596f8abaf79f92068a278c5",
-        ),
-        note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json, connected at session start",
+        kind: "file",
+        repo: "earendil-works/pi",
+        ref: "main",
+        path: "packages/coding-agent/src/extensions/mcp/config.ts",
+        claims: ["mcpServers", "mcp.json"],
+        note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json",
+      },
+      {
+        kind: "schema",
+        url: "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/schemas/settings.schema.json",
+        paths: ["/properties/extensions"],
+        note: "the extensions setting",
       },
     ],
   },

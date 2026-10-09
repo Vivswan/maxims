@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // The earlier Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
@@ -17,25 +16,43 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://docs.devin.ai/desktop/cascade/hooks",
-        contentHash: contentHashLiteral(
-          "sha256:8e497f91bfce1b0b28fdb13cba2b58478250da09651e88fbace7f1ce67c69771",
-        ),
+        kind: "page",
+        url: "https://docs.devin.ai/desktop/cascade/hooks.md",
+        claims: [
+          "~/.codeium/windsurf/hooks.json",
+          ".devin/hooks.json",
+          ".windsurf/hooks.json",
+          '"pre_user_prompt"',
+          "show_output",
+        ],
+        why: "Windsurf is closed source and publishes no schema; this is the page's markdown rendition",
+        note: "pre_user_prompt in hooks.json per scope",
       },
       {
-        url: "https://docs.devin.ai/desktop/cascade/memories",
-        contentHash: contentHashLiteral(
-          "sha256:b4125a2531eb85541a997f976e441ac6aa5d67314ba7a4061f0a319ecd51bf01",
-        ),
+        kind: "page",
+        url: "https://docs.devin.ai/desktop/cascade/memories.md",
+        claims: [
+          "global_rules.md",
+          "6,000 characters",
+          "12,000 characters",
+          "trigger:",
+          "always_on",
+          "globs:",
+        ],
+        why: "Windsurf is closed source and publishes no schema; this is the page's markdown rendition",
         note: "rules directories, triggers, the 12,000 and 6,000 character caps, global_rules.md",
       },
       {
-        url: "https://docs.devin.ai/desktop/cascade/mcp",
-        contentHash: contentHashLiteral(
-          "sha256:640353c360c72afd53081882fede3cd548bfa4056803764a5bef4e7bc8c78aa0",
-        ),
+        kind: "page",
+        url: "https://docs.devin.ai/desktop/cascade/mcp.md",
+        claims: [
+          "~/.config/devin/mcp_config.json",
+          "$XDG_CONFIG_HOME/devin/mcp_config.json",
+          "mcpServers",
+        ],
+        why: "Windsurf is closed source and publishes no schema; this is the page's markdown rendition",
         note: "mcp_config.json is ~/.config/devin/mcp_config.json on macOS and Linux (under $XDG_CONFIG_HOME/devin when set) and %APPDATA%\\devin\\mcp_config.json on Windows, outside the global root ~/.codeium/windsurf, so no mcp registry is declared",
       },
     ],

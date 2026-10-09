@@ -21,7 +21,14 @@ function acme(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     tier: 1,
     verifiedAgainst: {
       date: "2026-09-20",
-      pages: [{ url: "https://example.com/acme/docs/hooks" }],
+      sources: [
+        {
+          kind: "page",
+          url: "https://example.com/acme/docs/hooks",
+          claims: ["hooks"],
+          why: "a fixture",
+        },
+      ],
     },
     globalRoot: { default: ".acme", env: { name: "ACME_HOME" } },
     targets: {

@@ -585,7 +585,6 @@ graph TD
   commands --> version
   console --> memory
   harnesses --> contracts
-  harnesses --> memory
   harnesses --> rulefile
   harnesses --> util
   harnesses --> version

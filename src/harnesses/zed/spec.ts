@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Zed reads exactly one project instruction file, the first of nine names that exists at the
@@ -13,33 +12,60 @@ export const spec = {
   tier: 2,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://zed.dev/docs/ai/instructions",
-        contentHash: contentHashLiteral(
-          "sha256:976301e2dfd5df76250ed3874de47f34f0db1c957d47928eb84cbe5cc3562797",
-        ),
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "crates/prompt_store/src/prompts.rs",
+        claims: [
+          'RULES_FILE_NAMES: &[&str] = &[ ".rules", ".cursorrules", ".windsurfrules", ".clinerules", ".github/copilot-instructions.md", "AGENT.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", ];',
+        ],
+        note: "the rules file names and their order",
       },
       {
-        url: "https://zed.dev/docs/ai/mcp",
-        contentHash: contentHashLiteral(
-          "sha256:4d54d25a6f0c5cce2ac46e7bdb6a50a8b586c1af63a43eccc1e0c0964c949679",
-        ),
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "crates/paths/src/paths.rs",
+        claims: ["FLATPAK_XDG_CONFIG_HOME", "config_dir()", "AGENTS.md", "settings.json"],
+        note: "XDG_CONFIG_HOME on Linux and FreeBSD, ~/.config/zed on macOS",
+      },
+      {
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "crates/settings_content/src/project.rs",
+        claims: ["context_servers"],
         note: "context_servers in settings.json",
       },
       {
-        url: "https://zed.dev/docs/configuring-zed",
-        contentHash: contentHashLiteral(
-          "sha256:1e574f841fb604a5a3cb7223aa25f5bcbab2bd200d8766ee129d34a609fb128d",
-        ),
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "docs/src/configuring-zed.md",
+        claims: [
+          "~/.config/zed/settings.json",
+          "$XDG_CONFIG_HOME/zed/settings.json",
+          ".zed/settings.json",
+        ],
         note: "settings.json under ~/.config/zed",
       },
       {
-        url: "https://raw.githubusercontent.com/zed-industries/zed/main/crates/paths/src/paths.rs",
-        contentHash: contentHashLiteral(
-          "sha256:18fd3d6390d5cd1e9d8dd80356a35c5b76f4fa06a417d041e88ed1aff10c5ccb",
-        ),
-        note: "XDG_CONFIG_HOME on Linux and FreeBSD, ~/.config/zed on macOS",
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "docs/src/ai/instructions.md",
+        claims: ["~/.config/zed/AGENTS.md"],
+        note: "the global AGENTS.md",
+      },
+      {
+        kind: "file",
+        repo: "zed-industries/zed",
+        ref: "main",
+        path: "docs/src/ai/mcp.md",
+        claims: ['"context_servers": {'],
+        note: "the context_servers map",
       },
     ],
   },

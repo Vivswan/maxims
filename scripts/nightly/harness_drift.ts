@@ -1,11 +1,13 @@
-// Re-fetches every page a harness definition was verified against and compares each content hash
-// with the one the definition recorded, so a page that moved is dated to a 24-hour window instead
-// of waiting for someone to look. A pass means every page was read and matched: a page the run
-// could not read fails it, since a run that read nothing proves nothing about the pages.
+// Re-reads every source a harness definition was verified against and checks the facts the
+// definition recorded: a JSON pointer that must resolve in a published schema, or a literal claim
+// that must appear in a repository file or a documentation page. A fact that vanished is dated
+// to a 24-hour window instead of waiting for someone to look. A pass means every source was read
+// and every claim held: a source the run could not read fails it, since a run that read nothing
+// proves nothing about the facts.
+import { isDeepStrictEqual } from "node:util";
 import { HTMLElement, type Node, parse } from "node-html-parser";
-import type { VerifiedPage } from "../../src/harnesses/contract.ts";
+import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
-import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 
 export const FETCH_TIMEOUT_MS = 20_000;
@@ -18,15 +20,16 @@ const DOCTYPE = /<!DOCTYPE[^>]*>/gi;
 const UNSEEN_END_TAG = /<\/(script|style|noscript)\s+>/gi;
 
 // The elements whose bodies the parser drops (false) are the ones no reader with scripts enabled
-// sees; sites restamp build ids and nonces into them on every deploy. `pre` is left out of the
-// list so its inner markup is parsed instead of hashed as text.
+// sees; sites embed the page's own data as JSON in them, so a claim would hold there on an
+// identifier no reader was shown. `pre` is left out of the list so its inner markup is parsed
+// instead of read as text.
 const PARSE_OPTIONS = {
   lowerCaseTagName: true,
   blockTextElements: { script: false, style: false, noscript: false },
 };
 
-// A raw markdown file is hashed as the text it is; only an HTML page is parsed, so markup quoted
-// inside a markdown code fence never counts as the page's structure.
+// A raw file is read as the text it is; only an HTML page is parsed, so markup quoted inside a
+// markdown code fence never counts as the page's structure.
 export type Media = "html" | "text";
 
 export function mediaOf(contentType: string | null): Media {
@@ -34,34 +37,67 @@ export function mediaOf(contentType: string | null): Media {
   return type === "text/html" || type === "application/xhtml+xml" ? "html" : "text";
 }
 
-// The one normalization behind every stored hash: changing it repaints every definition as drift,
-// so the harness_drift test pins a sample's exact normalized text and hash. Two things a redeploy
-// changes with no word of the page changed are left out: the words outside the content element
-// (the site's sidebar and footer, which every new page on the site rewrites) and the build date a
-// footer prints, matched inside `footer` elements only, by the shapes seen on vendor sites rather
-// than by any date, so a dated fact or a code sample elsewhere on the page keeps its words:
-//
-//   Starlight              Last updated: Sep 21, 2026     Last updated: 2026-09-21
-//   Starlight 0.41 (Warp)  Last updated Sep 16, 2026
-//   Docusaurus             Last updated on September 21, 2026
+// The words outside the content element are left out: a site's sidebar names every page on the
+// site, so a claim such as `hooks` would hold on a page that lost its hooks section.
 const CONTENT_SELECTORS = ["main", "article", '[role="main"]'];
-const MONTH = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*";
-const BUILD_STAMP = new RegExp(
-  `Last (?:updated|modified)(?::| on)? (?:${MONTH} \\d{1,2}, \\d{4}|\\d{4}-\\d{2}-\\d{2})`,
-  "g",
+
+// A reader sees a block element start on its own line, so its words never join the words beside
+// it. The parser's `textContent` glues `<p>SessionStart</p><p>SessionEnd</p>` into one word, and
+// its `structuredText` drops the space a line break carries between inline elements, so the walk
+// is this file's own: a block's words get a space on each side, everything else reads as is.
+const BLOCK_TAGS = new Set(
+  [
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "br",
+    "dd",
+    "details",
+    "dialog",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hgroup",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+  ].map((tag) => tag.toUpperCase()),
 );
 
-const squashWhitespace = (text: string): string => text.replace(/\s+/g, " ");
-
-// The parser's own text getter everywhere but inside a footer, so a line break still reads as a
-// space and entities decode as the parser decodes them.
 function wordsOf(node: Node): string {
   if (!(node instanceof HTMLElement)) return node.textContent;
-  if (node.tagName === "FOOTER")
-    return squashWhitespace(node.textContent).replace(BUILD_STAMP, " ");
-  if (node.querySelector("footer") === null) return node.textContent;
-  return node.childNodes.map(wordsOf).join("");
+  const inner = node.childNodes.map(wordsOf).join("");
+  return BLOCK_TAGS.has(node.tagName) ? ` ${inner} ` : inner;
 }
+
+const squashWhitespace = (text: string): string => text.replace(/\s+/g, " ");
 
 export function normalizeDocument(body: string, media: Media): string {
   if (media === "text") return squashWhitespace(body).trim();
@@ -73,13 +109,55 @@ export function normalizeDocument(body: string, media: Media): string {
   return squashWhitespace(wordsOf(content)).trim();
 }
 
+// A claim is a literal phrase, matched case-sensitively with every whitespace run on both sides
+// read as one space. A claim that begins or ends in an ASCII word character must begin or end at
+// a word boundary, so `hooks` never holds on `webhooks`; `.claude/rules` needs none before its dot.
+const WORD = "[A-Za-z0-9_-]";
+const WORD_FIRST = new RegExp(`^${WORD}`);
+const WORD_LAST = new RegExp(`${WORD}$`);
+
+export function claimPresent(text: string, claim: string): boolean {
+  const literal = squashWhitespace(claim).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const before = WORD_FIRST.test(claim) ? `(?<!${WORD})` : "";
+  const after = WORD_LAST.test(claim) ? `(?!${WORD})` : "";
+  return new RegExp(`${before}${literal}${after}`).test(text);
+}
+
+// RFC 6901: `/a~1b/0` names the key `a/b`, then index 0 inside it. An array is entered only by a
+// canonical index, so `/items/01` resolves nowhere.
+const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
+
+export type Resolved = { found: true; value: unknown } | { found: false };
+
+export function resolvePointer(value: unknown, pointer: string): Resolved {
+  let cursor = value;
+  for (const token of pointer.split("/").slice(1)) {
+    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(cursor)) {
+      if (!ARRAY_INDEX.test(key) || Number(key) >= cursor.length) return { found: false };
+      cursor = cursor[Number(key)];
+    } else if (typeof cursor === "object" && cursor !== null && Object.hasOwn(cursor, key)) {
+      cursor = (cursor as Record<string, unknown>)[key];
+    } else {
+      return { found: false };
+    }
+  }
+  return { found: true, value: cursor };
+}
+
 export type Fetched =
-  | { kind: "page"; hash: ContentHash }
+  | { kind: "body"; text: string; media: Media }
   | { kind: "status"; status: number }
   | { kind: "timeout" }
   | { kind: "error"; message: string };
 
-export async function fetchPageHash(url: string, fetchImpl: typeof fetch): Promise<Fetched> {
+export function sourceUrl(source: VerifiedSource): string {
+  return source.kind === "file"
+    ? `https://raw.githubusercontent.com/${source.repo}/${source.ref}/${source.path}`
+    : source.url;
+}
+
+export async function fetchSource(url: string, fetchImpl: typeof fetch): Promise<Fetched> {
   try {
     const response = await fetchImpl(url, {
       headers: { "User-Agent": USER_AGENT },
@@ -88,98 +166,141 @@ export async function fetchPageHash(url: string, fetchImpl: typeof fetch): Promi
     });
     if (response.status !== 200) return { kind: "status", status: response.status };
     const media = mediaOf(response.headers.get("content-type"));
-    return { kind: "page", hash: contentHashOf(normalizeDocument(await response.text(), media)) };
+    return { kind: "body", text: await response.text(), media };
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") return { kind: "timeout" };
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
   }
 }
 
-export type Verdict = "match" | "DRIFT" | "UNREACHABLE" | "unverifiable";
+export type Verdict = "match" | "DRIFT" | "UNREACHABLE";
 
-// Worst first, at both levels: a definition is the worst of its pages, the run the worst of its
-// definitions. An empty set verified nothing, so it ranks as unverifiable rather than as the
-// match `every` would grant it, and a definition with no pages or a run with none fails.
-const RANKED: readonly Verdict[] = ["DRIFT", "UNREACHABLE", "unverifiable", "match"];
+// Worst first, at both levels: a definition is the worst of its sources, the run the worst of its
+// definitions.
+const RANKED: readonly Verdict[] = ["DRIFT", "UNREACHABLE", "match"];
 
-function worstOf(verdicts: readonly Verdict[]): Verdict {
-  return RANKED.find((verdict) => verdicts.includes(verdict)) ?? "unverifiable";
+function worstOf(verdicts: readonly [Verdict, ...Verdict[]]): Verdict {
+  return verdicts.reduce((worst, verdict) =>
+    RANKED.indexOf(verdict) < RANKED.indexOf(worst) ? verdict : worst,
+  );
 }
 
 export type VerifiedDefinition = {
   id: string;
-  verifiedAgainst: { pages: readonly VerifiedPage[] };
+  verifiedAgainst: { sources: readonly [VerifiedSource, ...VerifiedSource[]] };
 };
 
 export type Row = {
   id: string;
+  kind: VerifiedSource["kind"];
   url: string;
   note: string;
   verdict: Verdict;
-  stored: string;
-  fetched: string;
+  result: string;
 };
 
-export type Judged = { id: string; verdict: Verdict; rows: readonly Row[] };
+export type Judged = { id: string; verdict: Verdict; rows: readonly [Row, ...Row[]] };
 
-const NO_HASH = "(none)";
 const NO_NOTE = "-";
 
-// A missing stored hash still reports the fetched one, which is what a definition's author pastes
-// into that page's `contentHash`. A page that answered anything but its words is UNREACHABLE
-// whether or not a hash is stored: its row shows the answer where the fetched hash would be.
-export function judgePage(id: string, page: VerifiedPage, fetched: Fetched): Row {
-  const { url, contentHash, note } = page;
-  const stored = contentHash ?? NO_HASH;
-  const row = (verdict: Verdict, fetchedText: string): Row => ({
-    id,
-    url,
-    note: note ?? NO_NOTE,
-    verdict,
-    stored,
-    fetched: fetchedText,
-  });
+type Reading = Pick<Row, "verdict" | "result">;
+
+function readClaims(text: string, claims: readonly string[]): Reading {
+  const missing = claims.filter((claim) => !claimPresent(text, claim));
+  if (missing.length === 0) return { verdict: "match", result: `${claims.length} claims hold` };
+  return { verdict: "DRIFT", result: `missing: ${missing.map((c) => `\`${c}\``).join(", ")}` };
+}
+
+// A pointer paired with a value drifts when the schema still has the key but says something else,
+// and the row quotes both so a reader sees whether the fact or the definition moved.
+function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { verdict: "UNREACHABLE", result: `not JSON: ${message}` };
+  }
+  const missing: string[] = [];
+  const differing: string[] = [];
+  for (const check of paths) {
+    const pointer = typeof check === "string" ? check : check.pointer;
+    const resolved = resolvePointer(value, pointer);
+    if (!resolved.found) missing.push(`\`${pointer}\``);
+    else if (typeof check !== "string" && !isDeepStrictEqual(resolved.value, check.equals))
+      differing.push(
+        `\`${pointer}\` is ${JSON.stringify(resolved.value)}, not ${JSON.stringify(check.equals)}`,
+      );
+  }
+  if (missing.length === 0 && differing.length === 0)
+    return { verdict: "match", result: `${paths.length} pointers resolve` };
+  const parts = [...(missing.length === 0 ? [] : [`missing: ${missing.join(", ")}`]), ...differing];
+  return { verdict: "DRIFT", result: parts.join("; ") };
+}
+
+// A source that answered anything but its content is UNREACHABLE: its row shows the answer where
+// the reading would be, and the run reads nothing of the facts it carries.
+function read(source: VerifiedSource, fetched: Fetched): Reading {
   switch (fetched.kind) {
     case "status":
-      return row("UNREACHABLE", `HTTP ${fetched.status}`);
+      return { verdict: "UNREACHABLE", result: `HTTP ${fetched.status}` };
     case "timeout":
-      return row("UNREACHABLE", `timeout after ${FETCH_TIMEOUT_MS / 1000} s`);
+      return { verdict: "UNREACHABLE", result: `timeout after ${FETCH_TIMEOUT_MS / 1000} s` };
     case "error":
-      return row("UNREACHABLE", `network error: ${fetched.message}`);
-    case "page":
-      if (contentHash === undefined) return row("unverifiable", fetched.hash);
-      return row(fetched.hash === contentHash ? "match" : "DRIFT", fetched.hash);
+      return { verdict: "UNREACHABLE", result: `network error: ${fetched.message}` };
+    case "body":
+      switch (source.kind) {
+        case "schema":
+          return readSchema(fetched.text, source.paths);
+        case "file":
+          return readClaims(normalizeDocument(fetched.text, "text"), source.claims);
+        case "page":
+          return readClaims(normalizeDocument(fetched.text, fetched.media), source.claims);
+      }
   }
 }
 
-export function judgeDefinition(id: string, rows: readonly Row[]): Judged {
-  return { id, verdict: worstOf(rows.map((row) => row.verdict)), rows };
+export function judgeSource(id: string, source: VerifiedSource, fetched: Fetched): Row {
+  return {
+    id,
+    kind: source.kind,
+    url: sourceUrl(source),
+    note: source.note ?? NO_NOTE,
+    ...read(source, fetched),
+  };
+}
+
+export function judgeDefinition(id: string, rows: readonly [Row, ...Row[]]): Judged {
+  const [first, ...rest] = rows;
+  return { id, verdict: worstOf([first.verdict, ...rest.map((row) => row.verdict)]), rows };
 }
 
 export function renderRows(rows: readonly Row[]): string {
   return markdownTable(
-    ["id", "url", "note", "verdict", "stored", "fetched"],
-    rows.map((row) => [row.id, row.url, row.note, row.verdict, row.stored, row.fetched]),
+    ["id", "kind", "source", "note", "verdict", "result"],
+    rows.map((row) => [row.id, row.kind, row.url, row.note, row.verdict, row.result]),
   );
 }
 
 const FIX = [
-  "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set",
-  "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched",
-  "value above. An UNREACHABLE row shows the answer the page gave in place of its words: the run",
-  "read nothing of that page, so it fails until the page reads again or the definition points at",
-  "one that does. An unverifiable row records no hash yet, and the fetched value is the one to",
-  "record. The run passes only when every page of every definition matches.",
+  "To clear a DRIFT row: open the source, re-verify the definition's facts it justifies, fix the",
+  "definition or its claims to what the source states now, and set that definition's",
+  "`verifiedAgainst.date` to today. An UNREACHABLE row shows the answer the source gave in place",
+  "of its content: the run read nothing of that source, so it fails until the source reads again",
+  "or the definition points at one that does. The run passes only when every claim of every",
+  "source of every definition holds.",
 ].join(" ");
 
 function tally(label: string, verdicts: readonly Verdict[]): string {
   const count = (verdict: Verdict): number => verdicts.filter((v) => v === verdict).length;
   return (
     `${verdicts.length} ${label}: ${count("match")} match, ${count("DRIFT")} drift, ` +
-    `${count("UNREACHABLE")} unreachable, ${count("unverifiable")} unverifiable`
+    `${count("UNREACHABLE")} unreachable`
   );
 }
 
+// A run that judged nothing has no row to go red, so an emptied registry fails rather than
+// passing as every source matching.
 export function summarize(judged: readonly Judged[]): Outcome {
   const rows = judged.flatMap((entry) => entry.rows);
   const headline = [
@@ -188,12 +309,14 @@ export function summarize(judged: readonly Judged[]): Outcome {
       judged.map((entry) => entry.verdict),
     ),
     tally(
-      "pages",
+      "sources",
       rows.map((row) => row.verdict),
     ),
   ].join("\n");
   const summary = `## Harness documentation drift\n\n${headline}\n\n${renderRows(rows)}\n`;
-  if (worstOf(judged.map((entry) => entry.verdict)) === "match") return { status: "pass", summary };
+  const [first, ...rest] = judged;
+  if (first !== undefined && worstOf([first.verdict, ...rest.map((e) => e.verdict)]) === "match")
+    return { status: "pass", summary };
   return {
     status: "fail",
     summary,
@@ -208,17 +331,16 @@ export async function runHarnessDrift(
   definitions: readonly VerifiedDefinition[] = HARNESSES,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Outcome> {
+  const judge = async (id: string, source: VerifiedSource): Promise<Row> =>
+    judgeSource(id, source, await fetchSource(sourceUrl(source), fetchImpl));
   const judged = await Promise.all(
-    definitions.map(async (def) =>
-      judgeDefinition(
+    definitions.map(async (def) => {
+      const [first, ...rest] = def.verifiedAgainst.sources;
+      return judgeDefinition(
         def.id,
-        await Promise.all(
-          def.verifiedAgainst.pages.map(async (page) =>
-            judgePage(def.id, page, await fetchPageHash(page.url, fetchImpl)),
-          ),
-        ),
-      ),
-    ),
+        await Promise.all([judge(def.id, first), ...rest.map((source) => judge(def.id, source))]),
+      );
+    }),
   );
   return summarize(judged);
 }

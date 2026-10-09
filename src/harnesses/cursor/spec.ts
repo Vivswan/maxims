@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cursor ignores a plain `.md` in `.cursor/rules` and loads an `.mdc` only when its frontmatter
@@ -15,19 +14,27 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-09",
-    pages: [
+    sources: [
       {
-        url: "https://cursor.com/docs/context/rules",
-        contentHash: contentHashLiteral(
-          "sha256:2888238949a6de6b9c8ddc571026717ad51f1ebc32464dda91b115cf2462c77a",
-        ),
+        kind: "page",
+        url: "https://cursor.com/docs/hooks.md",
+        claims: [
+          "`.cursor/hooks.json`",
+          "`~/.cursor/hooks.json`",
+          '"version": 1',
+          "sessionStart",
+          "additional_context",
+          "fire-and-forget",
+        ],
+        why: "Cursor is closed source and cursor.com/schemas/hooks.schema.json answers with an HTML page, not a schema; this is the page's markdown rendition",
+        note: "sessionStart in hooks.json and additional_context",
       },
       {
-        url: "https://cursor.com/docs/agent/hooks",
-        contentHash: contentHashLiteral(
-          "sha256:1d608babbfbaff3e5d903eeedf84f090e0f4a1bd94da94bc377c9bab5845d3ba",
-        ),
-        note: "sessionStart in hooks.json and additional_context",
+        kind: "page",
+        url: "https://cursor.com/docs/rules.md",
+        claims: [".mdc", ".cursor/rules", "alwaysApply: true", "globs", "User Rules"],
+        why: "Cursor is closed source and publishes no rules schema; this is the page's markdown rendition",
+        note: ".mdc rules with alwaysApply and globs",
       },
     ],
   },

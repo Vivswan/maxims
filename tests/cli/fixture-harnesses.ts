@@ -17,7 +17,7 @@ function detects(id: string): (ctx: HarnessContext) => boolean {
 
 const verifiedAgainst: VerifiedAgainst = {
   date: "2026-09-20",
-  pages: [{ url: "https://example.com/docs" }],
+  sources: [{ kind: "page", url: "https://example.com/docs", claims: ["hooks"], why: "a fixture" }],
 };
 
 function registryHook(dir: (scope: Scope, ctx: HarnessContext) => string) {

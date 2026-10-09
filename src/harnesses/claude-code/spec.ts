@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
@@ -12,18 +11,36 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-09",
-    pages: [
+    sources: [
       {
-        url: "https://code.claude.com/docs/en/memory",
-        contentHash: contentHashLiteral(
-          "sha256:8aaf96f66d38bcb008138715ae004932c129dc80a7e61790894cae13a620b3f3",
-        ),
+        kind: "schema",
+        url: "https://www.schemastore.org/claude-code-settings.json",
+        paths: [
+          "/properties/hooks/properties/SessionStart",
+          "/$defs/hookCommand",
+          "/properties/disableAllHooks",
+        ],
+        note: "SessionStart hook fields and disableAllHooks, in the community-maintained settings schema on SchemaStore",
       },
       {
-        url: "https://code.claude.com/docs/en/hooks",
-        contentHash: contentHashLiteral(
-          "sha256:c813bc9437054fd41e83dd9d8065230339b2977204ca3868bec4688d3bf6adb7",
-        ),
+        kind: "page",
+        url: "https://code.claude.com/docs/en/memory.md",
+        claims: ["`.claude/rules/`", "`~/.claude/rules/`", "paths:", "4 MiB", "@path/to/import"],
+        why: "Claude Code is closed source and the SchemaStore schema covers settings keys, not the rules directories; this is the page's markdown rendition",
+        note: "the rules directories, the paths frontmatter, the 4 MiB cap and @imports",
+      },
+      {
+        kind: "page",
+        url: "https://code.claude.com/docs/en/hooks.md",
+        claims: [
+          "SessionStart",
+          "hook_event_name",
+          "disableAllHooks",
+          "statusMessage",
+          "`.claude/settings.json`",
+          "`~/.claude/settings.json`",
+        ],
+        why: "Claude Code is closed source and the hook's stdin and stdout fields are stated only on the page; this is its markdown rendition",
         note: "SessionStart hook fields and disableAllHooks after settings precedence",
       },
     ],

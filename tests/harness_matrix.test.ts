@@ -27,7 +27,10 @@ const base: HarnessDefinition = {
   markers: "counted",
   expands: [],
   detect: () => false,
-  verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com" }] },
+  verifiedAgainst: {
+    date: "2026-09-20",
+    sources: [{ kind: "page", url: "https://example.com", claims: ["hooks"], why: "a fixture" }],
+  },
 };
 
 const cases: [name: string, def: HarnessDefinition, row: string][] = [

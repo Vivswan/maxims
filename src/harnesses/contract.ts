@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessId } from "../contracts/harness-id.ts";
-import type { ContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -177,11 +176,39 @@ export type HarnessFixtures = {
   hookStdin?: string;
 };
 
-// The vendor pages the definition's facts were read from. One page rarely states every fact
-// (Pi's context-file order is in its README and resource loader, not its extensions page), so each
-// page names the fact it justifies and the nightly drift check re-hashes every one of them.
-export type VerifiedPage = { url: string; contentHash?: ContentHash; note?: string };
-export type VerifiedAgainst = { date: string; pages: readonly [VerifiedPage, ...VerifiedPage[]] };
+// The vendor sources the definition's facts were read from, each with the record the nightly
+// drift check re-reads: JSON pointers that must resolve in a published schema (to a given value
+// where one is named), or literal claims that must appear in a repository file or a documentation
+// page. A page is the last resort, and `why` says what programmatic source was looked for. One
+// source rarely states every fact (Pi's context-file order is in its resource loader, not its
+// extensions page), so `note` names the fact each one justifies.
+export type PointerCheck = string | { pointer: string; equals: unknown };
+export type VerifiedSource =
+  | {
+      kind: "schema";
+      url: string;
+      paths: readonly [PointerCheck, ...PointerCheck[]];
+      note?: string;
+    }
+  | {
+      kind: "file";
+      repo: string;
+      ref: string;
+      path: string;
+      claims: readonly [string, ...string[]];
+      note?: string;
+    }
+  | {
+      kind: "page";
+      url: string;
+      claims: readonly [string, ...string[]];
+      why: string;
+      note?: string;
+    };
+export type VerifiedAgainst = {
+  date: string;
+  sources: readonly [VerifiedSource, ...VerifiedSource[]];
+};
 
 export interface HarnessDefinition {
   id: HarnessId;

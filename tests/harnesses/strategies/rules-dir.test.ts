@@ -34,7 +34,12 @@ function definition(overrides: Partial<HarnessDefinition> = {}): HarnessDefiniti
     markers: "counted",
     expands: ["none"],
     detect: () => false,
-    verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs" }] },
+    verifiedAgainst: {
+      date: "2026-09-20",
+      sources: [
+        { kind: "page", url: "https://example.com/docs", claims: ["hooks"], why: "a fixture" },
+      ],
+    },
     ...overrides,
   };
 }

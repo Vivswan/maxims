@@ -24,7 +24,12 @@ const rendering = specOf({
   id: "example",
   displayName: "Example",
   tier: 1,
-  verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs/hooks" }] },
+  verifiedAgainst: {
+    date: "2026-09-20",
+    sources: [
+      { kind: "page", url: "https://example.com/docs/hooks", claims: ["hooks"], why: "a fixture" },
+    ],
+  },
   globalRoot: { default: "~/.config/example", env: { name: "XDG_CONFIG_HOME", subdir: "example" } },
   targets: {
     project: {
@@ -160,18 +165,36 @@ test("the global root joins the env override with its subdirectory and strips ~/
   );
 });
 
-// The nightly drift check reads the pages off the compiled definition, so a compiler that kept
-// only the first page, or dropped a hash or note, would silently stop watching the rest.
-test("every verified page reaches the definition with its hash and note", () => {
-  const hash = `sha256:${"ab".repeat(32)}`;
-  const pages = [
-    { url: "https://example.com/docs/hooks", contentHash: hash, note: "hook shape" },
-    { url: "https://example.com/docs/rules", note: "rules directory" },
+// The nightly drift check reads the sources off the compiled definition, so a compiler that kept
+// only the first source, or dropped a claim, a pointer or a note, would silently stop watching
+// the rest.
+test("every verified source reaches the definition with its claims and note", () => {
+  const sources = [
+    {
+      kind: "schema",
+      url: "https://example.com/schema.json",
+      paths: ["/properties/hooks"],
+      note: "hook shape",
+    },
+    {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "docs/rules.md",
+      claims: [".example/rules", "alwaysApply"],
+      note: "rules directory",
+    },
+    {
+      kind: "page",
+      url: "https://example.com/docs/hooks",
+      claims: ["SessionStart"],
+      why: "no schema or repository file names the event",
+    },
   ];
   const def = toDefinition(
-    specOf({ ...rendering, verifiedAgainst: { date: "2026-09-21", pages } }),
+    specOf({ ...rendering, verifiedAgainst: { date: "2026-09-21", sources } }),
   );
-  expect<unknown>(def.verifiedAgainst).toEqual({ date: "2026-09-21", pages });
+  expect<unknown>(def.verifiedAgainst).toEqual({ date: "2026-09-21", sources });
 });
 
 test("a reconcile quirk becomes the custom hook of a spec that declares none", () => {

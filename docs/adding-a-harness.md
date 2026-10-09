@@ -16,7 +16,7 @@ Every path is relative to its scope root: the project root for a project install
 | `id` | kebab-case id, what `--agent` accepts and the folder name of a built-in |
 | `displayName` | the name shown in output |
 | `tier` | `1` when a hook refreshes the rules by itself, `2` when nothing does |
-| `verifiedAgainst` | `{ date, pages }`: the vendor pages the facts were checked against; see below |
+| `verifiedAgainst` | `{ date, sources }`: the vendor sources the facts were checked against; see below |
 | `globalRoot` | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and its relocating variable |
 | `targets` | per scope, a `rules-dir`, a `shared-block`, or `null` when that scope has no always-loaded file |
 | `bodiesDir` | per scope, where memory bodies land, or `null` to leave them in the store |
@@ -84,7 +84,15 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
   "tier": 1,
   "verifiedAgainst": {
     "date": "2026-10-07",
-    "pages": [{ "url": "https://learn.chatgpt.com/docs/hooks", "note": "hooks.json and SessionStart" }]
+    "sources": [
+      {
+        "kind": "page",
+        "url": "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
+        "claims": ["AGENTS.override.md", "AGENTS.md", "project_doc_max_bytes"],
+        "why": "the AGENTS.md precedence is prose with no single source constant beyond the two loaders",
+        "note": "AGENTS.override.md over AGENTS.md"
+      }
+    ]
   },
   "globalRoot": { "default": ".codex", "env": { "name": "CODEX_HOME" } },
   "targets": {
@@ -146,22 +154,36 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 
 The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current pages before encoding it.
 
-Each page goes into `verifiedAgainst.pages` as `{ url, contentHash?, note? }`. One page rarely states every fact: Pi's context-file order is in its README, not its extensions page. A page's `note` names the fact it justifies, so a drift row says what to re-check.
+Each source goes into `verifiedAgainst.sources` with the facts the nightly re-reads, as the most programmatic record the vendor publishes: a JSON schema first, then a file in the vendor's open-source repository, and a documentation page only when neither exists, with `why` saying what was looked for.
 
-A page's `contentHash` is the `sha256:<hex>` of its text as the nightly drift check reads it, in `scripts/nightly/harness_drift.ts`; one normalization stands behind every stored hash. The nightly re-hashes every page and reads the definition as drift when any one of them moved.
+| kind | shape | what the nightly checks |
+| --- | --- | --- |
+| `schema` | `{ kind, url, paths, note? }` | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that value |
+| `file` | `{ kind, repo, ref, path, claims, note? }` | each claim appears in the raw file at `<repo>/<ref>/<path>` on GitHub |
+| `page` | `{ kind, url, claims, why, note? }` | each claim appears in the words of the page, read as below |
 
-| the page's media type | what is hashed |
-| --- | --- |
-| HTML | the text of the first of `main`, `article`, `[role=main]`, else the whole document |
-| HTML, inside a `footer` element | build stamps such as `Last updated: Sep 21, 2026` are dropped first |
-| anything else, such as a raw markdown file | the whole body |
+A claim is a short literal phrase that would disappear if the fact changed: a file name (`.claude/rules`), a key (`disableAllHooks`), a config path, a limit (`12,000 characters`), a frontmatter key (`alwaysApply`). Prefer identifiers over prose, since prose is reworded without the fact moving, and two to five claims per source is the usual count.
 
-Both branches collapse each whitespace run to one space and trim the result; the HTML branch also drops the doctype and the `script`, `style`, and `noscript` bodies.
+A pointer is an RFC 6901 JSON pointer, so a dotted key such as `amp.mcpServers` is one token: `/properties/amp.mcpServers`.
 
-To take a hash, record the page without one and run `bun scripts/nightly.ts harness-drift --report-dir <dir>`. The page's row reads unverifiable and its `fetched` cell is the hash to paste in:
+Matching is a fixed-string search with whitespace runs on both sides read as one space, and a claim that begins or ends in a word character (`[A-Za-z0-9_-]`) must begin or end at a word boundary, so `hooks` never holds on `webhooks` and `.claude/rules` needs no boundary before its dot.
+
+The words of an HTML page are the text of the first of `main`, `article`, `[role=main]`, else the whole document, with the `script`, `style` and `noscript` bodies dropped, so a claim cannot hold on a sidebar link or on data a site embeds for its scripts. A raw file or a markdown rendition is the whole body.
+
+One source rarely states every fact: Pi's context-file order is in its resource loader, not its extensions page. A source's `note` names the fact it justifies, so a drift row says what to re-check.
+
+The nightly `harness-drift` category fetches every source and gives each a verdict:
+
+| verdict | meaning | the run |
+| --- | --- | --- |
+| `match` | every claim holds and every pointer resolves | passes |
+| `DRIFT` | a claim or pointer is missing or a value differs; the row names it | fails |
+| `UNREACHABLE` | anything but the content came back: a status, a timeout, a network error, non-JSON | fails |
+
+A definition takes the worst verdict of its sources and the run the worst of its definitions, so a run that read nothing fails. To clear a `DRIFT` row, open the source, re-verify the facts it justifies, fix the definition or its claims to what the source states now, and set `verifiedAgainst.date` to today. `bun scripts/nightly.ts harness-drift --report-dir <dir>` runs the category locally:
 
 ```text
-| id | url | note | verdict | stored | fetched |
+| id | kind | source | note | verdict | result |
 |---|---|---|---|---|---|
-| codex | https://learn.chatgpt.com/docs/hooks | hooks.json and SessionStart | unverifiable | (none) | sha256:66f0...8afd |
+| codex | page | https://learn.chatgpt.com/docs/hooks | hooks.json and SessionStart | DRIFT | missing: `SessionStart` |
 ```

@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Gemini reads `timeout` in milliseconds and runs every hook synchronously; there is no async
@@ -11,19 +10,72 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-09-21",
-    pages: [
+    sources: [
       {
-        url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md",
-        contentHash: contentHashLiteral(
-          "sha256:a7489955249081d1b6064eab80f46e9d736c93cb1404c400411e76453ef7a2d3",
-        ),
+        kind: "schema",
+        url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+        paths: [
+          "/properties/hooks/properties/SessionStart",
+          "/$defs/HookDefinitionArray",
+          "/properties/context/properties/fileName",
+        ],
+        note: "the SessionStart hook list and the context file name setting",
       },
       {
-        url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/cli/gemini-md.md",
-        contentHash: contentHashLiteral(
-          "sha256:3563c86c9aa7345c88a339c00af6bc17b12a62d95e36d2b54963fdaf07fcade3",
-        ),
-        note: "GEMINI.md locations and @file imports",
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/hooks/hookRunner.ts",
+        claims: ["DEFAULT_HOOK_TIMEOUT = 60000"],
+        note: "the hook timeout is in milliseconds",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/hooks/hookPlanner.ts",
+        claims: ["matcher === trigger"],
+        note: "matcher selection",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/hooks/types.ts",
+        claims: ["additionalContext", "SessionStart = 'SessionStart'"],
+        note: "the SessionStart event and the additionalContext output",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/tools/memoryTool.ts",
+        claims: ["DEFAULT_CONTEXT_FILENAME = 'GEMINI.md'"],
+        note: "GEMINI.md as the context file",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/utils/paths.ts",
+        claims: ["GEMINI_DIR = '.gemini'"],
+        note: "~/.gemini as the global root",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/core/src/utils/memoryImportProcessor.ts",
+        claims: ["@path/to/file"],
+        note: "@file imports",
+      },
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "docs/hooks/reference.md",
+        claims: ["hookSpecificOutput"],
+        note: "the hookSpecificOutput envelope the hook prints",
       },
     ],
   },
