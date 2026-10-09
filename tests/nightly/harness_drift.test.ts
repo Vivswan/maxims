@@ -9,6 +9,7 @@
 //   a run with nothing to verify passes         -> an empty registry reads as every source matching
 //   one source of several drifts                -> its definition still counts as a match
 //   a repository file is fetched elsewhere      -> a claim is read off a page that is not the named file
+//   a rendered page answers for a text source   -> nav text holds a claim the raw file or markdown never carried
 //   a missing claim breaks the table            -> a backtick in the claim ends the cell's fence early
 //   the fix instruction changes                 -> the remedy a reader follows disappears
 import { describe, expect, test } from "bun:test";
@@ -16,6 +17,7 @@ import {
   claimPresent,
   normalizeText,
   runHarnessDrift,
+  sourceUrl,
   type VerifiedDefinition,
 } from "../../scripts/nightly/harness_drift.ts";
 import type { Outcome } from "../../scripts/nightly/report.ts";
@@ -109,7 +111,9 @@ const timeoutError = (): never => {
 
 describe("runHarnessDrift", () => {
   const url = (name: string): string => `https://example.com/${name}`;
-  const RAW_URL = "https://raw.githubusercontent.com/example/agent/main/docs/hooks.md";
+  const rawUrl = (path: string): string =>
+    `https://raw.githubusercontent.com/example/agent/main/${path}`;
+  const RAW_URL = rawUrl("docs/hooks.md");
   const page = (name: string, claims: [string, ...string[]], note?: string): VerifiedSource => ({
     kind: "page",
     url: url(name),
@@ -117,11 +121,15 @@ describe("runHarnessDrift", () => {
     why: "a fixture",
     ...(note === undefined ? {} : { note }),
   });
-  const file = (claims: [string, ...string[]], note?: string): VerifiedSource => ({
+  const file = (
+    claims: [string, ...string[]],
+    note?: string,
+    path = "docs/hooks.md",
+  ): VerifiedSource => ({
     kind: "file",
     repo: "example/agent",
     ref: "main",
-    path: "docs/hooks.md",
+    path,
     claims,
     ...(note === undefined ? {} : { note }),
   });
@@ -151,6 +159,7 @@ describe("runHarnessDrift", () => {
       new Response(null, { status: 301, headers: { location: "/docs/new-hooks" } }),
     [url("stale")]: () => new Response(null, { status: 304 }),
     [url("rendered")]: () => new Response("<nav>SessionStart</nav>", HTML),
+    [rawUrl("docs/rendered.md")]: () => new Response("<nav>TaskStart</nav>", HTML),
     [url("schema-moved")]: () => new Response("<p>moved</p>", TEXT),
     [url("schema-null")]: () => new Response("null", JSON_TYPE),
     [url("schema-array")]: () => new Response("[]", JSON_TYPE),
@@ -226,9 +235,10 @@ describe("runHarnessDrift", () => {
   // behind another's failure. Without this the run stays green on sources it never read, and a
   // vendor that starts answering 403 to the nightly's user agent turns the whole category green
   // for good. A redirect is a move the row must show, since the landing page at the new URL could
-  // hold a claim by accident; so is a page that answers rendered HTML, whose nav text would hold a
-  // claim written against its markdown rendition. A schema URL that answers markup, or a JSON
-  // document with no keys to point into (null, an array), read nothing of the schema either.
+  // hold a claim by accident; so is a page or a file that answers rendered HTML, whose nav text
+  // would hold a claim written against the markdown rendition or the raw file. A schema URL that
+  // answers markup, or a JSON document with no keys to point into (null, an array), read nothing
+  // of the schema either.
   test.each([
     ["gone", page("gone", ["SessionStart"]), "page", "HTTP 503"],
     ["slow", page("slow", ["SessionStart"]), "page", "timeout after 20 s"],
@@ -247,6 +257,12 @@ describe("runHarnessDrift", () => {
     ["stale", page("stale", ["SessionStart"]), "page", "HTTP 304"],
     ["rendered", page("rendered", ["SessionStart"]), "page", "answered text/html"],
     [
+      "rendered-file",
+      file(["TaskStart"], undefined, "docs/rendered.md"),
+      "file",
+      "answered text/html",
+    ],
+    [
       "schema-moved",
       schema("schema-moved", ["/properties"]),
       "schema",
@@ -260,7 +276,7 @@ describe("runHarnessDrift", () => {
       const outcome = await runHarnessDrift([def(name, source)], fakeFetch(answers));
       const counts = "0 match, 0 drift, 1 unreachable";
       const headline = `1 definitions: ${counts}\n1 sources: ${counts}`;
-      const rows = table([row(name, kind, url(name), "UNREACHABLE", result)]);
+      const rows = table([row(name, kind, sourceUrl(source), "UNREACHABLE", result)]);
       expect(outcome).toEqual(failed(headline, rows));
     },
   );

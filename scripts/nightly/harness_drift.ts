@@ -160,9 +160,10 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
 }
 
 // A source that answered anything but its content is UNREACHABLE: its row shows the answer where
-// the reading would be, and the run reads nothing of the facts it carries. A page that answers a
-// rendered HTML document is one of those: its claims were written against a markdown rendition,
-// and nav text or embedded data would hold them by accident.
+// the reading would be, and the run reads nothing of the facts it carries. A text source (a file
+// or a page) that answers a rendered HTML document is one of those: its claims were written
+// against a raw file or a markdown rendition, and nav text or embedded data would hold them by
+// accident.
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 
 function read(source: VerifiedSource, fetched: Fetched): Reading {
@@ -177,7 +178,7 @@ function read(source: VerifiedSource, fetched: Fetched): Reading {
       return { verdict: "UNREACHABLE", result: `network error: ${fetched.message}` };
     case "body":
       if (source.kind === "schema") return readSchema(fetched.text, source.paths);
-      if (source.kind === "page" && HTML_TYPES.has(fetched.mediaType))
+      if (HTML_TYPES.has(fetched.mediaType))
         return { verdict: "UNREACHABLE", result: `answered ${fetched.mediaType}` };
       return readClaims(normalizeText(fetched.text), source.claims);
   }
