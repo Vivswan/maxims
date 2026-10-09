@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createTwoFilesPatch } from "diff";
+import { inheritedEnv } from "../lib/env.ts";
 import { captureSkillsHelp, SKILLS_HELP_ENV } from "../lib/skills_help.ts";
 import type { Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
@@ -72,14 +73,14 @@ export function judgeParity(inputs: ParityInputs): Outcome {
 // the report is the one the capture saw and nothing lands in the developer's ~/.npm.
 async function publishedVersion(): Promise<string> {
   return withScratchDir("maxims-npm-view-", async (scratch) => {
-    const env: Record<string, string> = { npm_config_cache: join(scratch, "npm-cache") };
-    for (const key of ["PATH", "HOME", "TMPDIR", "LANG"]) {
-      const value = process.env[key];
-      if (value !== undefined) env[key] = value;
-    }
+    const env = {
+      ...inheritedEnv(),
+      ...SKILLS_HELP_ENV,
+      npm_config_cache: join(scratch, "npm-cache"),
+    };
     const proc = Bun.spawn(["npm", "view", "skills", "version"], {
       cwd: scratch,
-      env: { ...env, ...SKILLS_HELP_ENV },
+      env,
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",

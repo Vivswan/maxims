@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
 import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
-import { readPositiveNumber } from "../lib/figures.ts";
+import { percent, quantity, readPositiveNumber } from "../lib/figures.ts";
+import { runOrThrow } from "../lib/spawn.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
 
@@ -92,10 +93,6 @@ export function judgeTrend(baseline: Entry, current: Entry): TrendJudgement {
   return { signals, unmatched };
 }
 
-const percent = (ratio: number): string =>
-  `${ratio * 100 >= 0 ? "+" : ""}${(ratio * 100).toFixed(1)}%`;
-const quantity = (value: number, unit: Judged["unit"]): string =>
-  unit === "ms" ? `${value.toFixed(1)} ms` : `${value.toLocaleString("en-US")} bytes`;
 const describe = (entry: Entry): string => `\`${entry.sha.slice(0, 7)}\` at ${entry.at}`;
 
 export function renderComparison(baseline: Entry, current: Entry, judged: TrendJudgement): string {
@@ -128,16 +125,6 @@ export function renderComparison(baseline: Entry, current: Entry, judged: TrendJ
 export type Measurement = Pick<Entry, "sha" | "node" | "medianMs" | "bundleBytes">;
 export type Measure = (scratch: string) => Promise<Measurement>;
 
-function run(command: string[], cwd: string): void {
-  const proc = Bun.spawnSync(command, {
-    cwd,
-    stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (proc.exitCode !== 0) throw new Error(`${command.join(" ")} exited with ${proc.exitCode}`);
-}
-
 function capture(command: string[]): string {
   const proc = Bun.spawnSync(command, {
     cwd: repoRoot,
@@ -153,16 +140,18 @@ function capture(command: string[]): string {
 async function measureHead(scratch: string): Promise<Measurement> {
   const bundle = join(scratch, "cli.js");
   const sizeJson = join(scratch, "size.json");
-  run(
-    ["bun", join(repoRoot, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
+  runOrThrow(
+    "bun",
+    [join(repoRoot, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
     repoRoot,
   );
   const medianMs: Record<string, number> = {};
   for (const [index, timed] of TIMED_PATHS.entries()) {
     const json = join(scratch, `timing-${index}.json`);
     const bench = join(repoRoot, "scripts", "bench.ts");
-    run(
-      ["bun", bench, "--runs", String(RUNS), "--json", json, "--", "node", bundle, ...timed.argv],
+    runOrThrow(
+      "bun",
+      [bench, "--runs", String(RUNS), "--json", json, "--", "node", bundle, ...timed.argv],
       repoRoot,
     );
     medianMs[timed.name] = readPositiveNumber(json, "medianMs");

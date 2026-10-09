@@ -31,6 +31,8 @@ import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
 import { normalizeIdentifier } from "micromark-util-normalize-identifier";
 import type { Event, Token, TokenizeContext } from "micromark-util-types";
+import { linkFile } from "./lib/links.ts";
+import { isInside } from "./lib/paths.ts";
 
 export const DEFAULT_MAX_WORDS = 70;
 export const DEFAULT_MAX_CELL_WORDS = 15;
@@ -384,12 +386,6 @@ export function pathCandidate(token: string): string | null {
   return path.includes("/") && EXTENSION.test(path) ? path : null;
 }
 
-/** True when `file` is `root` or sits under it, judged by the relative path so the host's separator does not matter. */
-function withinRoot(root: string, file: string): boolean {
-  const rel = relative(resolve(root), file);
-  return !rel.startsWith("..") && !isAbsolute(rel);
-}
-
 /** The root, the page's directory, and every directory between: a skill's reference page names `scripts/x.mts` from the skill folder. */
 function bases(root: string, pageDir: string): string[] {
   const out = [pageDir];
@@ -410,22 +406,12 @@ function verdict(
 ): "ok" | "missing" | "foreign" | "outside" {
   const dirs = path.startsWith("./") || path.startsWith("../") ? [pageDir] : bases(root, pageDir);
   const hits = dirs.map((base) => resolve(base, path)).filter((file) => existsSync(file));
-  if (hits.some((file) => withinRoot(root, file))) return "ok";
+  if (hits.some((file) => isInside(root, file))) return "ok";
   if (hits.length > 0) return "outside";
   const first = path.split("/")[0] ?? "";
   const anchored =
     first === "." || first === ".." || dirs.some((base) => existsSync(resolve(base, first)));
   return anchored ? "missing" : "foreign";
-}
-
-/** The file a relative link addresses: no fragment, no query, percent-escapes decoded when they are valid. */
-function linkPath(href: string): string {
-  const bare = href.split("#")[0]?.split("?")[0] ?? "";
-  try {
-    return decodeURIComponent(bare);
-  } catch {
-    return bare;
-  }
 }
 
 export function probePage(text: string, file: string, options: ProbeOptions): Finding[] {
@@ -460,10 +446,10 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
       findings.push({ file, line, message: `\`${path}\` escapes the repository` });
   }
   for (const { href, line } of scan.links) {
-    const target = linkPath(href);
+    const target = linkFile(href);
     if (target === "" || SCHEME.test(target) || isAbsolute(target)) continue;
     const resolved = resolve(pageDir, target);
-    if (!withinRoot(options.root, resolved)) {
+    if (!isInside(options.root, resolved)) {
       findings.push({ file, line, message: `link target ${target} escapes the repository` });
     } else if (!existsSync(resolved)) {
       findings.push({ file, line, message: `link target ${target} does not exist` });
@@ -477,12 +463,12 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
     const hash = href.indexOf("#");
     if (hash === -1) continue;
     const fragment = linkFragment(href.slice(hash + 1));
-    const target = linkPath(href);
+    const target = linkFile(href);
     if (fragment === "" || SCHEME.test(target) || isAbsolute(target)) continue;
     let anchors = scan.anchors;
     if (target !== "") {
       const resolved = resolve(pageDir, target);
-      if (!MARKDOWN.test(resolved) || !withinRoot(options.root, resolved) || !existsSync(resolved))
+      if (!MARKDOWN.test(resolved) || !isInside(options.root, resolved) || !existsSync(resolved))
         continue;
       anchors =
         anchorsOf.get(resolved) ??

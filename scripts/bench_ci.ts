@@ -4,8 +4,9 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { readPositiveNumber } from "./lib/figures.ts";
+import { percent, quantity, readPositiveNumber, type Unit } from "./lib/figures.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
+import { runOrThrow } from "./lib/spawn.ts";
 
 const USAGE = "usage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n";
 const repoRoot = resolve(import.meta.dir, "..");
@@ -22,7 +23,6 @@ export const MIN_COMPARABLE_BUNDLE_BYTES = 16 * 1024;
 // interactive path only reports, since it is allowed to cost more.
 export type Gate = "fail" | "warn";
 export type Status = "ok" | "warn" | "fail";
-type Unit = "ms" | "bytes";
 
 export interface Measured {
   name: string;
@@ -151,8 +151,6 @@ const probes = (): Probe[] => [
   { name: "bundle size", unit: "bytes", gate: "fail", measure: (side) => side.bytes },
 ];
 
-const bytes = (value: number): string => `${value.toLocaleString("en-US")} bytes`;
-
 // The head is measured first and in full; a head that cannot be timed is this run's own failure
 // and propagates. A base that cannot be timed is only a base that yields no delta.
 export function compare(frame: Frame, base: Side, head: Side): Report {
@@ -164,7 +162,9 @@ export function compare(frame: Frame, base: Side, head: Side): Report {
   });
   if (base.bytes < MIN_COMPARABLE_BUNDLE_BYTES) {
     const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
-    return headOnly(`its bundle is ${bytes(base.bytes)}, under the ${floor}-byte floor`);
+    return headOnly(
+      `its bundle is ${quantity(base.bytes, "bytes")}, under the ${floor}-byte floor`,
+    );
   }
   try {
     return {
@@ -185,13 +185,7 @@ export function compare(frame: Frame, base: Side, head: Side): Report {
   }
 }
 
-const percent = (ratio: number): string =>
-  `${ratio * 100 >= 0 ? "+" : ""}${(ratio * 100).toFixed(1)}%`;
 const short = (sha: string): string => sha.slice(0, 7);
-
-function quantity(value: number, unit: Unit): string {
-  return unit === "ms" ? `${value.toFixed(1)} ms` : bytes(value);
-}
 
 export function renderMarkdown(report: Report): string {
   const against = `Head \`${short(report.head.sha)}\` against base \`${short(report.base.sha)}\` (\`${report.base.ref}\`)`;
@@ -240,22 +234,6 @@ export function renderJson(report: Report): string {
   return `${JSON.stringify({ ...report, verdict: verdict(report) })}\n`;
 }
 
-function run(command: string[], cwd: string): void {
-  const proc = Bun.spawnSync(command, {
-    cwd,
-    stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (proc.exitCode !== 0) {
-    const how =
-      proc.exitCode === null
-        ? `was killed by ${proc.signalCode}`
-        : `exited with code ${proc.exitCode}`;
-    throw new Error(`${command.join(" ")} ${how}`);
-  }
-}
-
 function git(args: string[]): string {
   const proc = Bun.spawnSync(["git", "-C", repoRoot, ...args], {
     stdin: "ignore",
@@ -269,8 +247,9 @@ function git(args: string[]): string {
 
 function medianMs(bundle: string, argv: string[], runs: number, json: string): number {
   const bench = join(repoRoot, "scripts", "bench.ts");
-  run(
-    ["bun", bench, "--runs", String(runs), "--json", json, "--", "node", bundle, ...argv],
+  runOrThrow(
+    "bun",
+    [bench, "--runs", String(runs), "--json", json, "--", "node", bundle, ...argv],
     repoRoot,
   );
   return readPositiveNumber(json, "medianMs");
@@ -280,8 +259,9 @@ function build(root: string, label: "base" | "head", runs: number, scratch: stri
   const outDir = join(scratch, `${label}-dist`);
   const bundle = join(outDir, "cli.js");
   const sizeJson = join(outDir, "size.json");
-  run(
-    ["bun", join(root, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
+  runOrThrow(
+    "bun",
+    [join(root, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
     root,
   );
   return {
@@ -296,7 +276,7 @@ function buildBase(options: Options, scratch: string, baseSha: string): Side {
   git(["worktree", "add", "--detach", baseRoot, baseSha]);
   if (!existsSync(join(baseRoot, "scripts", "build.ts")))
     throw new Error(`base ${options.base} (${short(baseSha)}) has no scripts/build.ts to build`);
-  run(["bun", "install", "--frozen-lockfile"], baseRoot);
+  runOrThrow("bun", ["install", "--frozen-lockfile"], baseRoot);
   return build(baseRoot, "base", options.runs, scratch);
 }
 

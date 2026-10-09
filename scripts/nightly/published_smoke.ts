@@ -4,6 +4,7 @@
 // `dist/cli.js`, so a defect that only exists in the npm artifact is visible here alone.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { inheritedEnv } from "../lib/env.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
 
@@ -123,19 +124,12 @@ export const STEPS: readonly Step[] = [
   },
 ];
 
-const INHERITED_ENV = ["PATH", "TMPDIR", "LANG"] as const;
-
 // MAXIMS_HOME stays unset on purpose: the package must find its default store under HOME. The
 // registry is pinned past any mirror in the user's npmrc, which can lag behind a fresh `next`, and
 // the update notice is off so `sync --quiet` has no stderr that is npm's rather than maxims's.
 function childEnv(home: string, npmCache: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of INHERITED_ENV) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
   return {
-    ...env,
+    ...inheritedEnv(),
     HOME: home,
     USERPROFILE: home,
     NO_COLOR: "1",

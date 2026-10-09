@@ -11,3 +11,12 @@ export function readPositiveNumber(path: string, key: string): number {
   }
   throw new Error(`${path} has no positive number at ${key}`);
 }
+
+export type Unit = "ms" | "bytes";
+
+export const percent = (ratio: number): string =>
+  `${ratio * 100 >= 0 ? "+" : ""}${(ratio * 100).toFixed(1)}%`;
+
+export function quantity(value: number, unit: Unit): string {
+  return unit === "ms" ? `${value.toFixed(1)} ms` : `${value.toLocaleString("en-US")} bytes`;
+}
