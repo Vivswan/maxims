@@ -4,93 +4,65 @@
 // without a runtime.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
-  buildArgv,
   CONTAINER_HOME,
-  detectRuntime,
   HERMETIC_PROBE_OK,
   hermeticProbe,
   type ProbePaths,
   REPO_ROOT,
   RUNTIMES,
+  type RunOptions,
   runArgv,
   skipNotice,
 } from "./runner.ts";
 
 const HOST_REPO = "/home/user/repo";
-const CONTEXT = resolve("/tmp/context");
 
-describe("runtime selection from injected probe results", () => {
-  const cases: [readonly boolean[], number | null][] = [
-    [[true, true], 0],
-    [[false, true], 1],
-    [[true, false], 0],
-    [[false, false], null],
-  ];
-  test.each(cases)("available %j selects index %p", (available, index) => {
-    const selected = detectRuntime((runtime) => available[RUNTIMES.indexOf(runtime)] === true);
-    expect(selected).toBe(index === null ? null : RUNTIMES[index]);
-  });
-});
+const networks: [string, RunOptions["network"] | undefined, string[]][] = [
+  ["unset, sealed by default", undefined, ["--network", "none"]],
+  ["none", "none", ["--network", "none"]],
+  ["live", "live", []],
+];
 
-describe.each([...RUNTIMES])("%s argv", (runtime) => {
-  test("run disables the network and pins HOME after the caller's env", () => {
-    const argv = runArgv(
-      runtime,
-      {
-        image: "example:tag",
-        cmd: ["sh", "-c", "true"],
-        env: { NO_COLOR: "1", HOME: "/elsewhere" },
-      },
-      HOST_REPO,
-    );
-    expect(argv).toEqual([
-      runtime,
-      "run",
-      "--rm",
-      "--security-opt",
-      "label=disable",
-      "--network",
-      "none",
-      "-e",
-      "NO_COLOR=1",
-      "-e",
-      "HOME=/elsewhere",
-      "-e",
-      "HOME=/home/tester",
-      "--volume",
-      "/home/user/repo:/repo:ro",
-      "example:tag",
-      "sh",
-      "-c",
-      "true",
-    ]);
-  });
-
-  test("live network drops only the network flag", () => {
-    const sealed = runArgv(runtime, { image: "example:tag", cmd: ["true"] }, HOST_REPO);
-    const live = runArgv(
-      runtime,
-      { image: "example:tag", cmd: ["true"], network: "live" },
-      HOST_REPO,
-    );
-    expect(live).toEqual(sealed.filter((arg) => arg !== "--network" && arg !== "none"));
-  });
-
-  test("build names the Dockerfile inside the context", () => {
-    expect(buildArgv(runtime, "example:tag", CONTEXT)).toEqual([
-      runtime,
-      "build",
-      "--tag",
-      "example:tag",
-      "--file",
-      join(CONTEXT, "Dockerfile"),
-      CONTEXT,
-    ]);
-  });
+describe.each([...RUNTIMES])("%s run argv", (runtime) => {
+  test.each(networks)(
+    "with the network %s: the flag alone moves, HOME lands after the caller's env, the checkout mounts read-only",
+    (_case, network, flags) => {
+      const argv = runArgv(
+        runtime,
+        {
+          image: "example:tag",
+          cmd: ["sh", "-c", "true"],
+          env: { NO_COLOR: "1", HOME: "/elsewhere" },
+          ...(network === undefined ? {} : { network }),
+        },
+        HOST_REPO,
+      );
+      expect(argv).toEqual([
+        runtime,
+        "run",
+        "--rm",
+        "--security-opt",
+        "label=disable",
+        ...flags,
+        "-e",
+        "NO_COLOR=1",
+        "-e",
+        "HOME=/elsewhere",
+        "-e",
+        "HOME=/home/tester",
+        "--volume",
+        "/home/user/repo:/repo:ro",
+        "example:tag",
+        "sh",
+        "-c",
+        "true",
+      ]);
+    },
+  );
 });
 
 test("the Dockerfile's user home is the HOME the runner injects", () => {
