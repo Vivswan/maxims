@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { DEFAULT_GIT_REF, isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import type { MemoryName } from "../../memory/contract.ts";
 import {
@@ -19,9 +19,8 @@ import {
 } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { CliIo } from "../types.ts";
-import { realpathOfExistingPrefix } from "./fs-probe.ts";
 import { INTENT_DEFAULTS } from "./options.ts";
 import { effectiveNames, sourceIdentity } from "./sources.ts";
 
@@ -101,8 +100,7 @@ export function sourceFromLock(source: LockSource, projectRoot: string): SourceF
 // yet is judged by the real path of its deepest existing prefix. A source outside the checkout
 // cannot be shared: a teammate's checkout has no path that reaches it.
 export function insideProject(projectRoot: string, path: string): boolean {
-  const rel = realRelative(projectRoot, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+  return isInside(realpathOfExistingPrefix(projectRoot), realpathOfExistingPrefix(path));
 }
 
 function realRelative(projectRoot: string, path: string): string {

@@ -18,14 +18,13 @@ import type { TreeFile } from "../../sources/tree.ts";
 import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import { assertInsideRoot, isAbsent, type RootedPath } from "../../util/fs.ts";
 import { pendingPathFor, storePathFor } from "../../util/home.ts";
 import type { EngineIo, FetchIntent } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
-import { isAbsent } from "./rules.ts";
 import { inSelect } from "./select.ts";
 import { storeTree } from "./sources.ts";
 
@@ -77,8 +76,7 @@ export async function storeEntryPresent(path: string): Promise<boolean> {
     await stat(path);
     return true;
   } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    return code !== "ENOENT" && code !== "ENOTDIR";
+    return !isAbsent(error);
   }
 }
 

@@ -33,10 +33,10 @@ import {
   storable,
 } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
 import { actsHere, harnessContext } from "./context.ts";
-import { realpathOfExistingPrefix } from "./fs-probe.ts";
 import { validateMemoryFiles } from "./memories.ts";
 
 // The scope a destination's harness files belong to: an `-o` folder is written like a project
@@ -402,7 +402,7 @@ export async function resolveMemoryName(
 export function tildify(path: string, userHome: string): string {
   const rel = relative(userHome, path);
   if (rel === "") return "~";
-  if (rel.startsWith("..") || resolve(userHome, rel) !== path) return path;
+  if (!isInside(userHome, path) || resolve(userHome, rel) !== path) return path;
   return `~/${rel.split("\\").join("/")}`;
 }
 

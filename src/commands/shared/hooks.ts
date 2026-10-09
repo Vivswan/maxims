@@ -11,10 +11,10 @@ import type { State } from "../../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../../state/scoped.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { destinationUnresolvable, realpathOfExistingPrefix } from "./fs-probe.ts";
+import { destinationUnresolvable } from "./fs-probe.ts";
 
 // The harnesses whose hook state wants at one scope; a project scope with no project root wants
 // none.

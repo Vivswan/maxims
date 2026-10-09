@@ -1,4 +1,4 @@
-import { isAbsolute, relative, sep } from "node:path";
+import { relative, sep } from "node:path";
 import type { Console } from "../../console/contract.ts";
 import { riskWarning } from "../../console/strings.ts";
 import { isLiveLocal } from "../../contracts/source.ts";
@@ -8,6 +8,7 @@ import type { TreeFile, TreeScope } from "../../sources/tree.ts";
 import type { State } from "../../state/schema.ts";
 import type { Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { isInside } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
 import { actsHere } from "./context.ts";
@@ -113,9 +114,4 @@ function storeWrites(plan: Plan, entry: string): TreeFile[] {
     }
     return [{ relPath: relative(entry, change.path).split(sep).join("/"), text: change.content }];
   });
-}
-
-function isInside(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }

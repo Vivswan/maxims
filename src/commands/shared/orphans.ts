@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, sep } from "node:path";
 import type { Change } from "../../util/change.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, isAbsent } from "../../util/fs.ts";
 
 // Where an entry can sit under the store, by the naming scheme in `storePathFor`: `_local/<x>`
 // and `<owner>/<repo>` at depth 2, `_github/<host>/<owner>/<repo>` at depth 4, and `_git/<host>/`
@@ -31,8 +31,7 @@ export function planOrphanSweep(
         .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
         .map((entry) => entry.name);
     } catch (error) {
-      const code = error instanceof Error && "code" in error ? error.code : undefined;
-      if (code !== "ENOENT" && code !== "ENOTDIR") {
+      if (!isAbsent(error)) {
         warn(`cannot list ${dir}: ${error instanceof Error ? error.message : String(error)}`);
       }
       return;

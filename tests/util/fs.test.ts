@@ -2,10 +2,12 @@
 // escapes its root, or a directory hash that follows symlinks would each fail silently in sync.
 import { describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -17,11 +19,12 @@ import {
   assertInsideRoot,
   ensureDir0700,
   type RootedPath,
+  realpathOfExistingPrefix,
   sha256,
   writeFileAtomic,
 } from "../../src/util/fs.ts";
 import { hashDirectory } from "../shared/hash_directory.ts";
-import { WINDOWS } from "../shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 describe("writeFileAtomic", () => {
@@ -210,4 +213,47 @@ test("assertInsideRoot accepts a root whose own name is a symlink, for itself an
       expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
     }
   });
+});
+
+// What would drift silently: a prefix that exists but cannot be inspected answered with the lexical
+// path, the same answer a path with no symlink gets, so a containment check or a sweep identity
+// built on it would judge a destination it never looked at.
+describe("realpathOfExistingPrefix", () => {
+  test("resolves the deepest existing prefix through its link and keeps the missing tail as typed", async () => {
+    await withTempDir((dir) => {
+      const real = join(dir, "real");
+      mkdirSync(real);
+      symlinkSync(real, join(dir, "alias"));
+      expect(realpathOfExistingPrefix(join(dir, "alias", "missing", "leaf.md"))).toBe(
+        join(realpathSync(real), "missing", "leaf.md"),
+      );
+    });
+  });
+
+  test.skipIf(!CHMOD_DENIES)(
+    "a prefix that exists but cannot be inspected is exit 4, never the lexical path",
+    async () => {
+      await withTempDir((dir) => {
+        const locked = join(dir, "locked");
+        mkdirSync(join(locked, "child"), { recursive: true });
+        const probed = join(locked, "child", "leaf.md");
+        chmodSync(locked, 0o000);
+        try {
+          let caught: unknown;
+          try {
+            realpathOfExistingPrefix(probed);
+          } catch (error) {
+            caught = error;
+          }
+          expect(caught).toBeInstanceOf(MaximsError);
+          expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
+          expect((caught as MaximsError).message).toMatch(
+            new RegExp(`^cannot inspect ${probed.replaceAll("\\", "\\\\")}: EACCES`),
+          );
+        } finally {
+          chmodSync(locked, 0o755);
+        }
+      });
+    },
+  );
 });
