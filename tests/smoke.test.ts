@@ -42,10 +42,9 @@ test("a launcher that cannot spawn the test process leaves no temp HOME behind",
   });
 });
 
-// A signal aimed at the launcher is forwarded to the test process, the temp HOME is removed, and
-// the launcher dies by that signal, so a shell or a CI step that interrupted it sees the signal,
-// not an exit code it would read as a test failure. The sleeping test file sits outside the
-// repository, where no other run picks it up.
+// An interrupted launcher removes the temp HOME and dies by the signal, so a shell or a CI step
+// that interrupted it sees the signal, not an exit code it would read as a test failure. The
+// sleeping test file sits outside the repository, where no other run picks it up.
 test.skipIf(WINDOWS)(
   "an interrupted launcher removes its temp HOME and dies by the signal",
   async () => {

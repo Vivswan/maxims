@@ -340,8 +340,8 @@ export function closestName<Name extends string>(
 ): Name | null {
   const names = [...known];
   const maxDistance = Math.max(2, Math.floor(candidate.length / 3));
-  const match = closestMatch(candidate.toLowerCase(), names, { maxDistance });
-  return names.find((name) => name === match) ?? null;
+  const match = closestMatch(candidate.toLowerCase(), names, { maxDistance }) as Name | undefined;
+  return match ?? null;
 }
 
 export function parseRenames(args: Args): RenameMap {

@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import { createClackConsole } from "../../src/console/clack.ts";
 import type { Console, ConsoleMode } from "../../src/console/contract.ts";
 import { agentIdFrom, consoleMode } from "../../src/console/mode.ts";
@@ -168,10 +169,8 @@ const GLYPHS: [RegExp, string][] = [
 ];
 const SPINNER_FRAME = /^[\u25d0-\u25d3|o*x!]\s*$/;
 
-const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
-
 function normalize(text: string): string {
-  let out = text.replace(ANSI, "").replace(/\r/g, "\n");
+  let out = stripVTControlCharacters(text).replace(/\r/g, "\n");
   for (const [glyph, ascii] of GLYPHS) out = out.replace(glyph, ascii);
   return out
     .split("\n")

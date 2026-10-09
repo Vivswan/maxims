@@ -130,10 +130,9 @@ function childEnv(home: string, npmCache: string): Record<string, string> {
   };
 }
 
-// Bun kills the process at its budget; SIGKILL is the runner's own signal, nothing else in the
-// smoke run sends it, so a child that died by it is one the budget killed. Its output is given up
-// unread: `npx` runs the package as a grandchild that inherits the pipes, and a read would wait
-// for it. Bun buffers the pipes while the child runs, so a read after a normal exit has it all.
+// SIGKILL is the runner's own kill at the budget; nothing else in the smoke run sends it. A pipe
+// read in flight when that kill lands stays open while npx's grandchild holds the pipe, so the
+// reads wait for the exit and a killed child's output is given up.
 export const spawnCommand: CommandRunner = async (command) => {
   const proc = Bun.spawn([...command.argv], {
     cwd: command.cwd,
