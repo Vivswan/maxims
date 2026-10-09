@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { HarnessIdSchema } from "../contracts/harness-id.ts";
+import { flattenIssues } from "../util/zod-issues.ts";
 
 // User defaults live in `<home>/config.json`, apart from state: state records what is installed,
 // this records how the user likes to install. Strict, like state, so a misspelled key is refused
@@ -24,11 +26,31 @@ export type ParsedUserConfig = { ok: true; config: UserConfig } | { ok: false; i
 export function parseUserConfig(json: unknown): ParsedUserConfig {
   const result = UserConfigSchema.safeParse(json === undefined ? {} : json);
   if (result.success) return { ok: true, config: result.data };
-  return {
-    ok: false,
-    issues: result.error.issues.map((issue) => {
-      const where = issue.path.map(String).join(".");
-      return where === "" ? issue.message : `${where}: ${issue.message}`;
-    }),
-  };
+  return { ok: false, issues: flattenIssues(result.error.issues) };
+}
+
+// The one reader of config.json. Whether a run refuses a file that could not be read as one or
+// falls back to the defaults and says so is the verb's call (main.ts's table, loadContext), not
+// the reader's.
+export type LoadedUserConfig = { ok: true; config: UserConfig } | { ok: false; issue: string };
+
+export function readUserConfig(path: string): LoadedUserConfig {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, config: {} };
+    const detail = error instanceof Error ? error.message : String(error);
+    return { ok: false, issue: `${path} could not be read (${detail})` };
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { ok: false, issue: `${path} is not valid JSON: ${detail}` };
+  }
+  const parsed = parseUserConfig(json);
+  if (parsed.ok) return { ok: true, config: parsed.config };
+  return { ok: false, issue: `${path} is not a valid config: ${parsed.issues.join("; ")}` };
 }

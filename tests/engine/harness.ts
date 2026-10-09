@@ -262,6 +262,7 @@ export function fakeIo(options: FakeIoOptions): FakeIo {
     now: () => io.clock.now,
     env: { HOME: options.userHome, MAXIMS_HOME: options.home, ...options.env },
     cwd: options.cwd,
+    userHome: options.userHome,
     readStdin: async () => io.stdin,
     symlinkSupport: async () => io.symlink,
   };

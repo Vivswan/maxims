@@ -9,7 +9,7 @@ import { ExitCode } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
 import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
-import { actsHere } from "./shared/context.ts";
+import { actsHere, harnessContext } from "./shared/context.ts";
 import { pathAbsent, readTextIfPresent } from "./shared/fs-probe.ts";
 import { hookedAt } from "./shared/hooks.ts";
 import {
@@ -25,7 +25,6 @@ import {
   effectiveNames,
   effectiveNamesIfReadable,
   findSourceKey,
-  harnessContext,
   localName,
   scopeOf,
   targetPath,
