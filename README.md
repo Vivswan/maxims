@@ -14,7 +14,7 @@ What maxims writes for Claude Code, one line per memory, with the detail path, t
 <!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
-- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
+- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
 

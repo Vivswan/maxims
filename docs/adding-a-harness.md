@@ -37,7 +37,7 @@ A `rules-dir` target is `{ kind: "rules-dir", dir, fileName, frontmatter? }`. Th
 
 The paths land after the scoped `fields` unless `fields` names `pathsKey` with the value `null`, which fixes their place among the other keys. Cursor lists `globs` between `description` and `alwaysApply`, so its scoped fields are `{ "description": "...", "globs": null, "alwaysApply": false }`. Any other value under that key is refused, because the paths would overwrite it.
 
-A `shared-block` target is `{ kind: "shared-block", file, precedence? }`. `precedence` lists, in the harness's order, the files of which it reads only the first that exists; the block goes into that one, and `file` is created when none exists.
+A `shared-block` target is `{ kind: "shared-block", file, precedence? }`. `precedence` lists, in the harness's order, the files of which it reads only the first that exists; the block goes into that one, and `file` is created when none exists. `skipsEmpty: true` says the harness passes over a blank file in that list, so the block does too; it is allowed only beside `precedence`.
 
 ## Hooks as data
 
@@ -73,7 +73,9 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 ## A full example
 
-The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; Codex adds one quirk in code beside it, the tier probe that reads the project `config.toml` over the user one, because a `tierCheck` reads one file per scope.
+The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. Its `verifiedAgainst` is abridged to one page with an illustrative note: the spec file holds the current date and every page, and each re-verification moves them.
+
+A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; Codex adds one quirk in code beside it, the tier probe that reads the project `config.toml` over the user one, because a `tierCheck` reads one file per scope.
 
 ```json
 {
@@ -81,13 +83,13 @@ The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON w
   "displayName": "Codex",
   "tier": 1,
   "verifiedAgainst": {
-    "date": "2026-09-20",
+    "date": "2026-10-07",
     "pages": [{ "url": "https://learn.chatgpt.com/docs/hooks", "note": "hooks.json and SessionStart" }]
   },
   "globalRoot": { "default": ".codex", "env": { "name": "CODEX_HOME" } },
   "targets": {
-    "project": { "kind": "shared-block", "file": "AGENTS.md" },
-    "global": { "kind": "shared-block", "file": "AGENTS.md" }
+    "project": { "kind": "shared-block", "file": "AGENTS.md", "precedence": ["AGENTS.override.md", "AGENTS.md"] },
+    "global": { "kind": "shared-block", "file": "AGENTS.md", "precedence": ["AGENTS.override.md", "AGENTS.md"], "skipsEmpty": true }
   },
   "bodiesDir": { "project": ".agents/memories", "global": null },
   "markers": "counted",

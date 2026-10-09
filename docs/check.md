@@ -13,11 +13,23 @@ Three verbs that never write into a harness: `list` reports what state asks for,
 npx -y @vivswan/maxims list
 ```
 
-The specification fixes what `list` reports and leaves the layout to mirror `npx skills list`: a "Global Memories" or "Project Memories" header, then one row per memory with its path and an indented line naming the agents and the source. Everything past the recorded intent is re-derived when you run it, so a hand-edited hook registry is reported as it is, not as it was.
+The specification fixes what `list` reports and leaves the layout to mirror `npx skills list`. Everything past the recorded intent is re-derived when you run it, so a hand-edited hook registry is reported as it is, not as it was.
+
+One local source installed for Claude Code, hashes illustrative:
+
+```text
+Global memories
+/home/user/rules  0b21639  fetched 2026-10-09  ok
+  alpha-rule  (61809f9)
+  beta-rule  (be9dead)
+  Agents: claude-code (tier 1)  Rules: no
+Defaults: agents=detected rule=false cooldownDays=7 ruleCap=25
+```
 
 | `list` reports | derived from |
 | --- | --- |
-| each source, its selected memories, the fetched sha and each memory's short content hash | state |
+| each source and its fetched sha | state |
+| its selected memories, each with its short content hash | the store copy or the live tree, filtered by the recorded selection |
 | staleness per source, with the reason of the last failed fetch | state |
 | a reviewed source's mark, and the revision [held for review](keep-fresh.md#hold-changes-for-review) with its changed-line count | state |
 | live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |

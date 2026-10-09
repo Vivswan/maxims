@@ -71,7 +71,9 @@ The count in parentheses is memories the refresh added and removed within the se
 
 ## How a source is fetched
 
-Fetching is anonymous by default. No `gh` login and no token is read unless you pass `--auth`, which records the choice as `intent.auth` so every refresh of that source uses the token `gh auth token` returns.
+Fetching is anonymous by default. No `gh` login and no token is read unless you pass `--auth` or set `MAXIMS_AUTH=1`, which records the choice as `intent.auth`.
+
+An authenticated refresh sends the token `gh` names for the host class as a bearer token: `GH_TOKEN` or `GITHUB_TOKEN` for github.com and `*.ghe.com` tenants, `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` for any other host. With none set it goes through `gh` when you are logged in.
 
 | situation | what runs |
 | --- | --- |
@@ -86,6 +88,7 @@ The clone covers the folder `--from` names, or the whole tree under `--full-dept
 | variable | effect |
 | --- | --- |
 | `MAXIMS_HOME` | moves the [canonical home](files.md#the-canonical-home), state, store, and `config.json` with it |
+| `MAXIMS_AUTH` | `1` makes `add` fetch with your `gh` login, as `--auth` does |
 | `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and whose URLs count as GitHub sources |
 | `MAXIMS_FETCH_TIMEOUT` | seconds one fetch may take before it counts as failed |
 | `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](write-memories.md#the-contract) |

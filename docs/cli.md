@@ -17,7 +17,7 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 | --- | --- | --- | --- | --- |
 | `add <source>` | `a` | fetch the source, record its destination, selection, rule flag, and harnesses in state, then sync | yes | [install](install.md) |
 | `sync` | | apply state to this machine and project: link bodies, regenerate rule files, reconcile hooks | past the cooldown | [keep fresh](keep-fresh.md#the-session-hook) |
-| `update` | `check`, `upgrade` | refetch every source into the store, ignoring the cooldown, then sync | always | [keep fresh](keep-fresh.md#refresh-now-update) |
+| `update [source]` | `check`, `upgrade` | refetch every source, or the one named, ignoring the cooldown, then sync | always | [keep fresh](keep-fresh.md#refresh-now-update) |
 | `remove <source or name>` | `rm`, `r` | take a source or one memory out of state, then sync | no | [remove](move-or-uninstall.md#remove-a-source-or-a-memory) |
 | `list` | `ls` | what state holds per source and per harness, everything past intent re-derived | no | [check](check.md#see-what-is-installed-list) |
 | `show <memory or source>` | | one memory in full, or a source's facts and the changes it holds for review | no | [check](check.md#read-one-memory-or-source-show) |
@@ -36,7 +36,7 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 | `init [name]` | | scaffold a contract-valid memory file | no | [memories](write-memories.md#scaffold-a-file-with-init) |
 
 - **Two scopes exist,** project (`-p`) and user (`-g`). `-o` is an output folder for a rule file no harness owns, and it is neither scope.
-- **No source argument.** `sync`, `update`, `install`, and `doctor` read state or the lock instead.
+- **No source argument.** `sync`, `install`, and `doctor` read state or the lock instead. `update` alone refreshes every source, and `update <source>` one.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
 - **`show` takes a bare memory name or a source.** A name two sources provide exits 1 and lists them; `--source <key>`, `-g` or `-p` picks one. An argument that is both is read as the memory, with a tip naming the source.
 - **`share` and `unshare` touch the lock only,** never what is installed.
@@ -64,10 +64,12 @@ These flags work on every verb.
 | flag | default | what it does |
 | --- | --- | --- |
 | `--dry-run` | off | the exact plan and diff, nothing written; a failed fetch [exits](#exit-codes) as without the flag |
-| `--json` | off | the same plan as one JSON document, for CI assertions |
+| `--json` | off | the same plan as one JSON document, for CI assertions; never prompts, see below |
 | `--quiet` | off | one-line output and fail-soft, see the exit codes below; the hook's mode |
 | `--verbose` | off | adds fetch details to the output |
 | `-h, --help`, `-v, --version` | | standard |
+
+- **`--json` never prompts.** `add` and `remove` need `-y` or `--all` beside it, `install` needs `-y`, and `--json` with `--list` is refused. Each exits 1.
 
 The rest belong to the verbs the second column names. A value flag takes `--flag value` or `--flag=value`. A list flag takes a comma list and may repeat, so `-m a,b -m c` selects three memories.
 
@@ -77,9 +79,9 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `-p, --project` | add, remove, show, disable, enable | auto | the project scope; [where it lands](install.md#where-it-lands) |
 | `-o, --out <dir>` | add, remove | off | an output folder instead of a scope; [where it lands](install.md#where-it-lands) |
 | `-m, --memory <names>` | add, remove | `*` | only these memories; [what gets installed](install.md#what-gets-installed) |
-| `-a, --agent <ids>` | add, remove, sync, update, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix); each verb reads it differently, see below |
+| `-a, --agent <ids>` | add, remove, sync, update, install, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix); each verb reads it differently, see below |
 | `-l, --list` | add | off | preview the source, write nothing; [what gets installed](install.md#what-gets-installed) |
-| `-y, --yes` | add, remove | auto | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior) |
+| `-y, --yes` | add, remove, install | auto | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior) |
 | `--all` | add, remove, accept | off | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed) |
 | `--rule` | add | off | publish one-liners into the rule file; [two separate choices](install.md#two-separate-choices) |
 | `--add-hook` | add | off | register the harness's sync hook; [two separate choices](install.md#two-separate-choices) |
@@ -90,11 +92,11 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--full-depth` | add, lint | off | scan the whole source; [source layout](write-memories.md#layout-in-a-source) |
 | `--pin <sha or tag>` | add | off | track this ref; [refs](install.md#refs) |
 | `--paths <glob>` | add | off | scope the rules to matching files, repeatable; [path scoping](install.md#path-scoping) |
-| `--rename <upstream>=<local>` | add | off | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames) |
+| `--rename <upstream>=<local>` | add, update | off | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames) |
 | `--allow-hidden` | add | off | accept descriptions carrying [hidden characters](write-memories.md#hidden-characters-are-refused) |
 | `--review` | add | off | hold upstream changes until `accept`; [hold changes for review](keep-fresh.md#hold-changes-for-review) |
 | `--strict` | add, install, update | off | refuse a source whose descriptions carry a [risky shape](security.md#risky-shapes-in-descriptions), exit 3 |
-| `--auth` | add | off | fetch with your `gh` login; [fetching](keep-fresh.md#how-a-source-is-fetched) |
+| `--auth` | add | off | fetch with your `gh` login, as `MAXIMS_AUTH=1` does; [fetching](keep-fresh.md#how-a-source-is-fetched) |
 | `--no-fetch` | sync | off | never touch the network; [fetching](keep-fresh.md#how-a-source-is-fetched) |
 | `--cooldown <days>` | add, sync, update | 7 | days between refreshes, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
 | `--cap <n>` | add, sync, update, lint | 25 | most rule lines per source, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
@@ -102,7 +104,8 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `--source <key>` | show | off | the source to read the memory from, when several provide the name; [read one memory](check.md#read-one-memory-or-source-show) |
 
 - **`-a` on `sync`** limits the run to the named harnesses and fetches nothing; `-a '*'` names them all and fetches as a plain `sync` does.
-- **`-a` on `update`** still refreshes every source, and a refreshed source is written for every harness that reads it; the filter narrows only the untouched sources.
+- **`-a` on `update`** does not narrow the refresh: every source, or the one named, is still fetched, and a refreshed source is written for every harness that reads it. The filter narrows only the untouched sources.
+- **`--rename` on `update`** needs the source it applies to, so `update --rename a=b` without one exits 1.
 - **`-a` on `remove`** drops those harnesses from a whole source and is refused on a memory.
 - **`--strict` on `update`** plans the refresh first and applies it only when no warning exists.
 - **`--all` on `accept`** takes every held source.
@@ -126,7 +129,7 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 | 8 | rule cap exceeded |
 
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
-- **Exit 1** follows an unknown flag, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.
+- **Exit 1** follows an unknown flag, `--json` on `add`, `remove`, or `install` without `-y` (`--all` also serves on `add` and `remove`), `--json` with `--list`, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.
 - **Exit 2** follows a repo not found, no read access, a missing local directory, a non-GitHub git URL with no `git` on PATH, or an interactive `sync` whose fetch failed.
 - **Exit 3** follows a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](write-memories.md#hidden-characters-are-refused) without `--allow-hidden`, a [risky shape](security.md#risky-shapes-in-descriptions) under `--strict`, or a `lint` that found problems.
 - **Exit 4** follows permissions, a read-only filesystem, a full disk, an unparsable harness config, or a `remove` or `unlink` refused because [stray marker lines surround the block](troubleshooting.md#exit-4-stray-marker-lines-surround-the-block-to-remove).

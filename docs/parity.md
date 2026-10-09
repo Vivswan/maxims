@@ -37,7 +37,7 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | npx skills | maxims | parity | why |
 | --- | --- | --- | --- |
 | `add`, `a` | `add`, `a` | same | same alias |
-| `update`, `upgrade`, `check` | `update`, `upgrade`, `check` | same | state-driven, no source argument |
+| `update`, `upgrade`, `check` | `update`, `upgrade`, `check` | same | state-driven; an optional source narrows the refresh to one |
 | `remove`, `rm`, `r` | `remove`, `rm`, `r` | same | same aliases |
 | `use <pkg>@<skill>` | none | diverge | a one-liner is not a workflow you run once without installing |
 | `find [query]` | none | diverge | no registry of memory repos exists yet |

@@ -74,7 +74,7 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 
 | artifact | where | what it is |
 | --- | --- | --- |
-| memory bodies | `~/.agents/maxims/store/vivswan/skills/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
+| memory bodies | `~/.agents/maxims/store/vivswan/skills/memories/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
 | rule file | `~/.claude/rules/maxims-vivswan-skills.md` | one line per memory: the one-liner plus a `detail:` pointer to the body |
 | hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
 | state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
@@ -85,8 +85,8 @@ The rule file for that install, cut to two of its four rule lines, with illustra
 <!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
-- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: /home/user/.agents/maxims/store/vivswan/skills/gate-exit-conditions-the-merge.md, 0f0f0f0)
-- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/rubber-duck-before-every-commit.md, a1b2c3d)
+- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/gate-exit-conditions-the-merge.md, 0f0f0f0)
+- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
 
