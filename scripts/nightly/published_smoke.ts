@@ -130,8 +130,10 @@ function childEnv(home: string, npmCache: string): Record<string, string> {
   };
 }
 
-// On a timeout the process is killed and its output given up: `npx` runs the package as a
-// grandchild that inherits the pipes, so waiting for them to close could outlive the kill.
+// Bun kills the process at its budget; SIGKILL is the runner's own signal, nothing else in the
+// smoke run sends it, so a child that died by it is one the budget killed. Its output is given up
+// unread: `npx` runs the package as a grandchild that inherits the pipes, and a read would wait
+// for it. Bun buffers the pipes while the child runs, so a read after a normal exit has it all.
 export const spawnCommand: CommandRunner = async (command) => {
   const proc = Bun.spawn([...command.argv], {
     cwd: command.cwd,
@@ -139,27 +141,16 @@ export const spawnCommand: CommandRunner = async (command) => {
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    timeout: command.timeoutMs,
+    killSignal: "SIGKILL",
   });
-  const finished = Promise.all([
+  const exitCode = await proc.exited;
+  if (proc.signalCode === "SIGKILL") return { exitCode: "timeout", stdout: "", stderr: "" };
+  const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
-    proc.exited,
   ]);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), command.timeoutMs);
-  });
-  try {
-    const outcome = await Promise.race([finished, expired]);
-    if (outcome === "timeout") {
-      proc.kill("SIGKILL");
-      return { exitCode: "timeout", stdout: "", stderr: "" };
-    }
-    const [stdout, stderr, exitCode] = outcome;
-    return { exitCode, stdout, stderr };
-  } finally {
-    clearTimeout(timer);
-  }
+  return { exitCode, stdout, stderr };
 };
 
 function writeFixture(dir: string): void {

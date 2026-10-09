@@ -3,6 +3,7 @@
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import prettyBytes from "pretty-bytes";
 
 export const RUNTIMES = ["docker", "podman"] as const;
 export type Runtime = (typeof RUNTIMES)[number];
@@ -144,18 +145,6 @@ export function imageSize(
   return bytes;
 }
 
-const IEC_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
-
-export function iec(bytes: number): string {
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < IEC_UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${IEC_UNITS[unit]}`;
-}
-
 export function renderBuildSummary(seconds: string, bytes: number): string {
   return [
     "## Container tier",
@@ -163,7 +152,7 @@ export function renderBuildSummary(seconds: string, bytes: number): string {
     "| Metric | Value |",
     "| --- | --- |",
     `| Image build | ${seconds} s |`,
-    `| Image size | ${iec(bytes)} (${bytes} bytes) |`,
+    `| Image size | ${prettyBytes(bytes, { binary: true })} (${bytes} bytes) |`,
     "",
   ].join("\n");
 }

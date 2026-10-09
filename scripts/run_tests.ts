@@ -4,6 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { onExit } from "signal-exit";
 import { bunTestArgs } from "./lib/test_timeout.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -30,10 +31,10 @@ Object.assign(env, {
 
 const removeHome = (): void => rmSync(home, { recursive: true, force: true });
 
-// The test process is spawned asynchronously so a SIGINT or SIGTERM aimed at the launcher still
-// reaches the handlers below and removes the temp HOME; a synchronous spawn would block them. The
-// spawn itself sits inside the try because it throws when no `bun` is on PATH, and that path must
-// remove the HOME too.
+// The test process is spawned asynchronously so a signal aimed at the launcher still reaches the
+// exit hook below and removes the temp HOME; a synchronous spawn would block it. The spawn itself
+// sits inside the try because it throws when no `bun` is on PATH, and that path must remove the
+// HOME too. signal-exit re-raises the signal once the hook ran, so the launcher dies by it.
 let exitCode = 1;
 try {
   const proc = Bun.spawn(["bun", "test", ...bunTestArgs(process.platform, process.argv.slice(2))], {
@@ -41,13 +42,10 @@ try {
     env,
     stdio: ["inherit", "inherit", "inherit"],
   });
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(signal, () => {
-      proc.kill(signal);
-      removeHome();
-      process.exit(130);
-    });
-  }
+  onExit((_code, signal) => {
+    if (signal !== null) proc.kill(signal);
+    removeHome();
+  });
   exitCode = await proc.exited;
 } finally {
   removeHome();

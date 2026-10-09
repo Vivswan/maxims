@@ -7,7 +7,6 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  iec,
   imageSize,
   REPO_ROOT,
   REQUIRE_RUNTIME_ENV,
@@ -40,17 +39,6 @@ test("imageSize asks the runtime for the size and refuses anything but a positiv
   for (const [result, message] of refused) {
     expect(() => imageSize("docker", "example:tag", () => result)).toThrow(message);
   }
-});
-
-const sizes: [number, string][] = [
-  [512, "512 B"],
-  [812345, "793 KiB"],
-  [10_485_760, "10 MiB"],
-  [1_234_567_890, "1.1 GiB"],
-];
-
-test.each(sizes)("iec(%p) is %p", (bytes, text) => {
-  expect(iec(bytes)).toBe(text);
 });
 
 // The suite run (the one `run` ending in `bun run test`) answers with the smallest output the
