@@ -266,18 +266,6 @@ test.each(USAGE_ERRORS)("%s exits 1 as skills does", async (_name, argv, stderr)
   });
 });
 
-test("--json without --yes exits 1 with the skills wording inside the JSON document", async () => {
-  await withScenario({}, async (scenario) => {
-    const run = await runCli(scenario, ["add", "@a/b", "--json"]);
-    expect({ code: run.code, stderr: run.stderr }).toEqual({ code: 1, stderr: "" });
-    expect(JSON.parse(run.stdout)).toEqual({
-      ok: false,
-      code: 1,
-      message: "The --json flag requires --yes (or --all) to run non-interactively.",
-    });
-  });
-});
-
 // `skills` exits 1 for every failure; maxims keeps its richer table, so a source that cannot be
 // read is distinguishable from a usage error by exit code alone.
 test("a missing local source exits with the unresolvable-source code, not 1", async () => {

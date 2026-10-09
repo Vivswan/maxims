@@ -1,26 +1,11 @@
 // Fails if terminal noise (ANSI styling, CRLF, trailing spaces, extra final newlines) or the
-// caller's environment can reach a capture, or if the committed skills@1.7.0 fixture leaves its
-// own normal form: a nightly diff of `skills@latest` against the fixture would then report bytes no
-// reader sees as upstream drift.
+// caller's environment can reach a capture: a nightly diff of `skills@latest` against the committed
+// fixture would then report bytes no reader sees as upstream drift. That the fixture is itself in
+// normal form is pinned where it is read, in tests/parity.test.ts.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { captureSkillsHelp, normalizeHelp } from "../scripts/lib/skills_help.ts";
+import { captureSkillsHelp } from "../scripts/lib/skills_help.ts";
 
 const ESC = "\x1b";
-
-test("normalizeHelp strips styling, folds CRLF, and trims line ends", () => {
-  const raw = `${ESC}[1mUsage:${ESC}[0m skills [options]\r\n\r\n  -g, --global   \r\n  -y, --yes\n\n\n`;
-  expect(normalizeHelp(raw)).toBe("Usage: skills [options]\n\n  -g, --global\n  -y, --yes\n");
-});
-
-test("the committed skills@1.7.0 fixture is already in normal form", () => {
-  const fixture = readFileSync(
-    join(import.meta.dir, "fixtures", "golden", "skills-help.txt"),
-    "utf8",
-  );
-  expect(normalizeHelp(fixture)).toBe(fixture);
-});
 
 interface Recorded {
   argv: string[];
@@ -56,9 +41,12 @@ test("captureSkillsHelp spawns npx with an allowlisted env and normalizes its st
       const calls: Recorded[] = [];
       const page = await captureSkillsHelp("1.7.0", async (argv, env) => {
         calls.push({ argv, env });
-        return { exitCode: 0, stdout: `${ESC}[1mUsage:${ESC}[0m skills  \r\n` };
+        return {
+          exitCode: 0,
+          stdout: `${ESC}[1mUsage:${ESC}[0m skills [options]\r\n\r\n  -g, --global   \r\n  -y, --yes\n\n\n`,
+        };
       });
-      expect(page).toBe("Usage: skills\n");
+      expect(page).toBe("Usage: skills [options]\n\n  -g, --global\n  -y, --yes\n");
       expect(calls).toEqual([
         {
           argv: ["npx", "-y", "skills@1.7.0", "--help"],
