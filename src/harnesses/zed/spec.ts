@@ -30,6 +30,7 @@ export const spec = {
         path: "crates/paths/src/paths.rs",
         claims: [
           'home_dir().join(".config").join(APP_NAME_LOWERCASE)',
+          'dirs::config_dir().expect("failed to determine XDG_CONFIG_HOME directory")',
           'cfg!(any(target_os = "linux", target_os = "freebsd")) { if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME")',
           "AGENTS.md",
           "settings.json",

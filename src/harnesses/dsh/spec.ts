@@ -70,8 +70,11 @@ export const spec = {
         repo: "deepseek-ai/deepseek-harness",
         ref: "master",
         path: "packages/hooks/hooks-claude-code/src/index.ts",
-        claims: ["JSON.parse(readFileSync(config.configPath, 'utf8'))", "'SessionStart'"],
-        note: "the bridge reads its config file once and registers SessionStart",
+        claims: [
+          "JSON.parse(readFileSync(config.configPath, 'utf8'))",
+          "runPoint('SessionStart', source, sessionStartPayload(agent, source)",
+        ],
+        note: "the bridge reads its config file and registers SessionStart",
       },
       {
         kind: "file",

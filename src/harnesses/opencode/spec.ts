@@ -38,7 +38,10 @@ export const spec = {
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/opencode/src/session/instruction.ts",
-        claims: ['path.join(global.config, "AGENTS.md")'],
+        claims: [
+          'const instructionFiles = [ "AGENTS.md",',
+          'path.join(global.config, "AGENTS.md")',
+        ],
         note: "AGENTS.md and ~/.config/opencode/AGENTS.md",
       },
       {
