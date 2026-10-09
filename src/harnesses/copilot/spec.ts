@@ -4,20 +4,20 @@ import type { HarnessSpec } from "../spec.ts";
 // Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
 // instructions directory and the hooks directory both move with it. Without `applyTo` an
 // instructions file is path-scoped by Copilot's own matching and silently stops being
-// always-loaded, so the frontmatter is never omitted; `**` matches every file. Copilot picks `bash`
-// on POSIX and `powershell` on Windows and never falls back between them, so both carry the same
-// command or the hook is silently inert on one platform.
+// always-loaded, so the frontmatter is never omitted; `**` matches every file. Copilot runs `bash`
+// on POSIX and `powershell` on Windows; the cloud agent ignores `powershell`. The cross-platform
+// `command` key only fills in an absent `bash` or `powershell`, so the explicit pair stays.
 export const spec = {
   id: "copilot",
   displayName: "GitHub Copilot",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-09",
     pages: [
       {
         url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
         contentHash: contentHashLiteral(
-          "sha256:147566a678bfa7e7cf4dd897b10bb24aa264396c0562de2cc68581a4f0f92911",
+          "sha256:799ddf1ec9dbc46b44f48b720d224e343832dc1d84cc56c96d68c90db6bbe560",
         ),
       },
       {
@@ -30,7 +30,7 @@ export const spec = {
       {
         url: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference",
         contentHash: contentHashLiteral(
-          "sha256:c85b14ef8144d6b229f877079f0d3dedac692cc8d506838675d3bd6abbbe9713",
+          "sha256:ed0ee4efb7abcb34681bfa7070c0aa3ddd59301e7a60fcde91c56af98297c144",
         ),
         note: "COPILOT_HOME and the hooks and instructions directories under it",
       },
