@@ -9,6 +9,7 @@
 import { expect, test } from "bun:test";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -218,16 +219,13 @@ interface Fixture {
   bench: string;
 }
 
-// The bench derives the repository from its own location, so a copy of the script, with the module
-// it imports beside it, measures the checkout it is copied into.
+// The bench derives the repository from its own location, so a copy of the script, with the
+// modules it imports beside it, measures the checkout it is copied into.
 function copyBenchInto(root: string): string {
-  mkdirSync(join(root, "scripts", "lib"), { recursive: true });
+  mkdirSync(join(root, "scripts"), { recursive: true });
   const bench = join(root, "scripts", "bench.ts");
   copyFileSync(join(repoRoot, "scripts", "bench.ts"), bench);
-  copyFileSync(
-    join(repoRoot, "scripts", "lib", "paths.ts"),
-    join(root, "scripts", "lib", "paths.ts"),
-  );
+  cpSync(join(repoRoot, "scripts", "lib"), join(root, "scripts", "lib"), { recursive: true });
   return bench;
 }
 

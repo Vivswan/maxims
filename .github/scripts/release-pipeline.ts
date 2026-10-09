@@ -342,7 +342,7 @@ function descendantsOf(
  * The shipped surface: every path whose bytes reach the published package or decide the bundle's, read off the
  * packaging rather than guessed. package.json packs dist/ and the root files below and carries the name, version,
  * and bin. dist/cli.js is bundled from src/cli.ts and all it reaches (src/version.ts stamps package.json's version
- * in), at the versions bun.lock pins, by scripts/build.ts and the one module it imports, through the tsconfig.json
+ * in), at the versions bun.lock pins, by scripts/build.ts and the two modules it imports, through the tsconfig.json
  * Bun.build reads, with the bun .bun-version installs; .gitattributes sets the packed files' line endings. src/ is
  * taken whole: its harness fixtures feed tests alone, and a publish nothing needed costs less than one missed.
  * docs/, tests/, .github/, architecture.yml, and the lint configs shape the repository, not the package.
@@ -355,6 +355,7 @@ const SHIPPED_FILES = new Set([
   ".gitattributes",
   "tsconfig.json",
   "scripts/build.ts",
+  "scripts/lib/argv.ts",
   "scripts/lib/paths.ts",
 ]);
 const SHIPPED_DIRS = ["src/"];

@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgv } from "./lib/argv.ts";
 import { whereBytesLand } from "./lib/paths.ts";
 
 const SHEBANG = "#!/usr/bin/env node\n";
@@ -8,17 +9,11 @@ const DEFAULT_ENTRY = "src/cli.ts";
 const DEFAULT_OUTFILE = "dist/cli.js";
 const repoRoot = resolve(import.meta.dir, "..");
 
-interface Options {
-  entry: string | undefined;
-  outfile: string | undefined;
-  sizeJson: string | undefined;
-}
-
-const FLAGS = new Map<string, keyof Options>([
-  ["--entry", "entry"],
-  ["--outfile", "outfile"],
-  ["--size-json", "sizeJson"],
-]);
+const OPTIONS = {
+  entry: { type: "string" },
+  outfile: { type: "string" },
+  "size-json": { type: "string" },
+} as const;
 
 function fail(message: string): never {
   process.stderr.write(`build: ${message}\n`);
@@ -28,28 +23,14 @@ function fail(message: string): never {
   process.exit(2);
 }
 
-function parseArgs(argv: string[]): Options {
-  const options: Options = { entry: undefined, outfile: undefined, sizeJson: undefined };
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    const key = FLAGS.get(flag);
-    if (key === undefined) fail(`unknown argument ${flag}`);
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith("--")) fail(`${flag} needs a value`);
-    options[key] = value;
-    i++;
-  }
-  return options;
-}
-
-const options = parseArgs(process.argv.slice(2));
+const { values: options } = parseArgv({ args: process.argv.slice(2), options: OPTIONS }, fail);
 // Caller-supplied paths are relative to the caller's cwd; resolve them before the chdir below.
 // The two outputs are compared by where their bytes land, so a second spelling of the bundle
 // path (a `..` segment, a symlinked directory) cannot make the size report overwrite it.
 const entry = options.entry === undefined ? join(repoRoot, DEFAULT_ENTRY) : resolve(options.entry);
 const outfile = whereBytesLand(options.outfile ?? join(repoRoot, DEFAULT_OUTFILE), fail);
 const sizeJson =
-  options.sizeJson === undefined ? undefined : whereBytesLand(options.sizeJson, fail);
+  options["size-json"] === undefined ? undefined : whereBytesLand(options["size-json"], fail);
 if (sizeJson === outfile) {
   fail(`--outfile and --size-json both land at ${outfile}; the report would overwrite the bundle`);
 }
