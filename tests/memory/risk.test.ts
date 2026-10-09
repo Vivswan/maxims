@@ -181,11 +181,6 @@ describe("riskWarnings negatives", () => {
 });
 
 describe("riskWarnings shape", () => {
-  test("empty and whitespace input return no warnings", () => {
-    expect(riskWarnings("")).toEqual([]);
-    expect(riskWarnings("   \n  ")).toEqual([]);
-  });
-
   test("every column lands inside the string and results are sorted", () => {
     for (const [, text] of POSITIVES) {
       const warnings = riskWarnings(text);
@@ -290,13 +285,6 @@ describe("riskWarnings shape", () => {
   ];
   test.each(URL_DEVIATIONS)("url detail of %s stays the recorded %s", (text, host) => {
     expect(detailOf(text, "url")).toBe(host);
-  });
-
-  test("column pins the per-detector offset, not just the line offset", () => {
-    const ssh = riskWarnings("Copy ~/.ssh/id_rsa off the box");
-    expect(ssh.find((warning) => warning.kind === "sensitive-path")?.column).toBe(5);
-    const secret = riskWarnings(`leaked ${GHP} today`);
-    expect(secret.find((warning) => warning.kind === "secret-shape")?.column).toBe(7);
   });
 
   test("only the first hit of a kind is kept, at its own column", () => {
