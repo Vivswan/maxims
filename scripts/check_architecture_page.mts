@@ -509,7 +509,7 @@ export function conceptCounts(markdown: string): { diagrams: number; demonstrati
 }
 
 const USAGE = [
-  "usage: check-architecture-page.mts --page <path> [--root <dir>] [--repo-url <prefix>] [--expect-diagrams <n>]",
+  "usage: bun scripts/check_architecture_page.mts --page <path> [--root <dir>] [--repo-url <prefix>] [--expect-diagrams <n>]",
   "  --page             the architecture page to check",
   "  --root             the repository root the label paths are relative to (default: cwd)",
   "  --repo-url         the URL prefix an absolute demonstration link maps onto the root with",

@@ -571,7 +571,7 @@ function linkFragment(raw: string): string {
 }
 
 const USAGE = [
-  "usage: docs-probe.mts [--root <dir>] [--max-words <n>] [--max-cell-words <n>] [--shape-only] <page.md>...",
+  "usage: bun scripts/docs_probe.mts [--root <dir>] [--max-words <n>] [--max-cell-words <n>] [--shape-only] <page.md>...",
   "  --root             the repository root paths resolve against; what git tracks there is what exists (default: cwd)",
   "  --max-words        the cap on a paragraph or list item (default: 70)",
   "  --max-cell-words   the cap on a table cell (default: 15)",

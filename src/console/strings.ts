@@ -39,7 +39,6 @@ export const STRINGS = {
   allUpToDate: "All memories are up to date",
   missingSource: "Missing required argument: source",
   runHelp: "Run maxims --help for usage.",
-  jsonNeedsYes: "The --json flag requires --yes (or --all) to run non-interactively.",
   jsonWithList: "The --json flag cannot be combined with --list.",
   allWithNames: "Cannot combine --all with specific memory names.",
   twoDestinations: "two destinations given",
@@ -50,6 +49,11 @@ export const STRINGS = {
   nothingHeld: "nothing held for review",
   allWithSource: "--all accepts every held source; drop the source name",
 } as const;
+
+export function jsonNeedsYes(acceptsAll: boolean): string {
+  const flags = acceptsAll ? "--yes (or --all)" : "--yes";
+  return `The --json flag requires ${flags} to run non-interactively.`;
+}
 
 export function found(n: number, internalHidden: number): string {
   const hidden = internalHidden > 0 ? ` (${internalHidden} internal, hidden)` : "";

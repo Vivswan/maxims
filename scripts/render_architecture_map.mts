@@ -60,7 +60,7 @@ export function spliceMap(text: string, name: string, map: string): string {
 }
 
 const USAGE = [
-  "usage: render-architecture-map.mts --page <path> [--config <architecture.yml>] [--root <dir>] [--region <name>] [--check]",
+  "usage: bun scripts/render_architecture_map.mts --page <path> [--config <architecture.yml>] [--root <dir>] [--region <name>] [--check]",
   "  --page     the markdown page carrying the generated region",
   "  --config   the layering declaration (default: <root>/architecture.yml)",
   "  --root     the repository root (default: cwd)",

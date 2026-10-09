@@ -1,6 +1,6 @@
 import { createConsole, type InteractiveStreams } from "../console/contract.ts";
 import { consoleMode } from "../console/mode.ts";
-import { STRINGS, unknownCommand } from "../console/strings.ts";
+import { jsonNeedsYes, STRINGS, unknownCommand } from "../console/strings.ts";
 import { readUserConfig } from "../state/config.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
@@ -369,7 +369,8 @@ function rungLog(ctx: FailureContext, verb: string, listing: boolean): RungLog {
 function refuseJsonCombinations(command: Command, args: Args, json: boolean): void {
   if (!json) return;
   const hasYes = command.flags.includes(FLAGS.yes);
-  if (hasYes && !args.flag(FLAGS.yes) && !args.flag(FLAGS.all)) throw usage(STRINGS.jsonNeedsYes);
+  if (hasYes && !args.flag(FLAGS.yes) && !args.flag(FLAGS.all))
+    throw usage(jsonNeedsYes(command.flags.includes(FLAGS.all)));
   if (command.flags.includes(FLAGS.list) && args.flag(FLAGS.list))
     throw usage(STRINGS.jsonWithList);
 }

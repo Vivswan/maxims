@@ -32,65 +32,44 @@ function markingChild(dir: string, ...extra: string[]): string[] {
 // spellings, and docs_probe repeats a boolean. Every output path points into the temp cwd, and
 // bench_ci's base is a ref no repository holds, so a script that parsed on would write there, run
 // the child, or fail later at git with status 1.
-const repeated: [
-  script: string,
-  flag: string,
-  usageName: string,
-  args: (dir: string) => string[],
-][] = [
+const repeated: [script: string, flag: string, args: (dir: string) => string[]][] = [
   [
     "scripts/build.ts",
     "--outfile",
-    "scripts/build.ts",
     (dir) => ["--outfile", join(dir, "a.js"), `--outfile=${join(dir, "b.js")}`],
   ],
   [
     "scripts/bench.ts",
     "--runs",
-    "scripts/bench.ts",
     (dir) => ["--runs", "1", "--runs", "2", "--", ...markingChild(dir)],
   ],
   [
     "scripts/bench_ci.ts",
     "--runs",
-    "scripts/bench_ci.ts",
     () => ["--base", "refs/heads/argv-test-unresolved", "--runs", "1", "--runs", "2"],
   ],
   [
     "scripts/nightly.ts",
     "--report-dir",
-    "scripts/nightly.ts",
     (dir) => ["harness-drift", "--report-dir", join(dir, "a"), "--report-dir", join(dir, "b")],
   ],
-  [
-    "scripts/docs_probe.mts",
-    "--shape-only",
-    "docs-probe.mts",
-    () => ["--shape-only", "--shape-only", "README.md"],
-  ],
-  [
-    "scripts/arch_lint.mts",
-    "--root",
-    "arch-lint.mts",
-    () => ["--root", repoRoot, `--root=${repoRoot}`],
-  ],
+  ["scripts/docs_probe.mts", "--shape-only", () => ["--shape-only", "--shape-only", "README.md"]],
+  ["scripts/arch_lint.mts", "--root", () => ["--root", repoRoot, `--root=${repoRoot}`]],
   [
     "scripts/render_architecture_map.mts",
     "--page",
-    "render-architecture-map.mts",
     (dir) => ["--page", join(dir, "a.md"), "--page", join(dir, "b.md")],
   ],
   [
     "scripts/check_architecture_page.mts",
     "--page",
-    "check-architecture-page.mts",
     (dir) => ["--page", join(dir, "a.md"), "--page", join(dir, "b.md")],
   ],
 ];
 
 test.each(repeated)(
   "%s refuses %s given twice with exit 2 and its own usage",
-  async (script, flag, usageName, args) => {
+  async (script, flag, args) => {
     await withTempDir((dir) => {
       const argv = args(dir);
       const before = readdirSync(dir).sort();
@@ -102,7 +81,7 @@ test.each(repeated)(
         message: expect.stringMatching(new RegExp(`^(?:[\\w-]+: )?${flag} given twice$`)),
       });
       expect(usage?.startsWith("usage: ")).toBe(true);
-      expect(usage).toContain(usageName);
+      expect(usage).toContain(script);
       expect(readdirSync(dir).sort()).toEqual(before);
     });
   },
