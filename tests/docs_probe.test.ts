@@ -532,17 +532,20 @@ test.each(anchorCases)("%s", async (_name, href, message) => {
   });
 });
 
-// A page under a tracked `docs/` names each kind of token. Git tracks `docs/page.md` and
-// `README.md` and nothing under `.claude`, so the verdicts hold whether or not a `.claude/`
-// directory sits in the checkout, and the user's `.claude/settings.json` is never a finding. The
-// stale `docs/gone.md` is the positive control: a probe that judged nothing would pass the planted
-// case the same way.
+// A page under a tracked `docs/` names each kind of token. Git tracks `docs/page.md`,
+// `README.md`, and `..notes/kept.md` and nothing under `.claude`, so the verdicts hold with or
+// without a planted `.claude/`, and the user's `.claude/settings.json` is never a finding. The
+// stale `docs/gone.md` is the positive control. A token resolving to the root names the
+// repository, and a directory whose name opens with `..` sits inside it.
 const ownershipCases: [token: string, message: string | null][] = [
   [".claude/settings.json", null],
   ["docs/gone.md", "`docs/gone.md` does not exist"],
   ["docs/", null],
   ["../README.md", null],
   ["./page.md", null],
+  ["./../", null],
+  ["docs/../", null],
+  ["../..notes/kept.md", null],
   ["docs/../../outside.md", "`docs/../../outside.md` escapes the repository"],
   ["scratch/../../outside.md", "`scratch/../../outside.md` escapes the repository"],
 ];
@@ -555,7 +558,7 @@ test.each(ownershipCases)(
       await withTempDir((dir) => {
         mkdirSync(join(dir, "docs"));
         if (planted) mkdirSync(join(dir, ".claude"));
-        const tracked = trackedPaths(["docs/page.md", "README.md"]);
+        const tracked = trackedPaths(["docs/page.md", "README.md", "..notes/kept.md"]);
         const findings = probePage(ownershipPage(token), "docs/page.md", {
           ...options,
           root: dir,

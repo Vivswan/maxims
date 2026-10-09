@@ -56,11 +56,11 @@ export interface ProbeOptions {
   readonly tracked: TrackedPaths | null;
 }
 
-/** Every file git tracks and every directory above one, as slash paths relative to the root. */
+/** Every file git tracks, every directory above one, and the root itself (`""`), as slash paths relative to the root. */
 export type TrackedPaths = ReadonlySet<string>;
 
 export function trackedPaths(files: Iterable<string>): TrackedPaths {
-  const out = new Set<string>();
+  const out = new Set<string>([""]);
   for (const file of files) {
     out.add(file);
     for (let slash = file.lastIndexOf("/"); slash > 0; slash = file.lastIndexOf("/", slash - 1))
@@ -69,16 +69,36 @@ export function trackedPaths(files: Iterable<string>): TrackedPaths {
   return out;
 }
 
+// The variables that point git at a repository (`git rev-parse --local-env-vars`): a `GIT_DIR` or
+// `GIT_INDEX_FILE` inherited from a git hook would list another repository, or nothing. The config
+// overrides (GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM) stay: a checkout may need their safe.directory.
+const GIT_REPOSITORY_ENV = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+]);
+
 /**
  * The files git tracks under `root`, as git prints them: slash-separated, relative to the root.
- * The child gets no `GIT_*` variable: a `GIT_DIR` or `GIT_INDEX_FILE` inherited from a git hook
- * would list another repository, or nothing, and a listing of nothing passes every page. So an
- * empty listing is refused rather than read as "nothing to check".
+ * The child gets none of the repository-pointing variables, and a listing of nothing passes every
+ * page, so an empty listing is refused rather than read as "nothing to check".
  */
 function gitTrackedFiles(root: string): string[] {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env))
-    if (value !== undefined && !key.startsWith("GIT_")) env[key] = value;
+    if (value !== undefined && !GIT_REPOSITORY_ENV.has(key)) env[key] = value;
   const proc = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"], {
     env,
     stdin: "ignore",
@@ -425,6 +445,11 @@ export function pathCandidate(token: string): string | null {
   return path.includes("/") && EXTENSION.test(path) ? path : null;
 }
 
+/** `file` under `root` as a slash path: the form git lists and a finding shows, on every platform. */
+function slashRelative(root: string, file: string): string {
+  return relative(root, file).split(sep).join("/");
+}
+
 /** The root, the page's directory, and every directory between: a skill's reference page names `scripts/x.mts` from the skill folder. */
 function bases(root: string, pageDir: string): string[] {
   const out = [pageDir];
@@ -445,7 +470,7 @@ function verdict(
   pageDir: string,
   path: string,
 ): "ok" | "missing" | "foreign" | "outside" {
-  const owned = (file: string) => tracked.has(relative(root, file).split(sep).join("/"));
+  const owned = (file: string) => tracked.has(slashRelative(root, file));
   if (path.startsWith("./") || path.startsWith("../")) {
     const file = resolve(pageDir, path);
     if (!isInside(root, file)) return "outside";
@@ -613,7 +638,7 @@ if (import.meta.main) {
       const absolute = realpath(page);
       if (!statSync(absolute, { throwIfNoEntry: false })?.isFile())
         throw new Error(`${page} is not a readable file`);
-      const label = relative(options.root, absolute) || page;
+      const label = slashRelative(options.root, absolute) || page;
       findings.push(...probePage(readFileSync(absolute, "utf8"), label, probe));
     }
   } catch (error) {
