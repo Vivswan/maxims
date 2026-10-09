@@ -4,9 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createTwoFilesPatch } from "diff";
 import { inheritedEnv } from "../lib/env.ts";
+import { withScratchDir } from "../lib/scratch.ts";
 import { captureSkillsHelp, SKILLS_HELP_ENV } from "../lib/skills_help.ts";
 import type { Outcome } from "./report.ts";
-import { withScratchDir } from "./scratch.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 export const FIXTURE_PATH = join(repoRoot, "tests", "fixtures", "golden", "skills-help.txt");

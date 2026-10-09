@@ -4,8 +4,8 @@
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { onExit } from "signal-exit";
+import { withScratchDir } from "./lib/scratch.ts";
 import { bunTestArgs } from "./lib/test_timeout.ts";
-import { withScratchDir } from "./nightly/scratch.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 
