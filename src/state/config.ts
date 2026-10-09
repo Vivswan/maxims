@@ -29,28 +29,28 @@ export function parseUserConfig(json: unknown): ParsedUserConfig {
   return { ok: false, issues: flattenIssues(result.error.issues) };
 }
 
-// `issue` names the file and the key or parse error when the config could not be read as one;
-// `config` is then the defaults. The one reader: whether a run refuses the file or runs on the
-// defaults and says so is the verb's call, not the reader's. An absent file is the empty config.
-type LoadedUserConfig = { config: UserConfig; issue: string | null };
+// The one reader of config.json. Whether a run refuses a file that could not be read as one or
+// falls back to the defaults and says so is the verb's call (main.ts's table, loadContext), not
+// the reader's.
+export type LoadedUserConfig = { ok: true; config: UserConfig } | { ok: false; issue: string };
 
 export function readUserConfig(path: string): LoadedUserConfig {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { config: {}, issue: null };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, config: {} };
     const detail = error instanceof Error ? error.message : String(error);
-    return { config: {}, issue: `${path} could not be read (${detail})` };
+    return { ok: false, issue: `${path} could not be read (${detail})` };
   }
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { config: {}, issue: `${path} is not valid JSON: ${detail}` };
+    return { ok: false, issue: `${path} is not valid JSON: ${detail}` };
   }
   const parsed = parseUserConfig(json);
-  if (parsed.ok) return { config: parsed.config, issue: null };
-  return { config: {}, issue: `${path} is not a valid config: ${parsed.issues.join("; ")}` };
+  if (parsed.ok) return { ok: true, config: parsed.config };
+  return { ok: false, issue: `${path} is not a valid config: ${parsed.issues.join("; ")}` };
 }

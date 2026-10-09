@@ -70,8 +70,9 @@ test("sync with a broken config.json refreshes and says which key it ignored", a
     const { rules, config } = await brokenConfigScenario(scenario);
     const run = await runCli(scenario, ["sync"]);
     expect([run.code, run.stderr]).toEqual([0, ""]);
-    // The estimate counts the rule file's own text, which carries the file's absolute path, so
-    // the figure follows the temp dir's length and is derived from the written bytes.
+    // The estimate counts the rule file's own text, whose lines carry the absolute store paths of
+    // the memory details, so the figure follows the temp dir's length and is derived from the
+    // written bytes.
     const tokens = estimateTokens(readFileSync(rules, "utf8"), rulesDirHarness.markers);
     expect(run.stdout).toBe(
       `!  maxims: ${config} is not a valid config: ruleCap: Invalid input: expected number, received string; using defaults\n` +

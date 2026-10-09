@@ -295,14 +295,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     refuseJsonCombinations(command, args, json);
     const rungs = rungLog(failure, entry.name, args.flag(FLAGS.list));
     const loaded = readUserConfig(homePaths(io.home).config);
-    if (loaded.issue !== null && entry.brokenConfig === "refuse") throw configRefusal(loaded.issue);
+    if (!loaded.ok && entry.brokenConfig === "refuse") throw configRefusal(loaded.issue);
     const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet, rung: rungs.rung });
     const ctx: CommandContext = {
       io: { ...io, harnesses, resolvers },
       engine,
       global,
-      config: loaded.config,
-      configIssue: loaded.issue,
+      config: loaded.ok ? loaded.config : {},
+      configIssue: loaded.ok ? null : loaded.issue,
       flushRungLog: rungs.flush,
       openConsole: async (yes) => {
         const agent = deps.stdoutTty.isTTY && !quiet && !json ? await deps.detectAgent() : null;

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { HarnessContext } from "../../harnesses/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
-import { readUserConfig, type UserConfig } from "../../state/config.ts";
+import { type LoadedUserConfig, readUserConfig, type UserConfig } from "../../state/config.ts";
 import type { SourceEntry } from "../../state/schema.ts";
 import { type HomePaths, homePaths, maximsHome } from "../../util/home.ts";
 import type { EngineIo, HarnessFilter } from "../types.ts";
@@ -50,10 +50,11 @@ export async function loadContext(
   const invoker = classifyInvoker(options.readHookStdin ? await io.readStdin() : null);
   const startDir =
     invoker.kind === "harness" && invoker.startDir !== null ? invoker.startDir : io.cwd;
-  const loaded =
+  const loaded: LoadedUserConfig =
     options.config === undefined
       ? readUserConfig(paths.config)
-      : { config: options.config, issue: null };
+      : { ok: true, config: options.config };
+  const config = loaded.ok ? loaded.config : {};
   return {
     home,
     userHome: io.userHome,
@@ -61,10 +62,10 @@ export async function loadContext(
     env: io.env,
     cwd: io.cwd,
     projectRoot: findProjectRoot(startDir),
-    config: loaded.config,
-    configIssue: loaded.issue === null ? null : `${loaded.issue}; using defaults`,
-    cooldownDays: loaded.config.cooldownDays ?? DEFAULT_COOLDOWN_DAYS,
-    ruleCap: loaded.config.ruleCap ?? DEFAULT_RULE_CAP,
+    config,
+    configIssue: loaded.ok ? null : `${loaded.issue}; using defaults`,
+    cooldownDays: config.cooldownDays ?? DEFAULT_COOLDOWN_DAYS,
+    ruleCap: config.ruleCap ?? DEFAULT_RULE_CAP,
     invoker,
     stdoutVariant: stdoutVariantFor(invoker, io.harnesses),
     now: io.now(),
