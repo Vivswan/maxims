@@ -43,7 +43,7 @@ function editServers(
   wanted: boolean,
 ): string | null {
   const entryPath = [...serversPath, MCP_SERVER_KEY];
-  if (text === null || text.trim() === "") {
+  if (text === null) {
     if (!wanted) return text;
     const nested = entryPath.reduceRight<unknown>(
       (inner, key) => ({ [key]: inner }),

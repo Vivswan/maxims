@@ -54,3 +54,17 @@ test("sharedBlockFile: the first listed regular file wins, else the declared def
     expect(sharedBlockFile({ kind: "shared-block", file: "GEMINI.md" }, root)).toBe("GEMINI.md");
   });
 });
+
+// Bun's statSync throws ENOTDIR for a path under a regular file even with throwIfNoEntry off; a
+// project with a `.github` FILE would otherwise crash every Copilot-style precedence walk.
+test("sharedBlockFile: a listed name under a regular file is skipped like a missing one", async () => {
+  const target = {
+    kind: "shared-block" as const,
+    file: "AGENTS.md",
+    precedence: [".github/copilot-instructions.md", "AGENTS.md"],
+  };
+  await withTempDir((root) => {
+    writeFileSync(join(root, ".github"), "");
+    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
+  });
+});

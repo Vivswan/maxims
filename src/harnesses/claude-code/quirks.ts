@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ParseError, parse } from "jsonc-parser";
 import type { AchievedTier, HarnessContext, HarnessDefinition } from "../contract.ts";
 import { scopeRoot } from "../contract.ts";
+import { readConfigValue, unreadableNotice } from "../hook-writer.ts";
 import { spec } from "./spec.ts";
 
 // Claude Code reads `disableAllHooks` after settings precedence applies, and the value it finds
@@ -14,14 +13,19 @@ import { spec } from "./spec.ts";
 //   managed settings and --settings outrank all three and are not read
 const LAYERS = [".claude/settings.local.json", ".claude/settings.json"] as const;
 
-async function disableAllHooksIn(path: string): Promise<boolean | undefined> {
-  const text = await readFile(path, "utf8").catch(() => null);
-  if (text === null) return undefined;
-  const errors: ParseError[] = [];
-  const settings: unknown = parse(text, errors, { allowTrailingComma: true });
-  if (errors.length > 0 || typeof settings !== "object" || settings === null) return undefined;
+// A layer decides the tier when it sets the key, and when it cannot be read: what Claude Code makes
+// of a broken settings file is not for the layer below to answer, so the walk stops there with the
+// reason. An absent or silent layer defers.
+async function tierDecidedBy(path: string): Promise<AchievedTier | null> {
+  const reading = await readConfigValue(path, "json");
+  if (reading.kind === "absent") return null;
+  if (reading.kind === "unreadable") {
+    return { tier: 2, unreadable: unreadableNotice(path, reading.reason) };
+  }
+  const settings = reading.value;
+  if (typeof settings !== "object" || settings === null) return null;
   const value: unknown = Reflect.get(settings, spec.hook.tierCheck.key);
-  return typeof value === "boolean" ? value : undefined;
+  return typeof value === "boolean" ? { tier: value ? 2 : 1, unreadable: null } : null;
 }
 
 export function layeredDisableAllHooksProbe(
@@ -35,8 +39,8 @@ export function layeredDisableAllHooksProbe(
       join(scopeRoot(roots, "global", ctx), spec.hook.tierCheck.path.global),
     ];
     for (const path of files) {
-      const disabled = await disableAllHooksIn(path);
-      if (disabled !== undefined) return { tier: disabled ? 2 : 1, unreadable: null };
+      const decided = await tierDecidedBy(path);
+      if (decided !== null) return decided;
     }
     return { tier: 1, unreadable: null };
   };

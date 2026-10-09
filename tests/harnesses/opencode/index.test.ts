@@ -4,7 +4,7 @@
 // byte-identical outside our entry and name the glob the rule files are written under, and the
 // global files must follow `$XDG_CONFIG_HOME/opencode`.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
@@ -17,6 +17,7 @@ import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.t
 import { planSharedBlockWrite } from "../../../src/harnesses/strategies/shared-block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
@@ -165,6 +166,7 @@ test("adding then removing the instructions entry returns a hand-formatted openc
 
 const creations: [string, string | null, string][] = [
   ["a missing file", null, `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`],
+  ["a touched, empty file", "", `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`],
   [
     "a file without the key, keeping its tab indentation",
     '{\n\t"model": "x"\n}\n',
@@ -179,6 +181,11 @@ const creations: [string, string | null, string][] = [
     "an opencode.jsonc, which wins over a missing opencode.json",
     "// comment\n{}\n",
     `// comment\n{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
+  ],
+  [
+    "an opencode.jsonc holding only whitespace, which is filled rather than left beside a new opencode.json",
+    " \n",
+    `{\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
   ],
 ];
 
@@ -238,3 +245,36 @@ test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
     expect(readFileSync(join(dir, "opencode.json"), "utf8")).toBe(text);
   });
 });
+
+// A project root the process may not search is a config it could not look at, which is the
+// destination's failure (exit 4, reported for this harness while the sync goes on), never a raw
+// error that aborts the run.
+test.skipIf(!CHMOD_DENIES)(
+  "a config directory that cannot be searched is exit 4 with the reason",
+  async () => {
+    await withTempDir(async (dir) => {
+      const locked = join(dir, "project");
+      mkdirSync(locked);
+      chmodSync(locked, 0o000);
+      try {
+        let caught: unknown;
+        try {
+          await reconcileInstructions(locked, true);
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(MaximsError);
+        // Both config names are read at once and both reads are denied, so whichever rejects
+        // first names the failure.
+        expect(caught).toMatchObject({
+          code: ExitCode.DestinationWriteFailed,
+          message: expect.stringMatching(
+            /^cannot read .*\/opencode\.jsonc?: EACCES: permission denied, open '.*\/opencode\.jsonc?'$/,
+          ),
+        });
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    });
+  },
+);

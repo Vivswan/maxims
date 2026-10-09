@@ -3,7 +3,13 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
-import { appendChild, assertParses, readConfigText, removeChild } from "../../util/jsonc.ts";
+import {
+  appendChild,
+  assertParses,
+  type ConfigRead,
+  readConfigFile,
+  removeChild,
+} from "../../util/jsonc.ts";
 import { type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
 import { spec } from "./spec.ts";
 
@@ -18,7 +24,7 @@ export const INSTRUCTIONS_GLOB = `${spec.targets.project.dir}/${spec.targets.pro
 // from every file that does.
 const CONFIG_NAMES = ["opencode.jsonc", "opencode.json"] as const;
 
-type ConfigFile = { path: RootedPath; text: string | null };
+type ConfigFile = ConfigRead & { path: RootedPath };
 
 export function configEdit(scope: Scope, ctx: HarnessContext, wanted: boolean): Promise<Change[]> {
   return scope === "project"
@@ -38,9 +44,15 @@ export async function reconcileInstructions(
   }
   const listed = files.map((file) => file.text !== null && hasEntry(file.text, file.path));
   if (listed.includes(true)) return [];
-  const target = files.find((file) => file.text !== null) ?? files[files.length - 1];
+  // The entry goes into a file that is on disk, blank or not: a blank `opencode.jsonc` beside no
+  // `opencode.json` is filled rather than left for OpenCode to choke on next to a new file.
+  const target = files.find((file) => file.present) ?? files[files.length - 1];
   if (target === undefined) return [];
-  return writeIfChanged(target, editInstructions(target.text ?? "", target.path, true));
+  const next =
+    target.text === null
+      ? `${JSON.stringify({ instructions: [INSTRUCTIONS_GLOB] }, null, 2)}\n`
+      : editInstructions(target.text, target.path, true);
+  return writeIfChanged(target, next);
 }
 
 function writeIfChanged(file: ConfigFile, next: string): Change[] {
@@ -53,22 +65,17 @@ async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
   return Promise.all(
     CONFIG_NAMES.map(async (name) => {
       const path = assertInsideRoot(projectRoot, join(projectRoot, name));
-      return { path, text: await readConfigText(path) };
+      return { path, ...(await readConfigFile(path)) };
     }),
   );
 }
 
 function hasEntry(text: string, path: string): boolean {
-  if (text.trim() === "") return false;
   const instructions = findNodeAtLocation(assertParses(text, path), ["instructions"]);
   return (instructions?.children ?? []).some((child) => getNodeValue(child) === INSTRUCTIONS_GLOB);
 }
 
 function editInstructions(text: string, path: string, wanted: boolean): string {
-  if (text.trim() === "") {
-    if (!wanted) return text;
-    return `${JSON.stringify({ instructions: [INSTRUCTIONS_GLOB] }, null, 2)}\n`;
-  }
   const root = assertParses(text, path);
   const instructions = findNodeAtLocation(root, ["instructions"]);
   if (instructions === undefined) {

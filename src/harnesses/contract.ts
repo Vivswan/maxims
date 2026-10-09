@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { ContentHash } from "../memory/contract.ts";
@@ -6,6 +6,7 @@ import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { PACKAGE_ARGV } from "../util/package.ts";
+import { statOrAbsent } from "./detect.ts";
 
 export type Scope = "project" | "global";
 
@@ -51,7 +52,7 @@ const WHITE_SPACE_ONLY =
 export function sharedBlockFile(target: SharedBlockTarget, root: string): string {
   for (const name of target.precedence ?? []) {
     const path = join(root, name);
-    if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue;
+    if (!statOrAbsent(path)?.isFile()) continue;
     if (target.skipsEmpty === undefined || !WHITE_SPACE_ONLY.test(readFileSync(path, "utf8")))
       return name;
   }

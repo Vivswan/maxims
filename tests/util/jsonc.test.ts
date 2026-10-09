@@ -2,7 +2,7 @@
 // dropped or doubled, a comment lost with the node beside it, or a broken file rewritten as if it
 // parsed would each survive a shape check and still wreck the user's config.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { findNodeAtLocation, getNodeValue, type Node } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
@@ -306,9 +306,11 @@ describe("assertParses", () => {
 });
 
 describe("readConfigText", () => {
-  test("an absent file is null; a directory in its place is exit 4, not absence", async () => {
+  test("an absent or whitespace-only file is null; a directory in its place is exit 4, not absence", async () => {
     await withTempDir(async (dir) => {
       expect(await readConfigText(join(dir, "missing.json"))).toBeNull();
+      writeFileSync(join(dir, "touched.json"), " \n");
+      expect(await readConfigText(join(dir, "touched.json"))).toBeNull();
       mkdirSync(join(dir, "config.json"));
       let caught: unknown;
       try {
