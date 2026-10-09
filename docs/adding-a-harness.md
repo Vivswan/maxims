@@ -158,7 +158,7 @@ Each source goes into `verifiedAgainst.sources` with the facts the nightly re-re
 
 | kind | shape | what the nightly checks |
 | --- | --- | --- |
-| `schema` | `{ kind, url, paths, note? }` | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that value |
+| `schema` | `{ kind, url, paths, note? }` | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that primitive value |
 | `file` | `{ kind, repo, ref, path, claims, note? }` | each claim appears in the raw file at `<repo>/<ref>/<path>` on GitHub |
 | `page` | `{ kind, url, claims, why, note? }` | each claim appears in the page's text, a markdown rendition served as text |
 

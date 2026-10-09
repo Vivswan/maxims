@@ -124,12 +124,9 @@ function readClaims(text: string, claims: readonly string[]): Reading {
   return { verdict: "DRIFT", result: `missing: ${quoted(missing)}` };
 }
 
-// A pointer paired with a value drifts when the schema still has the key but says something else,
-// and the row quotes both so a reader sees whether the fact or the definition moved. jsonc-parser
-// builds every object with a null prototype, so `/toString` on `{}` is a missing pointer, not
-// Object.prototype.toString; JSON carries no undefined, so an undefined lookup is a missing
-// pointer. A document that is not an object (a primitive, null, or an array, which has no keys a
-// schema pointer names) is no schema at all, and a published schema is JSON, not JSONC.
+// jsonc-parser's getNodeValue builds every object with a null prototype, so an object's inherited
+// member such as `toString` never answers a pointer (`{}` with `/toString` once read as match). An
+// array keeps Array.prototype, so a pointer into one still answers `length` and inherited members.
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
