@@ -263,6 +263,7 @@ export function fakeIo(options: FakeIoOptions): FakeIo {
     env: { HOME: options.userHome, MAXIMS_HOME: options.home, ...options.env },
     cwd: options.cwd,
     userHome: options.userHome,
+    installInternal: options.env?.MAXIMS_INSTALL_INTERNAL === "1",
     readStdin: async () => io.stdin,
     symlinkSupport: async () => io.symlink,
   };

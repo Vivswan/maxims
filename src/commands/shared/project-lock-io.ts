@@ -161,7 +161,7 @@ export async function projectLockChange(
   projectRoot: string,
   previous: State,
   next: State,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<Change | null> {
   const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
   const current = manifestOrUsage(await readProjectLock(projectRoot));
@@ -231,7 +231,7 @@ export async function lockChanges(
   entry: SourceEntry,
   previous: State,
   next: State,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<Change[]> {
   const { destination } = entry.intent;
   if (destination.scope !== "project") return [];
@@ -258,7 +258,7 @@ type SharedProjection = {
 async function sharedProjection(
   state: State,
   projectRoot: string,
-  io: Pick<CliIo, "home" | "env">,
+  io: Pick<CliIo, "home" | "installInternal">,
 ): Promise<SharedProjection> {
   const sources: Record<string, LockSource> = Object.create(null);
   const names = new Set<MemoryName>();

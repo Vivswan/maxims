@@ -62,11 +62,10 @@ export function refuseRisky(warnings: readonly MemoryRiskWarning[]): void {
 export async function refreshWarnings(
   plan: Plan,
   state: State,
-  io: Pick<CliIo, "home" | "env" | "projectRoot">,
+  io: Pick<CliIo, "home" | "installInternal" | "projectRoot">,
   only: readonly string[] | undefined,
 ): Promise<MemoryRiskWarning[]> {
   const warnings: MemoryRiskWarning[] = [];
-  const installInternal = io.env.MAXIMS_INSTALL_INTERNAL === "1";
   for (const [key, entry] of Object.entries(state.sources)) {
     if (!actsHere(entry, io)) continue;
     const { from, destination } = entry.intent;
@@ -77,7 +76,7 @@ export async function refreshWarnings(
     const { selected } = selectMemories({
       memories,
       intent: entry.intent,
-      installInternal,
+      installInternal: io.installInternal,
       disabled: disabledNames(state, destination.scope, io.projectRoot),
       detailPath: () => "",
     });

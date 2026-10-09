@@ -294,7 +294,7 @@ export async function lookupMemory(
     const selection = selectMemories({
       memories: tree.tree.memories,
       intent: entry.intent,
-      installInternal: io.env.MAXIMS_INSTALL_INTERNAL === "1",
+      installInternal: io.installInternal,
       disabled: new Set(),
       detailPath: () => "",
     });

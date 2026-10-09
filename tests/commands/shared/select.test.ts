@@ -69,7 +69,7 @@ describe("project lock projection", () => {
         a: { description: "A." },
         b: { description: "B." },
       });
-      const io = { home: join(dir, "home"), env: {} };
+      const io = { home: join(dir, "home"), installInternal: false };
       const at = (root: string, shared: boolean) => ({
         destination: { scope: "project" as const, root },
         ...(shared ? { shared: true as const } : {}),

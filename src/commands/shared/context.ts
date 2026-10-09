@@ -22,6 +22,7 @@ export type EngineContext = {
   paths: HomePaths;
   env: Record<string, string | undefined>;
   cwd: string;
+  installInternal: boolean;
   projectRoot: string | null;
   config: UserConfig;
   configIssue: string | null;
@@ -61,6 +62,7 @@ export async function loadContext(
     paths,
     env: io.env,
     cwd: io.cwd,
+    installInternal: io.installInternal,
     projectRoot: findProjectRoot(startDir),
     config,
     configIssue: loaded.ok ? null : `${loaded.issue}; using defaults`,

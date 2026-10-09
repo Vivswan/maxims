@@ -114,6 +114,7 @@ export type EngineIo = {
   env: Record<string, string | undefined>;
   cwd: string;
   userHome: string;
+  installInternal: boolean;
   readStdin: () => Promise<string | null>;
   symlinkSupport: () => Promise<SymlinkSupport>;
 };
@@ -189,10 +190,12 @@ export type MachineIo = {
 
 // The machine plus the two registries a verb dispatches on: the harness definitions and the
 // source resolvers, fixtures in a test and the real ones in the bin. The engine's own `EngineIo`
-// is derived from this in one place, `engineIo`.
+// is derived from this in one place, `engineIo`. `installInternal` is MAXIMS_INSTALL_INTERNAL=1
+// read once, in `main`: whether a `*` selection installs the memories a source marks internal.
 export type CliIo = MachineIo & {
   harnesses: readonly HarnessDefinition[];
   resolvers: ResolverFor;
+  installInternal: boolean;
 };
 
 export type EngineBundle = {

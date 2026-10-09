@@ -167,12 +167,7 @@ export async function refreshSource(
       at: now,
     };
     const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
-    const changeLines = await visibleChangeLines(
-      entry,
-      memories,
-      entryPath,
-      ctx.env.MAXIMS_INSTALL_INTERNAL === "1",
-    );
+    const changeLines = await visibleChangeLines(entry, memories, entryPath, ctx.installInternal);
     if (entry.intent.review === true && lastGood !== undefined) {
       const summary = changeLines;
       const held = heldEntry(entry, result.sha, now, summary);
