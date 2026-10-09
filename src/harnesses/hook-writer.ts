@@ -127,7 +127,11 @@ export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
   return { changes: [registry.finish()], notice: `removed the maxims hook from ${path}` };
 }
 
-function freshRegistry(hook: RegistryHook, handler: Record<string, unknown>): string {
+// The registry file a hook lands in when none exists. A quirk that keeps a registry-shaped file
+// of its own (dsh's bridge target) renders it here too, so the shape is written once.
+export type RegistryShape = Pick<RegistryHook, "eventPath" | "grouped" | "wrapper">;
+
+export function freshRegistry(hook: RegistryShape, handler: Record<string, unknown>): string {
   const root: Record<string, unknown> = { ...hook.wrapper };
   let container = root;
   for (const key of hook.eventPath.slice(0, -1)) {

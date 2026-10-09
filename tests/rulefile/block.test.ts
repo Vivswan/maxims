@@ -98,7 +98,7 @@ describe("renderBlock", () => {
         "\n",
       )[1];
     expect(rendered("missing")).toBe(
-      "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (source repository gone or unreadable, they will never refresh) and may be out of date.",
+      "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (source repository gone or unreadable) and may be out of date.",
     );
     expect(rendered("age")).toBe(
       "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.",
@@ -208,7 +208,7 @@ describe("renderBlock", () => {
 // silently discards unless these rows hold; the notice's timestamp is the one part matched by shape.
 describe("ownLineMatcher", () => {
   const NOTICE_MISSING =
-    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00.000Z (source repository gone or unreadable, they will never refresh) and may be out of date.";
+    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00.000Z (source repository gone or unreadable) and may be out of date.";
   const NOTICE_AGE =
     "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.";
   const SELF_REFRESH =

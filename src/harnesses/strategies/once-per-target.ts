@@ -1,3 +1,4 @@
+import { compareCodeUnits } from "../../rulefile/block.ts";
 import type { HarnessDefinition } from "../contract.ts";
 
 // One target file carries the self-refresh line at most once, in the first stale block by byte
@@ -10,7 +11,7 @@ export function chooseSelfRefreshSource(
   if (def.tier === 1) return null;
   let first: string | null = null;
   for (const source of staleSources) {
-    if (first === null || source < first) first = source;
+    if (first === null || compareCodeUnits(source, first) < 0) first = source;
   }
   return first;
 }

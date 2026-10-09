@@ -20,7 +20,7 @@ import {
   type Resolution,
   resolveSourceCandidates,
 } from "../../rulefile/dedupe.ts";
-import type { RuleLine, Staleness } from "../../rulefile/types.ts";
+import { type RuleLine, STALE_REASON, type Staleness } from "../../rulefile/types.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
 import { hashFiles, type TreeFile } from "../../sources/tree.ts";
 import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
@@ -125,15 +125,6 @@ const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 // then the engine's own word on it is the one stderr summary (the resolver may have said which
 // rung failed before it).
 const STALE_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
-
-const STALE_REASON: Record<Staleness["kind"], string> = {
-  age: "no successful fetch",
-  network: "network unreachable",
-  ratelimit: "rate limited",
-  missing: "source repository gone or unreadable",
-  auth: "authentication failed",
-  invalid: "source content invalid",
-};
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
   return !isLiveLocal(entry.intent.from);

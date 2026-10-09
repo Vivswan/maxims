@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
-import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "./types.ts";
+import { type BlockInput, type ExpansionSyntax, type RuleLine, STALE_REASON } from "./types.ts";
 
 const DESCRIPTION_MAX_CHARS = 300;
 const ELLIPSIS = "...";
@@ -10,15 +10,6 @@ const ELLIPSIS = "...";
 const BEGIN_LINE = /^<!-- maxims:begin (.+) sha=(\S+) -->$/s;
 const END_LINE = /^<!-- maxims:end (.+) -->$/s;
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
-
-const STALE_REASON: Record<Staleness["kind"], string> = {
-  age: "no successful fetch",
-  network: "network unreachable",
-  ratelimit: "rate limited",
-  missing: "source repository gone or unreadable, they will never refresh",
-  auth: "authentication failed",
-  invalid: "source content invalid",
-};
 
 // A staleness notice's `since` is a fetch record's timestamp; the validator the state schema
 // applies to it decides what a later run, which never knew the value, accepts in its place.
@@ -766,10 +757,10 @@ function appendBlock(fileText: string, rendered: string): string {
   return `${terminated}${closer}${ending}${rendered}`;
 }
 
-// The one order of the blocks in a shared file, and the tie-break of installation order in the
-// name index: source keys by code unit, ascending. Neither history nor locale enters, so two
-// machines holding the same intent write the same bytes.
-export function compareSourceKeys(a: string, b: string): number {
+// The one order of names and source keys wherever a file or a list must come out the same on two
+// machines (block order in a shared file, the tie-break of installation order, the self-refresh
+// line's owner): by code unit, ascending. Neither history nor locale enters.
+export function compareCodeUnits(a: string, b: string): number {
   if (a < b) return -1;
   return a > b ? 1 : 0;
 }
@@ -852,7 +843,7 @@ function exposedBy(text: string, placed: readonly Span[], closed: number): strin
 }
 
 function dealOrder(contents: readonly Occupant[]): Occupant[] {
-  return [...contents].sort((a, b) => compareSourceKeys(a.key, b.key));
+  return [...contents].sort((a, b) => compareCodeUnits(a.key, b.key));
 }
 
 type Span = Pick<ParsedBlock, "start" | "end">;

@@ -22,6 +22,16 @@ export type Staleness = {
   kind: LastError["kind"] | "age";
 };
 
+// The one vocabulary a staleness kind is said in, by the rule-file line and the sync notice alike.
+export const STALE_REASON: Record<Staleness["kind"], string> = {
+  age: "no successful fetch",
+  network: "network unreachable",
+  ratelimit: "rate limited",
+  missing: "source repository gone or unreadable",
+  auth: "authentication failed",
+  invalid: "source content invalid",
+};
+
 export type BlockInput = {
   source: string;
   sha: string;

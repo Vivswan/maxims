@@ -11,6 +11,7 @@ import {
   type HookSpec,
   scopeRoot,
 } from "../contract.ts";
+import { freshRegistry, type RegistryShape } from "../hook-writer.ts";
 
 // dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
 // profile is `$DSH_HOME/cordis.patch.yml`; it has no per-project config discovery. The bridge
@@ -32,13 +33,15 @@ function bridgeFiles(home: string): BridgeFiles {
   };
 }
 
+// The bridge reads a Claude Code-shaped registry: grouped SessionStart handlers with no wrapper.
+const HOOKS_FILE: RegistryShape = { eventPath: ["hooks", "SessionStart"], grouped: true };
+
 function renderHooksFile(spec: HookSpec): string {
-  const handler = {
+  return freshRegistry(HOOKS_FILE, {
     type: "command",
     command: [spec.command, ...spec.args].join(" "),
     timeout: spec.timeoutSeconds,
-  };
-  return `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [handler] }] } }, null, 2)}\n`;
+  });
 }
 
 function bridgeRow(hooksPath: string): Record<string, unknown> {
