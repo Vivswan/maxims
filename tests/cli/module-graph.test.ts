@@ -6,10 +6,11 @@
 // which the compiler erases and the bundle never carries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
-import { parseSync, resolveImport } from "../../scripts/arch_lint.mts";
+import { extname, relative, resolve, sep } from "node:path";
+import { resolveImport, SOURCE_EXTENSIONS } from "../../scripts/arch_lint.mts";
 
 const SRC = resolve(import.meta.dir, "..", "..", "src");
+const scanner = new Bun.Transpiler({ loader: "ts" });
 
 const HEAVY = [
   "@clack/prompts",
@@ -36,22 +37,18 @@ const HOOK_PATH_ROOTS = ["cli.ts", "commands/engine.ts", "commands/engine-verbs.
   resolve(SRC, path),
 );
 
-/** The specifiers a module loads when imported: its import and re-export declarations, less the `type` ones the compiler erases. */
+/**
+ * The specifiers a module loads when imported: its import and re-export statements after the
+ * bundler's own type erasure. A non-source path (package.json) is a data leaf and imports
+ * nothing; a source file that does not parse throws rather than reading as import-free.
+ */
 function staticImports(file: string): string[] {
-  const { program } = parseSync(file, readFileSync(file, "utf8"));
-  return program.body.flatMap((statement) => {
-    switch (statement.type) {
-      case "ImportDeclaration":
-        return statement.importKind === "type" ? [] : [statement.source.value];
-      case "ExportNamedDeclaration":
-      case "ExportAllDeclaration":
-        return statement.exportKind === "type" || statement.source === null
-          ? []
-          : [statement.source.value];
-      default:
-        return [];
-    }
-  });
+  if (!SOURCE_EXTENSIONS.includes(extname(file))) return [];
+  const text = readFileSync(file, "utf8").replace(/^#!.*\n/, "");
+  return scanner
+    .scanImports(text)
+    .filter((entry) => entry.kind === "import-statement")
+    .map((entry) => entry.path);
 }
 
 function walk(entry: string): Set<string> {
