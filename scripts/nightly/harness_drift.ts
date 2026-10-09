@@ -1,6 +1,7 @@
 // Re-fetches every page a harness definition was verified against and compares each content hash
 // with the one the definition recorded, so a page that moved is dated to a 24-hour window instead
-// of waiting for someone to look.
+// of waiting for someone to look. A pass means every page was read and matched: a page the run
+// could not read fails it, since a run that read nothing proves nothing about the pages.
 import { HTMLElement, type Node, parse } from "node-html-parser";
 import type { VerifiedPage } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
@@ -94,7 +95,16 @@ export async function fetchPageHash(url: string, fetchImpl: typeof fetch): Promi
   }
 }
 
-export type Verdict = "match" | "DRIFT" | "unverifiable";
+export type Verdict = "match" | "DRIFT" | "UNREACHABLE" | "unverifiable";
+
+// Worst first, at both levels: a definition is the worst of its pages, the run the worst of its
+// definitions. An empty set verified nothing, so it ranks as unverifiable rather than as the
+// match `every` would grant it, and a definition with no pages or a run with none fails.
+const RANKED: readonly Verdict[] = ["DRIFT", "UNREACHABLE", "unverifiable", "match"];
+
+function worstOf(verdicts: readonly Verdict[]): Verdict {
+  return RANKED.find((verdict) => verdicts.includes(verdict)) ?? "unverifiable";
+}
 
 export type VerifiedDefinition = {
   id: string;
@@ -116,7 +126,8 @@ const NO_HASH = "(none)";
 const NO_NOTE = "-";
 
 // A missing stored hash still reports the fetched one, which is what a definition's author pastes
-// into that page's `contentHash`.
+// into that page's `contentHash`. A page that answered anything but its words is UNREACHABLE
+// whether or not a hash is stored: its row shows the answer where the fetched hash would be.
 export function judgePage(id: string, page: VerifiedPage, fetched: Fetched): Row {
   const { url, contentHash, note } = page;
   const stored = contentHash ?? NO_HASH;
@@ -130,11 +141,11 @@ export function judgePage(id: string, page: VerifiedPage, fetched: Fetched): Row
   });
   switch (fetched.kind) {
     case "status":
-      return row("unverifiable", `HTTP ${fetched.status}`);
+      return row("UNREACHABLE", `HTTP ${fetched.status}`);
     case "timeout":
-      return row("unverifiable", `timeout after ${FETCH_TIMEOUT_MS / 1000} s`);
+      return row("UNREACHABLE", `timeout after ${FETCH_TIMEOUT_MS / 1000} s`);
     case "error":
-      return row("unverifiable", `network error: ${fetched.message}`);
+      return row("UNREACHABLE", `network error: ${fetched.message}`);
     case "page":
       if (contentHash === undefined) return row("unverifiable", fetched.hash);
       return row(fetched.hash === contentHash ? "match" : "DRIFT", fetched.hash);
@@ -142,9 +153,7 @@ export function judgePage(id: string, page: VerifiedPage, fetched: Fetched): Row
 }
 
 export function judgeDefinition(id: string, rows: readonly Row[]): Judged {
-  const has = (verdict: Verdict): boolean => rows.some((row) => row.verdict === verdict);
-  const verdict = has("DRIFT") ? "DRIFT" : has("unverifiable") ? "unverifiable" : "match";
-  return { id, verdict, rows };
+  return { id, verdict: worstOf(rows.map((row) => row.verdict)), rows };
 }
 
 export function renderRows(rows: readonly Row[]): string {
@@ -157,15 +166,17 @@ export function renderRows(rows: readonly Row[]): string {
 const FIX = [
   "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set",
   "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched",
-  "value above. An unverifiable row never fails the run: either this run could not read the page,",
-  "or the definition records no hash for it yet and the fetched value is the one to record.",
+  "value above. An UNREACHABLE row shows the answer the page gave in place of its words: the run",
+  "read nothing of that page, so it fails until the page reads again or the definition points at",
+  "one that does. An unverifiable row records no hash yet, and the fetched value is the one to",
+  "record. The run passes only when every page of every definition matches.",
 ].join(" ");
 
 function tally(label: string, verdicts: readonly Verdict[]): string {
   const count = (verdict: Verdict): number => verdicts.filter((v) => v === verdict).length;
   return (
     `${verdicts.length} ${label}: ${count("match")} match, ${count("DRIFT")} drift, ` +
-    `${count("unverifiable")} unverifiable`
+    `${count("UNREACHABLE")} unreachable, ${count("unverifiable")} unverifiable`
   );
 }
 
@@ -182,7 +193,7 @@ export function summarize(judged: readonly Judged[]): Outcome {
     ),
   ].join("\n");
   const summary = `## Harness documentation drift\n\n${headline}\n\n${renderRows(rows)}\n`;
-  if (!judged.some((entry) => entry.verdict === "DRIFT")) return { status: "pass", summary };
+  if (worstOf(judged.map((entry) => entry.verdict)) === "match") return { status: "pass", summary };
   return {
     status: "fail",
     summary,

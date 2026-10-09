@@ -4,7 +4,8 @@
 //   the one normalization behind the hashes moves -> all fourteen definitions read as drift at once
 //   markup is misread                             -> a page's words go missing, or script text counts
 //   a build stamp or sidebar leaks into the hash  -> a redeploy with no word changed reads as drift
-//   a fetch fails or a hash is missing            -> the table turns red instead of unverifiable
+//   a page the run never read passes              -> a vendor block on the user agent turns the run green
+//   a run with nothing to verify passes           -> an empty registry reads as every page matching
 //   one page of several moves                     -> its definition still counts as a match
 //   the fill instruction changes                  -> the fetched hash an author pastes in disappears
 import { describe, expect, test } from "bun:test";
@@ -14,6 +15,7 @@ import {
   runHarnessDrift,
   type VerifiedDefinition,
 } from "../../scripts/nightly/harness_drift.ts";
+import type { Outcome } from "../../scripts/nightly/report.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
 
@@ -236,46 +238,98 @@ describe("runHarnessDrift", () => {
   ) => `| ${id} | ${url(name)} | ${note} | ${verdict} | ${stored} | ${fetched} |`;
   const stableRow = row("stable", "stable", "match", PAGE_HASH, PAGE_HASH);
   const rawRow = row("raw", "raw", "match", RAW_HASH, RAW_HASH);
-  const goneRow = row("gone", "gone", "unverifiable", STORED, "HTTP 503");
+  const heading = "## Harness documentation drift";
+  const fix =
+    "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set " +
+    "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched " +
+    "value above. An UNREACHABLE row shows the answer the page gave in place of its words: the run " +
+    "read nothing of that page, so it fails until the page reads again or the definition points at " +
+    "one that does. An unverifiable row records no hash yet, and the fetched value is the one to " +
+    "record. The run passes only when every page of every definition matches.";
+  const failed = (headline: string, rows: string): Outcome => ({
+    status: "fail",
+    summary: `${heading}\n\n${headline}\n\n${rows}\n`,
+    report: {
+      title: "Harness documentation drift",
+      body: `${headline}\n\n${rows}\n\n${fix}\n`,
+    },
+  });
 
-  // Every way a page can be unverifiable, as the rows the issue and the summary show: the
-  // unrecorded page's row carries the hash an author pastes into the definition.
-  const unverifiable = [
-    def("gone", ["gone", STORED]),
-    def("slow", ["slow", STORED]),
-    def("offline", ["offline", STORED]),
-    def("unrecorded", ["unrecorded"]),
-  ];
-  const unverifiableRows = [
-    goneRow,
-    row("slow", "slow", "unverifiable", STORED, "timeout after 20 s"),
-    row(
-      "offline",
-      "offline",
-      "unverifiable",
-      STORED,
-      "network error: getaddrinfo ENOTFOUND example.com",
-    ),
-    row("unrecorded", "unrecorded", "unverifiable", "(none)", OTHER),
-  ];
-
-  test("matches and unverifiable pages pass with the table in the summary", async () => {
+  test("a run where every page matches passes with the table in the summary", async () => {
     const outcome = await runHarnessDrift(
-      [def("stable", ["stable", PAGE_HASH]), def("raw", ["raw", RAW_HASH]), ...unverifiable],
+      [def("stable", ["stable", PAGE_HASH]), def("raw", ["raw", RAW_HASH])],
       fakeFetch(answers),
     );
     expect(outcome).toEqual({
       status: "pass",
       summary: [
-        "## Harness documentation drift",
+        heading,
         "",
-        "6 definitions: 2 match, 0 drift, 4 unverifiable",
-        "6 pages: 2 match, 0 drift, 4 unverifiable",
+        "2 definitions: 2 match, 0 drift, 0 unreachable, 0 unverifiable",
+        "2 pages: 2 match, 0 drift, 0 unreachable, 0 unverifiable",
         "",
-        table([stableRow, rawRow, ...unverifiableRows]),
+        table([stableRow, rawRow]),
         "",
       ].join("\n"),
     });
+  });
+
+  // Every way a run can fail to read a page, each as the one page of its run, so none hides
+  // behind another's failure. Without this the run stays green on pages it never read, and a
+  // vendor that starts answering 403 to the nightly's user agent turns the whole category green
+  // for good. The unrecorded page's row carries the hash an author pastes into the definition.
+  test.each([
+    ["gone", STORED, "UNREACHABLE", "HTTP 503"],
+    ["slow", STORED, "UNREACHABLE", "timeout after 20 s"],
+    ["offline", STORED, "UNREACHABLE", "network error: getaddrinfo ENOTFOUND example.com"],
+    ["unrecorded", undefined, "unverifiable", OTHER],
+  ] as const)(
+    "the %s page, which the run could not verify, fails the run with its answer in its row",
+    async (name, contentHash, verdict, fetched) => {
+      const outcome = await runHarnessDrift([def(name, [name, contentHash])], fakeFetch(answers));
+      const counts =
+        verdict === "UNREACHABLE"
+          ? "0 match, 0 drift, 1 unreachable, 0 unverifiable"
+          : "0 match, 0 drift, 0 unreachable, 1 unverifiable";
+      const headline = `1 definitions: ${counts}\n1 pages: ${counts}`;
+      const rows = table([row(name, name, verdict, contentHash ?? "(none)", fetched)]);
+      expect(outcome).toEqual(failed(headline, rows));
+    },
+  );
+
+  test("every page answering 404 fails the run", async () => {
+    const notFound = fakeFetch({
+      [url("alpha")]: () => new Response("", { status: 404 }),
+      [url("beta")]: () => new Response("", { status: 404 }),
+    });
+    const outcome = await runHarnessDrift(
+      [def("alpha", ["alpha", STORED]), def("beta", ["beta", STORED])],
+      notFound,
+    );
+    const headline = [
+      "2 definitions: 0 match, 0 drift, 2 unreachable, 0 unverifiable",
+      "2 pages: 0 match, 0 drift, 2 unreachable, 0 unverifiable",
+    ].join("\n");
+    const rows = table([
+      row("alpha", "alpha", "UNREACHABLE", STORED, "HTTP 404"),
+      row("beta", "beta", "UNREACHABLE", STORED, "HTTP 404"),
+    ]);
+    expect(outcome).toEqual(failed(headline, rows));
+  });
+
+  // A run that verified nothing has no row to go red, so without this it is the one run that can
+  // never fail: an emptied registry or a definition with its pages removed reads as all matching.
+  test.each([
+    ["no definitions", [], "0 definitions: 0 match, 0 drift, 0 unreachable, 0 unverifiable"],
+    [
+      "a definition with no pages",
+      [def("pageless")],
+      "1 definitions: 0 match, 0 drift, 0 unreachable, 1 unverifiable",
+    ],
+  ])("a run with %s fails", async (_case, definitions, definitionsLine) => {
+    const outcome = await runHarnessDrift(definitions, fakeFetch({}));
+    const headline = [definitionsLine, "0 pages: 0 match, 0 drift, 0 unreachable, 0 unverifiable"];
+    expect(outcome).toEqual(failed(headline.join("\n"), table([])));
   });
 
   test("one drifted page fails the definition and its row carries the note to re-check", async () => {
@@ -287,33 +341,16 @@ describe("runHarnessDrift", () => {
       fakeFetch(answers),
     );
     const headline = [
-      "2 definitions: 0 match, 1 drift, 1 unverifiable",
-      "4 pages: 2 match, 1 drift, 1 unverifiable",
+      "2 definitions: 0 match, 1 drift, 1 unreachable, 0 unverifiable",
+      "4 pages: 2 match, 1 drift, 1 unreachable, 0 unverifiable",
     ].join("\n");
     const rows = table([
       row("multi", "stable", "match", PAGE_HASH, PAGE_HASH),
       row("multi", "moved", "DRIFT", STORED, OTHER, "context-file order"),
       row("partial", "raw", "match", RAW_HASH, RAW_HASH),
-      row("partial", "gone", "unverifiable", STORED, "HTTP 503"),
+      row("partial", "gone", "UNREACHABLE", STORED, "HTTP 503"),
     ]);
-    expect(outcome).toEqual({
-      status: "fail",
-      summary: `## Harness documentation drift\n\n${headline}\n\n${rows}\n`,
-      report: {
-        title: "Harness documentation drift",
-        body: [
-          headline,
-          "",
-          rows,
-          "",
-          "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set " +
-            "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched " +
-            "value above. An unverifiable row never fails the run: either this run could not read the page, " +
-            "or the definition records no hash for it yet and the fetched value is the one to record.",
-          "",
-        ].join("\n"),
-      },
-    });
+    expect(outcome).toEqual(failed(headline, rows));
   });
 });
 
