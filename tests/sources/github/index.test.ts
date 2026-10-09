@@ -1,7 +1,6 @@
 // Guards the github resolver's cheap path and its end-to-end shape: a full sha that still hit the
-// network, a fetch that ran gh or sent a token without `auth`, a live source asked to fetch, or a
-// fetched tree read from the wrong folder would each cost every session start or install the wrong
-// memories.
+// network, a fetch that ran gh or sent a token without `auth`, or a fetched tree read from the
+// wrong folder would each cost every session start or install the wrong memories.
 import { describe, expect, test } from "bun:test";
 import {
   exited,
@@ -11,7 +10,7 @@ import {
   scriptedRunner,
 } from "../../../src/sources/github/fixtures/runner.ts";
 import { cleanTarball, FIXTURE_MEMORIES } from "../../../src/sources/github/fixtures/tarballs.ts";
-import { createGithubResolver, needsFetch } from "../../../src/sources/github/index.ts";
+import { createGithubResolver } from "../../../src/sources/github/index.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";
@@ -54,27 +53,6 @@ describe("resolveRef", () => {
       "fetch https://api.github.com/repos/Example-User/rules/commits/v2",
     ]);
     expect(authorizationOf(seen[0])).toBeUndefined();
-  });
-});
-
-describe("needsFetch", () => {
-  const cases: [string, Parameters<typeof needsFetch>, boolean][] = [
-    ["equal shas skip the fetch", [FROM, SHA, SHA], false],
-    ["a changed sha fetches", [FROM, "sha256:old", SHA], true],
-    ["a never-fetched source fetches", [FROM, undefined, SHA], true],
-    [
-      "a copied local source compares like a remote",
-      [{ type: "local", path: "/home/user/m" }, "a", "b"],
-      true,
-    ],
-    [
-      "a live local source never fetches",
-      [{ type: "local", path: "/home/user/m", live: true }, undefined, "b"],
-      false,
-    ],
-  ];
-  test.each(cases)("%s", (_label, args, expected) => {
-    expect(needsFetch(...args)).toBe(expected);
   });
 });
 

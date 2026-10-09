@@ -49,12 +49,10 @@ import type { UserConfig } from "../state/config.ts";
 import {
   canonicalSourceKey,
   type Destination,
-  parseSourceSelector,
   type RenameMap,
   type Select,
   type SourceEntry,
   type State,
-  storable,
 } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -98,6 +96,7 @@ import {
 } from "./shared/risk.ts";
 import { disabledNames } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
+import { parseSourceSelector, storable } from "./shared/source-argument.ts";
 import {
   detectedHarnesses,
   effectiveNames,

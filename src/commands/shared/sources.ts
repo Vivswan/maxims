@@ -30,13 +30,11 @@ import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/t
 import {
   canonicalSourceKey,
   type Destination,
-  parseSourceArgument,
   type RenameMap,
   type Select,
   type SourceEntry,
   type SourceIntent,
   type State,
-  storable,
 } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
@@ -44,6 +42,7 @@ import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
 import { actsHere, harnessContext } from "./context.ts";
 import { validateMemoryFiles } from "./memories.ts";
+import { parseSourceArgument, storable } from "./source-argument.ts";
 
 // The scope a destination's harness files belong to: an `-o` folder is written like a project
 // target (a rules file the harness does not own), so its harness checks read the project shape.
