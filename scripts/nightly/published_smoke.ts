@@ -130,8 +130,9 @@ function childEnv(home: string, npmCache: string): Record<string, string> {
   };
 }
 
-// On a timeout the process is killed and its output given up: `npx` runs the package as a
-// grandchild that inherits the pipes, so waiting for them to close could outlive the kill.
+// SIGKILL is the runner's own kill at the budget; nothing else in the smoke run sends it. A pipe
+// read in flight when that kill lands stays open while npx's grandchild holds the pipe, so the
+// reads wait for the exit and a killed child's output is given up.
 export const spawnCommand: CommandRunner = async (command) => {
   const proc = Bun.spawn([...command.argv], {
     cwd: command.cwd,
@@ -139,27 +140,16 @@ export const spawnCommand: CommandRunner = async (command) => {
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    timeout: command.timeoutMs,
+    killSignal: "SIGKILL",
   });
-  const finished = Promise.all([
+  const exitCode = await proc.exited;
+  if (proc.signalCode === "SIGKILL") return { exitCode: "timeout", stdout: "", stderr: "" };
+  const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
-    proc.exited,
   ]);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), command.timeoutMs);
-  });
-  try {
-    const outcome = await Promise.race([finished, expired]);
-    if (outcome === "timeout") {
-      proc.kill("SIGKILL");
-      return { exitCode: "timeout", stdout: "", stderr: "" };
-    }
-    const [stdout, stderr, exitCode] = outcome;
-    return { exitCode, stdout, stderr };
-  } finally {
-    clearTimeout(timer);
-  }
+  return { exitCode, stdout, stderr };
 };
 
 function writeFixture(dir: string): void {

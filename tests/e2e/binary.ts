@@ -54,6 +54,8 @@ export type RunOptions = {
 
 export type Run = { code: number; stdout: string; stderr: string };
 
+// SIGKILL is the runner's own kill at the budget, nothing else sends it; a binary that dies by
+// any other signal returns 128 plus the signal number with the output it wrote first.
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const INHERITED = ["PATH", "TMPDIR", "LANG"];
@@ -84,12 +86,15 @@ export async function runMaxims(
   argv: string[],
   options: RunOptions = {},
 ): Promise<Run> {
+  const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const proc = Bun.spawn(["node", bundle.path, ...argv], {
     cwd: options.cwd ?? home.root,
     env: childEnv(home, options.env),
     stdin: options.stdin === undefined ? "ignore" : "pipe",
     stdout: "pipe",
     stderr: "pipe",
+    timeout,
+    killSignal: "SIGKILL",
   });
   const sink = proc.stdin;
   if (typeof options.stdin === "string" && options.stdin !== "open") {
@@ -97,25 +102,19 @@ export async function runMaxims(
     sink.write(options.stdin);
     await sink.end();
   }
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill("SIGKILL");
-  }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   try {
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    if (timedOut) {
+    if (proc.signalCode === "SIGKILL") {
       throw new Error(
-        `maxims ${argv.join(" ")} was killed after ${options.timeoutMs ?? DEFAULT_TIMEOUT_MS} ms`,
+        `maxims ${argv.join(" ")} was killed with SIGKILL; the budget is ${timeout} ms`,
       );
     }
     return { code, stdout, stderr };
   } finally {
-    clearTimeout(timer);
     if (options.stdin === "open") sink?.end();
   }
 }

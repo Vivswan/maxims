@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type {
   Console,
   ConsoleMode,
@@ -102,10 +103,8 @@ export function createFrameConsole(
 
 // A colored glyph is one terminal column however many code units its escapes take.
 function visibleWidth(text: string): number {
-  return text.replace(ANSI_ESCAPE, "").length;
+  return stripVTControlCharacters(text).length;
 }
-
-const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 // Greedy word wrap; a word longer than the width stays whole on its own line rather than being
 // split, because a URL or a path cut in two is worse than an overlong line.

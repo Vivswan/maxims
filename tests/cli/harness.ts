@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import { runList } from "../../src/commands/list.ts";
 import { type CliDeps, main } from "../../src/commands/main.ts";
 import { runRemove } from "../../src/commands/remove.ts";
@@ -285,10 +286,8 @@ function scriptedStreams(
   return { input, output };
 }
 
-const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
-
 function letters(text: string): string {
-  return text.replace(ANSI_ESCAPE, "").replace(/[^A-Za-z0-9]/g, "");
+  return stripVTControlCharacters(text).replace(/[^A-Za-z0-9]/g, "");
 }
 
 // Every regular file under a directory with its content hash, every symlink by name and target,

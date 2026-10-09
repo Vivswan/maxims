@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { type ParseArgsConfig, parseArgs } from "node:util";
+import { closestMatch } from "leven";
 import type { Console } from "../../console/contract.ts";
 import { invalidAgents, STRINGS } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
@@ -337,26 +338,10 @@ export function closestName<Name extends string>(
   candidate: string,
   known: Iterable<Name>,
 ): Name | null {
-  let best: { name: Name; distance: number } | null = null;
-  for (const name of known) {
-    const distance = editDistance(candidate.toLowerCase(), name);
-    if (best === null || distance < best.distance) best = { name, distance };
-  }
-  if (best === null || best.distance > Math.max(2, Math.floor(candidate.length / 3))) return null;
-  return best.name;
-}
-
-function editDistance(a: string, b: string): number {
-  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const current = [i];
-    for (let j = 1; j <= b.length; j++) {
-      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
-      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, substitution);
-    }
-    previous = current;
-  }
-  return previous[b.length] ?? 0;
+  const names = [...known];
+  const maxDistance = Math.max(2, Math.floor(candidate.length / 3));
+  const match = closestMatch(candidate.toLowerCase(), names, { maxDistance }) as Name | undefined;
+  return match ?? null;
 }
 
 export function parseRenames(args: Args): RenameMap {

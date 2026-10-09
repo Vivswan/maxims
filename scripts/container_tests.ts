@@ -3,6 +3,7 @@
 // image store and docker keeps its contexts, so a run from inside the suite would not see the
 // image this process just built.
 import { writeSync } from "node:fs";
+import prettyBytes from "pretty-bytes";
 import {
   buildImage,
   CONTAINER_HOME,
@@ -10,7 +11,6 @@ import {
   detectRuntime,
   HERMETIC_PROBE_OK,
   hermeticProbe,
-  iec,
   imageSize,
   REQUIRE_RUNTIME_ENV,
   type RunResult,
@@ -108,7 +108,10 @@ const build = buildImage(runtime, IMAGE);
 const buildSeconds = report(`image build (${IMAGE})`, started, build);
 if (build.exitCode !== 0) process.exit(build.exitCode);
 const bytes = imageSize(runtime, IMAGE);
-writeAllSync(1, `container tier: image size ${iec(bytes)} (${bytes} bytes)\n`);
+writeAllSync(
+  1,
+  `container tier: image size ${prettyBytes(bytes, { binary: true })} (${bytes} bytes)\n`,
+);
 writeStepSummary(renderBuildSummary(buildSeconds, bytes), process.env);
 
 started = performance.now();
