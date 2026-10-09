@@ -39,13 +39,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
+      # The same pinned biome as `bun run lint`, so what this job writes is what the lint gate accepts.
+      - run: bun install --frozen-lockfile
       - name: Format (biome)
-        run: bun x @biomejs/biome@2 check --write .
+        run: bun run lint:fix
 
       - name: Commit and push changes
         id: push
