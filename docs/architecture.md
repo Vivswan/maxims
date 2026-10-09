@@ -227,14 +227,14 @@ Demonstrated by: [tests/harnesses/from-spec.test.ts](../tests/harnesses/from-spe
 flowchart LR
   planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/harnesses/strategies/shared-block.ts<br>planSharedBlockWrite()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/sources/local.ts<br>materializeLocal()<br>src/state/store.ts<br>writeState()"]
   fs["src/util/fs.ts<br>assertInsideRoot() RootedPath writeFileAtomic()"]
-  change["src/util/change.ts<br>Change Plan applyChanges() renderPlan() planToJson()"]
+  change["src/util/change.ts<br>Change Plan applyChanges() renderPlan()"]
   exit["src/util/exit-codes.ts<br>ExitCode MaximsError"]
   stdout[["stdout"]]
   disk[("the destination files")]
   planners -->|"every path first: a RootedPath is the only path a Change accepts"| fs
   fs -->|"a candidate outside its root: exit 4, nothing written"| exit
   planners -->|"a Plan: changes and notices"| change
-  change -->|"dryRun: nothing applied, renderPlan() or planToJson() is the whole output"| stdout
+  change -->|"dryRun: nothing applied, renderPlan() or the plan inside the --json document is the whole output"| stdout
   change -->|"write: compare, then writeFileAtomic(), unlink and symlink refuse a real file"| disk
   change -->|"a probe that could not look: exit 4, never a change that silently did not happen"| exit
 ```
