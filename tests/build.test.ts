@@ -153,12 +153,16 @@ test("a bundle whose entry imports jsonc-parser runs under node", async () => {
 });
 
 const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]][] = [
-  ["an unknown flag", () => ["--minify"], () => ["unknown argument --minify"]],
-  ["a flag without its value", () => ["--outfile"], () => ["--outfile needs a value"]],
+  ["an unknown flag", () => ["--minify"], () => ["Unknown option '--minify'"]],
+  [
+    "a flag without its value",
+    () => ["--outfile"],
+    () => ["Option '--outfile <value>' argument missing"],
+  ],
   [
     "a flag whose value is the next flag",
     () => ["--outfile", "--size-json", "x"],
-    () => ["--outfile needs a value"],
+    () => ["Option '--outfile' argument is ambiguous"],
   ],
   [
     "one path for the bundle and the size report",

@@ -3,6 +3,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
 
 const DEFAULT_COMMAND = ["node", "dist/cli.js", "--version"];
@@ -37,28 +38,25 @@ function measuredDataPath(value: string): string {
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { runs: 10, json: undefined, command: DEFAULT_COMMAND };
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    if (flag === "--") {
-      options.command = argv.slice(i + 1);
-      if (options.command.length === 0) fail("no command after --");
-      break;
-    }
-    if (flag !== "--runs" && flag !== "--json") fail(`unknown argument ${flag}`);
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith("--")) fail(`${flag} needs a value`);
-    if (flag === "--runs") {
-      const runs = Number(value);
-      if (!Number.isInteger(runs) || runs < 1)
-        fail(`--runs must be a positive integer, got ${value}`);
-      options.runs = runs;
-    } else {
-      options.json = measuredDataPath(value);
-    }
-    i++;
+  const { values, positionals, tokens } = parseArgv(
+    {
+      args: argv,
+      options: { runs: { type: "string", default: "10" }, json: { type: "string" } },
+      allowPositionals: true,
+    },
+    fail,
+  );
+  for (const token of tokens) {
+    if (token.kind === "option-terminator") break;
+    if (token.kind === "positional") fail(`unknown argument ${token.value}`);
   }
-  return options;
+  const terminated = tokens.some((token) => token.kind === "option-terminator");
+  if (terminated && positionals.length === 0) fail("no command after --");
+  return {
+    runs: positiveInteger("--runs", values.runs, fail),
+    json: values.json === undefined ? undefined : measuredDataPath(values.json),
+    command: terminated ? positionals : DEFAULT_COMMAND,
+  };
 }
 
 interface RunResult {

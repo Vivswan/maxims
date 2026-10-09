@@ -31,6 +31,7 @@ import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
 import { normalizeIdentifier } from "micromark-util-normalize-identifier";
 import type { Event, Token, TokenizeContext } from "micromark-util-types";
+import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { isInside } from "./lib/paths.ts";
 
@@ -521,36 +522,35 @@ function realpath(path: string): string {
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
-  let root = realpath(process.cwd());
-  let maxWords = DEFAULT_MAX_WORDS;
-  let maxCellWords = DEFAULT_MAX_CELL_WORDS;
-  let paths = true;
-  const pages: string[] = [];
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index] ?? "";
-    const value = () => {
-      const next = argv[++index];
-      if (next === undefined) throw new Error(`${arg} needs a value\n${USAGE}`);
-      return next;
-    };
-    if (arg === "--root") {
-      root = realpath(value());
-      if (!statSync(root, { throwIfNoEntry: false })?.isDirectory())
-        throw new Error(`--root ${root} is not a directory`);
-    } else if (arg === "--max-words") {
-      maxWords = Number(value());
-      if (!Number.isInteger(maxWords) || maxWords < 1)
-        throw new Error(`--max-words needs a positive integer\n${USAGE}`);
-    } else if (arg === "--max-cell-words") {
-      maxCellWords = Number(value());
-      if (!Number.isInteger(maxCellWords) || maxCellWords < 1)
-        throw new Error(`--max-cell-words needs a positive integer\n${USAGE}`);
-    } else if (arg === "--shape-only") paths = false;
-    else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}\n${USAGE}`);
-    else pages.push(arg);
-  }
-  if (pages.length === 0) throw new Error(USAGE);
-  return { root, maxWords, maxCellWords, paths, pages };
+  const refuse: (message: string) => never = (message) => {
+    throw new Error(`${message}\n${USAGE}`);
+  };
+  const { values, positionals } = parseArgv(
+    {
+      args: [...argv],
+      options: {
+        root: { type: "string", default: process.cwd() },
+        "max-words": { type: "string" },
+        "max-cell-words": { type: "string" },
+        "shape-only": { type: "boolean", default: false },
+      },
+      allowPositionals: true,
+    },
+    refuse,
+  );
+  const root = realpath(values.root);
+  if (!statSync(root, { throwIfNoEntry: false })?.isDirectory())
+    throw new Error(`--root ${root} is not a directory`);
+  const maxWords =
+    values["max-words"] === undefined
+      ? DEFAULT_MAX_WORDS
+      : positiveInteger("--max-words", values["max-words"], refuse);
+  const maxCellWords =
+    values["max-cell-words"] === undefined
+      ? DEFAULT_MAX_CELL_WORDS
+      : positiveInteger("--max-cell-words", values["max-cell-words"], refuse);
+  if (positionals.length === 0) throw new Error(USAGE);
+  return { root, maxWords, maxCellWords, paths: !values["shape-only"], pages: positionals };
 }
 
 if (import.meta.main) {

@@ -2,6 +2,7 @@
 // tracking-issue job turns into the issue body. Every category answers with an Outcome; the exit
 // code and the files written are decided here alone.
 import { join, resolve } from "node:path";
+import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
 import { runHarnessDrift } from "./nightly/harness_drift.ts";
 import { runLatencyTrend } from "./nightly/latency_trend.ts";
@@ -56,40 +57,38 @@ function outsideRepository(value: string, what: string): string {
   return outsideCheckouts(value, repoRoot, what, usage);
 }
 
-type Flag = "--report-dir" | "--trend" | "--iterations";
-const FLAGS: readonly Flag[] = ["--report-dir", "--trend", "--iterations"];
-
-function isFlag(value: string): value is Flag {
-  return FLAGS.some((flag) => flag === value);
-}
+const OPTIONS = {
+  "report-dir": { type: "string" },
+  trend: { type: "string" },
+  iterations: { type: "string" },
+} as const;
+type Flag = keyof typeof OPTIONS;
+type Flags = Partial<Record<Flag, string>>;
 
 // The flags a category has no use for are refused, so a run cannot look configured when its
 // setting was silently ignored.
-function plan(category: Category, flags: Map<Flag, string>): Run {
-  const only = (accepted: readonly Flag[]): void => {
-    for (const flag of flags.keys()) {
-      if (!accepted.includes(flag)) usage(`${category} does not take ${flag}`);
+function plan(category: Category, flags: Flags): Run {
+  const only = (accepted: readonly string[]): void => {
+    for (const flag of Object.keys(flags)) {
+      if (!accepted.includes(flag)) usage(`${category} does not take --${flag}`);
     }
   };
   switch (category) {
     case "property-deep": {
-      only(["--report-dir", "--iterations"]);
-      const raw = flags.get("--iterations");
+      only(["report-dir", "iterations"] satisfies Flag[]);
+      const raw = flags.iterations;
       if (raw === undefined) return { category, iterations: DEFAULT_ITERATIONS };
-      const iterations = Number(raw);
-      if (!Number.isInteger(iterations) || iterations < 1)
-        usage(`--iterations must be a positive integer, got ${raw}`);
-      return { category, iterations };
+      return { category, iterations: positiveInteger("--iterations", raw, usage) };
     }
     case "parity-drift":
     case "harness-drift":
     case "live-network":
     case "published-smoke":
-      only(["--report-dir"]);
+      only(["report-dir"] satisfies Flag[]);
       return { category };
     case "latency-trend": {
-      only(["--report-dir", "--trend"]);
-      const trend = flags.get("--trend");
+      only(["report-dir", "trend"] satisfies Flag[]);
+      const trend = flags.trend;
       if (trend === undefined) usage("latency-trend needs --trend <file>");
       return { category, trend: outsideRepository(trend, "the trend file") };
     }
@@ -97,22 +96,17 @@ function plan(category: Category, flags: Map<Flag, string>): Run {
 }
 
 export function parseArgs(argv: string[]): Options {
-  const [category, ...rest] = argv;
+  const { values, positionals } = parseArgv(
+    { args: argv, options: OPTIONS, allowPositionals: true },
+    usage,
+  );
+  const [category, ...extra] = positionals;
   if (category === undefined) usage("a category is required");
   if (!isCategory(category)) usage(`unknown category ${category}`);
-  const flags = new Map<Flag, string>();
-  for (let i = 0; i < rest.length; i++) {
-    const flag = rest[i];
-    if (!isFlag(flag)) usage(`unknown argument ${flag}`);
-    const value = rest[i + 1];
-    if (value === undefined || value.startsWith("--")) usage(`${flag} needs a value`);
-    if (flags.has(flag)) usage(`${flag} given twice`);
-    flags.set(flag, value);
-    i++;
-  }
-  const reportDir = flags.get("--report-dir");
+  if (extra[0] !== undefined) usage(`unknown argument ${extra[0]}`);
+  const reportDir = values["report-dir"];
   return {
-    run: plan(category, flags),
+    run: plan(category, values),
     reportDir:
       reportDir === undefined ? undefined : outsideRepository(reportDir, "the failure report"),
   };

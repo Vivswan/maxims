@@ -13,6 +13,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Node, parseSync as ParseSync, TemplateElement } from "oxc-parser";
+import { parseArgv } from "./lib/argv.ts";
 
 // The adopting repository adds the parser (bun add -d oxc-parser); a copied
 // script without it says so once instead of failing on a missing module path.
@@ -391,22 +392,25 @@ export function pathLabel(root: string, path: string): string {
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
-  let root = process.cwd();
-  let config: string | undefined;
-  let mermaid = false;
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const value = (): string => {
-      const next = argv[++i];
-      if (next === undefined) throw new Error(`${arg} needs a value\n${USAGE}`);
-      return next;
-    };
-    if (arg === "--root") root = resolve(value());
-    else if (arg === "--config") config = resolve(value());
-    else if (arg === "--mermaid") mermaid = true;
-    else throw new Error(`unknown argument: ${arg}\n${USAGE}`);
-  }
-  return { root, config: config ?? join(root, DEFAULT_CONFIG), mermaid };
+  const { values } = parseArgv(
+    {
+      args: [...argv],
+      options: {
+        config: { type: "string" },
+        root: { type: "string", default: process.cwd() },
+        mermaid: { type: "boolean", default: false },
+      },
+    },
+    (message) => {
+      throw new Error(`${message}\n${USAGE}`);
+    },
+  );
+  const root = resolve(values.root);
+  return {
+    root,
+    config: values.config === undefined ? join(root, DEFAULT_CONFIG) : resolve(values.config),
+    mermaid: values.mermaid,
+  };
 }
 
 if (import.meta.main) {

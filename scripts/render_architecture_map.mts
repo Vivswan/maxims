@@ -12,6 +12,7 @@ import {
   renderArchitectureMermaid,
 } from "./arch_lint.mts";
 import { readPage } from "./check_architecture_page.mts";
+import { parseArgv } from "./lib/argv.ts";
 
 export const DEFAULT_REGION = "architecture-map";
 
@@ -77,27 +78,31 @@ interface CliOptions {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  let root = process.cwd();
-  let page: string | undefined;
-  let config: string | undefined;
-  let region = DEFAULT_REGION;
-  let check = false;
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const value = (): string => {
-      const next = argv[++i];
-      if (next === undefined) throw new Error(`${arg} needs a value\n${USAGE}`);
-      return next;
-    };
-    if (arg === "--root") root = resolve(value());
-    else if (arg === "--page") page = resolve(value());
-    else if (arg === "--config") config = resolve(value());
-    else if (arg === "--region") region = value();
-    else if (arg === "--check") check = true;
-    else throw new Error(`unknown argument: ${arg}\n${USAGE}`);
-  }
-  if (page === undefined) throw new Error(`--page is required\n${USAGE}`);
-  return { page, root, config: config ?? join(root, DEFAULT_CONFIG), region, check };
+  const refuse: (message: string) => never = (message) => {
+    throw new Error(`${message}\n${USAGE}`);
+  };
+  const { values } = parseArgv(
+    {
+      args: [...argv],
+      options: {
+        page: { type: "string" },
+        config: { type: "string" },
+        root: { type: "string", default: process.cwd() },
+        region: { type: "string", default: DEFAULT_REGION },
+        check: { type: "boolean", default: false },
+      },
+    },
+    refuse,
+  );
+  if (values.page === undefined) refuse("--page is required");
+  const root = resolve(values.root);
+  return {
+    page: resolve(values.page),
+    root,
+    config: values.config === undefined ? join(root, DEFAULT_CONFIG) : resolve(values.config),
+    region: values.region,
+    check: values.check,
+  };
 }
 
 if (import.meta.main) {

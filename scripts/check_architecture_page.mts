@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseSync, pathLabel, resolveImport, SOURCE_EXTENSIONS } from "./arch_lint.mts";
+import { parseArgv } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { isInside } from "./lib/paths.ts";
 
@@ -509,28 +510,30 @@ interface CliOptions extends PageCheckOptions {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  let root = process.cwd();
-  let page: string | undefined;
-  let repoUrl: string | undefined;
-  let expectDiagrams: number | undefined;
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const value = (): string => {
-      const next = argv[++i];
-      if (next === undefined) throw new Error(`${arg} needs a value\n${USAGE}`);
-      return next;
-    };
-    if (arg === "--root") root = resolve(value());
-    else if (arg === "--page") page = resolve(value());
-    else if (arg === "--repo-url") repoUrl = value();
-    else if (arg === "--expect-diagrams") {
-      const count = value();
-      if (!/^\d+$/.test(count)) throw new Error(`--expect-diagrams needs a whole number\n${USAGE}`);
-      expectDiagrams = Number(count);
-    } else throw new Error(`unknown argument: ${arg}\n${USAGE}`);
-  }
-  if (page === undefined) throw new Error(`--page is required\n${USAGE}`);
-  return { root, pagePath: page, repoUrl, expectDiagrams };
+  const refuse: (message: string) => never = (message) => {
+    throw new Error(`${message}\n${USAGE}`);
+  };
+  const { values } = parseArgv(
+    {
+      args: [...argv],
+      options: {
+        page: { type: "string" },
+        root: { type: "string", default: process.cwd() },
+        "repo-url": { type: "string" },
+        "expect-diagrams": { type: "string" },
+      },
+    },
+    refuse,
+  );
+  const count = values["expect-diagrams"];
+  if (count !== undefined && !/^\d+$/.test(count)) refuse("--expect-diagrams needs a whole number");
+  if (values.page === undefined) refuse("--page is required");
+  return {
+    root: resolve(values.root),
+    pagePath: resolve(values.page),
+    repoUrl: values["repo-url"],
+    expectDiagrams: count === undefined ? undefined : Number(count),
+  };
 }
 
 if (import.meta.main) {

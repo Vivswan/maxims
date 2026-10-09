@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { percent, quantity, readPositiveNumber, type Unit } from "./lib/figures.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
 import { runOrThrow } from "./lib/spawn.ts";
@@ -97,26 +98,21 @@ function measuredDataDir(value: string): string {
 }
 
 function parseArgs(argv: string[]): Options {
-  let base: string | undefined;
-  let runs = 10;
-  let out: string | undefined;
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    if (flag !== "--base" && flag !== "--runs" && flag !== "--out")
-      fail(`unknown argument ${flag}`);
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith("--")) fail(`${flag} needs a value`);
-    if (flag === "--base") base = value;
-    else if (flag === "--out") out = measuredDataDir(value);
-    else {
-      runs = Number(value);
-      if (!Number.isInteger(runs) || runs < 1)
-        fail(`--runs must be a positive integer, got ${value}`);
-    }
-    i++;
-  }
-  if (base === undefined) fail("--base <ref> is required");
-  return { base, runs, out };
+  const { values } = parseArgv(
+    {
+      args: argv,
+      options: {
+        base: { type: "string" },
+        runs: { type: "string", default: "10" },
+        out: { type: "string" },
+      },
+    },
+    fail,
+  );
+  const runs = positiveInteger("--runs", values.runs, fail);
+  const out = values.out === undefined ? undefined : measuredDataDir(values.out);
+  if (values.base === undefined) fail("--base <ref> is required");
+  return { base: values.base, runs, out };
 }
 
 // The ratio is rounded to a millionth before the compare: 24.4 ms to 30.5 ms is exactly 25% in
