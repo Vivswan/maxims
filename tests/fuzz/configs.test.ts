@@ -7,7 +7,13 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fc from "fast-check";
-import { findNodeAtLocation, getNodeValue, type Node } from "jsonc-parser";
+import {
+  findNodeAtLocation,
+  getNodePath,
+  getNodeValue,
+  type JSONPath,
+  type Node,
+} from "jsonc-parser";
 import { spec as claudeCodeSpec } from "../../src/harnesses/claude-code/spec.ts";
 import { codex } from "../../src/harnesses/codex/index.ts";
 import type { HarnessContext, HookSpec } from "../../src/harnesses/contract.ts";
@@ -100,22 +106,28 @@ const document = fc.dictionary(key, fc.jsonValue({ maxDepth: 2 }), { minKeys: 0,
 const indent = fc.constantFrom(2, 4, "\t");
 const eol = fc.constantFrom("\n", "\r\n");
 
-type Container = { path: (string | number)[]; node: Node };
+type Located = { path: JSONPath; node: Node };
 
-// Every object or array node of a parsed document, root included.
-function containers(root: Node, path: (string | number)[] = []): Container[] {
-  const found: Container[] = [];
-  if (root.type === "object" || root.type === "array") found.push({ path, node: root });
-  for (const [index, child] of (root.children ?? []).entries()) {
-    if (root.type === "object" && child.type === "property") {
-      const [name, value] = child.children ?? [];
-      if (name === undefined || value === undefined) continue;
-      found.push(...containers(value, [...path, String(name.value)]));
-    } else if (root.type === "array") {
-      found.push(...containers(child, [...path, index]));
-    }
-  }
-  return found;
+function nodes(root: Node): Node[] {
+  return [root, ...(root.children ?? []).flatMap(nodes)];
+}
+
+function containers(root: Node): Located[] {
+  return nodes(root)
+    .filter((node) => node.type === "object" || node.type === "array")
+    .map((node) => ({ path: getNodePath(node), node }));
+}
+
+// `getNodePath` on a property node answers its object's path, so a slot is the property's value
+// child, never the property or its key.
+function members(root: Node): Located[] {
+  return nodes(root)
+    .filter(
+      (node) =>
+        node.parent?.type === "array" ||
+        (node.parent?.type === "property" && node.parent.children?.[1] === node),
+    )
+    .map((node) => ({ path: getNodePath(node), node }));
 }
 
 // JSON has no negative zero: `-0` is written as `0`, so the value read back is compared to what
@@ -173,17 +185,8 @@ test(
   async () => {
     await fuzz("replaceValue", splice, ({ text, pick, value }) => {
       const root = assertParses(text, PATH);
-      const nodes = containers(root).flatMap(({ path, node }) =>
-        node.type === "object"
-          ? (node.children ?? []).flatMap((property) => {
-              const [name, member] = property.children ?? [];
-              return name === undefined || member === undefined
-                ? []
-                : [{ path: [...path, String(name.value)], node: member }];
-            })
-          : (node.children ?? []).map((item, index) => ({ path: [...path, index], node: item })),
-      );
-      const target = nodes[pick % Math.max(nodes.length, 1)];
+      const slots = members(root);
+      const target = slots[pick % Math.max(slots.length, 1)];
       if (target === undefined) return;
       const replaced = outcome(() => replaceValue(text, target.node, value));
       if (replaced.kind === "threw") throw new Error(`threw ${describeError(replaced.error)}`);

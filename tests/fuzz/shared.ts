@@ -56,9 +56,9 @@ export function anyText(constraints: fc.StringSharedConstraints = {}): fc.Arbitr
 // grammar's own tokens rather than as bytes.
 export function fragments(
   pieces: readonly string[],
-  constraints: fc.ArrayConstraints = {},
+  constraints: fc.StringSharedConstraints = {},
 ): fc.Arbitrary<string> {
-  return fc.array(fc.constantFrom(...pieces), constraints).map((parts) => parts.join(""));
+  return fc.string({ ...constraints, unit: fc.constantFrom(...pieces) });
 }
 
 export type Outcome<T> = { kind: "value"; value: T } | { kind: "threw"; error: unknown };
