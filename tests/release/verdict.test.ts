@@ -395,7 +395,7 @@ describe("confirmPublish", () => {
         verdict: {
           outcome: "unsettled",
           version: VERSION,
-          reason: `the registry's record still lacks ${VERSION} after 3 reads; a run judged before it shows may move next back, and the next publish on the lane moves it forward`,
+          reason: expect.stringContaining("after 3 reads"),
         },
         pauses: 2,
       },

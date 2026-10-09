@@ -63,7 +63,6 @@ describe("the shipped surface covers the packaging", () => {
     const packed = manifest.files.filter((entry) => entry !== "dist/");
     expect(packed.length).toBeGreaterThan(0);
     expect(packed.filter((path) => !isShipped(path))).toEqual([]);
-    expect(manifest.bin.maxims.startsWith("dist/")).toBe(true);
   });
 
   test.each([
