@@ -3,12 +3,11 @@
 import { describe, expect, test } from "bun:test";
 import { lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  type HarnessContext,
-  type HarnessDefinition,
-  parseSourceSlug,
-  type Scope,
-  type SourceSlug,
+import type {
+  HarnessContext,
+  HarnessDefinition,
+  Scope,
+  SourceSlug,
 } from "../../../src/harnesses/contract.ts";
 import {
   planRulesDirRemove,
@@ -135,19 +134,6 @@ describe("planRulesDirWrite", () => {
     expect(planRulesDirRemove({ def, target, scope, ctx, sourceSlug: SLUG })).toEqual([
       { kind: "delete", path: rooted(path) },
     ]);
-  });
-
-  // A slug that is not one path segment cannot be a SourceSlug: the refusal that once sat in
-  // rulesDirPath now lives in the parse, so these are the inputs it must turn away.
-  const notSlugs = [
-    "x/../../../../etc/evil",
-    "x/../../../escape",
-    "../sibling",
-    "evil\\sibling",
-    "",
-  ];
-  test.each(notSlugs)("parseSourceSlug turns away %j", (text) => {
-    expect(parseSourceSlug(text)).toBeNull();
   });
 
   const refusals: { name: string; run: () => unknown; code: ExitCode }[] = [

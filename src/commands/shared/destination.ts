@@ -54,10 +54,6 @@ export type TargetRequest = {
   explicit: readonly HarnessId[];
 };
 
-// Where one source's rule lines go at one scope: one target per harness the intent names, minus
-// the ones this run cannot or should not write. A harness the user named with `-a` is written or
-// the run fails; one the intent merely lists is skipped with a reason when its project config
-// root is absent, so a project install never plants a `.claude/` in a repo that has none.
 // A request with no slug names only shared-block harnesses (the orphan sweep), so a rules-dir
 // target meeting one is a caller's defect, never a user's.
 function slugFor(request: Pick<TargetRequest, "sourceSlug">): SourceSlug {
@@ -65,6 +61,10 @@ function slugFor(request: Pick<TargetRequest, "sourceSlug">): SourceSlug {
   return request.sourceSlug;
 }
 
+// Where one source's rule lines go at one scope: one target per harness the intent names, minus
+// the ones this run cannot or should not write. A harness the user named with `-a` is written or
+// the run fails; one the intent merely lists is skipped with a reason when its project config
+// root is absent, so a project install never plants a `.claude/` in a repo that has none.
 export function resolveTargets(request: TargetRequest): TargetResolution {
   const { ctx, scope } = request;
   const harnessCtx = harnessContext(ctx);
