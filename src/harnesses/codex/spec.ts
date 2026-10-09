@@ -99,6 +99,14 @@ export const spec = {
         note: "project loader: first that exists per directory, a blank one dropped with no fallback",
       },
       {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/config_toml.rs",
+        claims: ["DEFAULT_PROJECT_DOC_MAX_BYTES: usize = 32 * 1024;"],
+        note: "the 32 KiB project-doc default",
+      },
+      {
         kind: "page",
         url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
         claims: [
@@ -106,7 +114,7 @@ export const spec = {
           "only the first non-empty file",
           "project_doc_max_bytes",
         ],
-        why: "the AGENTS.md precedence and the 32 KiB default are prose with no single source constant beyond the two loaders; this is the page's markdown rendition",
+        why: "the AGENTS.md precedence is prose with no single source constant beyond the two loaders; this is the page's markdown rendition",
         note: "AGENTS.override.md over AGENTS.md in each project directory and in the Codex home, blank files skipped",
       },
     ],

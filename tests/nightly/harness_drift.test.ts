@@ -307,7 +307,7 @@ describe("runHarnessDrift", () => {
       "6 sources: 1 match, 4 drift, 1 unreachable",
     ].join("\n");
     const rows = table([
-      row("multi", "page", url("stable"), "match", "1 claims hold"),
+      row("multi", "page", url("stable"), "match", "1 claim holds"),
       row(
         "multi",
         "page",

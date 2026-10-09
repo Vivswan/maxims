@@ -6,6 +6,7 @@
 // proves nothing about the facts.
 import { getNodeValue, type ParseError, parseTree, printParseErrorCode } from "jsonc-parser";
 import jsonpointer from "jsonpointer";
+import { count } from "../../src/console/strings.ts";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { markdownTable, type Outcome } from "./report.ts";
@@ -118,7 +119,8 @@ const quoted = (items: readonly string[]): string =>
 
 function readClaims(text: string, claims: readonly string[]): Reading {
   const missing = claims.filter((claim) => !claimPresent(text, claim));
-  if (missing.length === 0) return { verdict: "match", result: `${claims.length} claims hold` };
+  if (missing.length === 0)
+    return { verdict: "match", result: count(claims.length, "claim holds", "claims hold") };
   return { verdict: "DRIFT", result: `missing: ${quoted(missing)}` };
 }
 
@@ -152,7 +154,10 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
       );
   }
   if (missing.length === 0 && differing.length === 0)
-    return { verdict: "match", result: `${paths.length} pointers resolve` };
+    return {
+      verdict: "match",
+      result: count(paths.length, "pointer resolves", "pointers resolve"),
+    };
   const parts = [...(missing.length === 0 ? [] : [`missing: ${quoted(missing)}`]), ...differing];
   return { verdict: "DRIFT", result: parts.join("; ") };
 }
