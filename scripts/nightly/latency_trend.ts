@@ -7,9 +7,9 @@ import { z } from "zod";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
 import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
 import { percent, quantity, readPositiveNumber } from "../lib/figures.ts";
+import { withScratchDir } from "../lib/scratch.ts";
 import { captureOrThrow, runOrThrow } from "../lib/spawn.ts";
 import { markdownTable, type Outcome } from "./report.ts";
-import { withScratchDir } from "./scratch.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 export const MAX_ENTRIES = 400;
