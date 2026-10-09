@@ -816,7 +816,7 @@ test("update <source> --strict leaves the sources it does not refresh unjudged",
 
 test("doctor reports rule files, frontmatter, hooks, tiers and --expect without writing", async () => {
   const unreadable =
-    "config.toml could not be read (/home/user/.codex/config.toml: Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)); assuming hooks off";
+    "config.toml could not be read (/home/user/.codex/config.toml: Invalid TOML document: illegal character in key (line 1, column 6)); assuming hooks off";
   await withScenario(
     {
       project: true,

@@ -86,15 +86,11 @@ test("achievedTier reads a config.toml it cannot open as hooks off, and says so"
 // The wording is what a user reads when Codex's own config refuses to load: the file, the reason
 // and where, with the excerpt smol-toml appends left out.
 const malformed: [string, string, string][] = [
-  [
-    "a bare key",
-    "hooks\n",
-    "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
-  ],
+  ["a bare key", "hooks\n", "Invalid TOML document: illegal character in key (line 1, column 6)"],
   [
     "a date at the top level",
     "1979-05-27T07:32:00Z",
-    "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
+    "Invalid TOML document: illegal character in key (line 1, column 14)",
   ],
   [
     'hooks = "true"',
@@ -135,7 +131,7 @@ test("an unreadable project config.toml is reported over an enabling user config
     expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
       unreadable(
         join(project, ".codex", "config.toml"),
-        "Invalid TOML document: incomplete key-value: cannot find end of key (line 1, column 1)",
+        "Invalid TOML document: illegal character in key (line 1, column 6)",
       ),
     );
   });
