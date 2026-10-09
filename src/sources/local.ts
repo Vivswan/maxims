@@ -1,6 +1,6 @@
 import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { SourceFrom } from "../contracts/source.ts";
+import { isLiveLocal, type SourceFrom } from "../contracts/source.ts";
 import type { Change } from "../util/change.ts";
 import { assertInsideRoot } from "../util/fs.ts";
 import { homePaths, storePathFor } from "../util/home.ts";
@@ -24,7 +24,7 @@ export function createLocalResolver(warn: WarnSink): SourceResolver<LocalSourceF
 export function materializeLocal(from: LocalSourceFrom, home: string, files: TreeFile[]): Change[] {
   const entry = assertInsideRoot(homePaths(home).store, storePathFor(home, from));
   const changes: Change[] = entryPresent(entry) ? [{ kind: "delete", path: entry }] : [];
-  if (from.live === true) {
+  if (isLiveLocal(from)) {
     changes.push({ kind: "symlink", path: entry, target: resolve(from.path) });
     return changes;
   }

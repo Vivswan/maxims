@@ -7,6 +7,7 @@ import {
   STRINGS,
   unreviewed,
 } from "../console/strings.ts";
+import { isLiveLocal } from "../contracts/source.ts";
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -179,7 +180,7 @@ export const review: Command = {
       async (current) => {
         const existing = entryOrThrow(current.state, key);
         const { from } = existing.intent;
-        if (from.type === "local" && from.live === true) {
+        if (isLiveLocal(from)) {
           throw usage(`${key} is live and read in place; there is no fetch to hold`);
         }
         if (existing.intent.review === true) {

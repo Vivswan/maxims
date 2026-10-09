@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
+import { DEFAULT_GIT_REF, isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import type { MemoryName } from "../../memory/contract.ts";
 import {
   type LockSource,
@@ -301,7 +301,7 @@ function lockSource(intent: SourceIntent, projectRoot: string): LockSource | nul
   const from = intent.from;
   if (from.type === "local") {
     if (!insideProject(projectRoot, from.path)) return null;
-    const live = from.live === true ? { live: true as const } : {};
+    const live = isLiveLocal(from) ? { live: true as const } : {};
     return {
       from: { type: "local", path: projectRelative(projectRoot, from.path), ...live },
       ...shared,
