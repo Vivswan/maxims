@@ -280,17 +280,17 @@ test.each(blocks)(
 // dsh renders every instruction file into one 65,536-byte block and truncates the most specific
 // file past it; the frame it adds around a file is allowed for, so a rule file may reach 64,512
 // bytes and no further.
-test("a block at the dsh line is written and one byte past it is refused", () => {
+test("a block at the dsh line passes the budget and one byte past it is refused", () => {
   const frame =
     "<!-- maxims:begin @example-user/doctrine sha=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
   const atLine = frame.replace("\n\n", `\n${"x".repeat(64_512 - frame.length)}\n`);
   const path = sharedBlockPath({ def: dsh, target: sharedBlock("project"), scope: "project", ctx });
-  const write = (content: string) => assertWithinBudget(dsh, "project", path, content);
+  const budget = (content: string) => assertWithinBudget(dsh, "project", path, content);
   expect(Buffer.byteLength(atLine)).toBe(64_512);
-  expect(() => write(atLine)).not.toThrow();
+  expect(() => budget(atLine)).not.toThrow();
   let caught: unknown;
   try {
-    write(atLine.replace("xx", "xxx"));
+    budget(atLine.replace("xx", "xxx"));
   } catch (error) {
     caught = error;
   }

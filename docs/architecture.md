@@ -160,7 +160,7 @@ flowchart LR
   types -->|"BlockInput: source, sha, lines, markers, expands, staleness"| block
   selfrefresh -->|"the self-refresh line once per file, in the first stale block by name, tier 2 only"| block
   block -->|"the whole file: frontmatter plus block"| rulesdir
-  block -->|"stripBlock() over the current text on removal: the block and the separator it brought leave, the rest survives byte for byte; the engine's write splice is replaceBlock() over the same text"| shared
+  block -->|"stripBlock() over the current text on removal: the block and its separator leave, the bytes between blocks stay, kept blocks close with LF"| shared
 ```
 
 The block `renderBlock()` produces for two rule lines under stripped markers, in the shape [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins, with an illustrative revision:

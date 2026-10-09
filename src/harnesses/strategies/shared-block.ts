@@ -22,9 +22,8 @@ export type SharedBlockLocation = {
   currentText: string | null;
 };
 
-// Writing a block is the engine's: it splices every block of a file with the grammar's own
-// `replaceBlock` and judges the byte budget once on the finished text. Only the removal, which
-// decides between a rewrite and deleting an emptied file, is a strategy of its own.
+// Writing a block is the engine's (`planRuleFile` in src/commands/shared/rules.ts); only removal
+// is a strategy.
 export function planSharedBlockRemove(input: SharedBlockLocation): Change[] {
   const path = sharedBlockPath(input);
   if (input.currentText === null) return [];
