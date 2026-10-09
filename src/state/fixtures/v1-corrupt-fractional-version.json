@@ -19,7 +19,10 @@
           "scope": "global"
         },
         "copy": false,
-        "harnesses": ["claude-code", "codex"]
+        "auth": false,
+        "harnesses": ["claude-code", "codex"],
+        "memoryPath": "memories",
+        "fullDepth": false
       },
       "fetched": {
         "at": "2026-08-27T04:12:09.113Z",

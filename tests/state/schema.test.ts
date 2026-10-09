@@ -26,6 +26,8 @@ const VALID = {
         copy: false,
         auth: true,
         harnesses: ["claude-code", "codex"],
+        memoryPath: "memories",
+        fullDepth: false,
       },
       fetched: {
         at: "2026-08-27T04:12:09.113Z",
@@ -49,7 +51,10 @@ const VALID = {
         rule: false,
         destination: { scope: "project", root: "/home/user/project" },
         copy: false,
+        auth: false,
         harnesses: ["codex"],
+        memoryPath: "memories",
+        fullDepth: false,
       },
       addedAt: "2026-08-20T08:38:04.471Z",
     },
@@ -61,7 +66,10 @@ const VALID = {
         rule: true,
         destination: { scope: "project", root: "/home/user/project" },
         copy: false,
+        auth: false,
         harnesses: ["claude-code"],
+        memoryPath: "memories",
+        fullDepth: false,
       },
       fetched: {
         at: "2026-08-27T04:12:09.113Z",
@@ -80,6 +88,7 @@ const VALID = {
         rule: true,
         destination: { scope: "out", path: "/home/user/team-rules" },
         copy: true,
+        auth: false,
         harnesses: ["claude-code"],
         memoryPath: "notes",
         fullDepth: true,
@@ -90,38 +99,10 @@ const VALID = {
   },
 };
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
 describe("parseState", () => {
-  test("a valid v1 file parses with intent defaults filled in", () => {
-    const result = parseState(clone(VALID));
-    expect(result.ok).toBe("parsed");
-    if (result.ok !== "parsed") return;
-    const github = result.state.sources["@example-user/rules"];
-    expect(github?.intent.memoryPath).toBe("memories");
-    expect(github?.intent.fullDepth).toBe(false);
-    expect(github?.intent.auth).toBe(true);
-    const git = result.state.sources["https://gitlab.example.com/team/rules.git"];
-    expect(git?.intent.from.type).toBe("git");
-    expect(git?.intent.auth).toBe(false);
-    expect(github !== undefined && "fetched" in github).toBe(true);
-    if (github === undefined || !("fetched" in github)) return;
-    expect(github.fetched?.memories[RUBBER_DUCK]?.content).toMatch(/^sha256:/);
-    const local = result.state.sources["/home/user/dotfiles/memories"];
-    expect(local?.intent.from).toEqual({
-      type: "local",
-      path: "/home/user/dotfiles/memories",
-      live: true,
-    });
-    expect(local?.intent.memoryPath).toBe("notes");
-    expect(local !== undefined && "fetched" in local).toBe(false);
-  });
-
-  // A state written before project destinations carried their root reads as corrupt rather than as
-  // every project's at once, and sharing is refused outside a project destination; the parsed
-  // shapes are pinned by the v1 fixture golden in the store test.
+  // A project destination without a root reads as corrupt rather than as every project's at once,
+  // and sharing is refused outside a project destination; the parsed shapes are pinned by the v1
+  // fixture golden in the store test.
   const destinations: [string, unknown, unknown, RegExp][] = [
     ["a project destination without a root", { scope: "project" }, undefined, /root/],
     [
@@ -144,7 +125,7 @@ describe("parseState", () => {
     ],
   ];
   test.each(destinations)("destination refused: %s", (_title, destination, shared, issue) => {
-    const json = clone(VALID);
+    const json = structuredClone(VALID);
     const intent = json.sources["@example-user/rules"].intent as Record<string, unknown>;
     intent.destination = destination;
     if (shared !== undefined) intent.shared = shared;
@@ -157,7 +138,7 @@ describe("parseState", () => {
   // reads the same answer from intent, so the flag must survive a round trip through state and
   // must stay absent, not default to false, when it was never given.
   test("intent.allowHidden round-trips when set and stays absent when not", () => {
-    const json = clone(VALID);
+    const json = structuredClone(VALID);
     (json.sources["@example-user/rules"].intent as Record<string, unknown>).allowHidden = true;
     const result = parseState(json);
     expect(result.ok).toBe("parsed");
@@ -174,7 +155,7 @@ describe("parseState", () => {
   // `add --review` and `maxims review` hold a refresh under `pending` until `accept`; the flag is
   // read back on every refresh, so it must round-trip and stay absent, never `false`, when unset.
   test("intent.review round-trips when set, stays absent when unset, and refuses false", () => {
-    const json = clone(VALID);
+    const json = structuredClone(VALID);
     (json.sources["@example-user/rules"].intent as Record<string, unknown>).review = true;
     const result = parseState(json);
     expect(result.ok).toBe("parsed");
@@ -230,7 +211,7 @@ describe("parseState", () => {
     ],
   ];
   test.each(pendingShapes)("pending: %s", (_title, key, pending, verdict) => {
-    const json = clone(VALID);
+    const json = structuredClone(VALID);
     const source = json.sources[key as keyof typeof json.sources] as Record<string, unknown>;
     source.intent = { ...(source.intent as Record<string, unknown>), review: true };
     source.pending = pending;
@@ -278,10 +259,10 @@ describe("parseState", () => {
       "corrupt",
       /^disabled\.project\..*absolute path/,
     ],
-    ["a bare list, the shape without scopes", ["alpha"], "corrupt", /^disabled/],
+    ["a bare list", ["alpha"], "corrupt", /^disabled/],
   ];
   test.each(disabledShapes)("disabled: %s", (_title, disabled, outcome, issue) => {
-    const result = parseState({ ...clone(VALID), disabled });
+    const result = parseState({ ...structuredClone(VALID), disabled });
     expect(result.ok).toBe(outcome);
     if (result.ok === "parsed") expect<unknown>(result.state.disabled).toEqual(disabled);
     if (result.ok === "corrupt" && issue !== null) {
@@ -370,7 +351,7 @@ describe("parseState", () => {
       issue: /^hooks\.global\.1:/,
     },
     {
-      title: "hooks as one flat list, the shape without scopes",
+      title: "hooks as a list",
       mutate: (j) => ({ ...j, hooks: ["claude-code"] }),
       issue: /^hooks: /,
     },
@@ -437,6 +418,14 @@ describe("parseState", () => {
       issue: /destination\.path: .*NUL/,
     },
     {
+      title: "an intent without auth",
+      mutate: (j) => {
+        delete (j.sources["@example-user/rules"].intent as Record<string, unknown>).auth;
+        return j;
+      },
+      issue: /intent\.auth: Invalid input: expected boolean, received undefined$/,
+    },
+    {
       title: "an unknown key in intent",
       mutate: (j) => {
         (j.sources["@example-user/rules"].intent as Record<string, unknown>).installedPath = "/x";
@@ -446,7 +435,7 @@ describe("parseState", () => {
     },
   ];
   test.each(corrupt)("is corrupt: $title", ({ mutate, issue }) => {
-    const result = parseState(mutate(clone(VALID)));
+    const result = parseState(mutate(structuredClone(VALID)));
     expect(result.ok).toBe("corrupt");
     if (result.ok !== "corrupt") return;
     expect(result.issues.some((line) => issue.test(line))).toBe(true);
@@ -640,17 +629,17 @@ describe("parseState", () => {
   test.each(refusals)(
     "refuses $title and accepts the same value without it",
     ({ set, bad, good, issue }) => {
-      const refused = parseState(set(clone(VALID), bad));
+      const refused = parseState(set(structuredClone(VALID), bad));
       expect(refused.ok).toBe("corrupt");
       if (refused.ok !== "corrupt") return;
       expect(refused.issues.some((line) => issue.test(line))).toBe(true);
-      expect(parseState(set(clone(VALID), good)).ok).toBe("parsed");
+      expect(parseState(set(structuredClone(VALID), good)).ok).toBe("parsed");
     },
   );
 
   test("emptyState round-trips through the parser", () => {
     const state = emptyState("maxims@0.0.0");
-    expect(parseState(clone(state))).toEqual({ ok: "parsed", state });
+    expect(parseState(structuredClone(state))).toEqual({ ok: "parsed", state });
   });
 });
 

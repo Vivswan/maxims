@@ -19,7 +19,10 @@
           "scope": "global"
         },
         "copy": false,
+        "auth": false,
         "harnesses": ["claude-code", "codex"],
+        "memoryPath": "memories",
+        "fullDepth": false,
         "installedPath": "/home/user/.claude/rules/rubber-duck-before-every-commit.md"
       },
       "fetched": {

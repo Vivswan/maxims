@@ -156,8 +156,8 @@ function applyMutation(root: unknown, mutation: Mutation): unknown {
 }
 
 // A valid document with one to three of its nodes dropped, retyped or replaced by a random JSON
-// value: the near misses a hand edit or an older writer produces, which a random document from
-// scratch almost never reaches past the first schema check.
+// value: the near misses a hand edit produces, which a random document from scratch almost never
+// reaches past the first schema check.
 export function mutatedJson(base: unknown): fc.Arbitrary<unknown> {
   const paths = jsonPaths(base);
   const mutation: fc.Arbitrary<Mutation> = fc

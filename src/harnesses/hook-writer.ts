@@ -473,7 +473,8 @@ export function hookPath(
 }
 
 // The prefix is matched as whole words: `npx -y @vivswan/maxims syncthing` is somebody else's
-// command, `npx -y @vivswan/maxims sync --quiet --agent x` is an older flag set of ours.
+// command, `npx -y @vivswan/maxims sync --quiet --agent x` is ours with a flag set this release
+// does not write, which the next sync replaces.
 function isOurCommand(command: string): boolean {
   if (!command.startsWith(HOOK_COMMAND_PREFIX)) return false;
   const next = command.charAt(HOOK_COMMAND_PREFIX.length);

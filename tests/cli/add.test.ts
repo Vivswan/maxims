@@ -762,7 +762,10 @@ test("a source recorded for another project is refused by add, link, update, sha
               rule: true,
               destination: { scope: "project", root: elsewhere },
               copy: false,
+              auth: false,
               harnesses: ["codex"],
+              memoryPath: "memories",
+              fullDepth: false,
             },
             fetched: {
               at: "2026-09-20T11:00:00.000Z",

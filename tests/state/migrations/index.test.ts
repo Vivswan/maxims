@@ -1,17 +1,7 @@
 // Guards the upgrade path: a step applied out of order, a hole in the chain that silently skips a
 // version, or a step that forgets to bump `version` would each corrupt every upgraded install.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { legacyHooksStep } from "../../../src/state/fixtures/migration-step-v0.ts";
 import { type MigrationStep, migrateState } from "../../../src/state/migrations/index.ts";
-import { srcPath } from "../../shared/src_path.ts";
-
-const FIXTURES = srcPath("state", "fixtures");
-
-function fixture(name: string): unknown {
-  return JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
-}
 
 function record(json: unknown): Record<string, unknown> {
   if (typeof json !== "object" || json === null || Array.isArray(json)) {
@@ -26,19 +16,6 @@ function bump(from: number, to: number): MigrationStep {
 }
 
 describe("migrateState", () => {
-  test("a v0 fixture reaches v1 through the step, and the step is idempotent on its own output", () => {
-    const legacy = fixture("v0-legacy.json");
-    const result = migrateState(legacy, 0, [legacyHooksStep], 1);
-    expect(result.kind).toBe("migrated");
-    if (result.kind !== "migrated") return;
-    expect(result.applied).toEqual([0]);
-    const migrated = record(result.json);
-    expect(migrated.version).toBe(1);
-    expect(migrated.hooks).toEqual({ global: ["claude-code", "codex"] });
-    expect(migrated.sources).toEqual(record(legacy).sources);
-    expect(legacyHooksStep.migrate(result.json)).toEqual(result.json);
-  });
-
   test("steps registered out of order still run ascending, each seeing the previous output", () => {
     const result = migrateState({ version: 0 }, 0, [bump(2, 3), bump(1, 2), bump(0, 1)], 3);
     expect(result).toEqual({

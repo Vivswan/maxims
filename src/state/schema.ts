@@ -88,10 +88,10 @@ const IntentFields = {
   rule: z.boolean(),
   destination: DestinationSchema,
   copy: z.boolean(),
-  auth: z.boolean().default(false),
+  auth: z.boolean(),
   harnesses: z.array(HarnessIdSchema),
-  memoryPath: z.string().min(1).default("memories"),
-  fullDepth: z.boolean().default(false),
+  memoryPath: z.string().min(1),
+  fullDepth: z.boolean(),
   paths: z.array(z.string().min(1)).optional(),
   // Set by `add --allow-hidden`; absent means the hidden-character check applies on every refresh.
   allowHidden: z.boolean().optional(),

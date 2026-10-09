@@ -19,7 +19,10 @@
           "scope": "global"
         },
         "copy": false,
-        "harnesses": ["claude-code", "codex"]
+        "auth": false,
+        "harnesses": ["claude-code", "codex"],
+        "memoryPath": "memories",
+        "fullDepth": false
       },
       "fetched": {
         "at": "2026-08-27T04:12:09.1134567Z",
@@ -50,7 +53,10 @@
           "root": "/home/user/project"
         },
         "copy": false,
+        "auth": false,
         "harnesses": ["codex"],
+        "memoryPath": "memories",
+        "fullDepth": false,
         "shared": true
       },
       "addedAt": "2026-08-21T09:00:00Z"
