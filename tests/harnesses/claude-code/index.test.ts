@@ -183,6 +183,48 @@ describe("claude-code", () => {
     });
   });
 
+  // Claude Code reads `disableAllHooks` after settings precedence applies, so a `true` in the user
+  // settings silences a project hook too unless the project's own settings say `false`, and the
+  // local settings file outranks both. A per-scope read of one file would call a project install
+  // tier 1 while every hook on the machine is off.
+  const off = '{ "disableAllHooks": true }\n';
+  const on = '{ "disableAllHooks": false }\n';
+  const silent = '{ "model": "opus" }\n';
+  const layers: [string, string | null, string | null, string | null, 1 | 2][] = [
+    ["user off, project silent", null, silent, off, 2],
+    ["user off, project absent", null, null, off, 2],
+    ["project on over a user off", null, on, off, 1],
+    ["project off over a user on", null, off, on, 2],
+    ["local on over project off", on, off, off, 1],
+    ["local off over project on", off, on, on, 2],
+    ["nothing set anywhere", null, silent, silent, 1],
+  ];
+
+  test.each(layers)(
+    "disableAllHooks is read after settings precedence: local, project, then user (%s)",
+    async (_, localJson, projectJson, userJson, expected) => {
+      await withTempDir(async (dir) => {
+        const home = join(dir, "home");
+        const project = join(dir, "project");
+        mkdirSync(join(home, ".claude"), { recursive: true });
+        mkdirSync(join(project, ".claude"), { recursive: true });
+        const write = (path: string, text: string | null): void => {
+          if (text !== null) writeFileSync(path, text);
+        };
+        write(join(project, ".claude", "settings.local.json"), localJson);
+        write(join(project, ".claude", "settings.json"), projectJson);
+        write(join(home, ".claude", "settings.json"), userJson);
+        const layered: HarnessContext = { home, projectRoot: project, env: {} };
+        for (const scope of ["project", "global"] as const) {
+          expect(await achievedTier(claudeCode, scope, layered)).toEqual({
+            tier: expected,
+            unreadable: null,
+          });
+        }
+      });
+    },
+  );
+
   test("detection sees either session variable or a ~/.claude directory, never a stray file there", async () => {
     await withTempDir((home) => {
       const bare: HarnessContext = { home, projectRoot: null, env: {} };
