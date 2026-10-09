@@ -15,10 +15,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse, postprocess, preprocess } from "micromark";
+import { isInside } from "../src/util/fs.ts";
 import { parseSync, pathLabel, resolveImport, SOURCE_EXTENSIONS } from "./arch_lint.mts";
 import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
-import { isInside } from "./lib/paths.ts";
 
 // An ECMAScript identifier name, so `$run` and a Unicode-letter export are symbols too.
 const SYMBOL_TOKEN = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*(?:\(\))?$/u;

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
 import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
 import { percent, quantity, readPositiveNumber } from "../lib/figures.ts";
-import { runOrThrow } from "../lib/spawn.ts";
+import { captureOrThrow, runOrThrow } from "../lib/spawn.ts";
 import { markdownTable, type Outcome } from "./report.ts";
 import { withScratchDir } from "./scratch.ts";
 
@@ -125,18 +125,6 @@ export function renderComparison(baseline: Entry, current: Entry, judged: TrendJ
 export type Measurement = Pick<Entry, "sha" | "node" | "medianMs" | "bundleBytes">;
 export type Measure = (scratch: string) => Promise<Measurement>;
 
-function capture(command: string[]): string {
-  const proc = Bun.spawnSync(command, {
-    cwd: repoRoot,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (proc.exitCode !== 0)
-    throw new Error(`${command.join(" ")} failed: ${proc.stderr.toString().trim()}`);
-  return proc.stdout.toString().trim();
-}
-
 async function measureHead(scratch: string): Promise<Measurement> {
   const bundle = join(scratch, "cli.js");
   const sizeJson = join(scratch, "size.json");
@@ -157,8 +145,8 @@ async function measureHead(scratch: string): Promise<Measurement> {
     medianMs[timed.name] = readPositiveNumber(json, "medianMs");
   }
   return {
-    sha: capture(["git", "-C", repoRoot, "rev-parse", "HEAD"]),
-    node: capture(["node", "--version"]),
+    sha: captureOrThrow("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).trim(),
+    node: captureOrThrow("node", ["--version"], { cwd: repoRoot }).trim(),
     medianMs,
     bundleBytes: readPositiveNumber(sizeJson, "bytes"),
   };

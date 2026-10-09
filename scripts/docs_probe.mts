@@ -33,9 +33,10 @@ import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
 import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-character-reference";
 import { normalizeIdentifier } from "micromark-util-normalize-identifier";
 import type { Event, Token, TokenizeContext } from "micromark-util-types";
+import { isInside } from "../src/util/fs.ts";
 import { parseArgv, positiveInteger, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
-import { isInside } from "./lib/paths.ts";
+import { captureOrThrow } from "./lib/spawn.ts";
 
 export const DEFAULT_MAX_WORDS = 70;
 export const DEFAULT_MAX_CELL_WORDS = 15;
@@ -77,14 +78,9 @@ export function trackedPaths(files: Iterable<string>): TrackedPaths {
  * the safe.directory override they carry.
  */
 function gitRepositoryEnv(): Set<string> {
-  const proc = Bun.spawnSync(["git", "rev-parse", "--local-env-vars"], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (proc.exitCode !== 0)
-    throw new Error(`git rev-parse --local-env-vars failed: ${proc.stderr.toString().trim()}`);
-  const names = proc.stdout.toString("utf8").split("\n").filter(Boolean);
+  const names = captureOrThrow("git", ["rev-parse", "--local-env-vars"])
+    .split("\n")
+    .filter(Boolean);
   if (names.length === 0)
     throw new Error(
       "git rev-parse --local-env-vars named nothing; the listing cannot be kept to the root's repository",
@@ -102,15 +98,9 @@ function gitTrackedFiles(root: string): string[] {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env))
     if (value !== undefined && !stripped.has(key)) env[key] = value;
-  const proc = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"], {
-    env,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (proc.exitCode !== 0)
-    throw new Error(`git ls-files in ${root} failed: ${proc.stderr.toString().trim()}`);
-  const files = proc.stdout.toString("utf8").split("\0").filter(Boolean);
+  const files = captureOrThrow("git", ["-C", root, "ls-files", "-z"], { env })
+    .split("\0")
+    .filter(Boolean);
   if (files.length === 0)
     throw new Error(`git tracks nothing under ${root}; the path checks need a tracked tree`);
   return files;
