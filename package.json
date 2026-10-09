@@ -9,7 +9,7 @@
     "url": "git+https://github.com/Vivswan/maxims.git"
   },
   "engines": {
-    "node": ">=20.5"
+    "node": ">=22"
   },
   "bin": {
     "maxims": "dist/cli.js"
