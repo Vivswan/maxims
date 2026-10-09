@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fc from "fast-check";
+import { util } from "zod";
 import {
   classifyInvoker,
   readHookStdin,
@@ -16,7 +17,6 @@ import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
 import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { isRecord } from "../shared/record.ts";
 import { anyText, asyncOutcome, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
 
 // The fields the invoker rules read, each in the type that matches and in one that does not, so
@@ -257,7 +257,7 @@ const VARIANTS: HookStdout[] = [
 function payloadAt(envelope: unknown, variant: HookStdout): unknown {
   let node = envelope;
   for (const step of variant.slice("json:".length).split(".")) {
-    if (!isRecord(node)) return undefined;
+    if (!util.isObject(node)) return undefined;
     node = node[step];
   }
   return node;

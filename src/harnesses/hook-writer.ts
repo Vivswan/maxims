@@ -12,6 +12,7 @@ import {
   printParseErrorCode,
 } from "jsonc-parser";
 import { parse as parseToml, TomlError } from "smol-toml";
+import { util } from "zod";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
@@ -454,14 +455,10 @@ function parseJsonConfig(text: string): ConfigReading {
 function valueAt(value: unknown, path: string[]): unknown {
   let current = value;
   for (const key of path) {
-    if (!isRecord(current)) return undefined;
+    if (!util.isObject(current)) return undefined;
     current = current[key];
   }
   return current;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function hookPath(

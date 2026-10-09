@@ -2,8 +2,8 @@
 // generators that reach the byte shapes a hand-written case list never does, and the timing helper
 // that turns a documented complexity into a per-input budget.
 import fc from "fast-check";
+import { util } from "zod";
 import { checkProperty, propertyKnobs } from "../shared/property.ts";
-import { isRecord } from "../shared/record.ts";
 
 // A convergence property drives the whole engine per run; a fuzz case is one parser call, so the
 // same knob buys this many more cases per property.
@@ -130,7 +130,7 @@ function wrongType(value: unknown): unknown {
 
 function childOf(parent: unknown, step: string | number): unknown {
   if (Array.isArray(parent)) return typeof step === "number" ? parent[step] : undefined;
-  return isRecord(parent) ? parent[String(step)] : undefined;
+  return util.isObject(parent) ? parent[String(step)] : undefined;
 }
 
 // The replacement is cloned on every apply: fast-check keeps the mutation list for shrinking, and
@@ -148,7 +148,7 @@ function applyMutation(root: unknown, mutation: Mutation): unknown {
     else parent[last] = replacement(parent[last]);
     return root;
   }
-  if (!isRecord(parent)) return root;
+  if (!util.isObject(parent)) return root;
   const key = String(last);
   if (mutation.kind === "drop") delete parent[key];
   else parent[key] = replacement(parent[key]);

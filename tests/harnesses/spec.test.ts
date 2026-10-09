@@ -5,8 +5,8 @@
 // to the wrong place or writes nothing, and the refusal must name the field so the author can find
 // it.
 import { expect, test } from "bun:test";
+import { util } from "zod";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
-import { isRecord } from "../shared/record.ts";
 
 function base(): Record<string, unknown> {
   return {
@@ -51,7 +51,7 @@ function at(path: string[], value: unknown): Mutation {
     let cursor: Record<string, unknown> = copy;
     for (const key of path.slice(0, -1)) {
       const next = cursor[key];
-      if (!isRecord(next)) throw new Error(`no object at ${key}`);
+      if (!util.isObject(next)) throw new Error(`no object at ${key}`);
       cursor = next;
     }
     const last = path[path.length - 1];

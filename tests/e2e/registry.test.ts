@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { util } from "zod";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { targetPath } from "../../src/commands/shared/sources.ts";
 import {
@@ -120,28 +121,24 @@ function prepareRoots(def: HarnessDefinition, scope: Scope, ctx: HarnessContext)
 
 type Handler = Record<string, unknown>;
 
-function isHandler(value: unknown): value is Handler {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // The event list as the file spells it: the groups of a grouped registry, else the handlers.
 function eventEntries(hook: RegistryHook, text: string): unknown[] {
   let node: unknown = JSON.parse(text);
   for (const key of hook.eventPath) {
-    if (!isHandler(node)) return [];
+    if (!util.isObject(node)) return [];
     node = node[key];
   }
   return Array.isArray(node) ? node : [];
 }
 
 function groupHandlers(group: unknown): Handler[] {
-  const list = isHandler(group) ? group.hooks : undefined;
-  return Array.isArray(list) ? list.filter(isHandler) : [];
+  const list = util.isObject(group) ? group.hooks : undefined;
+  return Array.isArray(list) ? list.filter(util.isObject) : [];
 }
 
 function registryHandlers(hook: RegistryHook, text: string): Handler[] {
   const entries = eventEntries(hook, text);
-  return hook.grouped ? entries.flatMap(groupHandlers) : entries.filter(isHandler);
+  return hook.grouped ? entries.flatMap(groupHandlers) : entries.filter(util.isObject);
 }
 
 function commandOf(hook: RegistryHook, handler: Handler): string {

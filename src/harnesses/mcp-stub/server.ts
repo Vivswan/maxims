@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { util } from "zod";
 import { VERSION } from "../../version.ts";
 
 // A harness that starts its MCP servers eagerly spawns this process before the agent reads a
@@ -61,12 +62,8 @@ function respondToLine(line: string): Response | Response[] | null {
   return respondTo(message);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function respondTo(message: unknown): Response | null {
-  if (!isRecord(message)) {
+  if (!util.isObject(message)) {
     return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } };
   }
   const { id, method, params } = message;
@@ -84,7 +81,7 @@ function respondTo(message: unknown): Response | null {
 }
 
 function initializeResult(params: unknown): Record<string, unknown> {
-  const requested = isRecord(params) ? params.protocolVersion : undefined;
+  const requested = util.isObject(params) ? params.protocolVersion : undefined;
   const protocolVersion =
     typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
       ? requested
