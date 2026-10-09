@@ -104,6 +104,11 @@ const jsonRefusals: [string, string[], string][] = [
     "The --json flag requires --yes (or --all) to run non-interactively.",
   ],
   [
+    "json without yes on install, which has no --all",
+    ["install", "--json"],
+    "The --json flag requires --yes to run non-interactively.",
+  ],
+  [
     "json with list",
     ["add", "@a/b", "--json", "-y", "--list"],
     "The --json flag cannot be combined with --list.",

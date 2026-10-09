@@ -103,7 +103,9 @@ const IntentFields = {
   memoryPath: z.string().min(1).default("memories"),
   fullDepth: z.boolean().default(false),
   paths: z.array(z.string().min(1)).optional(),
-  // Set by `add --allow-hidden`; absent means the hidden-character check applies on every refresh.
+  // Set by `add --allow-hidden`, or by `install` replaying a lock entry carrying it. Absent means
+  // `add` refuses a description with a hidden character. The check runs at `add` time only, never
+  // on a refresh.
   allowHidden: z.boolean().optional(),
   // Set by `add --share`, `share` and `install` on a project-scope entry: the project lock carries
   // the entry for teammates. Absent means private to this machine.

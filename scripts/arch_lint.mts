@@ -370,7 +370,7 @@ export function renderArchitectureMermaid(arch: Architecture): string {
 // --- CLI ---------------------------------------------------------------------
 
 const USAGE = [
-  "usage: arch-lint.mts [--config <architecture.yml>] [--root <dir>] [--mermaid]",
+  "usage: bun scripts/arch_lint.mts [--config <architecture.yml>] [--root <dir>] [--mermaid]",
   "  --config   the layering declaration (default: <root>/architecture.yml)",
   "  --root     the repository root the paths are relative to (default: cwd)",
   "  --mermaid  print the module map instead of linting",
