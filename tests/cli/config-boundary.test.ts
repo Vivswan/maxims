@@ -7,6 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createEngine } from "../../src/commands/engine.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
+import { estimateTokens } from "../../src/rulefile/budget.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
   entryFor,
@@ -69,10 +70,13 @@ test("sync with a broken config.json refreshes and says which key it ignored", a
     const { rules, config } = await brokenConfigScenario(scenario);
     const run = await runCli(scenario, ["sync"]);
     expect([run.code, run.stderr]).toEqual([0, ""]);
+    // The estimate counts the rule file's own text, which carries the file's absolute path, so
+    // the figure follows the temp dir's length and is derived from the written bytes.
+    const tokens = estimateTokens(readFileSync(rules, "utf8"), rulesDirHarness.markers);
     expect(run.stdout).toBe(
       `!  maxims: ${config} is not a valid config: ruleCap: Invalid input: expected number, received string; using defaults\n` +
-        `!  ~87 tokens in ${rules}\n` +
-        "o  Installed 2 memories, 2 rule lines (~87 tokens)\n",
+        `!  ~${tokens} tokens in ${rules}\n` +
+        `o  Installed 2 memories, 2 rule lines (~${tokens} tokens)\n`,
     );
     expectBothRules(rules);
   });
