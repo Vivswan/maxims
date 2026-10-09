@@ -1,3 +1,4 @@
+import { notInstalled } from "../console/strings.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertShareable, syncCommitted } from "./add.ts";
@@ -42,8 +43,7 @@ function command(verb: "share" | "unshare"): Command {
         ctx.global.dryRun,
         async (current) => {
           const existing = current.state.sources[key];
-          if (existing === undefined)
-            throw new MaximsError(ExitCode.Usage, `${key} is not installed`);
+          if (existing === undefined) throw new MaximsError(ExitCode.Usage, notInstalled(key));
           const { destination: recorded } = existing.intent;
           if (recorded.scope !== "project") {
             throw usage(

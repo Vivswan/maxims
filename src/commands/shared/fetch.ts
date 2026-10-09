@@ -28,7 +28,7 @@ import type { Notices } from "./notices.ts";
 import { inSelect } from "./select.ts";
 import { storeTree } from "./sources.ts";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 // A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last
 // SUCCESS and would otherwise ask the network at every session start while a source is down.
 export const FAILED_FETCH_RETRY_MS = 60 * 60 * 1000;

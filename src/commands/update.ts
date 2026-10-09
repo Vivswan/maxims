@@ -1,8 +1,8 @@
 import {
-  failedToUpdate,
   foundUpdates,
   heldUpdate,
   isLive,
+  notInstalled,
   ownedBy,
   renameHint,
   STRINGS,
@@ -21,8 +21,7 @@ import {
   persistConfig,
   updateIntent,
 } from "./shared/cli-context.ts";
-import { exitForFailed, framed } from "./shared/engine-io.ts";
-import { ReportedMaximsError } from "./shared/errors.ts";
+import { failedFetches, framed } from "./shared/engine-io.ts";
 import {
   agentsFilter,
   type Command,
@@ -34,15 +33,15 @@ import {
   parseRenames,
   usage,
 } from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
+import { failed, finish } from "./shared/output.ts";
 import { lockChanges } from "./shared/project-lock-io.ts";
-import { errorDocument } from "./shared/report.ts";
-import { refreshWarnings, refuseRisky, riskLine, showRiskWarnings } from "./shared/risk.ts";
+import { refreshWarnings, refuseRisky, riskLine } from "./shared/risk.ts";
 import {
   findInstalledSource,
   installedSources,
   knownHarnessIds,
   resolveIncoming,
+  ruleCapRefusal,
   upstreamNames,
   withIntent,
 } from "./shared/sources.ts";
@@ -144,30 +143,7 @@ export const update: Command = {
       ...report.held.map((key) => heldUpdate(key, (report.upstreamChanges[key] ?? []).length)),
     ];
     const changes = [...(preview?.changes ?? persisted.changes), ...report.plan.changes];
-    if (report.failed.length > 0) {
-      // The failure is the run's exit, dry run or not, and the plan a dry run exists to show is
-      // still printed, through the same frame a finished run ends in; `--json` has its one
-      // document below.
-      if (!ctx.global.json) {
-        finish(ctx, console, { plan: { changes, notices: [] }, notices: [], json: {}, lines: [] });
-      }
-      showRiskWarnings(console, warnings);
-      for (const line of lines) console.step(line);
-      const failures = report.failed.map((failure) => failedToUpdate(failure.key, failure.message));
-      const error = new MaximsError(exitForFailed(report.failed), failures.join("\n"), {
-        hint: "the last good copy of each failed source stays installed",
-      });
-      // The refreshed sources' warnings ride in the failure document; a quiet run has no reader
-      // for them and keeps the log line the frame's error path writes.
-      if (ctx.global.json && !ctx.global.quiet) {
-        io.stdout.write(errorDocument(error, { warnings }));
-        throw new ReportedMaximsError(error.code, error.message, { hint: error.hint });
-      }
-      throw error;
-    }
-    const found = report.fetched.length + report.held.length;
-    const summary = found === 0 ? STRINGS.allUpToDate : foundUpdates(found);
-    return finish(ctx, console, {
+    const outcome = {
       plan: { changes, notices: [] },
       notices: [...warnings.map(riskLine), ...report.notices],
       json: {
@@ -176,8 +152,15 @@ export const update: Command = {
         upstreamChanges: report.upstreamChanges,
         warnings,
       },
-      lines: [summary, ...lines],
-    });
+    };
+    if (report.failed.length > 0) {
+      // The failure is the run's exit, dry run or not, and the plan a dry run exists to show is
+      // still printed, through the same frame a finished run ends in.
+      throw failed(ctx, console, { ...outcome, lines }, failedFetches(report.failed));
+    }
+    const found = report.fetched.length + report.held.length;
+    const summary = found === 0 ? STRINGS.allUpToDate : foundUpdates(found);
+    return finish(ctx, console, { ...outcome, lines: [summary, ...lines] });
   },
 };
 
@@ -208,7 +191,7 @@ async function recordRenames(
     dryRun,
     async (current) => {
       const existing = current.state.sources[key];
-      if (existing === undefined) throw new MaximsError(ExitCode.Usage, `${key} is not installed`);
+      if (existing === undefined) throw new MaximsError(ExitCode.Usage, notInstalled(key));
       const rename = { ...existing.intent.rename, ...renames };
       const known = await upstreamNames(existing, ctx.io);
       const incoming = Object.keys(renames).flatMap((name) => {
@@ -229,14 +212,11 @@ async function recordRenames(
         installed: await installedSources(current.state, ctx.io),
       });
       if (!outcome.ok) {
-        const first = outcome.code === ExitCode.NameCollision ? outcome.collisions[0] : undefined;
-        throw new MaximsError(
-          outcome.code,
-          first === undefined
-            ? `${key} would exceed the rule cap`
-            : ownedBy(first.name, first.ownedBy),
-          { hint: first === undefined ? undefined : renameHint(first.name) },
-        );
+        if (outcome.code === ExitCode.RuleCapExceeded) throw ruleCapRefusal(key, outcome);
+        const [first] = outcome.collisions;
+        throw new MaximsError(outcome.code, ownedBy(first.name, first.ownedBy), {
+          hint: renameHint(first.name),
+        });
       }
       const next: State = {
         ...current.state,

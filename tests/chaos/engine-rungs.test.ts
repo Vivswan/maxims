@@ -117,7 +117,7 @@ const httpRungs: HttpRung[] = [
     manualExit: 2,
     staleAtOnce: true,
     quietStdout:
-      "maxims: @acme/rules has not refreshed since 2026-09-20 (source repository gone or unreadable); rules may be out of date\nmaxims: rules refreshed (1 file updated)\n",
+      "maxims: the rules from @acme/rules have not refreshed since 2026-09-20T12:00:00.000Z (source repository gone or unreadable) and may be out of date.\nmaxims: rules refreshed (1 file updated)\n",
     retryAfter: false,
   },
   {
@@ -139,7 +139,7 @@ const httpRungs: HttpRung[] = [
     manualExit: 3,
     staleAtOnce: true,
     quietStdout:
-      /^maxims: @acme\/rules has not refreshed since 2026-09-20 \(source content invalid\); rules may be out of date\nmaxims: rules refreshed \(1 file updated\)\n$/,
+      /^maxims: the rules from @acme\/rules have not refreshed since 2026-09-20T12:00:00\.000Z \(source content invalid\) and may be out of date\.\nmaxims: rules refreshed \(1 file updated\)\n$/,
     retryAfter: false,
   },
 ];
@@ -258,7 +258,7 @@ test.each(tarballRows)(
       if (installs === null) {
         expect(manual.code).toBe(3);
         expect(manual.stdout).toContain(
-          `maxims: ${KEY} has not refreshed since 2026-09-20 (source content invalid); rules may be out of date`,
+          `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.`,
         );
         expect(lastErrorOf(world.maximsHome, KEY)?.kind).toBe("invalid");
         const after = readFileSync(rule, "utf8");

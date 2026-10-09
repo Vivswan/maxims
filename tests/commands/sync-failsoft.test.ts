@@ -74,12 +74,13 @@ function logText(home: string): string {
   }
 }
 
-// A last-good install of `@acme/rules` fetched `ageDays` ago under a one-day cooldown, whose
-// next fetch behaves as scripted.
+// A last-good install of `@acme/rules` fetched `ageDays` ago under a `cooldownDays` cooldown
+// (one day unless said), whose next fetch behaves as scripted.
 async function lastGood(
   world: { home: string; dir: string; userHome: string },
   ageDays: number,
   lastError: LastError | null = null,
+  cooldownDays = 1,
 ) {
   const upstream = writeSource(join(world.dir, "upstream"), TWO_MEMORIES);
   seedStore(world.home, FROM, upstream);
@@ -88,7 +89,7 @@ async function lastGood(
     world.home,
     stateWith({ [KEY]: fetchedEntry(FROM, facts) }, { global: ["claude-code"] }),
   );
-  writeFileSync(homePaths(world.home).config, JSON.stringify({ cooldownDays: 1 }));
+  writeFileSync(homePaths(world.home).config, JSON.stringify({ cooldownDays }));
   const fake = fakeResolvers();
   fake.set(FROM, { kind: "dir", dir: upstream });
   const io = fakeIo({ ...world, cwd: world.dir, resolvers: fake.resolvers });
@@ -97,7 +98,7 @@ async function lastGood(
 
 describe("fail-soft rungs under --quiet", () => {
   // A gone repository is stale at once, so its block gains the notice line the same run; the
-  // transient kinds keep the file byte-identical until the seven-day threshold.
+  // transient kinds keep the file byte-identical until the week of grace has passed.
   const rungs: { kind: LastError["kind"]; stdout: RegExp | null; staleAtOnce: boolean }[] = [
     { kind: "network", stdout: null, staleAtOnce: false },
     { kind: "ratelimit", stdout: null, staleAtOnce: false },
@@ -105,7 +106,7 @@ describe("fail-soft rungs under --quiet", () => {
     {
       kind: "missing",
       stdout:
-        /^maxims: @acme\/rules has not refreshed since 2026-09-20 \(source repository gone or unreadable\); rules may be out of date\nmaxims: rules refreshed \(1 file updated\)\n$/,
+        /^maxims: the rules from @acme\/rules have not refreshed since 2026-09-20T12:00:00\.000Z \(source repository gone or unreadable\) and may be out of date\.\nmaxims: rules refreshed \(1 file updated\)\n$/,
       staleAtOnce: true,
     },
   ];
@@ -151,7 +152,7 @@ describe("fail-soft rungs under --quiet", () => {
       io.out.length = 0;
       await runSync({ ...QUIET, dryRun: true }, io);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY} has not refreshed since 2026-09-20 (source repository gone or unreadable); rules may be out of date\n` +
+        `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source repository gone or unreadable) and may be out of date.\n` +
           "maxims: rules would be refreshed (1 file to update)\n",
       );
       expect(readFileSync(rules, "utf8")).toBe(before);
@@ -175,7 +176,7 @@ describe("fail-soft rungs under --quiet", () => {
       expect(staleLines(after)).toHaveLength(1);
       expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY} has not refreshed since 2026-09-20 (source content invalid); rules may be out of date\n` +
+        `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.\n` +
           "maxims: rules refreshed (1 file updated)\n",
       );
       expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
@@ -201,7 +202,7 @@ describe("fail-soft rungs under --quiet", () => {
       expect(staleLines(after)).toHaveLength(1);
       expect(withoutStaleLine(after)).toBe(before);
       expect(io.out.join("")).toBe(
-        `maxims: ${KEY} has not refreshed since 2026-09-20 (source content invalid); rules may be out of date\n` +
+        `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.\n` +
           "maxims: rules refreshed (1 file updated)\n",
       );
       const entry = readStateFile(w.home).sources[KEY];
@@ -213,9 +214,9 @@ describe("fail-soft rungs under --quiet", () => {
     });
   });
 
-  // A non-zero exit with no line is a defect of its own: inside the seven-day window the stale
-  // line is not yet due, so the interactive run says on stderr which source failed and how, once;
-  // the hook run stays silent, as its protocol asks.
+  // A non-zero exit with no line is a defect of its own: inside the week of grace the stale line
+  // is not yet due, so the interactive run says on stderr which source failed and how, once; the
+  // hook run stays silent, as its protocol asks.
   const transient: [LastError["kind"], string][] = [
     ["network", "network unreachable"],
     ["ratelimit", "rate limited"],
@@ -370,44 +371,46 @@ describe.skipIf(!CHMOD_DENIES)("native errors under --quiet --json", () => {
 });
 
 describe("staleness", () => {
-  const cases: { ageDays: number; lastError: LastError | null; stale: boolean; loud: boolean }[] = [
-    { ageDays: 6, lastError: null, stale: false, loud: false },
-    { ageDays: 8, lastError: null, stale: false, loud: false },
-    {
-      ageDays: 6,
-      lastError: { kind: "ratelimit", message: "429", at: NOW.toISOString() },
-      stale: false,
-      loud: false,
-    },
-    {
-      ageDays: 8,
-      lastError: { kind: "ratelimit", message: "429", at: NOW.toISOString() },
-      stale: true,
-      loud: true,
-    },
+  // A transient failure is stale once the last success is a week old, or a cooldown old where
+  // the cooldown is longer: 8 days is stale under the default and under a one-day cooldown, and
+  // not under 14. A gone repository or invalid content is stale whatever the cooldown.
+  const ratelimit: LastError = { kind: "ratelimit", message: "429", at: NOW.toISOString() };
+  const cases: {
+    ageDays: number;
+    cooldownDays: number;
+    lastError: LastError | null;
+    stale: boolean;
+  }[] = [
+    { ageDays: 6, cooldownDays: 7, lastError: null, stale: false },
+    { ageDays: 8, cooldownDays: 7, lastError: null, stale: false },
+    { ageDays: 6, cooldownDays: 7, lastError: ratelimit, stale: false },
+    { ageDays: 8, cooldownDays: 7, lastError: ratelimit, stale: true },
+    { ageDays: 8, cooldownDays: 1, lastError: ratelimit, stale: true },
+    { ageDays: 8, cooldownDays: 14, lastError: ratelimit, stale: false },
+    { ageDays: 15, cooldownDays: 14, lastError: ratelimit, stale: true },
     {
       ageDays: 1,
+      cooldownDays: 7,
       lastError: { kind: "missing", message: "404", at: NOW.toISOString() },
       stale: true,
-      loud: true,
     },
     {
       ageDays: 1,
+      cooldownDays: 7,
       lastError: { kind: "invalid", message: "no valid memories", at: NOW.toISOString() },
       stale: true,
-      loud: true,
     },
   ];
-  for (const { ageDays, lastError, stale, loud } of cases) {
-    test(`fetched ${ageDays}d ago with ${lastError?.kind ?? "no"} error: stale=${stale}`, async () => {
+  for (const { ageDays, cooldownDays, lastError, stale } of cases) {
+    test(`fetched ${ageDays}d ago under a ${cooldownDays}d cooldown with ${lastError?.kind ?? "no"} error: stale=${stale}`, async () => {
       await world(async (w) => {
-        const { io, rules } = await lastGood(w, ageDays, lastError);
+        const { io, rules } = await lastGood(w, ageDays, lastError, cooldownDays);
         const report = await runSync({ ...SYNC, fetch: "none" }, io);
         const text = readFileSync(rules, "utf8");
         expect(text.includes("have not refreshed since")).toBe(stale);
         expect(text.includes(SELF_REFRESH)).toBe(false);
-        const loudLines = report.notices.filter((line) => /has not refreshed since/.test(line));
-        expect(loudLines.length).toBe(loud ? 1 : 0);
+        const loudLines = report.notices.filter((line) => /have not refreshed since/.test(line));
+        expect(loudLines.length).toBe(stale ? 1 : 0);
       });
     });
   }
@@ -417,7 +420,7 @@ describe("staleness", () => {
   const standing: [LastError | null, string][] = [
     [
       { kind: "missing", message: "404", at: NOW.toISOString() },
-      `!  maxims: ${KEY} has not refreshed since 2026-09-19 (source repository gone or unreadable); rules may be out of date\n`,
+      `!  maxims: the rules from ${KEY} have not refreshed since 2026-09-19T12:00:00.000Z (source repository gone or unreadable) and may be out of date.\n`,
     ],
     [null, "o  Up to date: 2 memories, 2 rule lines\n"],
   ];
@@ -469,7 +472,7 @@ describe("staleness", () => {
     });
   });
 
-  test("a block that gains its staleness line as its source crosses seven days is not a local edit", async () => {
+  test("a block that gains its staleness line as its source crosses the week of grace is not a local edit", async () => {
     await world(async (w) => {
       const down: LastError = { kind: "network", message: "down", at: NOW.toISOString() };
       const { io, rules } = await lastGood(w, 6, down);
@@ -480,7 +483,7 @@ describe("staleness", () => {
       expect(readFileSync(rules, "utf8")).toContain("have not refreshed since");
       expect(report.notices.filter((line) => line.includes("local edit"))).toEqual([]);
       expect(
-        report.notices.filter((line) => line.includes("has not refreshed since")),
+        report.notices.filter((line) => line.includes("have not refreshed since")),
       ).toHaveLength(1);
     });
   });
@@ -833,7 +836,7 @@ describe("hook stdin contract", () => {
         io.stdin = text;
         await runSync({ ...QUIET, fetch: "none" }, io);
         const line =
-          "maxims: @acme/rules has not refreshed since 2026-09-18 (source repository gone or unreadable); rules may be out of date";
+          "maxims: the rules from @acme/rules have not refreshed since 2026-09-18T12:00:00.000Z (source repository gone or unreadable) and may be out of date.";
         const variant =
           def.hook.kind === "registry" || def.hook.kind === "file" ? def.hook.stdout : null;
         expect(io.out.join("")).toBe(renderHookStdout(variant, [line]));
@@ -858,10 +861,12 @@ describe("hook stdin contract", () => {
       io.stdin = JSON.stringify({ someHarness: true });
       await runSync({ ...QUIET, fetch: "none" }, io);
       expect(io.out.join("")).toBe("");
-      expect(logText(w.home)).toContain("has not refreshed since");
+      expect(logText(w.home)).toContain("have not refreshed since");
       const tty = fakeIo({ ...w, cwd: w.dir, now: new Date(NOW.getTime() + 240_000) });
       await runSync({ ...QUIET, fetch: "none" }, tty);
-      expect(tty.out.join("")).toMatch(/^maxims: @acme\/rules has not refreshed since/);
+      expect(tty.out.join("")).toMatch(
+        /^maxims: the rules from @acme\/rules have not refreshed since/,
+      );
     });
   });
 });

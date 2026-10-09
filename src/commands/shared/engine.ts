@@ -20,7 +20,12 @@ import {
   type Resolution,
   resolveSourceCandidates,
 } from "../../rulefile/dedupe.ts";
-import { type RuleLine, STALE_REASON, type Staleness } from "../../rulefile/types.ts";
+import {
+  type RuleLine,
+  STALE_REASON,
+  type Staleness,
+  staleSentence,
+} from "../../rulefile/types.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
 import { hashFiles, type TreeFile } from "../../sources/tree.ts";
 import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
@@ -47,7 +52,7 @@ import { parseRuleBlocks } from "./blocks.ts";
 import { inStore, planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";
-import { type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import { DAY_MS, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { hookedAt, planHooks } from "./hooks.ts";
 import {
@@ -116,14 +121,13 @@ export type SourceWork = {
   storeChanges: Change[];
 };
 
-const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
 // The failure kinds that make a source stale the run they happen, so `staleNotices` says them out
-// loud at once; a transient kind earns its loud line only once seven days have passed, and until
-// then the engine's own word on it is the one stderr summary (the resolver may have said which
-// rung failed before it).
+// loud at once; a transient kind earns its loud line only once `staleness`'s grace has passed,
+// and until then the engine's own word on it is the one stderr summary (the resolver may have
+// said which rung failed before it).
 const STALE_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
@@ -966,7 +970,7 @@ async function refreshAll(
         // explain it.
         if (
           !STALE_AT_ONCE.has(result.error.kind) &&
-          staleness(result.entry.fetched, ctx.now) === undefined
+          staleness(result.entry.fetched, ctx.now, ctx.cooldownDays) === undefined
         ) {
           notices.aside(
             `maxims: ${key}: fetch failed (${STALE_REASON[result.error.kind]}); kept last-good`,
@@ -1090,7 +1094,7 @@ async function readTrees(
       storeEntry,
       tree: read.tree,
       sha: !live && fetched !== undefined ? fetched.sha : read.tree.sha,
-      stale: staleness(fetched, ctx.now),
+      stale: staleness(fetched, ctx.now, ctx.cooldownDays),
       ownedUpstreamNames: selectMemories({
         memories: read.tree.memories,
         intent,
@@ -1201,23 +1205,28 @@ function currentLinkTarget(path: string): string | null {
 }
 
 // Stale means fetching has been failing: immediately for a gone repository or content nothing
-// can be installed from, after seven days for a transient kind. A source merely past its cooldown
-// that fetches fine is not stale.
-export function staleness(fetched: Fetched | undefined, now: Date): Staleness | undefined {
+// can be installed from, and for a transient kind once the last success is a week old, or a
+// cooldown old where the cooldown is longer, since a source is not stale before its refresh was
+// due. A source merely past its cooldown that fetches fine is not stale.
+const STALE_GRACE_MS = 7 * DAY_MS;
+
+export function staleness(
+  fetched: Fetched | undefined,
+  now: Date,
+  cooldownDays: number,
+): Staleness | undefined {
   if (fetched === undefined || fetched.lastError === null) return undefined;
   const { kind } = fetched.lastError;
   if (STALE_AT_ONCE.has(kind)) return { since: fetched.at, kind };
-  if (now.getTime() - Date.parse(fetched.at) >= STALE_AFTER_MS) return { since: fetched.at, kind };
+  const staleAfterMs = Math.max(STALE_GRACE_MS, cooldownDays * DAY_MS);
+  if (now.getTime() - Date.parse(fetched.at) >= staleAfterMs) return { since: fetched.at, kind };
   return undefined;
 }
 
-// The one line a session hears about a stale source, in the shape the rule-file line takes.
+// The one line a session hears about a stale source, the sentence the rule-file line carries.
 function staleNotices(work: SourceWork, notices: Notices): void {
   if (work.stale === undefined) return;
-  const since = work.stale.since.slice(0, "2026-01-01".length);
-  notices.loud(
-    `maxims: ${work.key} has not refreshed since ${since} (${STALE_REASON[work.stale.kind]}); rules may be out of date`,
-  );
+  notices.loud(`maxims: ${staleSentence(`the rules from ${work.key}`, work.stale)}`);
 }
 
 // `id` is the directory's real path, the identity two spellings of one folder share.

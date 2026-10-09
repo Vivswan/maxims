@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { notInstalled, overRuleCap } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import {
   AbsolutePathSchema,
@@ -23,6 +24,7 @@ import {
 } from "../../memory/contract.ts";
 import {
   buildNameIndex,
+  type Collision,
   type IndexedSource,
   resolveSourceCandidates,
 } from "../../rulefile/dedupe.ts";
@@ -200,9 +202,14 @@ export type ResolveIncomingInput = {
   installed: readonly IndexedSource[];
 };
 
+// A collision refusal names at least one memory, so its consumers read the first without a guard.
 export type ResolveIncomingOutcome =
   | { ok: true; names: MemoryName[] }
-  | { ok: false; code: ExitCode.NameCollision; collisions: { name: MemoryName; ownedBy: string }[] }
+  | {
+      ok: false;
+      code: ExitCode.NameCollision;
+      collisions: [Collision, ...Collision[]];
+    }
   | { ok: false; code: ExitCode.RuleCapExceeded; count: number; cap: number; hint: string };
 
 // The dedupe walk and the cap check a source about to be recorded is judged by, the same ones
@@ -222,10 +229,23 @@ export function resolveIncoming(input: ResolveIncomingInput): ResolveIncomingOut
   });
   if (resolution.ok) return { ok: true, names: resolution.lines.map((line) => line.name) };
   if (resolution.code === ExitCode.NameCollision) {
-    return { ok: false, code: resolution.code, collisions: resolution.collisions };
+    const [first, ...rest] = resolution.collisions;
+    if (first === undefined) throw new Error("a collision refusal names at least one memory");
+    return { ok: false, code: resolution.code, collisions: [first, ...rest] };
   }
   const { code, count, cap, hint } = resolution;
   return { ok: false, code, count, cap, hint };
+}
+
+// The refusal `add` and `update` throw for a source over the cap, with the count the walk
+// measured and the hint that names the ways out.
+export function ruleCapRefusal(
+  key: string,
+  refused: Extract<ResolveIncomingOutcome, { code: ExitCode.RuleCapExceeded }>,
+): MaximsError {
+  return new MaximsError(refused.code, overRuleCap(key, refused.count, refused.cap), {
+    hint: refused.hint,
+  });
 }
 
 // A source argument on `remove`, `update`, `link` and `unlink` is either a recorded key as
@@ -246,9 +266,13 @@ export type SourceLookup =
   | { kind: "elsewhere"; key: string; root: string }
   | { kind: "absent" };
 
+// What a source lookup needs of the run: where a relative path resolves from, the GitHub host,
+// and which project's entries are this run's.
+export type LookupIo = Pick<CliIo, "cwd" | "env" | "projectRoot">;
+
 // A source recorded for another project is not "installed" to a verb running here: its files
 // live under a root this run never writes, so every verb that would edit it says where to run.
-export function lookupSource(state: State, arg: string, io: CliIo): SourceLookup {
+export function lookupSource(state: State, arg: string, io: LookupIo): SourceLookup {
   const direct = findSourceKey(state, arg);
   const key =
     direct ??
@@ -265,11 +289,26 @@ export function lookupSource(state: State, arg: string, io: CliIo): SourceLookup
   return { kind: "here", key };
 }
 
-export function findInstalledSource(state: State, arg: string, io: CliIo): string {
+export function findInstalledSource(state: State, arg: string, io: LookupIo): string {
   const found = lookupSource(state, arg, io);
   if (found.kind === "here") return found.key;
-  if (found.kind === "absent") throw new MaximsError(ExitCode.Usage, `${arg} is not installed`);
+  if (found.kind === "absent") throw new MaximsError(ExitCode.Usage, notInstalled(arg));
   throw installedElsewhere(found.key, found.root);
+}
+
+// The recorded key an argument names, or null when it names none: a spelling the parser refuses
+// (a bare memory name, which `remove` and `show` read next) is no source either. One recorded
+// for another project is neither, and is refused here.
+export function installedSourceOrNull(state: State, arg: string, io: LookupIo): string | null {
+  let found: SourceLookup;
+  try {
+    found = lookupSource(state, arg, io);
+  } catch (error) {
+    if (error instanceof MaximsError && error.code === ExitCode.Usage) return null;
+    throw error;
+  }
+  if (found.kind === "elsewhere") throw installedElsewhere(found.key, found.root);
+  return found.kind === "here" ? found.key : null;
 }
 
 export function installedElsewhere(key: string, root: string): MaximsError {
@@ -367,12 +406,12 @@ export async function resolveMemoryName(
   if (qualified !== null && qualified[1] !== undefined && qualified[2] !== undefined) {
     const key = findSourceKey(state, qualified[1]);
     const name = parseMemoryName(qualified[2]);
-    if (key === null) throw new MaximsError(ExitCode.Usage, `${qualified[1]} is not installed`);
+    if (key === null) throw new MaximsError(ExitCode.Usage, notInstalled(qualified[1]));
     if (name === null)
       throw new MaximsError(ExitCode.Usage, `"${qualified[2]}" is not a memory name`);
     const entry = state.sources[key];
     if (entry === undefined || !actsHere(entry, io)) {
-      throw new MaximsError(ExitCode.Usage, `${qualified[1]} is not installed`);
+      throw new MaximsError(ExitCode.Usage, notInstalled(qualified[1]));
     }
     if (!(await effectiveNames(entry, io)).includes(name)) {
       throw new MaximsError(ExitCode.Usage, `${key} does not provide ${name}`);

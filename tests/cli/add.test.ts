@@ -154,6 +154,7 @@ test("a refusal under --json is one document and the exit is its code; --quiet s
         ok: false,
         code: 8,
         message: "over the 6000-byte limit",
+        hint: null,
       });
       const quiet = await runCli(scenario, [...argv, "--quiet"]);
       expect(quiet.code).toBe(0);
@@ -161,6 +162,7 @@ test("a refusal under --json is one document and the exit is its code; --quiet s
         ok: false,
         code: 8,
         message: "over the 6000-byte limit",
+        hint: null,
       });
       expect(readFileSync(homePaths(scenario.home).log, "utf8")).toContain(
         "add failed (exit 8): over the 6000-byte limit",

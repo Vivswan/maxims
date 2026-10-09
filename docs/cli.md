@@ -140,6 +140,6 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 
 Codes 3, 6, 7, and 8 are one family. The install would be incomplete, so nothing at all is written; a partial install is a set of rules the user believes is loaded and is not.
 
-`--json` prints a failure as one document with `ok: false`; the other fields depend on the verb, and a `code` field in it is the exit. With `--quiet` as well, the document still names the code and the exit is 0.
+`--json` prints a failure as one document: `ok: false`, `code` (the exit), `message`, and `hint` (null when there is none). A failure reported after the verb's run adds its success document's fields, so `sync` and `update` put a dry run's `plan` in it alike; one before the run (an unknown flag) carries the four alone. Under `--quiet` the document still names the code and the exit is 0.
 
 `--quiet` collapses every non-zero code to 0 after logging. This is a requirement, not an optimization. A harness shows a failing hook to the user at every session start, and fail-soft is what keeps that notice from becoming permanent.

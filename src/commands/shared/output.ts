@@ -1,6 +1,7 @@
 import type { Console } from "../../console/contract.ts";
 import { type Plan, renderPlan } from "../../util/change.ts";
-import { ExitCode } from "../../util/exit-codes.ts";
+import { ExitCode, type MaximsError } from "../../util/exit-codes.ts";
+import { errorDocument, ReportedMaximsError } from "./errors.ts";
 import type { CommandContext } from "./options.ts";
 
 // `code` is the exit of a run that finished its work and still has something to report as failed
@@ -21,25 +22,57 @@ export function finish(ctx: CommandContext, console: Console, outcome: Outcome):
   const { io, global } = ctx;
   const code = outcome.code ?? ExitCode.Ok;
   if (global.json) {
-    const body = {
-      ok: code === ExitCode.Ok,
-      ...outcome.json,
-      notices: outcome.notices,
-      plan: outcome.plan,
-    };
+    const body = { ok: code === ExitCode.Ok, ...documentFields(outcome) };
     io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
     return code;
   }
   if (global.quiet) {
-    for (const notice of outcome.notices) io.stdout.write(`${notice}\n`);
+    printQuiet(ctx, outcome);
     return ExitCode.Ok;
   }
-  if (global.dryRun) {
-    io.stdout.write(renderPlan({ changes: outcome.plan.changes, notices: [] }));
+  printFrame(ctx, console, outcome);
+  return code;
+}
+
+// The exit of a verb that finished its work and failed: the frame a finished run ends in, then
+// the failure for the command line to print. Under `--json` the one document is the failure's,
+// with the fields the success document carries, so a dry run's plan is in it as `sync --json`
+// puts it; the error comes back already reported. The flags compose as in `finish`: `--json`
+// wins, and `--quiet` prints the notices alone and hands the failure back bare for the command
+// line's log line.
+export function failed(
+  ctx: CommandContext,
+  console: Console,
+  outcome: Omit<Outcome, "code">,
+  error: MaximsError,
+): MaximsError {
+  const { io, global } = ctx;
+  if (global.json) {
+    io.stdout.write(errorDocument(error, documentFields(outcome)));
+    return new ReportedMaximsError(error.code, error.message, { hint: error.hint });
+  }
+  if (global.quiet) {
+    printQuiet(ctx, outcome);
+    return error;
+  }
+  printFrame(ctx, console, outcome);
+  return error;
+}
+
+function documentFields(outcome: Omit<Outcome, "code">): Record<string, unknown> {
+  return { ...outcome.json, notices: outcome.notices, plan: outcome.plan };
+}
+
+function printQuiet(ctx: CommandContext, outcome: Omit<Outcome, "code">): void {
+  for (const notice of outcome.notices) ctx.io.stdout.write(`${notice}\n`);
+}
+
+function printFrame(ctx: CommandContext, console: Console, outcome: Omit<Outcome, "code">): void {
+  if (ctx.global.dryRun) {
+    ctx.io.stdout.write(renderPlan({ changes: outcome.plan.changes, notices: [] }));
   }
   for (const line of outcome.lines) console.step(line);
   for (const notice of outcome.notices) console.warn(notice);
-  return code;
 }
 
 export function mergePlans(...plans: Plan[]): Plan {

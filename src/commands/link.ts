@@ -1,4 +1,4 @@
-import { noTargetAtScope } from "../console/strings.ts";
+import { noTargetAtScope, notInstalled } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
@@ -58,8 +58,7 @@ export const link: Command = {
     const console = await ctx.openConsole(true);
     const { target, state } = await linkTarget(args, ctx, "link");
     const entry = state.sources[target.key];
-    if (entry === undefined)
-      throw new MaximsError(ExitCode.Usage, `${target.key} is not installed`);
+    if (entry === undefined) throw new MaximsError(ExitCode.Usage, notInstalled(target.key));
     const scope = scopeOf(entry.intent.destination);
     const added: HarnessId[] = [];
     const warnings: string[] = [];
@@ -84,8 +83,9 @@ export const link: Command = {
       ctx.global.dryRun,
       async (current) => {
         const existing = current.state.sources[target.key];
-        if (existing === undefined)
-          throw new MaximsError(ExitCode.Usage, `${target.key} is not installed`);
+        if (existing === undefined) {
+          throw new MaximsError(ExitCode.Usage, notInstalled(target.key));
+        }
         const next: State = {
           ...current.state,
           sources: {

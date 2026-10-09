@@ -102,7 +102,7 @@ describe("list", () => {
       expect(
         byKey[first]?.harnesses.map((harness) => [harness.id, harness.tier, harness.hook]),
       ).toEqual([
-        ["claude-code", 1, "absent"],
+        ["claude-code", 1, "missing"],
         ["codex", 2, "not-wanted"],
       ]);
       expect(byKey[first]?.harnesses[1]?.tierNote).toBe("no hook");
@@ -137,7 +137,7 @@ describe("list", () => {
         /@acme\/rules {2}[0-9a-f]{7} {2}fetched 2026-09-11 {2}stale 9d: ratelimit\n/,
       );
       expect(text).toContain(
-        "  Agents: claude-code (tier 1, hook absent), codex (tier 2: no hook)  Rules: yes\n",
+        "  Agents: claude-code (tier 1, hook missing), codex (tier 2: no hook)  Rules: yes\n",
       );
       expect(text).toContain(
         "  @acme/other: in .agents/maxims.lock, not installed here (run maxims install)\n",
@@ -200,7 +200,7 @@ describe("list", () => {
       expect(existsSync(join(w.userHome, ".fixture", "settings.json"))).toBe(true);
       expect(existsSync(join(w.userHome, ".fixture", "config.json"))).toBe(false);
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
-      expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["ok"]);
+      expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["current"]);
     });
   });
 

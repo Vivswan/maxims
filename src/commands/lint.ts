@@ -1,6 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { hiddenCharacters, isMemoryFile, type Memory, parseMemory } from "../memory/contract.ts";
+import { overRuleCap } from "../console/strings.ts";
+import {
+  hiddenCharacterLabel,
+  hiddenCharacters,
+  isMemoryFile,
+  type Memory,
+  parseMemory,
+} from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -67,14 +74,10 @@ export function lintFolder(
     const hidden = hiddenCharacters(parsed.memory.description);
     const first = hidden[0];
     if (first !== undefined) {
-      const label =
-        first.kind === "html-comment"
-          ? "an HTML comment"
-          : `U+${first.codePoint.toString(16).toUpperCase().padStart(4, "0")} ${first.kind} character`;
       problems.push({
         path,
         line: keyLine(text, "description"),
-        reason: `description carries ${label} at column ${first.index + 1}`,
+        reason: `description carries ${hiddenCharacterLabel(first)} at column ${first.index + 1}`,
       });
     }
     for (const warning of riskWarningsFor([parsed.memory])) {
@@ -101,7 +104,7 @@ export function lintFolder(
     problems.push({
       path: relative(cwd, root) || ".",
       line: 1,
-      reason: `${memories.length} memories is over the rule cap of ${cap}`,
+      reason: overRuleCap("this folder", memories.length, cap),
     });
   }
   return problems.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);

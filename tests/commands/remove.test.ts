@@ -12,6 +12,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -358,6 +359,22 @@ describe("remove", () => {
       await runRemove({ ...REMOVE, targets: ["https://github.com/acme/rules/tree/release"] }, io);
       expect(Object.keys(readStateFile(home).sources)).toEqual(["@Acme/Rules#Release"]);
       await runRemove({ ...REMOVE, targets: ["@acme/rules#Release", "@acme/rules#Release"] }, io);
+      expect(readStateFile(home).sources).toEqual({});
+    });
+  });
+
+  // `add` records a local source by its real path, and `show` and `update` find it typed through
+  // a symlink; `remove` resolves the argument through the same lookup, so it does too.
+  test("a local source typed through a symlink is found by its recorded real path", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const alias = join(dir, "alias");
+      symlinkSync(source, alias);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const report = await runRemove({ ...REMOVE, targets: [alias] }, io);
+      expect(report.notices).not.toContain(`${alias} is not installed`);
       expect(readStateFile(home).sources).toEqual({});
     });
   });

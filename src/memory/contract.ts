@@ -224,6 +224,21 @@ export type HiddenCharacter =
   | { kind: "html-comment"; index: number };
 
 const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
+// The code points with a name of their own; the rest are reported by their kind.
+const HIDDEN_LABELS = new Map<number, string>([
+  [0x200b, "zero-width space"],
+  [0x200c, "zero-width non-joiner"],
+  [0x200d, "zero-width joiner"],
+  [0x2060, "word joiner"],
+  [0xfeff, "byte order mark"],
+]);
+
+// The label a hidden character is reported under, by `add` and `lint` alike.
+export function hiddenCharacterLabel(hidden: HiddenCharacter): string {
+  if (hidden.kind === "html-comment") return "an HTML comment";
+  const hex = `U+${hidden.codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+  return `${hex} ${HIDDEN_LABELS.get(hidden.codePoint) ?? `${hidden.kind} character`}`;
+}
 // The Bidi_Control marks outside the two embedding ranges: ALM, LRM and RLM.
 const BIDI_MARKS = new Set([0x061c, 0x200e, 0x200f]);
 

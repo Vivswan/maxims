@@ -270,15 +270,14 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
         stdin: hookPayload(CLAUDE_STDIN, home),
       }),
     );
-    const since = lastSuccess.slice(0, "2026-01-01".length);
     expect(run.stdout).toBe(
-      `maxims: ${installed.source} has not refreshed since ${since} (source repository gone or unreadable); rules may be out of date\n` +
+      `maxims: the rules from ${installed.source} have not refreshed since ${lastSuccess} (source repository gone or unreadable) and may be out of date.\n` +
         "maxims: rules refreshed (2 files updated)\n",
     );
     const ruleAfter = readFileSync(installed.ruleFile, "utf8");
     for (const line of ruleLines) expect(ruleAfter).toContain(line);
     expect(ruleAfter).toContain(
-      `- maxims: the rules below from ${installed.source} have not refreshed since ${since}`,
+      `- maxims: the rules below from ${installed.source} have not refreshed since ${lastSuccess}`,
     );
     const [, after] = onlyEntry(readState(home));
     if (!("fetched" in after) || after.fetched === undefined)

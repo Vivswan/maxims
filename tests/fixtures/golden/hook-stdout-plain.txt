@@ -1,1 +1,1 @@
-maxims: <SOURCE> has not refreshed since 2026-01-01 (source repository gone or unreadable); rules may be out of date
+maxims: the rules from <SOURCE> have not refreshed since 2026-01-01T00:00:00.000Z (source repository gone or unreadable) and may be out of date.

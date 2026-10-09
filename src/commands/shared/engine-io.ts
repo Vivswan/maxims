@@ -1,6 +1,7 @@
 import type { Sink } from "../../console/contract.ts";
+import { failedToUpdate, STRINGS } from "../../console/strings.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { CliIo, EngineIo, SymlinkSupport } from "../types.ts";
+import type { CliIo, EngineIo, SymlinkSupport, SyncReport } from "../types.ts";
 import { ReportedMaximsError } from "./errors.ts";
 import { probeSymlinkSupport } from "./fs-probe.ts";
 import { readHookStdin } from "./stdin.ts";
@@ -60,4 +61,11 @@ export function exitForFailed(failed: readonly { kind: string }[]): ExitCode {
   return failed.every((failure) => failure.kind === "invalid")
     ? ExitCode.NothingResolved
     : ExitCode.SourceUnresolvable;
+}
+
+// The one failure a run with failed fetches ends in, for `sync --json` and `update` alike: the
+// exit above, one line per source, and the fact that nothing installed was lost.
+export function failedFetches(failed: readonly SyncReport["failed"][number][]): MaximsError {
+  const lines = failed.map((failure) => failedToUpdate(failure.key, failure.message));
+  return new MaximsError(exitForFailed(failed), lines.join("\n"), { hint: STRINGS.lastGoodKept });
 }

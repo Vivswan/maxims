@@ -7,7 +7,7 @@ import { homePaths } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { VERSION } from "../version.ts";
 import { configRefusal } from "./shared/cli-context.ts";
-import { ReportedMaximsError } from "./shared/errors.ts";
+import { errorDocument, ReportedMaximsError } from "./shared/errors.ts";
 import {
   type Args,
   type Command,
@@ -392,10 +392,7 @@ async function reportFailure(error: unknown, ctx: FailureContext): Promise<numbe
   if (error instanceof ReportedMaximsError) return ctx.quiet ? ExitCode.Ok : code;
   const message = error instanceof Error ? error.message : String(error);
   const hint = error instanceof MaximsError ? error.hint : undefined;
-  if (ctx.json) {
-    const body = { ok: false, code, message, ...(hint === undefined ? {} : { hint }) };
-    ctx.io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
-  }
+  if (ctx.json) ctx.io.stdout.write(errorDocument(error));
   if (ctx.quiet) {
     await logQuietly(ctx, `maxims: ${ctx.verb} failed (exit ${code}): ${message}`);
     return ExitCode.Ok;

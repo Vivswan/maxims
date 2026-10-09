@@ -489,9 +489,9 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
     expect(run.code).toBe(3);
     expect(run.stdout).toBe(
       [
-        "memories:1: 3 memories is over the rule cap of 2",
+        "memories:1: this folder would publish 3 rule lines, over the cap of 2",
         `${join("memories", "good-rule.md")}:6: [[missing-target]] does not name a memory in this folder`,
-        `${join("memories", "hidden-char.md")}:3: description carries U+200B zero-width character at column 6`,
+        `${join("memories", "hidden-char.md")}:3: description carries U+200B zero-width space at column 6`,
         `${join("memories", "no-description.md")}:1: description is missing or empty`,
         `${join("memories", "third.md")}:3: shell-pipe: curl piped into sh at column 10`,
         `${join("memories", "third.md")}:3: url: x.example at column 15`,
@@ -849,9 +849,10 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
         join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
         block("@a/b", ["gate-exit-conditions-the-merge"]),
       );
+      // The stamp's text is the clock; a stale mtime (a synced home, a copied folder) is not.
       const stamp = homePaths(scenario.home).lastSync;
-      writeFileSync(stamp, "");
-      utimesSync(stamp, new Date("2026-09-20T11:56:00.000Z"), new Date("2026-09-20T11:56:00.000Z"));
+      writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
+      utimesSync(stamp, new Date("2026-09-17T11:56:00.000Z"), new Date("2026-09-17T11:56:00.000Z"));
       const before = await snapshot(scenario.root);
       const run = await runCli(scenario, [
         "doctor",
@@ -1263,6 +1264,7 @@ test("sync --quiet exits 0 even on a usage error, and --json wraps errors before
       ok: false,
       code: 1,
       message: "unknown option: --bogus",
+      hint: null,
     });
     const verb = await runCli(scenario, ["frob", "--json"]);
     expect(verb.code).toBe(1);
@@ -2197,6 +2199,74 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
       { kind: "warn", text: "never synced" },
     ]);
     expect(await snapshot(scenario.home)).toBe(before);
+  });
+});
+
+// A stamp that is there but cannot be read is not a machine that never synced: the debounce
+// fails open on it and doctor names the read failure instead of a history it did not see. Text
+// that is not a time is the same case, since maxims wrote the stamp.
+test("doctor reports a stamp that holds no timestamp as unknown, not as never synced", async () => {
+  await withScenario({}, async (scenario) => {
+    const stamp = homePaths(scenario.home).lastSync;
+    writeFileSync(stamp, "not a time\n");
+    const run = await runCli(scenario, ["doctor", "--json"]);
+    const body = JSON.parse(run.stdout) as {
+      lastSync: string | null;
+      findings: { kind: string; text: string }[];
+    };
+    expect([body.lastSync, body.findings]).toEqual([
+      null,
+      [{ kind: "warn", text: `last sync unknown: ${stamp} does not hold a timestamp` }],
+    ]);
+  });
+});
+
+test.skipIf(!CHMOD_DENIES)(
+  "doctor reports an unreadable sync stamp as unknown, not as never synced",
+  async () => {
+    await withScenario({}, async (scenario) => {
+      const stamp = homePaths(scenario.home).lastSync;
+      writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
+      chmodSync(stamp, 0o000);
+      try {
+        const run = await runCli(scenario, ["doctor", "--json"]);
+        const body = JSON.parse(run.stdout) as {
+          lastSync: string | null;
+          findings: { kind: string; text: string }[];
+        };
+        expect(body.lastSync).toBeNull();
+        expect(body.findings).toEqual([
+          { kind: "warn", text: expect.stringMatching(/^last sync unknown: EACCES/) },
+        ]);
+      } finally {
+        chmodSync(stamp, 0o644);
+      }
+    });
+  },
+);
+
+// Sync registers no hook where the harness has no config folder at the scope, so doctor and
+// list judge such a hook as not wanted rather than missing; the folder's arrival makes it missing.
+test("doctor expects no hook for a project whose harness folder is absent", async () => {
+  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    const add = await runCli(scenario, [
+      "add",
+      "@a/b",
+      "-p",
+      "-a",
+      "claude-code",
+      "--rule",
+      "--add-hook",
+    ]);
+    expect(add.code).toBe(0);
+    scenario.options.hookMissing = ["claude-code"];
+    const absent = await runCli(scenario, ["doctor"]);
+    expect(absent.stdout).not.toContain("hook missing");
+    mkdirSync(join(scenario.cwd, ".claude"), { recursive: true });
+    const present = await runCli(scenario, ["doctor"]);
+    expect(present.stdout).toContain(
+      "x   claude-code: hook missing (run maxims add <source> --add-hook)\n",
+    );
   });
 });
 

@@ -23,8 +23,9 @@ import {
   shortSha,
   staleness,
 } from "./shared/engine.ts";
+import { DAY_MS } from "./shared/fetch.ts";
 import { pathAbsent } from "./shared/fs-probe.ts";
-import { hookedAt, planHookAlone } from "./shared/hooks.ts";
+import { hookStatus, hookStatusText, planHookAlone } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, selectMemories } from "./shared/select.ts";
@@ -201,7 +202,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
       sha: fetched?.sha ?? (source.tree.kind === "tree" ? source.tree.tree.sha : null),
       fetchedAt: fetched?.at ?? null,
       lastError: fetched?.lastError ?? null,
-      stale: staleFacts(fetched, ctx.now),
+      stale: staleFacts(fetched, ctx.now, ctx.cooldownDays),
       memories,
       harnesses,
       renames,
@@ -276,12 +277,7 @@ async function listHarnesses(
       listed.rulesPresent = fileExists(target.path);
     }
     if (skipped !== undefined) listed.skipped = skipped.reason;
-    // A harness with no home at this scope (its config folder absent or a file) has no registry
-    // to probe; sync does not touch it either.
-    if (hookedAt(state, scope, ctx.projectRoot).includes(id) && skipped?.kind !== "unreachable") {
-      const hook = await planHookAlone(def, scope, harnessCtx, true);
-      listed.hook = hook.changes.length === 0 ? "ok" : "absent";
-    }
+    listed.hook = await hookStatus(def, scope, state, ctx.projectRoot, harnessCtx, planHookAlone);
     out.push(listed);
   }
   return out;
@@ -299,10 +295,14 @@ function tierNote(
   return "no hook";
 }
 
-function staleFacts(fetched: Fetched | undefined, now: Date): ListedSource["stale"] {
-  const stale = staleness(fetched, now);
+function staleFacts(
+  fetched: Fetched | undefined,
+  now: Date,
+  cooldownDays: number,
+): ListedSource["stale"] {
+  const stale = staleness(fetched, now, cooldownDays);
   if (stale === undefined) return null;
-  const days = Math.floor((now.getTime() - Date.parse(stale.since)) / (24 * 60 * 60 * 1000));
+  const days = Math.floor((now.getTime() - Date.parse(stale.since)) / DAY_MS);
   return { ...stale, days: Math.max(0, days) };
 }
 
@@ -400,6 +400,6 @@ function harnessCell(harness: ListedHarness): string {
     harness.tierNote === null
       ? `tier ${harness.tier}`
       : `tier ${harness.tier}: ${harness.tierNote}`;
-  const hook = harness.hook === "not-wanted" ? "" : `, hook ${harness.hook}`;
-  return `${harness.id} (${tier}${hook})`;
+  const hook = hookStatusText(harness.hook);
+  return `${harness.id} (${tier}${hook === null ? "" : `, ${hook}`})`;
 }

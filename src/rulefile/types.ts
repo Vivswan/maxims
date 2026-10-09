@@ -32,6 +32,13 @@ export const STALE_REASON: Record<Staleness["kind"], string> = {
   invalid: "source content invalid",
 };
 
+// The one sentence a stale source is said in, by the rule-file line and the sync notice alike;
+// each puts its own plural subject in front (`the rules below from <key>`, `the rules from <key>`).
+// `since` stays the full timestamp: the rule-file line is recognized on a later run by that shape.
+export function staleSentence(subject: string, stale: Staleness): string {
+  return `${subject} have not refreshed since ${stale.since} (${STALE_REASON[stale.kind]}) and may be out of date.`;
+}
+
 export type BlockInput = {
   source: string;
   sha: string;
