@@ -7,9 +7,6 @@ import {
   emptyState,
   parseState,
 } from "../../src/state/schema.ts";
-import { memoryName } from "../engine/harness.ts";
-
-const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 
 const VALID = {
   version: 1,
