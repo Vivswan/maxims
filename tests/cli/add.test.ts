@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
@@ -751,7 +752,7 @@ test("a source recorded for another project is refused by add, link, update, sha
     async (scenario) => {
       const elsewhere = join(scenario.root, "elsewhere");
       writeState(scenario, {
-        version: 1,
+        version: CURRENT_STATE_VERSION,
         writtenBy: "maxims@0.0.0",
         sources: {
           "@a/b": {
@@ -1243,7 +1244,7 @@ test("--dry-run shows the plan, writes no state, and hands dryRun to the engine"
 test("a corrupt state file is quarantined with a warning and the add proceeds on an empty intent", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     writeState(scenario, {
-      version: 1,
+      version: CURRENT_STATE_VERSION,
       writtenBy: "x",
       sources: { "@a/b": { bogus: true } },
     });
@@ -1582,7 +1583,7 @@ test("--from, --full-depth and --copy round-trip through the manifest into a fre
 });
 
 const CORRUPT_STATE = {
-  version: 1,
+  version: CURRENT_STATE_VERSION,
   writtenBy: "x",
   sources: { "@a/b": { bogus: true } },
 };

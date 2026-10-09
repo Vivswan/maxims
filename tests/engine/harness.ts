@@ -23,6 +23,7 @@ import type { FetchResult, ResolverFor, SourceResolver } from "../../src/sources
 import { FetchFailure, type FetchFailureKind } from "../../src/sources/github/ladder.ts";
 import { createLocalResolver } from "../../src/sources/local.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
 import {
   canonicalSourceKey,
   type Fetched,
@@ -288,14 +289,12 @@ function baseIntent(overrides: IntentOverrides): Omit<SourceIntent, "from"> {
   };
 }
 
-// The entry variant follows `from`: a live directory records no fetch, a copied one or a remote
-// starts with none.
+// Three identical bodies because SourceEntry is a union keyed on `from`, and a spread over the
+// unnarrowed SourceFrom does not distribute; the branches narrow, they do not vary.
 export function entryFor(from: SourceFrom, overrides: IntentOverrides = {}): SourceEntry {
   const base = baseIntent(overrides);
-  if (from.type === "local") {
-    if (from.live === true) return { intent: { ...base, from }, addedAt: ADDED_AT };
-    return { intent: { ...base, from }, addedAt: ADDED_AT };
-  }
+  if (from.type !== "local") return { intent: { ...base, from }, addedAt: ADDED_AT };
+  if (from.live === true) return { intent: { ...base, from }, addedAt: ADDED_AT };
   return { intent: { ...base, from }, addedAt: ADDED_AT };
 }
 
@@ -304,7 +303,11 @@ export function stateWith(
   hooks?: State["hooks"],
   disabled?: State["disabled"],
 ): State {
-  const state: State = { version: 1, writtenBy: "maxims@0.0.0-fixture", sources: entries };
+  const state: State = {
+    version: CURRENT_STATE_VERSION,
+    writtenBy: "maxims@0.0.0-fixture",
+    sources: entries,
+  };
   if (hooks !== undefined) state.hooks = hooks;
   if (disabled !== undefined) state.disabled = disabled;
   return state;
