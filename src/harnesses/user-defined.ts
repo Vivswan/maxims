@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { isBuiltInHarnessId } from "../contracts/harness-id.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import type { HarnessDefinition } from "./contract.ts";
@@ -42,11 +41,6 @@ export async function loadUserDefinedHarnesses(home: string): Promise<UserDefine
     const parsed = parseHarnessSpec(entry, UserHarnessSpecSchema);
     if (!parsed.ok) throw refuse(path, `${where}: ${parsed.issues.join("; ")}`);
     const id = parsed.spec.id;
-    if (isBuiltInHarnessId(id)) {
-      throw refuse(path, `${where}: "${id}" is a built-in harness id`, {
-        hint: "pick another id; built-in harnesses cannot be redefined",
-      });
-    }
     if (seen.has(id)) throw refuse(path, `${where}: "${id}" is declared twice`);
     seen.add(id);
     return { ...toDefinition(parsed.spec), userDefined: true };

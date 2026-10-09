@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeCode } from "../../../src/harnesses/claude-code/index.ts";
-import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
+import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import {
   achievedTier,
   hasHook,
@@ -125,7 +125,7 @@ describe("claude-code", () => {
           target: rulesDir(scope),
           scope,
           ctx,
-          sourceSlug: "example-user-doctrine",
+          sourceSlug: "example-user-doctrine" as SourceSlug,
           block,
           paths,
         }),
@@ -139,7 +139,7 @@ describe("claude-code", () => {
       target: rulesDir("project"),
       scope: "project",
       ctx,
-      sourceSlug: "example-user-doctrine",
+      sourceSlug: "example-user-doctrine" as SourceSlug,
       block,
       paths: ["src/**/*.ts", "docs: notes/*.md"],
     });

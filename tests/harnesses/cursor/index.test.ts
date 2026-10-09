@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
+import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import { cursor } from "../../../src/harnesses/cursor/index.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
@@ -55,7 +55,7 @@ test.each(ruleFiles)(
         target,
         scope: "project",
         ctx,
-        sourceSlug: "example-user-doctrine",
+        sourceSlug: "example-user-doctrine" as SourceSlug,
         block,
         paths,
       }),

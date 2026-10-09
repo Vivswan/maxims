@@ -109,7 +109,7 @@ const refusals: [string, string, string][] = [
   [
     "an id that is a built-in harness",
     JSON.stringify({ harnesses: [acme({ id: "codex" })] }),
-    'harnesses[0] (id "codex"): "codex" is a built-in harness id',
+    'harnesses[0] (id "codex"): id: "codex" is a built-in harness id',
   ],
   [
     "an id declared twice",

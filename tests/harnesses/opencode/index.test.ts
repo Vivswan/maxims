@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
+import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import { opencode } from "../../../src/harnesses/opencode/index.ts";
 import {
@@ -85,7 +85,7 @@ test("the project rule file matches the instructions glob and the user block fol
     target: project,
     scope: "project",
     ctx,
-    sourceSlug: "example-user-doctrine",
+    sourceSlug: "example-user-doctrine" as SourceSlug,
     block,
   });
   expect(rule).toEqual({

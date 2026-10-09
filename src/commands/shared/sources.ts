@@ -7,6 +7,7 @@ import {
   isLiveLocal,
   type SourceFrom,
 } from "../../contracts/source.ts";
+import type { SourceSlug } from "../../harnesses/contract.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -72,7 +73,7 @@ export function targetPath(
   def: HarnessDefinition,
   destination: Destination,
   ctx: HarnessContext,
-  sourceSlug: string,
+  sourceSlug: SourceSlug,
 ): string | null {
   if (destination.scope === "out") return destination.path;
   const target = def.targets[destination.scope];

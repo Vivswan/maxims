@@ -8,6 +8,7 @@ import {
   type HarnessContext,
   type HarnessDefinition,
   type Scope,
+  type SourceSlug,
   scopeRoot,
   type Target,
 } from "../contract.ts";
@@ -19,7 +20,7 @@ export type RulesDirLocation = {
   target: RulesDirTarget;
   scope: Scope;
   ctx: HarnessContext;
-  sourceSlug: string;
+  sourceSlug: SourceSlug;
 };
 
 export type RulesDirWriteInput = RulesDirLocation & {
@@ -40,22 +41,14 @@ export function planRulesDirRemove(input: RulesDirLocation): Change[] {
   return [{ kind: "delete", path: rulesDirPath(input) }];
 }
 
-// The file name is one path segment or nothing: a segment check is what keeps the file inside the
-// rules directory (`maxims-../sibling.md` is inside it lexically and would still plant a
-// directory there), and the containment check is judged against the SCOPE root, not the rules
-// directory, because a rules directory symlinked out of the project would pass as its own root.
+// The file name is one path segment by construction: a `SourceSlug` holds nothing a path builder
+// could misread and the spec admits no separator in the template. The containment check is judged
+// against the SCOPE root, not the rules directory, because a rules directory symlinked out of the
+// project would pass as its own root.
 export function rulesDirPath(input: RulesDirLocation): RootedPath {
   const root = scopeRoot(input.def, input.scope, input.ctx);
   const dir = join(root, input.target.dir);
-  const name = input.target.fileName(input.sourceSlug);
-  if (name === "" || name === "." || name === ".." || /[\\/]/.test(name)) {
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `refusing to write ${JSON.stringify(name)} inside ${dir}: a rule file name is one path segment`,
-      { hint: "the source slug must not contain a path separator" },
-    );
-  }
-  return assertInsideRoot(root, join(dir, name));
+  return assertInsideRoot(root, join(dir, input.target.fileName(input.sourceSlug)));
 }
 
 // A target that declares its own frontmatter owns the whole preamble, path filter included; the

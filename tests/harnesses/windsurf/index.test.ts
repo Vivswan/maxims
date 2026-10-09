@@ -11,7 +11,7 @@
 // definition's global root `~/.codeium/windsurf` on every platform.
 import { expect, test } from "bun:test";
 import { join, resolve } from "node:path";
-import { hookSpecFor, scopeRoot } from "../../../src/harnesses/contract.ts";
+import { hookSpecFor, type SourceSlug, scopeRoot } from "../../../src/harnesses/contract.ts";
 import { windsurf } from "../../../src/harnesses/windsurf/index.ts";
 
 const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
@@ -22,7 +22,9 @@ test("a project rule file is always-on by frontmatter and glob-triggered under -
     throw new Error("expected a rules directory with frontmatter");
   }
   expect(target.frontmatter({})).toBe("---\ntrigger: always_on\n---\n");
-  expect(target.fileName("example-user-doctrine")).toBe("maxims-example-user-doctrine.md");
+  expect(target.fileName("example-user-doctrine" as SourceSlug)).toBe(
+    "maxims-example-user-doctrine.md",
+  );
   expect(target.frontmatter({ paths: ["src/**", "docs/**"] })).toBe(
     "---\ntrigger: glob\nglobs: src/**,docs/**\n---\n",
   );

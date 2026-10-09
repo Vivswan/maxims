@@ -8,7 +8,9 @@ import {
   byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
+  parseSourceSlug,
   type Scope,
+  type SourceSlug,
   scopeRoot,
 } from "../src/harnesses/contract.ts";
 import { HARNESSES } from "../src/harnesses/registry.ts";
@@ -21,6 +23,14 @@ const REGENERATE = "bun run docs:matrix";
 // Paths render as a user would type them: `~` for the home and nothing for the project root.
 const DISPLAY_CONTEXT: HarnessContext = { home: "~", projectRoot: ".", env: {} };
 const SOURCE_PLACEHOLDER = "<source>";
+// A real slug goes through `fileName`, then gives way to the placeholder the matrix shows.
+const SLUG_SENTINEL = sentinelSlug();
+
+function sentinelSlug(): SourceSlug {
+  const slug = parseSourceSlug("source");
+  if (slug === null) throw new Error("the sentinel is a source slug");
+  return slug;
+}
 const SCOPES: readonly Scope[] = ["project", "global"];
 
 const COLUMNS = [
@@ -45,7 +55,8 @@ function renderTarget(def: HarnessDefinition, scope: Scope): string {
   if (target === null) return "none";
   const root = scopeRoot(def, scope, DISPLAY_CONTEXT);
   if (target.kind === "rules-dir") {
-    return code(display(join(root, target.dir, target.fileName(SOURCE_PLACEHOLDER))));
+    const name = target.fileName(SLUG_SENTINEL).replaceAll(SLUG_SENTINEL, SOURCE_PLACEHOLDER);
+    return code(display(join(root, target.dir, name)));
   }
   const fallbacks = target.precedence?.map((name) => code(display(join(root, name)))) ?? [];
   const first = target.skipsEmpty === undefined ? "first existing" : "first non-empty";

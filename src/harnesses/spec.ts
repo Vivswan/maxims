@@ -1,6 +1,12 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
-import { HARNESS_ID_PATTERN, type HarnessId } from "../contracts/harness-id.ts";
+import {
+  HARNESS_ID_PATTERN,
+  type HarnessId,
+  isBuiltInHarnessId,
+  parseUserHarnessId,
+  type UserHarnessId,
+} from "../contracts/harness-id.ts";
 import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
@@ -369,17 +375,39 @@ export const HarnessSpecSchema = z
       .optional(),
   })
   .check(requireATarget);
-export const UserHarnessSpecSchema = z.strictObject(SPEC_SHAPE).check(requireATarget);
+
+// A user-defined id is minted by `parseUserHarnessId`, so a spec that parses cannot name a
+// built-in harness; the message says which refusal it was, since both fail the same predicate.
+const UserHarnessIdField = z.custom<UserHarnessId>(
+  (value) => typeof value === "string" && parseUserHarnessId(value) !== null,
+  {
+    error: (issue) =>
+      typeof issue.input === "string" && isBuiltInHarnessId(issue.input)
+        ? `"${issue.input}" is a built-in harness id; pick another, built-in harnesses cannot be redefined`
+        : "expected a kebab-case harness id",
+  },
+);
+export const UserHarnessSpecSchema = z
+  .strictObject({ ...SPEC_SHAPE, id: UserHarnessIdField })
+  .check(requireATarget);
 
 export type HarnessSpec = z.infer<typeof HarnessSpecSchema>;
+export type UserHarnessSpec = z.infer<typeof UserHarnessSpecSchema>;
 export type ScopedFrontmatterSpec = z.infer<typeof ScopedFrontmatter>;
 export type FrontmatterSpec = z.infer<typeof Frontmatter>;
 export type GlobalRootSpec = z.infer<typeof GlobalRoot>;
 export type TargetSpec = z.infer<typeof Target>;
 export type HookSpecData = z.infer<typeof Hook>;
 
-export type ParsedHarnessSpec = { ok: true; spec: HarnessSpec } | { ok: false; issues: string[] };
+export type ParsedHarnessSpec<Spec extends HarnessSpec = HarnessSpec> =
+  | { ok: true; spec: Spec }
+  | { ok: false; issues: string[] };
 
+export function parseHarnessSpec(json: unknown): ParsedHarnessSpec;
+export function parseHarnessSpec(
+  json: unknown,
+  schema: typeof UserHarnessSpecSchema,
+): ParsedHarnessSpec<UserHarnessSpec>;
 export function parseHarnessSpec(
   json: unknown,
   schema: typeof HarnessSpecSchema | typeof UserHarnessSpecSchema = HarnessSpecSchema,

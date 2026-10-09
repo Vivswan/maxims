@@ -5,6 +5,7 @@ import {
   type SourceFrom,
   stripGitSuffix,
 } from "../../contracts/source.ts";
+import { parseSourceSlug, type SourceSlug } from "../../harnesses/contract.ts";
 import { canonicalSourceKey } from "../../state/schema.ts";
 import { sha256 } from "../../util/fs.ts";
 
@@ -18,7 +19,7 @@ const READABLE_MAX = 80;
 // hash of the exact key behind a double dash, because its readable form could stand for another
 // key too (a dash or a dot inside a segment, a pin, a host, a local path). A clean slug never
 // holds `--` and a hashed one always does, so the two forms never meet.
-export function sourceSlug(from: SourceFrom): string {
+export function sourceSlug(from: SourceFrom): SourceSlug {
   const segments = readableSegments(from);
   const readable = segments.map((segment) => segment.toLowerCase()).join("-");
   const clean =
@@ -26,7 +27,13 @@ export function sourceSlug(from: SourceFrom): string {
     from.host === undefined &&
     from.ref === DEFAULT_GIT_REF &&
     segments.every((segment) => /^[A-Za-z0-9]+$/.test(segment));
-  if (clean) return readable;
+  const text = clean ? readable : hashed(from, readable);
+  const slug = parseSourceSlug(text);
+  if (slug === null) throw new Error(`not a source slug: ${text}`);
+  return slug;
+}
+
+function hashed(from: SourceFrom, readable: string): string {
   const folded = fold(readable).slice(0, READABLE_MAX).replace(/-+$/, "");
   const digest = sha256(canonicalSourceKey(from));
   return `${folded}--${digest.slice("sha256:".length, "sha256:".length + SLUG_HASH_LENGTH)}`;

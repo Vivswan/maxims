@@ -7,7 +7,12 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { type HarnessContext, type Scope, scopeRoot } from "../../../src/harnesses/contract.ts";
+import {
+  type HarnessContext,
+  type Scope,
+  type SourceSlug,
+  scopeRoot,
+} from "../../../src/harnesses/contract.ts";
 import { copilot } from "../../../src/harnesses/copilot/index.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
@@ -69,7 +74,7 @@ test.each(files)(
         target,
         scope,
         ctx,
-        sourceSlug: "example-user-doctrine",
+        sourceSlug: "example-user-doctrine" as SourceSlug,
         block,
       }),
     ).toEqual([
