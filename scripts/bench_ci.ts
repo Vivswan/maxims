@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { percent, quantity, readPositiveNumber, type Unit } from "./lib/figures.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
-import { runOrThrow } from "./lib/spawn.ts";
+import { captureOrThrow, runOrThrow } from "./lib/spawn.ts";
 
 const USAGE = "usage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n";
 const repoRoot = resolve(import.meta.dir, "..");
@@ -230,16 +230,7 @@ export function renderJson(report: Report): string {
   return `${JSON.stringify({ ...report, verdict: verdict(report) })}\n`;
 }
 
-function git(args: string[]): string {
-  const proc = Bun.spawnSync(["git", "-C", repoRoot, ...args], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (proc.exitCode !== 0)
-    throw new Error(`git ${args.join(" ")} failed: ${proc.stderr.toString().trim()}`);
-  return proc.stdout.toString().trim();
-}
+const git = (args: string[]): string => captureOrThrow("git", ["-C", repoRoot, ...args]).trim();
 
 function medianMs(bundle: string, argv: string[], runs: number, json: string): number {
   const bench = join(repoRoot, "scripts", "bench.ts");

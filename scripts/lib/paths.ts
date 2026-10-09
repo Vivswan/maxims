@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { isInside } from "../../src/util/fs.ts";
 
 // The path's longest existing prefix goes through realpath, so a symlink or a /proc alias whose
 // lexical form lies elsewhere still compares against where the bytes would land. A dangling link
@@ -22,13 +23,6 @@ export function whereBytesLand(path: string, refuse: (message: string) => never)
     refuse(`refusing to write through the dangling symlink ${existing}`);
   }
   return join(realpathSync.native(existing), ...missing);
-}
-
-// relative() folds case on win32, so two spellings of one NTFS path agree; a common prefix that is
-// not a whole segment does not count.
-export function isInside(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 // git exits 128 for every fatal error alike, so "found no repository" is told by its message under

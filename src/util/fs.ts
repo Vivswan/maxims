@@ -10,7 +10,7 @@ import {
   realpathSync,
   renameSync,
   unlinkSync,
-  writeSync,
+  writeFileSync,
 } from "node:fs";
 import { chmod } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -41,7 +41,9 @@ export function writeFileAtomic(
     mkdirSync(dir, { recursive: true });
     const fd = openSync(tempPath, "w", options.mode ?? 0o644);
     try {
-      writeAll(fd, typeof data === "string" ? Buffer.from(data) : data);
+      // Handed as bytes: node's writeFileSync sends a utf8 string down a separate native path,
+      // and the byte path is the one whose write loop both runtimes share.
+      writeFileSync(fd, typeof data === "string" ? Buffer.from(data) : data);
       if (options.mode !== undefined) fchmodSync(fd, options.mode);
       fsyncSync(fd);
     } finally {
@@ -66,17 +68,6 @@ export function writeFileAtomic(
         cause,
       },
     );
-  }
-}
-
-// A single write may stop short of the buffer's end on a nearly full disk; renaming that partial
-// temp file into place would publish a truncated destination as if it were complete.
-function writeAll(fd: number, data: Uint8Array): void {
-  let offset = 0;
-  while (offset < data.byteLength) {
-    const written = writeSync(fd, data, offset, data.byteLength - offset);
-    if (written <= 0) throw new Error(`short write at byte ${offset} of ${data.byteLength}`);
-    offset += written;
   }
 }
 
@@ -105,7 +96,8 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
 
 // Whether `path` is `root` or lies below it, judged by path segment: a sibling named `..cache` is
 // outside, a child named `..cache` is inside. Both arguments are compared as given, so a caller
-// that needs real paths resolves them first.
+// that needs real paths resolves them first; relative() folds case on win32, so two spellings of
+// one NTFS path agree.
 export function isInside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
