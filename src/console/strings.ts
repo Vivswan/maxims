@@ -60,6 +60,10 @@ export function selected(names: readonly string[]): string {
   return `Selected ${memories(names.length)}: ${names.join(", ")}`;
 }
 
+export function installedCounts(memoryCount: number, ruleCount: number): string {
+  return `${memories(memoryCount)}, ${ruleLines(ruleCount)}`;
+}
+
 export function installed(
   memoryCount: number,
   ruleCount: number,
@@ -67,7 +71,7 @@ export function installed(
   planned = false,
 ): string {
   const verb = planned ? "Would install" : "Installed";
-  return `${verb} ${memories(memoryCount)}, ${ruleLines(ruleCount)} (~${tokens} tokens)`;
+  return `${verb} ${installedCounts(memoryCount, ruleCount)} (~${tokens} tokens)`;
 }
 
 export function hookRegistered(command: string, planned = false): string {

@@ -9,13 +9,13 @@ import {
 } from "../console/strings.ts";
 import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
+import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { LockSource } from "../state/project-lock.ts";
 import { canonicalSourceKey } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   type AddRequest,
   commitAdd,
-  DEFAULT_RULE_CAP,
   hookWanted,
   type PreparedAdd,
   planAdd,

@@ -1,7 +1,6 @@
-import type { MemoryName } from "../../memory/contract.ts";
+import { type MemoryName, renamed } from "../../memory/contract.ts";
 import type { Candidate } from "../../rulefile/dedupe.ts";
-import { shortHash } from "../../rulefile/dedupe.ts";
-import type { RenameMap, Select, SourceIntent, State } from "../../state/schema.ts";
+import type { Select, SourceIntent, State } from "../../state/schema.ts";
 import type { SourceMemory } from "./memories.ts";
 
 export type SelectedMemory = {
@@ -67,14 +66,6 @@ export function selectMemories(input: SelectInput): Selection {
 
 export function inSelect(select: Select, name: MemoryName): boolean {
   return select === "*" || select.includes(name);
-}
-
-export function renamed(rename: RenameMap, name: MemoryName): MemoryName {
-  return Object.hasOwn(rename, name) ? rename[name] : name;
-}
-
-export function shortHashOf(memory: SourceMemory): string {
-  return shortHash(memory.memory.contentHash);
 }
 
 // The names switched off at one scope, read from state, which owns both lists; a project's list

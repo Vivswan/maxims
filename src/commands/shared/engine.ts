@@ -11,6 +11,7 @@ import {
   contentHashOf,
   type MemoryName,
   parseMemoryName,
+  renamed,
 } from "../../memory/contract.ts";
 import {
   buildNameIndex,
@@ -70,7 +71,7 @@ import {
   type RuleFilePlan,
   regularFileText,
 } from "./rules.ts";
-import { disabledNames, inSelect, renamed, selectMemories } from "./select.ts";
+import { disabledNames, inSelect, selectMemories } from "./select.ts";
 import { sourceSlug } from "./slug.ts";
 import { findSourceKey } from "./sources.ts";
 

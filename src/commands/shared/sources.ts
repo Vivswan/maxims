@@ -14,7 +14,12 @@ import {
   scopeRoot,
   sharedBlockFile,
 } from "../../harnesses/contract.ts";
-import { type ContentHash, type MemoryName, parseMemoryName } from "../../memory/contract.ts";
+import {
+  type ContentHash,
+  type MemoryName,
+  parseMemoryName,
+  renamed,
+} from "../../memory/contract.ts";
 import {
   buildNameIndex,
   type IndexedSource,
@@ -140,11 +145,6 @@ export async function storeTree(root: string, scope: TreeScope): Promise<MemoryT
   return readMemoryTree(root, scope, () => undefined);
 }
 
-export function localName(entry: SourceEntry, name: MemoryName): MemoryName {
-  const rename = entry.intent.rename;
-  return Object.hasOwn(rename, name) ? rename[name] : name;
-}
-
 export async function effectiveNames(
   entry: SourceEntry,
   io: Pick<CliIo, "home" | "installInternal">,
@@ -161,7 +161,7 @@ export async function effectiveNamesIfReadable(
   if (upstream === null) return null;
   return upstream
     .filter((name) => select === "*" || select.includes(name))
-    .map((name) => localName(entry, name));
+    .map((name) => renamed(entry.intent.rename, name));
 }
 
 // The entries a verb judges names against: the user's, and this project's. Another project's
@@ -412,16 +412,17 @@ export type IntentFields = Omit<SourceIntent, "from">;
 // An intent edit on any variant of a source entry: the fields are edited apart from `from`, then
 // rejoined to the entry's own `from`; everything else the entry carries (its fetch record, a
 // revision held for review) rides along untouched. The variant is narrowed first so the checker
-// never pairs a live `from` with a fetch record.
+// never pairs a live `from` with a fetch record. `from` stays the first key, where the schema and
+// `add` put it, so an edit never reorders state.json.
 export function withIntent(
   entry: SourceEntry,
   edit: (fields: IntentFields) => IntentFields,
 ): SourceEntry {
   const { from: _from, ...fields } = entry.intent;
   const edited = edit(fields);
-  if (isLiveEntry(entry)) return { ...entry, intent: { ...edited, from: entry.intent.from } };
-  if (isCopiedEntry(entry)) return { ...entry, intent: { ...edited, from: entry.intent.from } };
-  return { ...entry, intent: { ...edited, from: entry.intent.from } };
+  if (isLiveEntry(entry)) return { ...entry, intent: { from: entry.intent.from, ...edited } };
+  if (isCopiedEntry(entry)) return { ...entry, intent: { from: entry.intent.from, ...edited } };
+  return { ...entry, intent: { from: entry.intent.from, ...edited } };
 }
 
 // Sharing is set or cleared on a project-scope entry; the field is absent, never false, so a

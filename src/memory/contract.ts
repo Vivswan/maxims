@@ -36,6 +36,16 @@ export function contentHashLiteral(literal: string): ContentHash {
 export const MEMORY_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const MEMORY_NAME_MAX_LENGTH = 200;
 
+// The local name a rename map gives a memory, or its own name. A plain object lookup would hand
+// back Object.prototype members for a memory named `constructor` or a `to-string`-like key that
+// exists on the prototype chain.
+export function renamed(
+  rename: Readonly<Record<string, MemoryName>>,
+  name: MemoryName,
+): MemoryName {
+  return Object.hasOwn(rename, name) ? rename[name] : name;
+}
+
 export function parseMemoryName(candidate: string): MemoryName | null {
   if (candidate.length > MEMORY_NAME_MAX_LENGTH || !MEMORY_NAME_PATTERN.test(candidate))
     return null;

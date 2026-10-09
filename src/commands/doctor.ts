@@ -3,7 +3,7 @@ import { heldFinding, notDefinedHere } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
-import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
+import { type MemoryName, parseMemoryName, renamed } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { readIfPresent } from "../util/fs.ts";
@@ -26,7 +26,6 @@ import {
   effectiveNames,
   effectiveNamesIfReadable,
   findSourceKey,
-  localName,
   scopeOf,
   targetPath,
   tildify,
@@ -348,7 +347,7 @@ function hasRuleLine(
   name: MemoryName,
 ): boolean {
   const local = (upstream: MemoryName): MemoryName =>
-    entry.intent.destination.scope === "global" ? localName(entry, upstream) : upstream;
+    entry.intent.destination.scope === "global" ? renamed(entry.intent.rename, upstream) : upstream;
   return (blocks ?? []).some((b) => b.source === source && b.names.some((n) => local(n) === name));
 }
 

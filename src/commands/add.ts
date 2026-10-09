@@ -39,8 +39,10 @@ import {
   type MemoryName,
   parseContentHash,
   parseMemory,
+  renamed,
 } from "../memory/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
+import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { materializeLocal } from "../sources/local.ts";
 import type { TreeFile } from "../sources/tree.ts";
 import type { UserConfig } from "../state/config.ts";
@@ -114,8 +116,6 @@ import {
   tildify,
 } from "./shared/sources.ts";
 import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "./types.ts";
-
-export const DEFAULT_RULE_CAP = 25;
 
 // Everything `add` decided from the command line and the config, parsed once into a shape that
 // cannot hold a conflict: one destination, one selection, one harness choice.
@@ -1136,10 +1136,6 @@ function showItems(
 
 function sorted(chosen: readonly Memory[], rename: RenameMap): Memory[] {
   return [...chosen].sort((a, b) => (renamed(rename, a.name) < renamed(rename, b.name) ? -1 : 1));
-}
-
-function renamed(rename: RenameMap, name: MemoryName): MemoryName {
-  return Object.hasOwn(rename, name) ? rename[name] : name;
 }
 
 function sameSelect(a: Select, b: Select): boolean {

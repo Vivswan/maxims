@@ -10,11 +10,11 @@ import {
 } from "../console/strings.ts";
 import { isLiveLocal } from "../contracts/source.ts";
 import { contentHashOf, parseMemoryName } from "../memory/contract.ts";
+import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { UserConfig } from "../state/config.ts";
 import type { RenameMap, State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { DEFAULT_RULE_CAP } from "./add.ts";
 import {
   cooldownCapConfig,
   loadIntentFor,

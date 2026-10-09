@@ -1,6 +1,7 @@
+import { count, installedCounts } from "../../console/strings.ts";
 import type { State } from "../../state/schema.ts";
 import { inspectState, type LoadedState } from "../../state/store.ts";
-import { applyChanges, type Change, planToJson, renderPlan } from "../../util/change.ts";
+import { applyChanges, type Change, renderPlan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside } from "../../util/fs.ts";
 import { appendRefreshLog } from "../../util/log.ts";
@@ -106,7 +107,7 @@ function printOutcome(
   }
   if (options.quiet) {
     const lines = [...outcome.notices.quietStdout];
-    const files = countOf(visible.length, "file");
+    const files = count(visible.length, "file", "files");
     if (changed && options.dryRun)
       lines.push(`maxims: rules would be refreshed (${files} to update)`);
     else if (changed) lines.push(`maxims: rules refreshed (${files} updated)`);
@@ -123,7 +124,8 @@ function printOutcome(
   for (const line of outcome.notices.stderr) io.stderr(`${line}\n`);
   if (options.verb !== "sync") return;
   if (changed) io.stdout(`${summaryLine(report)}\n`);
-  else if (upToDate(outcome, report)) io.stdout(`o  Up to date: ${installedCounts(report)}\n`);
+  else if (upToDate(outcome, report))
+    io.stdout(`o  Up to date: ${installedCounts(report.memories, report.rules)}\n`);
 }
 
 function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {
@@ -138,15 +140,7 @@ function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {
 
 export function summaryLine(report: SyncReport): string {
   const tokens = report.tokens > 0 ? ` (~${report.tokens} tokens)` : "";
-  return `o  Installed ${installedCounts(report)}${tokens}`;
-}
-
-function installedCounts(report: SyncReport): string {
-  return `${countOf(report.memories, "memory", "memories")}, ${countOf(report.rules, "rule line")}`;
-}
-
-export function countOf(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`;
+  return `o  Installed ${installedCounts(report.memories, report.rules)}${tokens}`;
 }
 
 function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
@@ -167,7 +161,7 @@ function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
     )}\n`;
   }
   const ok = report.failed.length === 0;
-  return `${JSON.stringify({ ok, report: rest, plan: JSON.parse(planToJson(plan)) }, null, 2)}\n`;
+  return `${JSON.stringify({ ok, report: rest, plan }, null, 2)}\n`;
 }
 
 // The `--json` document of a run that changed nothing and planned nothing.
