@@ -11,7 +11,7 @@ const buildScript = join(repoRoot, "scripts", "build.ts");
 export type Bundle = { path: string; bytes: number };
 
 // The published `dist/cli.js` runs under the package's `"type": "module"`; the temp copy gets the
-// same declaration beside it, or a node before 20.19 reads the ESM bundle as CommonJS.
+// same declaration beside it, or a node before 22.7 reads the ESM bundle as CommonJS.
 export function buildBundle(dir: string): Bundle {
   const path = join(dir, "cli.js");
   const sizeJson = join(dir, "size.json");
