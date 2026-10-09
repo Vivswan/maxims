@@ -8,8 +8,5 @@
     "tests/fixtures/**/*.ts"
   ],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"],
-  "ignoreExportsUsedInFile": true,
-  // Pinned dependencies whose first importer has not landed yet. Knip reports each entry below as
-  // a configuration hint once it is genuinely used; drop it then.
-  "ignoreDependencies": ["picomatch", "@types/picomatch"]
+  "ignoreExportsUsedInFile": true
 }
