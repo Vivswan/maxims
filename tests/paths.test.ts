@@ -2,10 +2,10 @@
 // left lexical, a missing tail dropped, a relative spelling resolved against the wrong base, or a
 // dangling link followed instead of refused would each let one of the scripts compare two paths
 // that differ in spelling only, and write where its guard should have said no. Also fails if
-// isInside starts judging by string prefix instead of by path segment, or if outsideCheckouts
-// stops refusing a path inside a copy of the repository that carries no .git (the container tier
-// runs the scripts from one) or starts guessing at the set of checkouts when git fails for any
-// other reason.
+// isInside starts judging by string prefix instead of by path segment (a directory named `..notes`
+// is inside the root, where a `..` prefix test says it escapes), or if outsideCheckouts stops
+// refusing a path inside a copy of the repository that carries no .git (the container tier runs the
+// scripts from one) or starts guessing at the set of checkouts when git fails for any other reason.
 import { expect, test } from "bun:test";
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join, parse, relative, resolve } from "node:path";
@@ -89,6 +89,7 @@ const root = resolve("/repo");
 const containments: [string, string, boolean][] = [
   [root, root, true],
   [root, join(root, "out", "bench.json"), true],
+  [root, join(root, "..notes", "x.md"), true],
   [root, `${root}-sibling/bench.json`, false],
   [root, resolve(root, ".."), false],
   [join(root, "sub"), join(root, "bench.json"), false],
