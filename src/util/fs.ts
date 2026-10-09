@@ -3,6 +3,7 @@ import {
   closeSync,
   fchmodSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -46,6 +47,10 @@ export function writeFileAtomic(
     } finally {
       closeSync(fd);
     }
+    // A link at the destination is removed once the replacement is complete, right before the
+    // rename: the file written here is a real file wherever the link pointed, and Windows refuses
+    // to rename over a link to a directory.
+    if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(path);
     renameSync(tempPath, path);
   } catch (cause) {
     try {

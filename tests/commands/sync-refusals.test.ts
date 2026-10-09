@@ -3,6 +3,7 @@
 // that takes a file this run recreates or reaches through a symlink, and a vanished source's
 // destination that a sync visits when it has nothing to render there.
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -45,6 +46,7 @@ import {
   writeState,
 } from "../engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { DAY_MS, fetchedOf, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
 
 // A run that refuses several sources exits with the first failure in key order. A local source's
@@ -154,31 +156,81 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  // The sweep reads every entry of a rules directory to find maxims blocks; a folder among them
-  // (a harness that nests its rules), reached directly or through a link, would otherwise be
-  // warned about on every run as unreadable.
-  const nestedFolders: [string, (rulesDir: string, folder: string) => void][] = [
-    ["a folder", (rulesDir) => mkdirSync(join(rulesDir, "nested"))],
-    ["a link to a folder", (rulesDir, folder) => symlinkSync(folder, join(rulesDir, "nested"))],
+  // The sweep reads every entry of a rules directory to find maxims blocks; an entry that is not
+  // a regular file (a folder of nested rules, reached directly or through a link; a FIFO, whose
+  // read would block the run) would otherwise be warned about on every run or hang it. `plant`
+  // puts the entry at `nested` and returns the check that it was left alone.
+  async function sweptAround(plant: (rulesDir: string, scratch: string) => () => void) {
+    await world(async ({ home, dir, userHome }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      const untouched = plant(dirname(rules), join(dir, "folder"));
+      const report = await runSync(SYNC, io);
+      expect(report.notices).toEqual([]);
+      untouched();
+      expect(existsSync(rules)).toBe(true);
+    });
+  }
+  function nestedRule(folder: string): () => void {
+    const own = join(folder, "own.md");
+    writeFileSync(own, "the user's nested rule\n");
+    return () => expect(readFileSync(own, "utf8")).toBe("the user's nested rule\n");
+  }
+  const nestedFolders: [string, (rulesDir: string, scratch: string) => () => void][] = [
+    [
+      "a folder",
+      (rulesDir) => {
+        mkdirSync(join(rulesDir, "nested"));
+        return nestedRule(join(rulesDir, "nested"));
+      },
+    ],
+    [
+      "a link to a folder",
+      (rulesDir, scratch) => {
+        mkdirSync(scratch);
+        symlinkSync(scratch, join(rulesDir, "nested"));
+        return nestedRule(join(rulesDir, "nested"));
+      },
+    ],
   ];
   test.each(nestedFolders)(
     "%s inside a rules directory is left alone by the sweep, without a warning",
-    async (_label, plant) => {
-      await world(async ({ home, dir, userHome }) => {
+    (_label, plant) => sweptAround(plant),
+  );
+
+  // Windows has no FIFOs.
+  test.skipIf(WINDOWS)(
+    "a FIFO inside a rules directory is left alone by the sweep, without a warning",
+    () =>
+      sweptAround((rulesDir) => {
+        const fifo = join(rulesDir, "nested");
+        execFileSync("mkfifo", [fifo]);
+        return () => expect(lstatSync(fifo).isFIFO()).toBe(true);
+      }),
+  );
+
+  // The sweep lists every project bodies folder a harness declares, written to by nobody this
+  // run; one it cannot resolve is not a place to write, so a global-only run says so and goes on
+  // where the probe used to refuse the whole run. The errno Windows gives a looping link is not
+  // pinned here.
+  test.skipIf(WINDOWS)(
+    "a project bodies folder that cannot be resolved is left out of the sweep with a notice",
+    async () => {
+      await world(async ({ home, dir, userHome, project }) => {
         const source = writeSource(join(dir, "src"), TWO_MEMORIES);
         writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
-        const io = fakeIo({ home, userHome, cwd: dir });
+        const io = fakeIo({ home, userHome, cwd: project });
         await runSync(SYNC, io);
-        const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
-        const folder = join(dir, "folder");
-        mkdirSync(folder);
-        plant(dirname(rules), folder);
-        const nested = join(dirname(rules), "nested");
-        writeFileSync(join(nested, "own.md"), "the user's nested rule\n");
+        const bodies = join(project, ".agents", "memories");
+        mkdirSync(dirname(bodies));
+        symlinkSync("memories", bodies);
         const report = await runSync(SYNC, io);
-        expect(report.notices).toEqual([]);
-        expect(readFileSync(join(nested, "own.md"), "utf8")).toBe("the user's nested rule\n");
-        expect(existsSync(rules)).toBe(true);
+        expect(report.notices).toHaveLength(1);
+        expect(report.notices[0]).toStartWith(`maxims: cannot inspect ${bodies}: ELOOP: `);
+        expect(existsSync(globalRulesFile(userHome, sourceSlug(localFrom(source))))).toBe(true);
       });
     },
   );

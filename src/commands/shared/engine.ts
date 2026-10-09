@@ -708,10 +708,10 @@ async function planInstall(
     }),
   );
   const store = resolve(ctx.paths.store);
-  for (const dir of allBodiesDirs(ctx, io, extras.removed)) {
+  const warn = (line: string): void => notices.notice(`maxims: ${line}`);
+  for (const dir of allBodiesDirs(ctx, io, extras.removed, warn)) {
     bodiesWanted.set(dir.id, bodiesWanted.get(dir.id) ?? { ...dir, wanted: new Set() });
   }
-  const warn = (line: string): void => notices.notice(`maxims: ${line}`);
   for (const [id, { dir, root, wanted }] of bodiesWanted) {
     if (unsweepable.has(id)) continue;
     builder.add("removal", planBodySweep({ dir, root, store, wanted, knownCopies, warn }));
@@ -1261,28 +1261,50 @@ function bodiesDirsFor(
 
 // Every bodies directory this run can reach, whatever `-a` limited it to, so a source that left
 // intent has its links and copies swept even when no surviving source shares the directory; a
-// removed `-o` source contributes its own memories folder.
+// removed `-o` source contributes its own memories folder. Nothing here writes to these, so one
+// that cannot be looked at (a link that loops, a folder without search permission) is warned
+// about and left out of the sweep; a source's own directory refuses the run in `bodiesDirsFor`.
 function allBodiesDirs(
   ctx: EngineContext,
   io: EngineIo,
   removed: readonly SourceEntry[],
+  warn: (line: string) => void,
 ): BodiesDir[] {
   const dirs = new Map<string, BodiesDir>();
+  // One look per spelled directory, so two harnesses naming the same folder warn once; a later
+  // entry for the same folder still supplies the root (a removed `-o` folder that is also a
+  // project's bodies directory is swept inside its own root).
+  const looked = new Map<string, string | null>();
+  const idOf = (dir: string): string | null => {
+    const known = looked.get(dir);
+    if (known !== undefined) return known;
+    let id: string | null = null;
+    try {
+      id = realpathOfExistingPrefix(dir);
+    } catch (error) {
+      if (!destinationUnresolvable(error)) throw error;
+      warn(error instanceof Error ? error.message : String(error));
+    }
+    looked.set(dir, id);
+    return id;
+  };
+  const sweepable = (dir: string, root: string): void => {
+    const id = idOf(dir);
+    if (id !== null) dirs.set(id, { id, dir, root });
+  };
   if (ctx.projectRoot !== null) {
     const projectRoot = ctx.projectRoot;
     const harnessCtx = { ...harnessContext(ctx), projectRoot };
     for (const def of io.harnesses) {
       const dir = def.bodiesDir("project", harnessCtx);
       if (dir === null) continue;
-      const entry = bodiesDir(resolve(dir), projectRoot);
-      dirs.set(entry.id, entry);
+      sweepable(resolve(dir), projectRoot);
     }
   }
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
-    const out = bodiesDir(join(root, "memories"), root);
-    dirs.set(out.id, out);
+    sweepable(join(root, "memories"), root);
   }
   return [...dirs.values()];
 }

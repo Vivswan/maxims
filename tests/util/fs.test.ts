@@ -104,8 +104,10 @@ test("assertInsideRoot resolves symlinked ancestors but judges the final entry b
     mkdirSync(root);
     mkdirSync(outside);
     symlinkSync(outside, join(root, "escape"));
-    symlinkSync(join(root, "real"), join(root, "alias"));
+    // The folder exists before its alias is linked, so Windows creates a directory link: a file
+    // link to a directory there cannot be resolved.
     mkdirSync(join(root, "real"));
+    symlinkSync(join(root, "real"), join(root, "alias"));
     let caught: unknown;
     try {
       assertInsideRoot(root, join(root, "escape", "victim.md"));

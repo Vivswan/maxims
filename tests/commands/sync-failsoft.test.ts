@@ -299,9 +299,11 @@ describe.skipIf(!CHMOD_DENIES)("bodies directories that cannot be listed", () =>
       chmodSync(bodies, 0o311);
       try {
         const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
-        expect(error.message).toBe(
-          `cannot list ${bodies}: EACCES: permission denied, scandir '${bodies}'`,
-        );
+        // Which look trips first is the platform's: Linux resolves a directory it cannot read and
+        // fails at the listing, macOS refuses the realpath itself. Either is the one refusal,
+        // exit 4 naming the path and the errno.
+        expect(error.message).toMatch(/^cannot (list|inspect) /);
+        expect(error.message).toContain(` ${bodies}: EACCES: permission denied, `);
       } finally {
         chmodSync(bodies, 0o755);
       }

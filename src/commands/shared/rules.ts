@@ -434,9 +434,10 @@ function isSymlink(path: string): boolean {
 }
 
 // The text of the file at a derived rule-file name, read through a link, for the reads that take
-// only a file carrying a managed block (the sweeps, the names a block still reserves). A directory
-// there, or a link to one, is nobody's rule file and is passed over unread rather than refused:
-// only the planner's own read of a file it will write refuses it (`readIfPresent`).
+// only a file carrying a managed block (the sweeps, the names a block still reserves). Anything
+// there that is not a regular file (a directory or a link to one; a FIFO, whose read would block
+// the run) is nobody's rule file and is passed over unread rather than refused: only the
+// planner's own read of a file it will write refuses it (`readIfPresent`).
 export function regularFileText(path: string): string | null {
   let target: Stats;
   try {
@@ -445,7 +446,7 @@ export function regularFileText(path: string): string | null {
     if (isAbsent(cause)) return null;
     throw cannotInspect(path, cause);
   }
-  return target.isDirectory() ? null : readIfPresent(path);
+  return target.isFile() ? readIfPresent(path) : null;
 }
 
 function describe(error: unknown): string {
