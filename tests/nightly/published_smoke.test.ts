@@ -2,8 +2,8 @@
 // MAXIMS_HOME or npm cache leak into the throwaway HOME, writes a fixture the memory contract
 // would refuse, judges a step by anything but its exit code plus what it left on disk or printed,
 // keeps going after a step missed, reports a red step without the version pair, the step's own
-// output, or the registry failure that stopped it, or lets a grandchild holding the pipes keep the
-// runner past its budget.
+// output, or the registry failure that stopped it, lets a grandchild holding the pipes keep the
+// runner past its budget, or hands the runner a fractional timeout that Bun.spawn refuses.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -119,6 +119,7 @@ describe("runPublishedSmoke", () => {
       expect(call.env.MAXIMS_HOME).toBeUndefined();
       expect(call.env.npm_config_cache).toBe(join(home, "..", "npm-cache"));
       expect(call.env.npm_config_registry).toBe("https://registry.npmjs.org/");
+      expect(Number.isInteger(call.timeoutMs)).toBe(true);
       expect(call.timeoutMs).toBeGreaterThan(0);
       expect(call.timeoutMs).toBeLessThanOrEqual(TOTAL_BUDGET_MS);
     }
