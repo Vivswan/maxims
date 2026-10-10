@@ -4,6 +4,9 @@
 //   a line break splits a claim                 -> a fact wrapped across two lines reads as absent
 //   a pointer resolves through a missing key    -> a schema that dropped a setting still reads as match
 //   a pointer resolves through the prototype    -> an empty schema answers `/toString` as match
+//   a pointer resolves through an array's own   -> `{"items":[]}` answers `/items/length` as match
+//   a non-canonical index resolves              -> `/a/01` reads as `/a/1`
+//   a duplicate key reads as one of its values  -> `/type` answers whichever duplicate the parser kept
 //   a source the run never read passes          -> a vendor block on the user agent turns the run green
 //   a moved source passes                       -> a landing page at the new URL holds a claim by accident
 //   a run with nothing to verify passes         -> an empty registry reads as every source matching
@@ -164,6 +167,9 @@ describe("runHarnessDrift", () => {
     [url("schema-null")]: () => new Response("null", JSON_TYPE),
     [url("schema-array")]: () => new Response("[]", JSON_TYPE),
     [url("schema-empty")]: () => new Response("{}", JSON_TYPE),
+    [url("schema-items")]: () => new Response('{"items":[]}', JSON_TYPE),
+    [url("schema-indexed")]: () => new Response('{"a":[1,2]}', JSON_TYPE),
+    [url("schema-duplicate")]: () => new Response('{"type":"object","type":"string"}', JSON_TYPE),
   };
   const table = (rows: string[]): string =>
     ["| id | kind | source | note | verdict | result |", "|---|---|---|---|---|---|", ...rows].join(
@@ -208,6 +214,7 @@ describe("runHarnessDrift", () => {
             "/properties/amp.mcpServers",
             "/properties/a~1b",
             { pointer: "/properties/amp.mcpServers/type", equals: "object" },
+            { pointer: "/properties/hooks/items/1/const", equals: "SessionEnd" },
           ]),
         ),
       ],
@@ -224,7 +231,7 @@ describe("runHarnessDrift", () => {
         table([
           row("stable", "page", url("stable"), "match", "3 claims hold"),
           row("raw", "file", RAW_URL, "match", "2 claims hold", "the hook file"),
-          row("schema", "schema", url("settings.json"), "match", "3 pointers resolve"),
+          row("schema", "schema", url("settings.json"), "match", "4 pointers resolve"),
         ]),
         "",
       ].join("\n"),
@@ -238,7 +245,8 @@ describe("runHarnessDrift", () => {
   // hold a claim by accident; so is a page or a file that answers rendered HTML, whose nav text
   // would hold a claim written against the markdown rendition or the raw file. A schema URL that
   // answers markup, or a JSON document with no keys to point into (null, an array), read nothing
-  // of the schema either.
+  // of the schema either, and neither does one that spells a key twice, which has no single
+  // reading.
   test.each([
     ["gone", page("gone", ["SessionStart"]), "page", "HTTP 503"],
     ["slow", page("slow", ["SessionStart"]), "page", "timeout after 20 s"],
@@ -270,6 +278,12 @@ describe("runHarnessDrift", () => {
     ],
     ["schema-null", schema("schema-null", ["/properties"]), "schema", "not a JSON object: null"],
     ["schema-array", schema("schema-array", [""]), "schema", "not a JSON object: []"],
+    [
+      "schema-duplicate",
+      schema("schema-duplicate", [{ pointer: "/type", equals: "object" }]),
+      "schema",
+      'duplicate key "type" at offset 17',
+    ],
   ] as const)(
     "the %s source, which the run could not read, fails the run with its answer in its row",
     async (name, source, kind, result) => {
@@ -292,11 +306,8 @@ describe("runHarnessDrift", () => {
     expect(outcome).toEqual(failed(headline.join("\n"), table([])));
   });
 
-  // The moved page lost `SessionStart` and the backticked file name; the schema lost one of two
-  // settings and types another differently; the raw file never had the third claim; the empty
-  // schema has no `toString` key, whatever the parsed object inherits. Each row names what is
-  // missing as a JSON string, so a claim's own backticks cannot end the cell's fence, and the
-  // definition that also has a matching source still fails.
+  // Each row names what is missing as a JSON string, so a claim's own backticks cannot end the
+  // cell's fence, and the definition that also has a matching source still fails.
   test("a missing claim fails the definition and its row names the claims and pointers that are gone", async () => {
     const outcome = await runHarnessDrift(
       [
@@ -315,12 +326,14 @@ describe("runHarnessDrift", () => {
         ),
         def("partial", file(["TaskStart", "Task Start", "SessionStart"]), page("gone", ["x"])),
         def("inherited", schema("schema-empty", ["/toString"])),
+        def("length", schema("schema-items", ["/items/length"])),
+        def("indexed", schema("schema-indexed", ["/a/1", "/a/01"])),
       ],
       fakeFetch(answers),
     );
     const headline = [
-      "4 definitions: 0 match, 4 drift, 0 unreachable",
-      "6 sources: 1 match, 4 drift, 1 unreachable",
+      "6 definitions: 0 match, 6 drift, 0 unreachable",
+      "8 sources: 1 match, 6 drift, 1 unreachable",
     ].join("\n");
     const rows = table([
       row("multi", "page", url("stable"), "match", "1 claim holds"),
@@ -342,6 +355,8 @@ describe("runHarnessDrift", () => {
       row("partial", "file", RAW_URL, "DRIFT", 'missing: "Task Start", "SessionStart"'),
       row("partial", "page", url("gone"), "UNREACHABLE", "HTTP 503"),
       row("inherited", "schema", url("schema-empty"), "DRIFT", 'missing: "/toString"'),
+      row("length", "schema", url("schema-items"), "DRIFT", 'missing: "/items/length"'),
+      row("indexed", "schema", url("schema-indexed"), "DRIFT", 'missing: "/a/01"'),
     ]);
     expect(outcome).toEqual(failed(headline, rows));
   });

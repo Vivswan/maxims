@@ -4,8 +4,15 @@
 // to a 24-hour window instead of waiting for someone to look. A pass means every source was read
 // and every claim held: a source the run could not read fails it, since a run that read nothing
 // proves nothing about the facts.
-import { getNodeValue, type ParseError, parseTree, printParseErrorCode } from "jsonc-parser";
-import jsonpointer from "jsonpointer";
+import { pointerSegments } from "@hyperjump/json-pointer";
+import {
+  findNodeAtLocation,
+  getNodeValue,
+  type Node,
+  type ParseError,
+  parseTree,
+  printParseErrorCode,
+} from "jsonc-parser";
 import { count } from "../../src/console/strings.ts";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
@@ -124,9 +131,38 @@ function readClaims(text: string, claims: readonly string[]): Reading {
   return { verdict: "DRIFT", result: `missing: ${quoted(missing)}` };
 }
 
-// jsonc-parser's getNodeValue builds every object with a null prototype, so an object's inherited
-// member such as `toString` never answers a pointer (`{}` with `/toString` once read as match). An
-// array keeps Array.prototype, so a pointer into one still answers `length` and inherited members.
+const CANONICAL_INDEX = /^(?:0|[1-9][0-9]*)$/;
+
+// A pointer walks the parse tree, so only a member the document spells out answers it: never an
+// inherited `toString`, an array's `length`, or `/a/01` standing in for `/a/1`.
+function findPointer(root: Node, pointer: string): Node | undefined {
+  let node: Node | undefined = root;
+  for (const token of pointerSegments(pointer)) {
+    if (node === undefined) return undefined;
+    const segment = node.type === "array" && CANONICAL_INDEX.test(token) ? Number(token) : token;
+    node = findNodeAtLocation(node, [segment]);
+  }
+  return node;
+}
+
+type DuplicateKey = { key: string; offset: number };
+
+// A key an object spells twice reads differently per parser (the tree walk takes the first, a
+// JSON.parse the last), so the document is refused rather than read either way.
+function duplicateKey(node: Node): DuplicateKey | undefined {
+  const seen = new Set<string>();
+  for (const child of node.children ?? []) {
+    if (node.type === "object") {
+      const key = String(child.children?.[0]?.value);
+      if (seen.has(key)) return { key, offset: child.offset };
+      seen.add(key);
+    }
+    const nested = duplicateKey(child);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
@@ -136,19 +172,30 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
     return { verdict: "UNREACHABLE", result: `not JSON: ${reason}` };
   }
   if (root === undefined) return { verdict: "UNREACHABLE", result: "not JSON: no value" };
-  const document: unknown = getNodeValue(root);
-  if (typeof document !== "object" || document === null || Array.isArray(document))
-    return { verdict: "UNREACHABLE", result: `not a JSON object: ${JSON.stringify(document)}` };
+  if (root.type !== "object")
+    return {
+      verdict: "UNREACHABLE",
+      result: `not a JSON object: ${JSON.stringify(getNodeValue(root))}`,
+    };
+  const duplicate = duplicateKey(root);
+  if (duplicate !== undefined)
+    return {
+      verdict: "UNREACHABLE",
+      result: `duplicate key ${JSON.stringify(duplicate.key)} at offset ${duplicate.offset}`,
+    };
   const missing: string[] = [];
   const differing: string[] = [];
   for (const check of paths) {
     const pointer = typeof check === "string" ? check : check.pointer;
-    const value: unknown = jsonpointer.get(document, pointer);
-    if (value === undefined) missing.push(pointer);
-    else if (typeof check !== "string" && value !== check.equals)
-      differing.push(
-        `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
-      );
+    const node = findPointer(root, pointer);
+    if (node === undefined) missing.push(pointer);
+    else if (typeof check !== "string") {
+      const value: unknown = getNodeValue(node);
+      if (value !== check.equals)
+        differing.push(
+          `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
+        );
+    }
   }
   if (missing.length === 0 && differing.length === 0)
     return {
