@@ -1,12 +1,14 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// The earlier Cascade agent of Devin Desktop (formerly Windsurf); `.devin/rules/` is preferred over
-// `.windsurf/rules/`, and the global file takes no frontmatter. With no session-start event the
-// hook rides `pre_user_prompt` behind the debounce, and `.windsurf/hooks.json` is read only while
-// `.devin/hooks.json` is absent or holds no hooks. A `powershell`-only entry is silently skipped on
-// macOS and Linux and a `command`-only one runs on Windows via `powershell -Command`, so both keys
-// are written; the MCP file sits outside the global root.
+// The earlier Cascade agent of Devin Desktop (formerly Windsurf). It has no session-start event, so
+// the hook rides `pre_user_prompt` and the `sync --quiet` stamp debounces the rest to one sync a
+// minute.
+//   .devin/rules        preferred over `.windsurf/rules/`
+//   .devin/hooks.json   `.windsurf/hooks.json` is read only while this file is absent or holds no
+//                       hooks
+//   both command keys   a `powershell`-only entry is silently skipped on macOS and Linux, and a
+//                       `command`-only one runs on Windows via `powershell -Command`
 export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",
