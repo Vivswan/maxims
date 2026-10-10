@@ -4,6 +4,7 @@ import type { HarnessId } from "../contracts/harness-id.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import type { JsonDialect } from "../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../util/package.ts";
 import { statOrAbsent } from "./detect.ts";
 
@@ -106,7 +107,9 @@ export type HookStdout =
   | "json:additional_context"
   | "none";
 
-export type ConfigFormat = "json" | "toml";
+// The dialect a registry is edited in is what its vendor's parser takes, so a file the vendor
+// would skip is refused rather than written; `toml` is read for a tier check and never written.
+export type ConfigFormat = JsonDialect | "toml";
 
 // Where a harness keeps its MCP servers, for the bundled stub whose start runs sync: the config
 // file per scope and the key path of the servers map inside it. `null` means that scope has no
@@ -132,6 +135,21 @@ export type ConfigLayer =
 // the tier; one that refuses to start runs no hook from any layer.
 export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
 
+// One file of a tier check's walk, in the harness's precedence order. A project layer names the
+// directory it belongs to (the one holding Codex's `.codex`), which `projectTrust` is looked up
+// for; the user layers are where that lookup reads.
+export type TierLayer =
+  | { scope: "project"; path: string; dir: string }
+  | { scope: "global"; path: string };
+
+// Project layers the harness applies only where a user layer marks the directory trusted: the
+// first of `<table>.<dir>.<key>` set for the layer's directory, then for the project root, must
+// hold the `trusted` mark. A directory left unmarked, or marked otherwise, has its layer skipped
+// whole, broken or not, as Codex skips an untrusted project's `.codex` layer. `accepted` is every
+// mark the vendor's own schema takes: a user layer whose table holds any other is unreadable, as
+// Codex refuses to start on one.
+export type ProjectTrust = { table: string; key: string; trusted: string; accepted: string[] };
+
 // A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
 // and `commandKey` carry every difference between the harnesses' registry files, so the one hook
 // writer needs no per-harness branch. `tierCheck` is read-only detection over the harness's own
@@ -142,7 +160,7 @@ export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
 export type RegistryHook = {
   kind: "registry";
   path: (scope: Scope, ctx: HarnessContext) => string;
-  format: "json";
+  format: JsonDialect;
   eventPath: string[];
   grouped: boolean;
   wrapper?: Record<string, unknown>;
@@ -152,11 +170,12 @@ export type RegistryHook = {
   async: boolean;
   debounceMs?: number;
   tierCheck?: {
-    layers: (ctx: HarnessContext) => string[];
+    layers: (ctx: HarnessContext) => TierLayer[];
     format: ConfigFormat;
     key: string;
     demotesWhen: unknown;
     unreadable: UnreadableLayer;
+    projectTrust?: ProjectTrust;
   };
 };
 

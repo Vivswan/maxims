@@ -8,6 +8,7 @@ import {
   type UserHarnessId,
 } from "../contracts/harness-id.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
+import type { JsonDialect } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import type { ByteBudget, ConfigFormat, HookStdout, UnreadableLayer } from "./contract.ts";
 
@@ -44,7 +45,13 @@ function completeEnum<T extends string>() {
 
 const MarkersEnum = completeEnum<Markers>()(["stripped", "counted"]);
 const ExpansionEnum = completeEnum<ExpansionSyntax>()(["at-import", "none"]);
-const ConfigFormatEnum = completeEnum<ConfigFormat>()(["json", "toml"]);
+const JsonDialectEnum = completeEnum<JsonDialect>()(["json", "json-with-comments", "jsonc"]);
+const ConfigFormatEnum = completeEnum<ConfigFormat>()([
+  "json",
+  "json-with-comments",
+  "jsonc",
+  "toml",
+]);
 const UnreadableLayerEnum = completeEnum<UnreadableLayer>()(["skips-the-file", "refuses-to-start"]);
 const HookStdoutEnum = completeEnum<HookStdout>()([
   "plain",
@@ -217,8 +224,16 @@ const Detect = z
 // the key from; the walk takes the project list, then the global one. A project entry may instead
 // name a file the harness reads in every directory from the project root down to the one the
 // session runs in, the nearest first. `unreadable` is the vendor's own behavior on a broken
-// layer, which no file states. zod drops a `__proto__` key from what it parses, so a check on
-// that segment could never read it and is refused here.
+// layer, which no file states. `projectTrust` names the user-layer table that marks a directory,
+// the mark that trusts it and every mark the vendor accepts, for a harness that applies a project
+// layer only when trusted. zod drops a `__proto__` key from what it parses, so a check on that
+// segment could never read it and is refused here.
+const KeyPath = z
+  .string()
+  .min(1)
+  .refine((value) => !value.split(".").includes("__proto__"), {
+    error: "a key segment cannot be __proto__",
+  });
 const WalkLayer = z.strictObject({ kind: z.literal("root-to-cwd"), file: RelPath });
 const TierCheck = z.strictObject({
   layers: z.strictObject({
@@ -226,14 +241,21 @@ const TierCheck = z.strictObject({
     global: z.array(RelPath).min(1),
   }),
   format: ConfigFormatEnum,
-  key: z
-    .string()
-    .min(1)
-    .refine((value) => !value.split(".").includes("__proto__"), {
-      error: "a key segment cannot be __proto__",
-    }),
+  key: KeyPath,
   demotesWhen: z.json(),
   unreadable: UnreadableLayerEnum,
+  projectTrust: z
+    .strictObject({
+      table: KeyPath,
+      key: KeyPath,
+      trusted: z.string().min(1),
+      accepted: z.array(z.string().min(1)).min(1),
+    })
+    .refine((trust) => trust.accepted.includes(trust.trusted), {
+      error: "the trusted mark is one of the accepted marks",
+      path: ["trusted"],
+    })
+    .optional(),
 });
 
 function refuseUnknownPlaceholders(
@@ -255,8 +277,10 @@ const RegistryHook = z
   .strictObject({
     kind: z.literal("registry"),
     path: perScope(RelPath),
-    format: z.literal("json", {
-      error: "a registry hook is json; toml is read for tierCheck and never written",
+    // The dialect the vendor's parser takes: a construct outside it is refused, never written.
+    format: z.enum(JsonDialectEnum.options, {
+      error:
+        "a registry hook is json, json-with-comments or jsonc, as the vendor's parser takes; toml is read for tierCheck and never written",
     }),
     eventPath: z.array(z.string().min(1)).min(1),
     grouped: z.boolean(),

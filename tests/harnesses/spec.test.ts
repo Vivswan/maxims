@@ -168,7 +168,7 @@ const refusals: [string, Mutation, string][] = [
   [
     "a registry hook in a toml file",
     at(["hook", "format"], "toml"),
-    "hook.format: a registry hook is json; toml is read for tierCheck and never written",
+    "hook.format: a registry hook is json, json-with-comments or jsonc, as the vendor's parser takes; toml is read for tierCheck and never written",
   ],
   [
     "a tier check on a key zod would drop from what it parses",
