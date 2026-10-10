@@ -177,6 +177,7 @@ const refusals: [string, Mutation, string][] = [
       format: "json",
       key: "hooks.__proto__",
       demotesWhen: false,
+      unreadable: "refuses-to-start",
     }),
     "hook.tierCheck.key: a key segment cannot be __proto__",
   ],

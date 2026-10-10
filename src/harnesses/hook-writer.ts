@@ -378,37 +378,37 @@ export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
   };
 }
 
-// The tier a harness reaches on this machine, the same for either install scope: the harness reads
-// every layer its `tierCheck` declares whichever scope the hook sits in. An unreadable layer is the
-// reading wherever it sits, because the file the hook is registered in may be the broken one and
-// the harness skips or refuses a config its own schema rejects, so no other layer can answer for
-// it. A key no layer sets leaves the declared tier, which already accounts for the harness's
-// defaults.
+// The tier a harness reaches on this machine. Every declared layer is read whichever scope the hook
+// sits in; the first that sets the key decides, and a key no layer sets leaves the declared tier.
+// An unreadable layer is the reading when the harness refuses to start on it, or when it is the
+// file this scope's hook is registered in; otherwise the harness skips that file, and so does the
+// walk.
 export async function achievedTier(
   def: HarnessDefinition,
-  _scope: Scope,
+  scope: Scope,
   ctx: HarnessContext,
 ): Promise<AchievedTier> {
   if (def.achievedTier !== undefined) return def.achievedTier(ctx);
   const declared: AchievedTier = { tier: def.tier, unreadable: null };
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return declared;
   const check = def.hook.tierCheck;
-  const paths = check.layers(ctx);
-  const layers = await Promise.all(paths.map((path) => readLayer(path, check)));
-  const broken = layers.findIndex((layer) => layer.kind === "unreadable");
-  const [path, layer] = [paths[broken], layers[broken]];
-  if (path !== undefined && layer?.kind === "unreadable") {
-    return { tier: 2, unreadable: unreadableNotice(path, layer.reason) };
+  const layers = await Promise.all(
+    check.layers(ctx).map(async (path) => ({ path, layer: await readLayer(path, check) })),
+  );
+  const silences = (path: string): boolean =>
+    check.unreadable === "refuses-to-start" || path === def.hook.path(scope, ctx);
+  for (const { path, layer } of layers) {
+    if (layer.kind === "unreadable" && silences(path)) {
+      return { tier: 2, unreadable: unreadableNotice(path, layer.reason) };
+    }
   }
-  const deciding = layers.find((layer) => layer.kind === "value");
-  const demoted = deciding !== undefined && sameJson(deciding.value, check.demotesWhen);
+  const deciding = layers.find(({ layer }) => layer.kind === "value")?.layer;
+  const demoted = deciding?.kind === "value" && sameJson(deciding.value, check.demotesWhen);
   return demoted ? { tier: 2, unreadable: null } : declared;
 }
 
 type TierCheck = NonNullable<RegistryHook["tierCheck"]>;
 
-// The note `list` prints beside a tier the declared value demoted, spelled from the same key and
-// value the probe compared.
 export function demotionNote(check: Pick<TierCheck, "key" | "demotesWhen">): string {
   return `${check.key} = ${JSON.stringify(check.demotesWhen)}`;
 }
@@ -426,7 +426,7 @@ async function readLayer(path: string, check: TierCheck): Promise<ConfigLayer> {
   if (!parsed.success) {
     return { kind: "unreadable", reason: flattenIssues(parsed.error.issues).join("; ") };
   }
-  const value = valueAt(file.value, segments);
+  const value = util.getElementAtPath(file.value, segments);
   return value === undefined ? { kind: "unset" } : { kind: "value", value };
 }
 
@@ -499,9 +499,12 @@ function parseTomlConfig(text: string): FileReading {
   }
 }
 
+// Strict JSON, unlike the registry edits: Claude Code reports a `//` comment or a trailing comma
+// in a settings file as a Settings Error and skips the whole file, so the probe reads either as
+// unreadable too.
 function parseJsonConfig(text: string): FileReading {
   const errors: ParseError[] = [];
-  const root = parseTree(text, errors, { allowTrailingComma: true });
+  const root = parseTree(text, errors, { disallowComments: true });
   const [first] = errors;
   if (first !== undefined) {
     return {
@@ -511,17 +514,6 @@ function parseJsonConfig(text: string): FileReading {
   }
   if (root === undefined) return { kind: "unreadable", reason: "no JSON value" };
   return { kind: "value", value: getNodeValue(root) };
-}
-
-// Own properties only: a plain object from smol-toml would otherwise answer a key named like an
-// Object.prototype member (`constructor`) with the prototype's function where the file sets nothing.
-function valueAt(value: unknown, path: string[]): unknown {
-  let current = value;
-  for (const key of path) {
-    if (!util.isObject(current) || !Object.hasOwn(current, key)) return undefined;
-    current = current[key];
-  }
-  return current;
 }
 
 export function hookPath(

@@ -222,37 +222,83 @@ describe("claude-code", () => {
     },
   );
 
-  // A layer that does not parse is not a layer that sets nothing: wherever it sits in the walk, the
-  // reading is the reason, so a valid setting in another layer never passes for the machine's
-  // answer. Below a deciding project layer it is the user file the global hook is registered in:
-  // Claude Code skips a broken settings file, so that hook never runs whatever the project says.
-  const broken: [string, string | null, string | null, string | null, string][] = [
+  // Claude Code skips a settings file it cannot parse and keeps the other layers in effect, so a
+  // broken file silences only a hook registered in it: that scope reads the reason, the other
+  // scope's walk leaves the file out and the remaining layers decide. Its settings files are strict
+  // JSON, so a `//` comment or a trailing comma is a broken file too.
+  const notJson = "{ this is not json\n";
+  const trailingComma = '{ "disableAllHooks": false, }\n';
+  const commented = '// hooks\n{ "disableAllHooks": false }\n';
+  type Reading = 1 | 2 | "unreadable";
+  const broken: [
+    string,
+    string | null,
+    string | null,
+    string | null,
+    { file: string; reason: string },
+    Record<Scope, Reading>,
+  ][] = [
     [
       "project broken over a user on",
       null,
-      "{ this is not json\n",
+      notJson,
       on,
-      "project/.claude/settings.json",
+      { file: "project/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: "unreadable", global: 1 },
     ],
     [
       "user broken under a project on",
       null,
       on,
-      "{ this is not json\n",
-      "home/.claude/settings.json",
+      notJson,
+      { file: "home/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: "unreadable" },
     ],
     [
       "user broken under a local on",
       on,
       null,
-      "{ this is not json\n",
-      "home/.claude/settings.json",
+      notJson,
+      { file: "home/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: "unreadable" },
+    ],
+    [
+      "local broken over a user off",
+      notJson,
+      null,
+      off,
+      { file: "project/.claude/settings.local.json", reason: "InvalidSymbol at offset 2" },
+      { project: 2, global: 2 },
+    ],
+    [
+      "local broken over a project on",
+      notJson,
+      on,
+      off,
+      { file: "project/.claude/settings.local.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: 1 },
+    ],
+    [
+      "project with a trailing comma over a user on",
+      null,
+      trailingComma,
+      on,
+      { file: "project/.claude/settings.json", reason: "PropertyNameExpected at offset 28" },
+      { project: "unreadable", global: 1 },
+    ],
+    [
+      "user with a comment under a project on",
+      null,
+      on,
+      commented,
+      { file: "home/.claude/settings.json", reason: "InvalidCommentToken at offset 0" },
+      { project: 1, global: "unreadable" },
     ],
   ];
 
   test.each(broken)(
-    "a malformed settings.json is tier 2 with the reason, whichever other layer sets the key (%s)",
-    async (_, localJson, projectJson, userJson, brokenFile) => {
+    "a malformed settings.json demotes only the hook registered in it; elsewhere in the walk it is skipped (%s)",
+    async (_, localJson, projectJson, userJson, brokenFile, expected) => {
       await withTempDir(async (dir) => {
         const home = join(dir, "home");
         const project = join(dir, "project");
@@ -266,10 +312,15 @@ describe("claude-code", () => {
         write(join(home, ".claude", "settings.json"), userJson);
         const layered: HarnessContext = { home, projectRoot: project, env: {} };
         for (const scope of ["project", "global"] as const) {
-          expect(await achievedTier(claudeCode, scope, layered)).toEqual({
-            tier: 2,
-            unreadable: `settings.json could not be read (${join(dir, brokenFile)}: InvalidSymbol at offset 2); assuming hooks off`,
-          });
+          const reading = expected[scope];
+          expect(await achievedTier(claudeCode, scope, layered)).toEqual(
+            reading === "unreadable"
+              ? {
+                  tier: 2,
+                  unreadable: `settings.json could not be read (${join(dir, brokenFile.file)}: ${brokenFile.reason}); assuming hooks off`,
+                }
+              : { tier: reading, unreadable: null },
+          );
         }
       });
     },

@@ -62,8 +62,6 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (paths: PathsPerScope): ScopedPath =>
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
-  // Project layers lead, the global ones follow, each list in the order the spec gives; with no
-  // project root only the global list is read.
   const layered =
     (paths: Record<Scope, string[]>) =>
     (ctx: HarnessContext): string[] => {
@@ -232,6 +230,7 @@ function compileHook(
                 format: tierCheck.format,
                 key: tierCheck.key,
                 demotesWhen: tierCheck.demotesWhen,
+                unreadable: tierCheck.unreadable,
               },
             }),
       };

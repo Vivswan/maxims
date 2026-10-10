@@ -8,7 +8,8 @@ import type { HarnessSpec } from "../spec.ts";
 // first of the two that exists and drops a blank one without falling back to AGENTS.md, so there
 // the block belongs in the override even when blank. Hooks are on unless `[features] hooks =
 // false` is set, with the project config.toml layered over the user one, so both are read for
-// that flag and never written.
+// that flag and never written; Codex refuses to start on a config.toml it cannot parse or type,
+// so a broken layer anywhere is hooks off.
 export const spec = {
   id: "codex",
   displayName: "Codex",
@@ -21,6 +22,18 @@ export const spec = {
         url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/config.schema.json",
         paths: ["/properties/features/properties/hooks"],
         note: "features.hooks in config.toml",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/loader/mod.rs",
+        claims: [
+          "toml::from_str(&contents).map_err(|err| {",
+          "io_error_from_config_error(io::ErrorKind::InvalidData, config_error, Some(err))",
+          "typed_first_layer_config_error_from_entries::<ConfigToml>(layers, CONFIG_TOML_FILE)",
+        ],
+        note: "a config.toml that does not parse, or does not fit ConfigToml, is an error the loader returns for the user layer and a trusted project layer, not one it skips",
       },
       {
         kind: "file",
@@ -156,6 +169,7 @@ export const spec = {
       format: "toml",
       key: "features.hooks",
       demotesWhen: false,
+      unreadable: "refuses-to-start",
     },
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },

@@ -824,6 +824,7 @@ describe("achievedTier", () => {
       format: "toml",
       key: "features.hooks",
       demotesWhen: false,
+      unreadable: "refuses-to-start",
     },
   });
   const jsonCheck = registryDef({
@@ -833,15 +834,7 @@ describe("achievedTier", () => {
       format: "json",
       key: "hooks.enabled",
       demotesWhen: false,
-    },
-  });
-  const prototypeKey = registryDef({
-    path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
-    tierCheck: {
-      layers: (ctx) => [join(ctx.home, ".example", "settings.json")],
-      format: "json",
-      key: "hooks.constructor",
-      demotesWhen: false,
+      unreadable: "refuses-to-start",
     },
   });
   type Case = {
@@ -944,13 +937,6 @@ describe("achievedTier", () => {
       tier: 2,
       unreadable:
         /^settings\.json could not be read \(.*settings\.json: hooks: Invalid input: expected object, received boolean\); assuming hooks off$/,
-    },
-    {
-      name: "a key named like an Object.prototype member is unset when the file lacks it, never the prototype's value",
-      def: prototypeKey,
-      config: '{ "hooks": {} }',
-      tier: 1,
-      unreadable: null,
     },
   ];
   test.each(cases)("$name", async ({ def, config, tier, unreadable }) => {

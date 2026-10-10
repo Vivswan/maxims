@@ -32,7 +32,7 @@ const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
 
 // The config.toml layers are the machine's whichever scope the hook sits in, so one scope stands
-// for both here; the shared writer's own tests cover the scope-independence.
+// for both in the rows that set a readable flag; the broken-layer rows below probe both scopes.
 function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
   return probe(codex, "global", ctx);
 }
@@ -118,8 +118,8 @@ test.each(malformed)(
   },
 );
 
-// A layer that cannot be read decides nothing for the others and is the reading wherever it sits:
-// Codex refuses to load a config.toml that does not parse, so the machine is taken at hooks off
+// Codex refuses to start on a config.toml that does not parse, so a broken layer is the reading
+// wherever it sits and whichever file the hook is registered in: the machine is taken at hooks off
 // whatever the other layer says.
 const brokenLayers: [string, string, string, "project" | "home"][] = [
   ["project broken over an enabling user config", "hooks\n", enabled, "project"],
@@ -127,7 +127,7 @@ const brokenLayers: [string, string, string, "project" | "home"][] = [
 ];
 
 test.each(brokenLayers)(
-  "an unreadable config.toml is reported over the other layer (%s)",
+  "an unreadable config.toml is reported over the other layer, for a hook in either scope (%s)",
   async (_, projectToml, userToml, brokenIn) => {
     await withTempDir(async (dir) => {
       const home = join(dir, "home");
@@ -137,9 +137,11 @@ test.each(brokenLayers)(
       writeFileSync(join(home, ".codex", "config.toml"), userToml);
       writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       const broken = join(dir, brokenIn, ".codex", "config.toml");
-      expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
-        unreadable(broken, "Invalid TOML document: illegal character in key (line 1, column 6)"),
-      );
+      for (const scope of ["project", "global"] as const) {
+        expect(await probe(codex, scope, { home, projectRoot: project, env: {} })).toEqual(
+          unreadable(broken, "Invalid TOML document: illegal character in key (line 1, column 6)"),
+        );
+      }
     });
   },
 );

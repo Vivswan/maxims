@@ -124,13 +124,18 @@ export type ConfigLayer =
   | { kind: "value"; value: unknown }
   | { kind: "unreadable"; reason: string };
 
+// What the harness does with a config layer it cannot parse or its schema rejects. One that skips
+// the file keeps its other layers in effect, so only the file the hook is registered in bears on
+// the tier; one that refuses to start runs no hook from any layer.
+export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
+
 // A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
 // and `commandKey` carry every difference between the harnesses' registry files, so the one hook
 // writer needs no per-harness branch. `tierCheck` is read-only detection over the harness's own
 // config layers, `layers` giving them in the harness's precedence order (project over global, a
 // local override before the file it overrides): the first that sets the key decides whether it
-// holds `demotesWhen`, and an unreadable one anywhere in the list is the reading. Nothing ever
-// writes them.
+// holds `demotesWhen`, and `unreadable` says which broken layer is the reading instead. Nothing
+// ever writes them.
 export type RegistryHook = {
   kind: "registry";
   path: (scope: Scope, ctx: HarnessContext) => string;
@@ -148,6 +153,7 @@ export type RegistryHook = {
     format: ConfigFormat;
     key: string;
     demotesWhen: unknown;
+    unreadable: UnreadableLayer;
   };
 };
 

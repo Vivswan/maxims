@@ -55,13 +55,13 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
-| `tierCheck` | `{ layers, format, key, demotesWhen }`: the config layers read for a demoting value |
+| `tierCheck` | `{ layers, format, key, demotesWhen, unreadable }`: the config layers read for a demoting value |
 
 The writer finds and prunes its own entries by the `commandKey` prefix.
 
 A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives:
 
-- **An unreadable layer anywhere is the reading:** a file that does not parse, a non-table where the key path expects one, or a key of another type than `demotesWhen`, is tier 2 with the reason.
+- **An unreadable layer** is a file that does not parse (`json` is strict: no comments, no trailing commas), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
 - **Otherwise the first layer that sets the key decides:** tier 2 when it holds `demotesWhen`, the declared tier when it does not.
 - **A key no layer sets** leaves the declared tier.
 
@@ -129,7 +129,8 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
       "layers": { "project": [".codex/config.toml"], "global": ["config.toml"] },
       "format": "toml",
       "key": "features.hooks",
-      "demotesWhen": false
+      "demotesWhen": false,
+      "unreadable": "refuses-to-start"
     }
   }
 }
