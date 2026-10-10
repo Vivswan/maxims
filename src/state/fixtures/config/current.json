@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "agents": ["claude-code", "codex"],
+  "rule": true,
+  "cooldownDays": 3,
+  "ruleCap": 30,
+  "lastAgents": ["codex"]
+}

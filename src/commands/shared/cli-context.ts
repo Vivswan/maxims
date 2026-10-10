@@ -1,5 +1,5 @@
 import type { MemoryName } from "../../memory/contract.ts";
-import { type UserConfig, UserConfigSchema } from "../../state/config.ts";
+import { serializeUserConfig, type UserConfig, UserConfigSchema } from "../../state/config.ts";
 import { emptyState, parseState, type State } from "../../state/schema.ts";
 import { type ScopeAt, scopedAt, withScopedList } from "../../state/scoped.ts";
 import {
@@ -27,7 +27,7 @@ export function configRefusal(issue: string): MaximsError {
 
 export function configWrite(home: string, config: UserConfig): Change {
   const path = assertInsideRoot(home, homePaths(home).config);
-  return { kind: "write", path, content: `${JSON.stringify(config, null, 2)}\n` };
+  return { kind: "write", path, content: serializeUserConfig(config) };
 }
 
 // `--cooldown` and `--cap` are the two flags that persist: typed once, they are meant for every

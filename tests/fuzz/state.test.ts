@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import fc from "fast-check";
-import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { parseProjectLock, serializeProjectLock } from "../../src/state/project-lock.ts";
 import { parseState, type State } from "../../src/state/schema.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";

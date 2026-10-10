@@ -1,7 +1,7 @@
 // Guards the state boundary: a corrupt or hand-edited file must be refused whole rather than half
 // obeyed, and a newer file must never be rewritten.
 import { describe, expect, test } from "bun:test";
-import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { canonicalSourceKey, emptyState, parseState } from "../../src/state/schema.ts";
 
 const VALID = {

@@ -16,7 +16,8 @@ import { join } from "node:path";
 import { sourceOwner } from "../../src/commands/add.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
-import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
@@ -1498,7 +1499,10 @@ test("the harnesses chosen at the prompt are remembered, pre-selected, and reuse
       expect(chosen.code).toBe(0);
       expect(source(scenario, "@a/b").intent.harnesses).toEqual(["claude-code"]);
       const config = homePaths(scenario.home).config;
-      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({ lastAgents: ["claude-code"] });
+      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
+        version: CURRENT_CONFIG_VERSION,
+        lastAgents: ["claude-code"],
+      });
       const before = readFileSync(config, "utf8");
       scenario.options.answers = { [STRINGS.whichAgents]: "\r", [STRINGS.proceed]: "\r" };
       const kept = await runCli(scenario, ["add", "@a/b", "-g", "-m", "skip-unfit-skills"]);
