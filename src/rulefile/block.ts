@@ -179,8 +179,7 @@ export type OpenLeaf = { block: OpenBlock; column: number };
 // A leaf lives in the innermost item, and a line that ends that item ends the leaf too.
 //   items         a non-blank line indented short of one ends it, unless it lazily continues an
 //                 open paragraph
-//   quote         dropped whenever `items` changes; while one is open, `paragraph` mirrors
-//                 whether the quote ends in one
+//   quote         dropped whenever `items` changes
 //   definitions   decides whether an `===` line under the paragraph underlines a heading
 type Scanner = {
   items: number[];
@@ -771,7 +770,8 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
 // take the user's lines. A closing counts only when the result reads back as the kept blocks, and
 // only them, where they were placed.
 //   the last slot first   an add opened it, so add-then-remove gives the user's bytes back
-//   the refusal names     the pair the block's own slot exposes, before whatever another slot's did
+//   the refusal names     the pair closing the block's own slot exposes, else the first pair that
+//                         closing another slot exposed
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
   const spans = blockSpans(fileText);
   const own = spans.findIndex((span) => span.source === source);

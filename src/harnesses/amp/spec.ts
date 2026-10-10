@@ -1,12 +1,12 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Amp reads AGENTS.md from the working directory upward, then every user and system guidance file
-// that exists, side by side: neither `~/.config/AGENTS.md` (shared with other tools) nor
-// `/etc/ampcode/AGENTS.md` (outside HOME) outranks its own file. Only a project directory with no
-// AGENTS.md falls back to AGENT.md or CLAUDE.md, so creating one beside those would stop Amp
-// reading the user's file. Its docs give `~/.config/amp` with no XDG override, even though the
-// plugins page honours `XDG_CONFIG_HOME`, so the root stays fixed.
+// Amp reads every user and system guidance file that exists, side by side with the project's: none
+// of them outranks another.
+//   `~/.config/AGENTS.md`   read too, but shared with other tools, so the global target is Amp's
+//                           own `~/.config/amp/AGENTS.md`
+//   `~/.config/amp`         the docs give it with no XDG override, though the plugins page honours
+//                           `XDG_CONFIG_HOME`, so the root stays fixed
 export const spec = {
   id: "amp",
   displayName: "Amp",
