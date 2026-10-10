@@ -1,4 +1,4 @@
-// Fails if maxims drifts from the `npx skills` surface captured from skills@1.7.0 into
+// Fails if maxims drifts from the `npx skills` surface captured from skills@1.7.2 into
 // tests/fixtures/golden/skills-help.txt: a shared flag respelled or re-shaped, a short letter
 // reassigned while `skills` keeps the old one, a documented alias dropped, a usage error that
 // stops exiting 1, or an upstream flag or verb that no parity decision claims yet.
@@ -94,12 +94,22 @@ const SAME_FLAGS = [
   "yes",
   "all",
   "copy",
+  "dry-run",
   "full-depth",
   "json",
 ];
 const SCAN_FLAGS = ["help", "version"];
 const ANALOG_FLAGS: Record<string, FlagSpec> = { skill: FLAGS.memory };
-const DIVERGE_FLAGS = ["metadata", "subagent", "owner"];
+const DIVERGE_FLAGS = [
+  "metadata",
+  "subagent",
+  "owner",
+  "no-cleanup",
+  "no-remote",
+  "recursive",
+  "include",
+  "exclude",
+];
 const SAME_VERBS = ["add", "remove", "list", "update"];
 const DIVERGE_VERBS = ["use", "find"];
 const UNCLAIMED_VERBS = ["experimental_install", "experimental_sync", "init"];

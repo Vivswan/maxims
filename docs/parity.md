@@ -19,6 +19,11 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | `-y, --yes` | `-y, --yes` | same | |
 | `--all` | `--all` | same | same shorthand on both verbs |
 | `--copy` | `--copy` | same | materialize instead of link |
+| `--dry-run` | `--dry-run` | same | `skills` carries it on `experimental_sync` only; maxims accepts it on every verb |
+| `--no-cleanup` | none | diverge | a dropped memory leaves on the next sync; an emptied source keeps its [last block](guarantees.md#failure-paths) |
+| `--no-remote` | none | diverge | every maxims source is a store entry; `sync --no-fetch` applies them without the network |
+| `-r, --recursive` | none | diverge | a workspace's package dependencies have no maxims concept; state lists every source itself |
+| `--include <patterns>`, `--exclude <patterns>` | none | diverge | `sync` writes every memory in state; `disable <memory>` withholds one, `-m` narrows an `add` |
 | `--full-depth` | `--full-depth` | same | `skills` searches past a root `SKILL.md`; maxims past `memories/` |
 | `--metadata <json>` | none | diverge | install telemetry; maxims ships none, see [security](security.md) |
 | `--subagent <names>` | none | diverge | a rule file has no subagent scope to target |
