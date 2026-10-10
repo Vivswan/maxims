@@ -1,7 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inheritedEnv } from "./env.ts";
+import { withScratchDir } from "./scratch.ts";
 
 // `skills` prints bold through NO_COLOR, so the normalizer strips ANSI regardless; the rest keeps
 // the page width and the terminal kind fixed so a capture on any machine wraps identically. The
@@ -37,9 +36,8 @@ export function normalizeHelp(raw: string): string {
 
 // The child runs from an empty scratch directory with its own npm cache, so neither a package.json
 // above the caller's cwd nor a previously cached `skills` can change which page is printed.
-const runNpx: HelpRunner = async (argv, env) => {
-  const scratch = mkdtempSync(join(tmpdir(), "skills-help-"));
-  try {
+const runNpx: HelpRunner = (argv, env) =>
+  withScratchDir("skills-help-", async (scratch) => {
     const proc = Bun.spawn(argv, {
       cwd: scratch,
       env: { ...env, npm_config_cache: join(scratch, "npm-cache") },
@@ -49,10 +47,7 @@ const runNpx: HelpRunner = async (argv, env) => {
     });
     const stdout = await new Response(proc.stdout).text();
     return { exitCode: await proc.exited, stdout };
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-};
+  });
 
 export async function captureSkillsHelp(spec: string, run: HelpRunner = runNpx): Promise<string> {
   const argv = SKILLS_HELP_ARGV(spec);
