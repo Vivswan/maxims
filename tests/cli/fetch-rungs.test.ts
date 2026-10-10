@@ -8,14 +8,6 @@ import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createEngine } from "../../src/commands/loader.ts";
-import {
-  exited,
-  ghScript,
-  httpResponse,
-  type ScriptedRunner,
-  scriptedGit,
-  scriptedRunner,
-} from "../../src/sources/github/fixtures/runner.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
   ADDED_AT,
@@ -28,6 +20,14 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
+import {
+  exited,
+  ghScript,
+  httpResponse,
+  type ScriptedRunner,
+  scriptedGit,
+  scriptedRunner,
+} from "../sources/github/fakes/runner.ts";
 import { type RunResult, runCli, type Scenario, withScenario } from "./harness.ts";
 
 const FROM = githubFrom("a/b");
