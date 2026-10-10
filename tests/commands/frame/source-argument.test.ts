@@ -148,16 +148,25 @@ describe("parseSourceArgument", () => {
   );
 
   // An `@owner/repo` shorthand in the advice would be re-hosted under GH_HOST on an enterprise
-  // shell, so the message must point at the URL the user already has plus the two flags.
-  test("a tree URL with a path is refused as usage, advised without an @owner/repo shorthand", () => {
-    const refused = outcome(() =>
-      parseSourceArgument("https://github.com/example-user/rules/tree/release/1.0", cwd),
-    );
-    expect(refused).toMatchObject({ kind: "threw", error: { code: ExitCode.Usage } });
-    const message = refused.kind === "threw" ? (refused.error as Error).message : "";
-    expect(message.slice(message.indexOf(": ") + 2)).not.toContain("@");
-    expect(message).toContain("--pin <ref> --from <path>");
-  });
+  // shell, so the message must point at the URL the user already has plus the flags that say what
+  // its tail said: a `/blob/` tail names a file, so its advice names the folder and the memory.
+  const tails: [string, string][] = [
+    ["https://github.com/example-user/rules/tree/release/1.0", "--pin <ref> --from <path>"],
+    [
+      "https://github.com/example-user/rules/blob/main/memories/always-review.md",
+      "--pin <ref> --from <folder> --memory <name>",
+    ],
+  ];
+  test.each(tails)(
+    "%s is refused as usage, advised without an @owner/repo shorthand",
+    (arg, flags) => {
+      const refused = outcome(() => parseSourceArgument(arg, cwd));
+      expect(refused).toMatchObject({ kind: "threw", error: { code: ExitCode.Usage } });
+      const message = refused.kind === "threw" ? (refused.error as Error).message : "";
+      expect(message.slice(message.indexOf(": ") + 2)).not.toContain("@");
+      expect(message).toContain(flags);
+    },
+  );
 
   const rejected = [
     "",

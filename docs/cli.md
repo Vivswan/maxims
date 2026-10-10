@@ -55,7 +55,7 @@ The `@` in `@owner/repo` is cosmetic, as it is for `skills`.
 | `https://github.com/owner/repo/tree/<ref>` | a GitHub URL whose `/tree/<ref>` segment sets the ref, as `--pin <ref>` would |
 | `https://git.example.com/team/rules.git`, `git@host:path` | any git remote, stored verbatim; [how a source is fetched](keep-fresh.md#how-a-source-is-fetched) |
 
-A path after the `/tree/<ref>` segment is refused, because a branch containing `/` cannot be told from the path. Drop the `/tree/` tail and pass the ref with `--pin` and the path with `--from`.
+A path after the `/tree/<ref>` segment is refused, because a branch containing `/` cannot be told from the path. Drop the `/tree/` tail and pass the ref with `--pin` and the path with `--from`. A `/blob/<ref>/<file>` URL names one file where a source is a folder, so it is refused the same way: pass the ref with `--pin`, the file's folder with `--from`, and its name with `--memory`.
 
 ## Flags
 
@@ -66,7 +66,7 @@ These flags work on every verb.
 | `--dry-run` | off | the exact plan and diff, nothing written; a failed fetch [exits](#exit-codes) as without the flag |
 | `--json` | off | the same plan as one JSON document, for CI assertions; never prompts, see below |
 | `--quiet` | off | one-line output and fail-soft, see the exit codes below; the hook's mode |
-| `--verbose` | off | adds fetch details to the output |
+| `--verbose` | off | unfolds the `add` and `install` plan to every one-liner |
 | `-h, --help`, `-v, --version` | | standard |
 
 - **`--json` never prompts.** `add` and `remove` need `-y` or `--all` beside it, `install` needs `-y`, and `--json` with `--list` is refused. Each exits 1.

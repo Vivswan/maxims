@@ -49,6 +49,7 @@ export const STRINGS = {
   nothingHeld: "nothing held for review",
   allWithSource: "--all accepts every held source; drop the source name",
   lastGoodKept: "the last good copy of each failed source stays installed",
+  agentsOnMemoryHint: "name the source to drop a harness from, or drop the name without -a",
 } as const;
 
 export function jsonNeedsYes(acceptsAll: boolean): string {
@@ -104,6 +105,10 @@ export function moreItems(n: number): string {
 
 export function notInstalled(what: string): string {
   return `${what} is not installed`;
+}
+
+export function agentsOnMemory(name: string): string {
+  return `-a applies to a source, not to the memory ${name}`;
 }
 
 // The cap refusal `add`, `update` and `lint` share; the subject is what would publish the lines.

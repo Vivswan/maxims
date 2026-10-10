@@ -1,4 +1,4 @@
-import { memories, notInstalled } from "../console/strings.ts";
+import { agentsOnMemory, memories, notInstalled, STRINGS } from "../console/strings.ts";
 import { actsHere, type EngineContext, loadContext } from "../engine/context.ts";
 import { prunedHooks } from "../engine/hooks.ts";
 import type { SourceTree } from "../engine/memories.ts";
@@ -189,8 +189,8 @@ async function resolveRemoval(
       );
     }
     if (options.agents !== undefined) {
-      throw new MaximsError(ExitCode.Usage, `-a applies to a source, not to the memory ${name}`, {
-        hint: "name the source to drop a harness from, or drop the name without -a",
+      throw new MaximsError(ExitCode.Usage, agentsOnMemory(name), {
+        hint: STRINGS.agentsOnMemoryHint,
       });
     }
     const candidates =
