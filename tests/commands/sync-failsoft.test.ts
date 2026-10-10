@@ -215,27 +215,37 @@ describe("fail-soft rungs under --quiet", () => {
   });
 
   // A non-zero exit with no line is a defect of its own: inside the week of grace the stale line
-  // is not yet due, so the interactive run says on stderr which source failed and how, once; the
-  // hook run stays silent, as its protocol asks.
+  // is not yet due, so the interactive run, dry or real, says on stderr which source failed and
+  // how, once; the hook run stays silent, as its protocol asks.
   const transient: [LastError["kind"], string][] = [
     ["network", "network unreachable"],
     ["ratelimit", "rate limited"],
     ["auth", "authentication failed"],
   ];
   test.each(transient)(
-    "an interactive run names a %s failure once on stderr; a hook run says nothing",
+    "an interactive run, dry or real, names a %s failure once on stderr; a hook run says nothing",
     async (kind, reason) => {
       await world(async (w) => {
         const { fake, io } = await lastGood(w, 9);
         await runSync(SYNC, io);
         fake.set(FROM, { kind: "fail", failure: kind });
         io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+        const aside = `maxims: ${KEY}: fetch failed (${reason}); kept last-good\n`;
+        io.out.length = 0;
+        io.err.length = 0;
+        const dry = await runSync({ ...SYNC, dryRun: true }, io);
+        expect(dry.failed.map((failure) => failure.kind)).toEqual([kind]);
+        expect(io.out.join("").split("\n")).toEqual([
+          expect.stringMatching(/^write {3}\S+ \(\d+ bytes\)$/),
+          "",
+        ]);
+        expect(io.err.join("")).toBe(aside);
         io.out.length = 0;
         io.err.length = 0;
         const report = await runSync(SYNC, io);
         expect(report.failed.map((failure) => failure.kind)).toEqual([kind]);
         expect(io.out.join("")).toBe("");
-        expect(io.err.join("")).toBe(`maxims: ${KEY}: fetch failed (${reason}); kept last-good\n`);
+        expect(io.err.join("")).toBe(aside);
         io.err.length = 0;
         io.clock.now = new Date(NOW.getTime() + 3 * DAY_MS);
         await runSync(QUIET, io);

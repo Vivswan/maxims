@@ -85,12 +85,14 @@ async function writeLog(
   }
 }
 
-// `--json` is one value, whose `ok` agrees with the exit a manual run maps from it (a failed
-// refresh is exit 2 or 3, so it is `ok: false`); `--dry-run` is the rendered plan; a hook run
-// speaks its harness's protocol and only the lines a session should hear; an interactive run
-// prints the notices and, for the sync verb, a summary when something changed: a removal's own
-// notice is its report, and an installed count beside it would only say what is left. A standing
-// hold is the run's outcome, said by its own line, so no up-to-date line is printed beside it.
+// What each channel leaves out, which the code cannot say:
+//
+// --json     `ok` agrees with the exit a manual run maps from it (a failed refresh is 2 or 3)
+// --quiet    the harness protocol, and only the lines a session should hear
+// --dry-run  the user notices already ride in the plan as its `note:` lines
+// stderr     explains the non-zero exit, which a dry run shares, so both print it
+// summary    sync only: a removal's own notice is its report, so no installed count beside it;
+//            a standing hold is the run's outcome, so no up-to-date line beside it
 function printOutcome(
   outcome: SyncOutcome,
   report: SyncReport,
@@ -115,15 +117,12 @@ function printOutcome(
     io.stdout(renderHookStdout(ctx.stdoutVariant, lines));
     return;
   }
-  if (options.dryRun) {
-    io.stdout(renderPlan(outcome.plan));
-    return;
-  }
   // The engine's notices are the frame's warnings, glyph included, so a sync that refreshed
   // reads like the update that printed the same lines.
-  for (const line of outcome.notices.user) io.stdout(`!  ${line}\n`);
+  if (options.dryRun) io.stdout(renderPlan(outcome.plan));
+  else for (const line of outcome.notices.user) io.stdout(`!  ${line}\n`);
   for (const line of outcome.notices.stderr) io.stderr(`${line}\n`);
-  if (options.verb !== "sync") return;
+  if (options.dryRun || options.verb !== "sync") return;
   if (changed) io.stdout(`${summaryLine(report)}\n`);
   else if (upToDate(outcome, report))
     io.stdout(`o  Up to date: ${installedCounts(report.memories, report.rules)}\n`);
