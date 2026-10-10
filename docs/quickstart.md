@@ -15,7 +15,7 @@ npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
 
 - `-g` installs at user level, for every project on the machine.
 - `--rule` publishes each memory's one-liner into the rule file.
-- `--add-hook` registers the session-start sync hook, once per harness.
+- `--add-hook` registers the session-start sync hook, once per harness, and the MCP server where the harness declares one.
 
 The [flag reference](cli.md#flags) has the full table. Run from inside an agent session, the plan is applied without a prompt; in a terminal, a "Proceed with installation?" confirm appears before the install line, and a refusal prints "Installation cancelled".
 

@@ -311,19 +311,32 @@ function fileId(path: string): string {
 // and delete it again for the global scope, the deletion applied last. A removal touching any file
 // a wanted answer claims is dropped whole, its companion edits (the patch row) included. The claim
 // covers files the wanted answer leaves alone: on a settled registry the wanted scope has nothing
-// to write while the unwanted scope still finds our entry to remove.
+// to write while the unwanted scope still finds our entry to remove. Files are matched by
+// `realKeyOf`, the fold's identity, and a claim no wanted change touches covers the file behind
+// it too: a leaf that is a link stays one, so the file behind it is the registration; a change at
+// the leaf replaces the link with a real file, so the file behind it is another file and its
+// removal stands. A removal is matched by its leaf and by the file behind it, so a write at a link
+// partway along a kept claim's chain is dropped as well.
 function reconcileScopes(
   answers: readonly ScopeAnswer[],
 ): Pick<HooksPlan, "changes" | "removals" | "notices"> {
   const changes: Change[] = [];
   const removals: Change[] = [];
   const notices: string[] = [];
-  const kept = new Set(
-    answers.filter((answer) => answer.wanted).flatMap((answer) => answer.claims.map(fileId)),
+  const wanted = answers.filter((answer) => answer.wanted);
+  const touched = new Set(
+    wanted.flatMap((answer) => answer.artifact.map((c) => realKeyOf(c.path))),
   );
+  const kept = new Set<string>();
+  for (const claim of wanted.flatMap((answer) => answer.claims)) {
+    const key = realKeyOf(claim);
+    kept.add(key);
+    if (!touched.has(key)) kept.add(fileId(claim));
+  }
+  const keeps = (path: string): boolean => kept.has(realKeyOf(path)) || kept.has(fileId(path));
   for (const answer of answers) {
     if (answer.wanted) changes.push(...answer.artifact);
-    else if (answer.artifact.some((change) => kept.has(fileId(change.path)))) continue;
+    else if (answer.artifact.some((change) => keeps(change.path))) continue;
     else removals.push(...answer.artifact);
     notices.push(...answer.notices);
   }
