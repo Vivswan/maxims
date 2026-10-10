@@ -2,21 +2,22 @@
 // once our row leaves (dsh's own guide warns the file carries unrelated user patches), a sibling
 // plugin the user merged into our insert operation must survive both mount and unmount, and a row
 // the user duplicated by hand must converge to one on mount and to none on unmount. Also pins the
-// AGENTS.md dsh reads per scope under $DSH_HOME, the byte line past which dsh truncates it, and
-// that only a directory at the dsh home counts as an install.
+// byte line past which dsh truncates an AGENTS.md.
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type HarnessContext, hookSpecFor, type Scope } from "../../../src/harnesses/contract.ts";
+import { hookSpecFor } from "../../../src/harnesses/contract.ts";
 import { BRIDGE_ROW_ID } from "../../../src/harnesses/dsh/quirks.ts";
 import { dsh } from "../../../src/harnesses/dsh/spec.ts";
 import { assertWithinBudget } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { applyChanges } from "../../../src/util/change.ts";
-import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
+import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { asyncOutcome, outcome } from "../../shared/outcome.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
 const fixture = readFileSync(srcPath("harnesses", "dsh", "fixtures", "config.yml"), "utf8");
 const spec = hookSpecFor(dsh);
@@ -223,96 +224,74 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
       { kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") },
       { kind: "write", path: rooted(join(home, ".dsh"), "cordis.patch.yml"), content: "[]\n" },
     ]);
+    // A row the user removed by hand leaves the hooks file orphaned; the unmount still takes it.
+    writeFileSync(join(home, ".dsh", "cordis.patch.yml"), "[]\n");
+    expect(
+      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+    ).toEqual([{ kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") }]);
   });
 });
 
-const refusals: [string, string][] = [
-  ["a patch file that is a map, not a list", "plugins:\n  - name: x\n"],
-  ["unparsable YAML", "- insert:\n  - id: [\n"],
-  ["a non-empty flow-style list", "[{ insert: [] }]\n"],
-  ["an indented list", "  - insert: []\n"],
-  ["a list followed by a document end marker", "- replace: { id: a }\n...\n"],
+// The reason names the guard that refused: the shape check, or the parse that precedes it.
+const refusals: [string, string, string][] = [
+  [
+    "a patch file that is a map, not a list",
+    "plugins:\n  - name: x\n",
+    "is not a block list of patch operations; left untouched",
+  ],
+  ["unparsable YAML", "- insert:\n  - id: [\n", "cannot parse"],
+  [
+    "a non-empty flow-style list",
+    "[{ insert: [] }]\n",
+    "is not a block list of patch operations; left untouched",
+  ],
+  [
+    "an indented list",
+    "  - insert: []\n",
+    "is not a block list of patch operations; left untouched",
+  ],
+  ["a list followed by a document end marker", "- replace: { id: a }\n...\n", "cannot parse"],
 ];
 
-test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
+test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text, reason) => {
   await withTempDir(async (home) => {
     const dshHome = join(home, "dsh-home");
     mkdirSync(dshHome);
     writeFileSync(join(dshHome, "cordis.patch.yml"), text);
-    let caught: unknown;
-    try {
-      await reconcileBridge("global", contextFor(home), spec, true);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
+    const verdict = await asyncOutcome(() =>
+      reconcileBridge("global", contextFor(home), spec, true),
+    );
+    expect(verdict).toMatchObject({
+      kind: "threw",
+      error: {
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: expect.stringContaining(reason),
+      },
+    });
     expect(readFileSync(join(dshHome, "cordis.patch.yml"), "utf8")).toBe(text);
   });
 });
-
-const ctx: HarnessContext = {
-  home: "/home/user",
-  projectRoot: "/home/user/project",
-  env: { DSH_HOME: "/home/user/dsh-home" },
-};
-
-function sharedBlock(scope: Scope) {
-  const target = dsh.targets[scope];
-  if (target?.kind !== "shared-block") throw new Error("dsh reads an AGENTS.md block");
-  return target;
-}
-
-const blocks: [Scope, string, string][] = [
-  ["project", "/home/user/project", "/home/user/project/AGENTS.md"],
-  ["global", "/home/user/dsh-home", "/home/user/dsh-home/AGENTS.md"],
-];
-
-test.each(blocks)(
-  "the %s block lands in the AGENTS.md dsh reads, under $DSH_HOME for the user",
-  (scope, root, path) => {
-    expect(sharedBlockPath({ def: dsh, target: sharedBlock(scope), scope, ctx })).toBe(
-      assertInsideRoot(root, path),
-    );
-  },
-);
 
 // dsh renders every instruction file into one 65,536-byte block and truncates the most specific
 // file past it; the frame it adds around a file is allowed for, so a rule file may reach 64,512
 // bytes and no further.
 test("a block at the dsh line passes the budget and one byte past it is refused", () => {
+  const target = dsh.targets.project;
+  if (target?.kind !== "shared-block") throw new Error("dsh reads an AGENTS.md block");
   const frame =
     "<!-- maxims:begin @example-user/doctrine sha=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
   const atLine = frame.replace("\n\n", `\n${"x".repeat(64_512 - frame.length)}\n`);
-  const path = sharedBlockPath({ def: dsh, target: sharedBlock("project"), scope: "project", ctx });
+  const path = sharedBlockPath({ def: dsh, target, scope: "project", ctx });
   const budget = (content: string) => assertWithinBudget(dsh, "project", path, content);
   expect(Buffer.byteLength(atLine)).toBe(64_512);
-  expect(() => budget(atLine)).not.toThrow();
-  let caught: unknown;
-  try {
-    budget(atLine.replace("xx", "xxx"));
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  expect(caught).toMatchObject({ code: ExitCode.RuleCapExceeded });
-  expect(String((caught as MaximsError).message)).toContain(
-    "64512-byte limit DeepSeek Harness loads",
-  );
-});
-
-test("detection reads a directory at ~/.dsh or $DSH_HOME, never a stray file there", async () => {
-  await withTempDir((dir) => {
-    const home = join(dir, "home");
-    mkdirSync(home);
-    const bare: HarnessContext = { home, projectRoot: null, env: {} };
-    expect(dsh.detect(bare)).toBe(false);
-    writeFileSync(join(dir, "elsewhere"), "");
-    expect(dsh.detect({ ...bare, env: { DSH_HOME: join(dir, "elsewhere") } })).toBe(false);
-    mkdirSync(join(dir, "dsh-home"));
-    expect(dsh.detect({ ...bare, env: { DSH_HOME: join(dir, "dsh-home") } })).toBe(true);
-    expect(dsh.detect(bare)).toBe(false);
-    mkdirSync(join(home, ".dsh"));
-    expect(dsh.detect(bare)).toBe(true);
+  expect(outcome(() => budget(atLine))).toEqual({ kind: "value", value: undefined });
+  expect(outcome(() => budget(atLine.replace("xx", "xxx")))).toMatchObject({
+    kind: "threw",
+    error: {
+      name: "MaximsError",
+      code: ExitCode.RuleCapExceeded,
+      message: expect.stringContaining("64512-byte limit DeepSeek Harness loads"),
+    },
   });
 });

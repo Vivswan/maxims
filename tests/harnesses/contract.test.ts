@@ -7,7 +7,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type HarnessContext, scopeRoot, sharedBlockFile } from "../../src/harnesses/contract.ts";
-import { ExitCode, type MaximsError } from "../../src/util/exit-codes.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
+import { outcome } from "../shared/outcome.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const ctx: HarnessContext = {
@@ -24,47 +25,40 @@ test("scopeRoot: project root for project scope, overridable home for global sco
 });
 
 test("scopeRoot: a project target outside any project is a usage error", () => {
-  let caught: unknown;
-  try {
-    scopeRoot({}, "project", { ...ctx, projectRoot: null });
-  } catch (error) {
-    caught = error;
-  }
-  expect((caught as MaximsError).code).toBe(ExitCode.Usage);
+  expect(outcome(() => scopeRoot({}, "project", { ...ctx, projectRoot: null }))).toMatchObject({
+    kind: "threw",
+    error: { name: "MaximsError", code: ExitCode.Usage },
+  });
 });
 
 // A directory bearing a listed name is skipped: Cline's `.clinerules/` is a folder in current
-// projects, and a folder holds no block.
+// projects, and a folder holds no block. A name under a regular file is skipped too: Bun's
+// statSync throws ENOTDIR for it even with throwIfNoEntry off, and a project with a `.github`
+// FILE would otherwise crash every Copilot-style precedence walk.
 test("sharedBlockFile: the first listed regular file wins, else the declared default", async () => {
   const target = {
     kind: "shared-block" as const,
     file: "AGENTS.md",
-    precedence: [".rules", ".clinerules", "AGENTS.md", "CLAUDE.md"],
+    precedence: [
+      ".rules",
+      ".clinerules",
+      ".github/copilot-instructions.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+    ],
   };
   await withTempDir((root) => {
-    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
+    const chosen = () => outcome(() => sharedBlockFile(target, root));
+    expect(chosen()).toEqual({ kind: "value", value: "AGENTS.md" });
     writeFileSync(join(root, "CLAUDE.md"), "");
-    expect(sharedBlockFile(target, root)).toBe("CLAUDE.md");
+    expect(chosen()).toEqual({ kind: "value", value: "CLAUDE.md" });
     mkdirSync(join(root, ".clinerules"));
-    expect(sharedBlockFile(target, root)).toBe("CLAUDE.md");
-    writeFileSync(join(root, "AGENTS.md"), "");
-    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
-    writeFileSync(join(root, ".rules"), "");
-    expect(sharedBlockFile(target, root)).toBe(".rules");
-    expect(sharedBlockFile({ kind: "shared-block", file: "GEMINI.md" }, root)).toBe("GEMINI.md");
-  });
-});
-
-// Bun's statSync throws ENOTDIR for a path under a regular file even with throwIfNoEntry off; a
-// project with a `.github` FILE would otherwise crash every Copilot-style precedence walk.
-test("sharedBlockFile: a listed name under a regular file is skipped like a missing one", async () => {
-  const target = {
-    kind: "shared-block" as const,
-    file: "AGENTS.md",
-    precedence: [".github/copilot-instructions.md", "AGENTS.md"],
-  };
-  await withTempDir((root) => {
     writeFileSync(join(root, ".github"), "");
-    expect(sharedBlockFile(target, root)).toBe("AGENTS.md");
+    expect(chosen()).toEqual({ kind: "value", value: "CLAUDE.md" });
+    writeFileSync(join(root, "AGENTS.md"), "");
+    expect(chosen()).toEqual({ kind: "value", value: "AGENTS.md" });
+    writeFileSync(join(root, ".rules"), "");
+    expect(chosen()).toEqual({ kind: "value", value: ".rules" });
+    expect(sharedBlockFile({ kind: "shared-block", file: "GEMINI.md" }, root)).toBe("GEMINI.md");
   });
 });

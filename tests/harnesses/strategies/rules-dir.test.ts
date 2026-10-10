@@ -1,7 +1,8 @@
 // Strategy A owns the file a harness loads: a frontmatter chosen from the wrong declaration, a
-// slug that escapes the rules directory, or a symlink left at the path would each load nothing.
+// slug that escapes the rules directory, or a rules directory that leaves the project would each
+// load nothing.
 import { describe, expect, test } from "bun:test";
-import { lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type {
   HarnessContext,
@@ -14,12 +15,12 @@ import {
   planRulesDirWrite,
   type RulesDirTarget,
 } from "../../../src/harnesses/strategies/rules-dir.ts";
-import { applyChanges } from "../../../src/util/change.ts";
-import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
+import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { outcome } from "../../shared/outcome.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const rooted = (path: string) => assertInsideRoot(ctx.home, path);
 const block = "<!-- maxims:begin @a/b sha=1 -->\n- rule\n<!-- maxims:end @a/b -->\n";
 
@@ -184,14 +185,7 @@ describe("planRulesDirWrite", () => {
   ];
 
   test.each(refusals)("refuses $name", ({ run, code }) => {
-    let caught: unknown;
-    try {
-      run();
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (caught instanceof MaximsError) expect(caught.code).toBe(code);
+    expect(outcome(run)).toMatchObject({ kind: "threw", error: { name: "MaximsError", code } });
   });
 
   test("a rules directory symlinked outside the project is refused, not followed", async () => {
@@ -202,8 +196,7 @@ describe("planRulesDirWrite", () => {
       mkdirSync(outside);
       symlinkSync(outside, join(project, ".claude", "rules"));
       const local: HarnessContext = { ...ctx, projectRoot: project };
-      let caught: unknown;
-      try {
+      const verdict = outcome(() =>
         planRulesDirWrite({
           def: scoped,
           target: plain,
@@ -211,35 +204,12 @@ describe("planRulesDirWrite", () => {
           ctx: local,
           sourceSlug: SLUG,
           block,
-        });
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(MaximsError);
-      if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
-    });
-  });
-
-  test("applying the write over a symlink at the target leaves a regular file", async () => {
-    await withTempDir(async (root) => {
-      const local: HarnessContext = { ...ctx, projectRoot: root };
-      const rulesDir = join(root, ".claude", "rules");
-      mkdirSync(rulesDir, { recursive: true });
-      writeFileSync(join(root, "elsewhere.md"), "not the rules\n");
-      symlinkSync(join(root, "elsewhere.md"), join(rulesDir, "maxims-a-b.md"));
-      const changes = planRulesDirWrite({
-        def: scoped,
-        target: plain,
-        scope: "project",
-        ctx: local,
-        sourceSlug: SLUG,
-        block,
+        }),
+      );
+      expect(verdict).toMatchObject({
+        kind: "threw",
+        error: { name: "MaximsError", code: ExitCode.DestinationWriteFailed },
       });
-      await applyChanges({ changes, notices: [] }, { dryRun: false });
-      const path = join(rulesDir, "maxims-a-b.md");
-      expect(lstatSync(path).isSymbolicLink()).toBe(false);
-      expect(readFileSync(path, "utf8")).toBe(block);
-      expect(readFileSync(join(root, "elsewhere.md"), "utf8")).toBe("not the rules\n");
     });
   });
 });

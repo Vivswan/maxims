@@ -29,6 +29,13 @@ function isDefinition(value: unknown): value is HarnessDefinition {
   return typeof value === "object" && value !== null && "id" in value && "targets" in value;
 }
 
+// The registry imports each definition by the camel-cased folder name docs/adding-a-harness.md
+// states (`geminiCli` for `gemini-cli`), so a folder that exports it under another name, or
+// exports only its spec, ships nothing the registry can pick up.
+function exportNameOf(folder: string): string {
+  return folder.replace(/-([a-z0-9])/g, (_, letter: string) => letter.toUpperCase());
+}
+
 test("at least one folder declares its harness as data", () => {
   expect(folders.length).toBeGreaterThan(0);
 });
@@ -46,10 +53,10 @@ test.each(folders)("%s: spec parses, compiles to its own id, and is exported", a
   for (const name of Object.values(parsed.spec.fixtures ?? {})) {
     expect(existsSync(join(root, folder, "fixtures", name))).toBe(true);
   }
-  const exported = Object.entries(specModule)
-    .filter(([name]) => name !== "spec")
-    .map(([, value]) => value)
-    .filter(isDefinition);
-  expect(exported.map((def) => String(def.id))).toEqual([folder]);
-  expect(exported[0]?.displayName).toBe(compiled.displayName);
+  const exported: unknown = Reflect.get(specModule, exportNameOf(folder));
+  expect(
+    isDefinition(exported)
+      ? { shape: "definition", id: String(exported.id), displayName: exported.displayName }
+      : { shape: "other", exported },
+  ).toEqual({ shape: "definition", id: folder, displayName: compiled.displayName });
 });

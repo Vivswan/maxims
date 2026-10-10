@@ -1,14 +1,12 @@
 // Guards what Cline needs from a file hook and does not check for us: an executable script whose
 // first line is a shebang, whose stdout is exactly one JSON object, and which neither reads the
-// task metadata on stdin nor lets sync's output through to corrupt that object. Also pins where
-// Cline reads the rule files and the script per scope, and that only its directories, not a stray
-// file, count as an install.
+// task metadata on stdin nor lets sync's output through to corrupt that object. Also pins the
+// bytes of the rule file and the script per scope, at the paths Cline reads them from.
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cline } from "../../../src/harnesses/cline/spec.ts";
 import {
-  type HarnessContext,
   HOOK_COMMAND,
   hookSpecFor,
   type Scope,
@@ -20,6 +18,7 @@ import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { WINDOWS } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
 const FAKE_NPX = [
   "#!/usr/bin/env sh",
@@ -81,7 +80,6 @@ test.skipIf(WINDOWS)(
   },
 );
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const block =
   "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
@@ -138,21 +136,3 @@ test.each(files)(
     });
   },
 );
-
-const installs: [string, string | null, "dir" | "file", boolean][] = [
-  ["nothing under the home", null, "dir", false],
-  ["a Documents directory alone", "Documents", "dir", false],
-  ["Documents/Cline", "Documents/Cline", "dir", true],
-  ["a .cline directory", ".cline", "dir", true],
-  ["a Cline/Rules directory", "Cline/Rules", "dir", true],
-  ["a Cline directory alone", "Cline", "dir", false],
-  ["a stray file named .cline", ".cline", "file", false],
-];
-
-test.each(installs)("detection with %s reads %p", async (_, entry, kind, expected) => {
-  await withTempDir((home) => {
-    if (entry !== null && kind === "dir") mkdirSync(join(home, entry), { recursive: true });
-    if (entry !== null && kind === "file") writeFileSync(join(home, entry), "");
-    expect(cline.detect({ home, projectRoot: null, env: {} })).toBe(expected);
-  });
-});

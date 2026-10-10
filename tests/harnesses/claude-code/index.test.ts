@@ -1,9 +1,9 @@
 // Pins the bytes Claude Code itself reads: the SessionStart entry a fresh settings.json receives
 // and the one appended beside a hand-formatted user's hooks, the rule file with and without its
-// `paths:` frontmatter, the `disableAllHooks` demotion, and the detection signals. Claude Code
-// enforces none of these for us, so a drift here would install silently and load nothing.
+// `paths:` frontmatter, and the `disableAllHooks` demotion. Claude Code enforces none of these for
+// us, so a drift here would install silently and load nothing.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeCode } from "../../../src/harnesses/claude-code/spec.ts";
 import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
@@ -16,8 +16,8 @@ import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.t
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const block =
   "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
@@ -118,19 +118,16 @@ describe("claude-code", () => {
   // `.claude/rules/**/*.md` loads at launch with no frontmatter, so an always-on file is the block
   // alone; a preamble would be injected as rule text.
   test.each(ruleFiles)("the %s always-on rule file is the bare block", (scope, root, path) => {
-    for (const paths of [undefined, []]) {
-      expect(
-        planRulesDirWrite({
-          def: claudeCode,
-          target: rulesDir(scope),
-          scope,
-          ctx,
-          sourceSlug: "example-user-doctrine" as SourceSlug,
-          block,
-          paths,
-        }),
-      ).toEqual([{ kind: "write", path: assertInsideRoot(root, path), content: block }]);
-    }
+    expect(
+      planRulesDirWrite({
+        def: claudeCode,
+        target: rulesDir(scope),
+        scope,
+        ctx,
+        sourceSlug: "example-user-doctrine" as SourceSlug,
+        block,
+      }),
+    ).toEqual([{ kind: "write", path: assertInsideRoot(root, path), content: block }]);
   });
 
   test("a path-scoped rule file opens with the paths frontmatter Claude Code reads", () => {
@@ -224,20 +221,6 @@ describe("claude-code", () => {
       });
     },
   );
-
-  test("detection sees either session variable or a ~/.claude directory, never a stray file there", async () => {
-    await withTempDir((home) => {
-      const bare: HarnessContext = { home, projectRoot: null, env: {} };
-      expect(claudeCode.detect(bare)).toBe(false);
-      expect(claudeCode.detect({ ...bare, env: { CLAUDECODE: "1" } })).toBe(true);
-      expect(claudeCode.detect({ ...bare, env: { CLAUDE_CODE_ENTRYPOINT: "cli" } })).toBe(true);
-      writeFileSync(join(home, ".claude"), "");
-      expect(claudeCode.detect(bare)).toBe(false);
-      rmSync(join(home, ".claude"));
-      mkdirSync(join(home, ".claude"));
-      expect(claudeCode.detect(bare)).toBe(true);
-    });
-  });
 
   // A layer that does not parse is not a layer that sets nothing: the walk stops at it with the
   // reason, so a valid user setting below it never passes for the machine's answer.

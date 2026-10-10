@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { reconcileMcpServer } from "../../../src/harnesses/mcp-stub/register.ts";
-import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
+import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
@@ -100,40 +100,55 @@ test.each(creations)("%s gains exactly one nested entry", async (_, existing, ex
   });
 });
 
-const refusals: [string, (dir: string) => void][] = [
+// The reason names the guard that refused, so a later check cannot stand in for the named one.
+const refusals: [string, (dir: string) => void, string][] = [
   [
     "a servers path that is not an object",
     (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": { "servers": [] } }\n'),
+    "mcp.servers is not an object; left untouched",
   ],
-  ["unparsable JSON", (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": {\n')],
-  ["a directory where the file should be", (dir) => mkdirSync(join(dir, "mcp.json"))],
+  [
+    "unparsable JSON",
+    (dir) => writeFileSync(join(dir, "mcp.json"), '{ "mcp": {\n'),
+    "it is not valid JSON",
+  ],
+  [
+    "a directory where the file should be",
+    (dir) => mkdirSync(join(dir, "mcp.json")),
+    "cannot read",
+  ],
 ];
 
-async function expectRefused(dir: string, arrange: (dir: string) => void): Promise<void> {
+async function expectRefused(
+  dir: string,
+  arrange: (dir: string) => void,
+  reason: string,
+): Promise<void> {
   arrange(dir);
   const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcp", "servers"] };
-  let caught: unknown;
-  try {
-    await reconcileMcpServer(registry, true);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  expect(caught).toMatchObject({ code: ExitCode.DestinationWriteFailed });
+  await expect(reconcileMcpServer(registry, true)).rejects.toMatchObject({
+    name: "MaximsError",
+    code: ExitCode.DestinationWriteFailed,
+    message: expect.stringContaining(reason),
+  });
 }
 
-test.each(refusals)("%s is refused with exit 4 and no plan", async (_, arrange) => {
-  await withTempDir((dir) => expectRefused(dir, arrange));
+test.each(refusals)("%s is refused with exit 4 and no plan", async (_, arrange, reason) => {
+  await withTempDir((dir) => expectRefused(dir, arrange, reason));
 });
 
 test.skipIf(!CHMOD_DENIES)(
   "an existing file that cannot be read is refused with exit 4 and no plan",
   async () => {
     await withTempDir((dir) =>
-      expectRefused(dir, (root) => {
-        writeFileSync(join(root, "mcp.json"), "{}\n");
-        chmodSync(join(root, "mcp.json"), 0o000);
-      }),
+      expectRefused(
+        dir,
+        (root) => {
+          writeFileSync(join(root, "mcp.json"), "{}\n");
+          chmodSync(join(root, "mcp.json"), 0o000);
+        },
+        "cannot read",
+      ),
     );
   },
 );

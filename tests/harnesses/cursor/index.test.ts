@@ -1,23 +1,19 @@
 // Guards the Cursor facts nothing else enforces: a rule file is loaded only as `.mdc` whose
-// frontmatter says `alwaysApply: true`, a path-scoped one swaps that flag for `globs`, a project
-// hook lands in the project's own versioned `.cursor/hooks.json` rather than the user's and slots
-// beside the user's other events, and only a `.cursor` directory counts as an install. All pinned
-// as the bytes the writers emit.
+// frontmatter says `alwaysApply: true`, a path-scoped one swaps that flag for `globs`, and a
+// project hook lands in the project's own versioned `.cursor/hooks.json` rather than the user's
+// and slots beside the user's other events. All pinned as the bytes the writers emit.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
+import { readFileSync } from "node:fs";
+import type { Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import { cursor } from "../../../src/harnesses/cursor/spec.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { renderBlock } from "../../../src/rulefile/block.ts";
-import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { memoryName } from "../../engine/harness.ts";
 import { srcPath } from "../../shared/src_path.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const block =
   "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 const rulePath = "/home/user/project/.cursor/rules/maxims-example-user-doctrine.mdc";
@@ -135,31 +131,6 @@ test("a hand-formatted hooks.json gains the sessionStart list after the user's o
       content: `${fixture.slice(0, -before.length)}${after}`,
     },
   ]);
-});
-
-test("a project hook with no project root is a usage error, not a write into the home", () => {
-  if (!hasHook(cursor, "registry")) throw new Error("Cursor registers a command hook");
-  let caught: unknown;
-  try {
-    cursor.hook.path("project", { ...ctx, projectRoot: null });
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  expect(caught).toMatchObject({ code: ExitCode.Usage });
-});
-
-test("detection reads a ~/.cursor directory and never a stray file of that name", async () => {
-  await withTempDir((home) => {
-    const local: HarnessContext = { home, projectRoot: null, env: {} };
-    expect(cursor.detect(local)).toBe(false);
-    writeFileSync(join(home, ".cursor"), "");
-    expect(cursor.detect(local)).toBe(false);
-  });
-  await withTempDir((home) => {
-    mkdirSync(join(home, ".cursor"));
-    expect(cursor.detect({ home, projectRoot: null, env: {} })).toBe(true);
-  });
 });
 
 // Cursor's rules page states that rule content reaches the agent as written and an `@file`

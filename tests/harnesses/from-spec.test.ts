@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 import { hookSpecFor } from "../../src/harnesses/contract.ts";
 import { toDefinition } from "../../src/harnesses/from-spec.ts";
 import { type HarnessSpec, parseHarnessSpec } from "../../src/harnesses/spec.ts";
-import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
+import { outcome } from "../shared/outcome.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
@@ -102,15 +103,12 @@ test("frontmatter without a scoped form refuses paths out loud and fences the al
   const def = toDefinition(rendering);
   const target = def.targets.project;
   if (target?.kind !== "rules-dir" || target.frontmatter === undefined) throw new Error("no fm");
-  expect(target.frontmatter({})).toBe("---\ntrigger: always_on\n---\n");
-  let caught: unknown;
-  try {
-    target.frontmatter({ paths: globs });
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(MaximsError);
-  expect((caught as MaximsError).code).toBe(ExitCode.Usage);
+  const frontmatter = target.frontmatter;
+  expect(frontmatter({})).toBe("---\ntrigger: always_on\n---\n");
+  expect(outcome(() => frontmatter({ paths: globs }))).toMatchObject({
+    kind: "threw",
+    error: { name: "MaximsError", code: ExitCode.Usage },
+  });
   expect(def.scopeFrontmatter?.([])).toBeNull();
   expect(def.scopeFrontmatter?.(globs)).toBe("---\npaths:\n  - src/**\n  - docs/**\n---\n");
 });
@@ -146,6 +144,8 @@ test("a null paths key among the scoped fields fixes where the paths land", () =
   );
 });
 
+// A relative override resolves the way a shell would resolve it: against the working directory,
+// never against the home, with or without a subdirectory under it.
 test("the global root joins the env override with its subdirectory and strips ~/ from the default", () => {
   const def = toDefinition(rendering);
   const home = resolve("/home/user");
@@ -158,6 +158,18 @@ test("the global root joins the env override with its subdirectory and strips ~/
   );
   expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "" } })).toBe(
     resolve("/home/user/.config/example"),
+  );
+  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "custom" } })).toBe(
+    join(process.cwd(), "custom", "example"),
+  );
+  const whole = toDefinition(
+    specOf({
+      ...rendering,
+      globalRoot: { default: "~/.example", env: { name: "EXAMPLE_HOME" } },
+    }),
+  );
+  expect(whole.globalRoot?.({ home, projectRoot: null, env: { EXAMPLE_HOME: "custom" } })).toBe(
+    join(process.cwd(), "custom"),
   );
   expect(def.mcp?.path("project", { home, projectRoot: resolve("/p"), env: {} })).toBeNull();
   expect(def.mcp?.path("global", { home, projectRoot: null, env: {} })).toBe(
