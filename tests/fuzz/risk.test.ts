@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import { RISK_KINDS, riskWarnings } from "../../src/memory/risk.ts";
+import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import {
   anyText,
@@ -14,7 +15,6 @@ import {
   fragments,
   fuzz,
   latin1Text,
-  outcome,
   timed,
 } from "./shared.ts";
 

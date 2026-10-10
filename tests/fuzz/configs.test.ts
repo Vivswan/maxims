@@ -24,17 +24,10 @@ import { parseHarnessSpec, UserHarnessSpecSchema } from "../../src/harnesses/spe
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { appendChild, assertParses, removeChild, replaceValue } from "../../src/util/jsonc.ts";
+import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
-import {
-  anyText,
-  asyncOutcome,
-  describeError,
-  fragments,
-  fuzz,
-  mutatedJson,
-  outcome,
-} from "./shared.ts";
+import { anyText, describeError, fragments, fuzz, mutatedJson } from "./shared.ts";
 
 const PATH = "settings.json";
 

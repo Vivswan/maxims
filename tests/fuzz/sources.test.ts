@@ -12,8 +12,9 @@ import {
 import { isUsableRemote, parseRemote, SourceFromSchema } from "../../src/contracts/source.ts";
 import { canonicalSourceKey } from "../../src/state/schema.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, describeError, fragments, fuzz, outcome } from "./shared.ts";
+import { anyText, describeError, fragments, fuzz } from "./shared.ts";
 
 const CWD = "/home/user/project";
 
