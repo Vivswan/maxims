@@ -395,6 +395,47 @@ describe("fetchTree", () => {
     });
   });
 
+  // What would drift: a redaction that stopped at the first `@` or at a quote, or needed a `//`
+  // before the userinfo, would print a password git itself did not anonymize; one that also ate a
+  // path segment holding an `@` would hide the repository the failure names.
+  const OFFLINE_TARBALL = `https://codeload.github.com/example-user/rules/tar.gz/${SHA}: fetch failed: getaddrinfo ENOTFOUND api.github.com`;
+  const leakedLines: [string, string, FetchFailureKind, string[]][] = [
+    [
+      "fatal: unable to access 'https://example-user:fixture@secret@github.com/example-user/rules.git/': Could not resolve host: github.com",
+      `git clone: fatal: unable to access '${GIT_URL}/': Could not resolve host: github.com`,
+      "network",
+      [],
+    ],
+    [
+      "fatal: unable to look up example-user:fixture'secret@example.invalid (port 9418) (Name or service not known)",
+      "git clone: fatal: unable to look up example.invalid (port 9418) (Name or service not known)",
+      "invalid",
+      [OFFLINE_TARBALL],
+    ],
+    [
+      "fatal: repository 'https://example.com/team@rules.git/' not found",
+      "git clone: fatal: repository 'https://example.com/team@rules.git/' not found",
+      "missing",
+      [OFFLINE_TARBALL],
+    ],
+  ];
+  test.each(leakedLines)(
+    "the git failure line %j reaches the rung line and the recorded failure with its userinfo gone and its path kept",
+    async (message, shown, kind, laterRungs) => {
+      await withTempDir(async (dir) => {
+        const rungs: string[] = [];
+        const runner = scriptedRunner({
+          git: scriptedGit({ shallowClone: () => ({ kind: "failed", message }) }),
+        });
+        const error = await failure(
+          ladder(runner, { rungs }).fetchTree(REPO, SHA, join(dir, "tree"), ANON),
+        );
+        expect(error).toMatchObject({ kind, message: shown });
+        expect(rungs).toEqual([shown, ...laterRungs]);
+      });
+    },
+  );
+
   test("a rung that throws is that rung's failure, and the ladder goes on", async () => {
     await withTempDir(async (dir) => {
       const rungs: string[] = [];
@@ -1068,6 +1109,68 @@ describe("git rung against a file:// fixture repo", () => {
       );
       expect(outcome).toEqual({ kind: "ok", value: `${repo.head}\tHEAD\n` });
     });
+  });
+
+  // What would drift: a credential path that checks the typed URL instead of the rewritten one
+  // hands git a target it prints as typed, password and all.
+  const everyCredential: GitCredentials[] = [
+    { kind: "none" },
+    { kind: "inherited" },
+    { kind: "header", header: "Authorization: Bearer ours" },
+  ];
+  test.each(everyCredential)(
+    "an insteadOf target that is not a URL is refused before git sees it, with %j credentials",
+    async (credentials) => {
+      const env = gitEnvironment({
+        ...process.env,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0:
+          "url.git://fixture-user:fixture%2Fsecret@mirror.invalid:bad-port/.insteadOf",
+        GIT_CONFIG_VALUE_0: "https://github.com/",
+      });
+      const outcome = await simpleGitRunner({ env }).lsRemote(GIT_URL, ["HEAD"], { credentials });
+      expect(outcome).toEqual({
+        kind: "failed",
+        message: `${GIT_URL}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
+      });
+    },
+  );
+
+  // What would drift: git matches an `http.<url>` scope on the URL's bytes, so a runner that drops
+  // an empty `@` from a URL with no credentials to withhold loses the headers the user scoped to it.
+  test("a URL with an empty userinfo keeps it, so the user's header scoped to that spelling applies", async () => {
+    const seen: (string | null)[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization"));
+        return new Response("not here", { status: 404 });
+      },
+    });
+    try {
+      await withTempDir(async (dir) => {
+        const port = server.port ?? 0;
+        const gitconfig = join(dir, "gitconfig");
+        writeFileSync(
+          gitconfig,
+          [
+            `[http "http://@127.0.0.1:${port}/"]`,
+            "\textraheader = Authorization: Bearer at",
+            "",
+          ].join("\n"),
+        );
+        const env = childEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+        const outcome = await simpleGitRunner({ env }).lsRemote(
+          `http://@127.0.0.1:${port}/rules.git`,
+          ["HEAD"],
+          INHERITED,
+        );
+        expect(outcome.kind).toBe("failed");
+        expect(new Set(seen)).toEqual(new Set(["Bearer at"]));
+      });
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("a git binary that does not exist drops the rung silently", async () => {

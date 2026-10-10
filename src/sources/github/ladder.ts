@@ -8,7 +8,7 @@ import { isGitEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
-import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
+import { DEFAULT_GIT_REF, URL_SCHEME } from "../../contracts/source.ts";
 import { FetchFailure, type FetchFailureKind } from "../contract.ts";
 import type { WarnSink } from "../tree.ts";
 import { DEFAULT_GH_HOST, isDotcomClass } from "./host.ts";
@@ -211,25 +211,37 @@ export function createLadder(options: LadderOptions): Ladder {
         },
       ]),
     fetchTree: (repo, sha, destDir, request) =>
-      climb(rung, [
-        ...(request.auth
-          ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
-          : []),
-        cloneRung(runner, endpoints.gitUrl(repo), sha, destDir, {
-          ...gitOptions(request),
-          sparsePath: request.sparsePath,
-        }),
-        {
-          fallback: true,
-          run: async () => {
-            const url = endpoints.archiveUrl(repo, sha);
-            const body = await http(runner, url, bearer(request), timeoutMs);
-            if (body.kind !== "ok") return body;
-            return extract(body.value, destDir, warn);
+      climb(
+        rung,
+        [
+          ...(request.auth
+            ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
+            : []),
+          cloneRung(runner, endpoints.gitUrl(repo), sha, destDir, {
+            ...gitOptions(request),
+            sparsePath: request.sparsePath,
+          }),
+          {
+            fallback: true,
+            run: async () => {
+              const url = endpoints.archiveUrl(repo, sha);
+              const body = await http(runner, url, bearer(request), timeoutMs);
+              if (body.kind !== "ok") return body;
+              return extract(body.value, destDir, warn);
+            },
           },
-        },
-      ]),
+        ].map(startingEmpty(destDir)),
+      ),
   };
+}
+
+// The tree rungs share one destination, so this is the one place a rung that failed half-way
+// cannot leave files for the next rung to merge into its own tree; each rung creates the directory.
+function startingEmpty(dir: string): <T>(step: Rung<T>) => Rung<T> {
+  return (step) => ({
+    ...step,
+    run: () => rm(dir, { recursive: true, force: true }).then(() => step.run()),
+  });
 }
 
 export function lsRemoteRung(
@@ -257,7 +269,6 @@ export function cloneRung(
 ): Rung<undefined> {
   return {
     run: async () => {
-      await emptyDir(destDir);
       const result = await runner.git.shallowClone(url, sha, destDir, options);
       return gitOutcome("git clone", result, (head) =>
         head === sha
@@ -301,12 +312,6 @@ function allowsFallback<T>(previous: RungOutcome<T>): boolean {
   return !(previous.kind === "failed" && previous.failure.kind === "network");
 }
 
-// A rung that failed half-way leaves files a later rung would otherwise merge into its own tree.
-async function emptyDir(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
-  await mkdir(dir, { recursive: true });
-}
-
 function failed<T>(
   kind: FetchFailureKind,
   message: string,
@@ -338,10 +343,12 @@ function gitOutcome<T>(
   return onSuccess(result.value);
 }
 
-// Git anonymizes URLs in most of its own messages but not in all of them; a remote's `user:pass@`
-// never belongs in a warning or a stored error.
+// Git anonymizes the URL in only some of its messages, so nothing here relies on it; an
+// over-redacted diagnostic costs less than a printed password.
+//   after `//` or bare    a `git://` lookup failure names the authority with no scheme
+//   up to the LAST `@`    a password may carry an `@`; git's own anonymization stops at the first
 export function redactUserinfo(text: string): string {
-  return text.replace(/(\/\/)[^\s/@]+@/g, "$1");
+  return text.replace(/(?<=\/\/|\s|^)[^\s/]+@/g, "");
 }
 
 // The body is read inside the same guard as the request: a connection that drops mid-body is a
@@ -373,7 +380,6 @@ async function extract(
   warn: WarnSink,
 ): Promise<RungOutcome<undefined>> {
   try {
-    await emptyDir(destDir);
     await extractTarball(bytes, destDir, warn);
     return { kind: "ok", value: undefined };
   } catch (cause) {
@@ -490,9 +496,7 @@ function firstLine(text: string): string {
 }
 
 // Everything a child could use to open a prompt, a pager, or an editor is dropped from its
-// environment: a hook runs with no terminal to answer, and simple-git refuses such variables anyway.
-// The repository-selection variables go too, or a `GIT_DIR` inherited from a git hook would point
-// the clone rung's init and checkout at the caller's own repository instead of the temp dir.
+// environment: a hook runs with no terminal to answer.
 const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "EDITOR",
   "VISUAL",
@@ -507,14 +511,6 @@ const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "GIT_PROXY_COMMAND",
   "GIT_TEMPLATE_DIR",
   "GIT_EXTERNAL_DIFF",
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_NAMESPACE",
-  "GIT_PREFIX",
 ]);
 
 // Every git tracing switch goes too: a trace line carries the full remote URL, password included,
@@ -664,12 +660,10 @@ const GIT_CONFIG = [
   "protocol.file.allow=always",
 ];
 
-// simple-git refuses a variable its environment guard covers (any `GIT_*`, plus the keys
-// `isGitEnvKey` names) that arrives through `.env()` unless `allowEnvironment` lists it, and drops
-// an ambient one silently. Named: this module's own settings, the config variables the unsafe
-// flags below admit, libcurl's transport settings (none names a program), and PREFIX, git's
-// install prefix. The rest are dropped the way simple-git drops an ambient one, so an exported
-// prompt switch cannot fail a fetch.
+// The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
+// upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
+// repository. simple-git refuses a guarded variable handed to `.env()` unless `allowEnvironment`
+// lists it, so an unlisted one is dropped rather than failing the fetch.
 const isGuardedEnvKey = (key: string): boolean => {
   const normalized = key.toLowerCase().trim();
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
@@ -726,14 +720,23 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     if (baseDir !== undefined) settings.baseDir = baseDir;
     return simpleGit(settings).env(guarded.env);
   };
-  // An anonymous call hands git the URL it would have reached anyway, minus any `user:password@`
-  // the user's `insteadOf` rule wrote into it: git would send those as Basic auth after a 401.
-  // Only http(s) is stripped: an ssh user is the login the transport needs, and an scp-like remote
-  // is not a URL at all.
+  // An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
+  // withheld; credentialConfig pins the result against a second expansion.
+  //   header                   as typed: its header is scoped to that URL, so a rewrite leaves it
+  //   none, http(s)            whole userinfo goes: git would send it as Basic auth after a 401
+  //   not a URL, has userinfo  refused: git prints it as typed, password and all
   const target = async (url: string, credentials: GitCredentials): Promise<string> => {
-    if (credentials.kind !== "none") return url;
     const expanded = await effectiveUrl(client([]), url);
-    return /^https?:\/\//i.test(expanded) ? withoutUserinfo(expanded) : expanded;
+    if (hasUnparsableUserinfo(expanded)) {
+      throw new Error(
+        `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
+      );
+    }
+    if (credentials.kind === "header") return transportUrl(url);
+    if (credentials.kind === "none" && /^https?:\/\//i.test(expanded)) {
+      return withoutUserinfo(expanded);
+    }
+    return transportUrl(expanded);
   };
   return {
     lsRemote: (url, patterns, call) =>
@@ -772,24 +775,58 @@ export function withoutUserinfo(url: string): string {
   }
 }
 
-// The user's `insteadOf` rules may send a URL somewhere else entirely; an anonymous call resolves
-// that destination itself and resets its credentials too, so what the user configured for the
-// mirror does not leave on a fetch they asked to be anonymous. A token stays with the URL it was
-// given, and the rewrite, if any, is git's to apply.
+// A URL-shaped string the parser rejects (`git://u:p@host:bad-port/`) can only go to git as
+// written, and git prints it that way; one with no userinfo has nothing to print.
+function hasUnparsableUserinfo(url: string): boolean {
+  if (!URL_SCHEME.test(url) || URL.canParse(url)) return false;
+  const authority = url.slice(url.indexOf("//") + 2).split("/", 1)[0] ?? "";
+  return authority.includes("@");
+}
+
+// Git decodes a URL before parsing it and prints the authority in pieces no redaction can know, so
+// the password comes off here and host, port and path stay as typed. Its one whole-URL print keeps
+// a `//u:p@` run, which redactUserinfo removes.
+//   git://, ssh://   cannot carry a password: it goes, the typed user stays
+//   http(s)          re-encoded with one `@` right after `//`, the only shape git anonymizes
+function transportUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const http = /^https?:$/.test(parsed.protocol);
+  if (parsed.username === "" && parsed.password === "") return url;
+  const afterScheme = url.indexOf(":") + 1;
+  // The URL parser skips tab, CR, LF and any run of slashes after an http(s) scheme; git does not.
+  const slashes = (http ? /^[/\\\t\r\n]*/ : /^\/\//).exec(url.slice(afterScheme))?.[0] ?? "";
+  const start = afterScheme + slashes.length;
+  const authority = url.slice(start).split(http ? /[/\\?]/ : /[/?]/, 1)[0] ?? "";
+  const typed = authority.slice(0, authority.lastIndexOf("@"));
+  // Git decodes and prints the whole authority on git:// and ssh://, so the cut lands on an encoded
+  // `:` too; only http's credential code splits the userinfo, on the literal `:` before decoding,
+  // where `u:@host` keeps its colon ("no password") and `u@host` means "ask".
+  const colon = typed.search(/:|%3a/i);
+  const userinfo = http
+    ? `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`
+    : colon === -1
+      ? typed
+      : typed.slice(0, colon);
+  const rest = url.slice(start + typed.length + 1);
+  return `${url.slice(0, afterScheme)}//${userinfo === "" ? "" : `${userinfo}@`}${rest}`;
+}
+
+// The destination of the user's `insteadOf` rules, resolved so the password can leave it and an
+// anonymous call can reset the mirror's credentials too. Only git's line terminator comes off: a
+// quoted destination may end in a space, and that space names the repository.
 async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
-  const expanded = (await git.raw(["ls-remote", "--get-url", url])).trim();
+  const expanded = (await git.raw(["ls-remote", "--get-url", url])).replace(/\r?\n$/, "");
   return expanded === "" ? url : expanded;
 }
 
 // Credentials reach git through a private include file, never an argument or the environment:
-// simple-git echoes both to its debug log. The file scopes its entries to the exact URL, which is
-// the longest match git can find, so it outranks any `http.<prefix>.extraheader` or
-// `credential.<prefix>.helper` the user's gitconfig carries; an empty value resets that list. The
-// scope also means a URL rewritten by the user's own `insteadOf` no longer matches, and the
-// header stays home. An anonymous call also pins its destination with an `insteadOf` of the exact
-// URL onto itself: the longest matching rule wins, so a shorter user rule that would write
-// credentials back into the URL is not applied a second time. And it runs in a private HOME,
-// because libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
+// simple-git echoes both to its debug log. An anonymous call also runs in a private HOME, because
+// libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
 async function withCredentials<T>(
   url: string,
   remote: string,
@@ -797,7 +834,6 @@ async function withCredentials<T>(
   env: Record<string, string>,
   action: (config: string[], env: Record<string, string>) => Promise<T>,
 ): Promise<T> {
-  if (credentials.kind === "inherited") return action([], env);
   const dir = await mkdtemp(join(tmpdir(), "maxims-git-"));
   try {
     const file = join(dir, "config");
@@ -809,19 +845,23 @@ async function withCredentials<T>(
   }
 }
 
-export function credentialConfig(
-  url: string,
-  remote: string,
-  credentials: Exclude<GitCredentials, { kind: "inherited" }>,
-): string {
-  const lines = [...new Set([url, remote])].flatMap((scope) => [
-    `[http ${gitConfigString(scope)}]`,
-    "\textraheader =",
-    ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
-    `[credential ${gitConfigString(scope)}]`,
-    "\thelper =",
-  ]);
-  if (credentials.kind === "none") {
+// Every entry is scoped to the exact URL, the longest match git can find, so it outranks any
+// prefix-scoped entry in the user's gitconfig.
+//   extraheader =, helper =   an empty value resets the user's list; the token's header follows
+//   insteadOf onto itself     the longest rule wins, so a shorter user rule cannot write credentials
+//                             back into a destination target() already resolved
+export function credentialConfig(url: string, remote: string, credentials: GitCredentials): string {
+  const lines =
+    credentials.kind === "inherited"
+      ? []
+      : [...new Set([url, remote])].flatMap((scope) => [
+          `[http ${gitConfigString(scope)}]`,
+          "\textraheader =",
+          ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
+          `[credential ${gitConfigString(scope)}]`,
+          "\thelper =",
+        ]);
+  if (credentials.kind !== "header") {
     lines.push(`[url ${gitConfigString(remote)}]`, `\tinsteadOf = ${gitConfigString(remote)}`);
   }
   lines.push("");
