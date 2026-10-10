@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { simpleGit } from "simple-git";
 import { FetchFailure, type FetchFailureKind } from "../../../src/sources/contract.ts";
 import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
@@ -1102,6 +1103,34 @@ describe("git rung against a file:// fixture repo", () => {
       ]);
       expect(git(join(dir, "victim"), ["rev-parse", "HEAD"])).toBe(victim.head);
       expect(git(join(dir, "victim"), ["remote"])).toBe("");
+    });
+  });
+
+  // What would drift: a git process run in the caller's cwd reads the local config of whatever
+  // repository that is, so a project's own `insteadOf` would steer the lookup, and a fetch run
+  // there would register a promisor remote in that project's config.
+  test("the repository the caller runs from lends neither its config to the lookup nor its config file to the fetch", async () => {
+    await withTempDir(async (dir) => {
+      const rules = await createFixtureRepo(join(dir, "rules"));
+      const projectDir = join(dir, "project");
+      await createFixtureRepo(projectDir);
+      const typed = pathToFileURL(join(dir, "typed.git")).href;
+      git(projectDir, ["config", `url.${rules.url}.insteadOf`, typed]);
+      const before = readFileSync(join(projectDir, ".git", "config"), "utf8");
+      const cwd = process.cwd();
+      process.chdir(projectDir);
+      try {
+        const runner = simpleGitRunner({ timeoutMs: GIT_STALL_MS });
+        const lookup = await runner.lsRemote(typed, ["HEAD"], INHERITED);
+        expect(lookup.kind).toBe("failed");
+        const clone = await runner.shallowClone(rules.url, rules.head, join(dir, "clone"), {
+          credentials: { kind: "inherited" },
+        });
+        expect(clone).toEqual({ kind: "ok", value: rules.head });
+      } finally {
+        process.chdir(cwd);
+      }
+      expect(readFileSync(join(projectDir, ".git", "config"), "utf8")).toBe(before);
     });
   });
 

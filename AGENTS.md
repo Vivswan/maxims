@@ -46,7 +46,7 @@ Code is the source of truth; this section holds only the rules a reader could no
 - A harness folder is a declaration plus its quirks. Writing logic lives once, in the shared strategies and the single hook writer. The harness registry is a static import list guarded by a completeness test.
 - `sync --quiet` never exits non-zero and never blocks on stdin: a broken hook must never break a session start.
 - Every written path is asserted inside its destination root. Names are parsed into a validated type at the mutation point.
-- Tests run only through `scripts/run_tests.ts`, which gives them a temp HOME. A test that reads or writes the developer's real `~/.claude`, `~/.codex`, or `~/.agents` is a defect.
+- Tests run only through `scripts/run_tests.ts`, which gives them a temp HOME. A test that reads or writes the developer's real `~/.claude`, `~/.codex`, `~/.agents`, or the checkout's `.git/config` is a defect.
 - Fixture data stays beside the code that declares it.
 - No TODO, FIXME, XXX, or HACK markers: the work happens in the change or is escalated.
 - Markdown prose is one line per paragraph, never hard-wrapped.
