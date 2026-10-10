@@ -10,8 +10,10 @@ One command installs a source's one-liners into your agent's always-loaded layer
 ## Install a source
 
 ```bash
-npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
+npx -y @vivswan/maxims add @Octocat/rules -g --rule --add-hook
 ```
+
+`@Octocat/rules` stands for your own rules repository.
 
 - `-g` installs at user level, for every project on the machine.
 - `--rule` publishes each memory's one-liner into the rule file.
@@ -23,50 +25,45 @@ The output with stdout piped, as an agent or a log sees it. On a terminal inside
 
 ```text
 |
-o  Source: https://github.com/Vivswan/skills.git
+o  Source: https://github.com/Octocat/rules.git
 o  Repository cloned
 o  Found 4 memories
-o  First source from github.com/vivswan
-   https://github.com/Vivswan/skills.git
+o  First source from github.com/octocat
+   https://github.com/Octocat/rules.git
    commit 77769dc, not pinned (tracks HEAD)
    4 memories
 |
 o  Memories to install
-   Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md
+   Octocat Rules -> ~/.claude/rules/maxims-octocat-rules.md
 |
-|    fire-relevant-skills-and-memories
+|    commit-small-and-often
 |
-|      Use before any consequential action - commit, merge, push, delete,
-|      report, spawn - stop and enumerate which skills and memories trigger at
-|      that moment, then apply them
+|      Keep every commit to one change - a reviewer reads a small diff in one
+|      pass
 |
-|    gate-exit-conditions-the-merge
+|    never-retry-without-a-cap
 |
-|      Use when landing a change after a gate (review, CI, tests) - never chain
-|      the merge or push in the same compound command as reading the gate's log;
-|      land in a separate command only after the gate's exit code and verdict
-|      are read
+|      Never retry a failed call without a cap - an unbounded retry loop hides
+|      an outage from everyone
 |
-|    no-sleep-waiting-on-subagents
+|    prefer-timeouts-to-hangs
 |
-|      Use when tempted to sleep, poll, or busy-wait on a background subagent -
-|      its completion notification re-invokes the session on its own; launch
-|      synchronously instead when the result gates everything else
+|      Use when a call leaves the process, however small - give it a timeout,
+|      since a hang is worse than a clear failure
 |
-|    rubber-duck-before-every-commit
+|    tests-before-the-fix
 |
-|      Use before every commit or merge, however trivial - a cross-model
-|      rubber-duck review must run and converge on the exact final content
-|      first; exceptions and reviewer coverage never transfer between gates
+|      A fix lands with the test that failed before it, never a test written
+|      after the fact
 |
-o  Installed 4 memories, 4 rule lines (~325 tokens)
+o  Installed 4 memories, 4 rule lines (~196 tokens)
 o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
-!  ~325 tokens in /home/user/.claude/rules/maxims-vivswan-skills.md
+!  ~196 tokens in /home/user/.claude/rules/maxims-octocat-rules.md
 !  maxims: registered the maxims hook in /home/user/.claude/settings.json
 |
 ```
 
-`add @Vivswan/skills --list` previews the source and writes nothing; [what gets installed](install.md#what-gets-installed) shows its output. After the install, `maxims show <memory>` prints [one memory in full](check.md#read-one-memory-or-source-show).
+`add @Octocat/rules --list` previews the source and writes nothing; [what gets installed](install.md#what-gets-installed) shows its output. After the install, `maxims show <memory>` prints [one memory in full](check.md#read-one-memory-or-source-show).
 
 ## What it writes
 
@@ -74,20 +71,20 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 
 | artifact | where | what it is |
 | --- | --- | --- |
-| memory bodies | `~/.agents/maxims/store/vivswan/skills/memories/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
-| rule file | `~/.claude/rules/maxims-vivswan-skills.md` | one line per memory: the one-liner plus a `detail:` pointer to the body |
+| memory bodies | `~/.agents/maxims/store/octocat/rules/memories/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
+| rule file | `~/.claude/rules/maxims-octocat-rules.md` | one line per memory: the one-liner plus a `detail:` pointer to the body |
 | hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
 | state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
 
 The rule file for that install, cut to two of its four rule lines, with illustrative hashes. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
 
 ```markdown
-<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
-<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
-<!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
-- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command. (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/gate-exit-conditions-the-merge.md, 0f0f0f0)
-- Codex rubber-duck review before EVERY commit, however trivial; coverage never transfers between reviewers. (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
-<!-- maxims:end @Vivswan/skills -->
+<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- managed by maxims: @Octocat/rules - edits will be overwritten -->
+<!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->
+- Keep every commit to one change - a reviewer reads a small diff in one pass (detail: /home/user/.agents/maxims/store/octocat/rules/memories/commit-small-and-often.md, 0f0f0f0)
+- Use when a call leaves the process, however small - give it a timeout, since a hang is worse than a clear failure (detail: /home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
+<!-- maxims:end @Octocat/rules -->
 ```
 
 The file is generated on every sync and never hand-edited; the [rule file section](harnesses.md#the-rule-file) of the harnesses page owns its grammar.

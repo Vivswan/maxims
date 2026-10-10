@@ -28,10 +28,10 @@ import {
   stateWith,
 } from "../engine/fakes.ts";
 
-const SKILLS = join(FIXTURES, "skills");
+const RULES = join(FIXTURES, "rules");
 const NOW = new Date("2026-09-20T12:00:00.000Z");
-const NAME = memoryName("skip-unfit-skills");
-const FILE = readFileSync(join(SKILLS, "memories", `${NAME}.md`), "utf8");
+const NAME = memoryName("tests-before-the-fix");
+const FILE = readFileSync(join(RULES, "memories", `${NAME}.md`), "utf8");
 
 type Document = ShownMemory & { ok: boolean; kind: "memory"; notices: string[] };
 
@@ -46,7 +46,7 @@ async function shown(scenario: Scenario, ...argv: string[]): Promise<Document> {
   return JSON.parse(run.stdout) as Document;
 }
 
-const bothRepos: ScenarioOptions = { github: { "a/b": SKILLS, "a/c": SKILLS } };
+const bothRepos: ScenarioOptions = { github: { "a/b": RULES, "a/c": RULES } };
 
 describe("show", () => {
   test("prints the store copy verbatim after the facts, and the same facts under --json", async () => {
@@ -96,10 +96,10 @@ describe("show", () => {
 
   test("a source added without --rule shows no rule line, and a renamed memory its upstream name", async () => {
     await withScenario(bothRepos, async (scenario) => {
-      await add(scenario, "@a/b", "-g", "--rename", `${NAME}=skip-unfit`);
-      const document = await shown(scenario, "skip-unfit");
-      expect(document).toMatchObject({ name: "skip-unfit", upstreamName: NAME, ruleLine: null });
-      const run = await runCli(scenario, ["show", "skip-unfit"]);
+      await add(scenario, "@a/b", "-g", "--rename", `${NAME}=tests-first`);
+      const document = await shown(scenario, "tests-first");
+      expect(document).toMatchObject({ name: "tests-first", upstreamName: NAME, ruleLine: null });
+      const run = await runCli(scenario, ["show", "tests-first"]);
       expect(run.stdout).toContain(`   source: @a/b (upstream name ${NAME})\n`);
       expect(run.stdout).toContain("   rule: none (the source publishes no rule lines)\n");
       const upstream = await runCli(scenario, ["show", NAME]);
@@ -110,11 +110,11 @@ describe("show", () => {
   test("an unknown name exits 1 with the closest installed name; --source narrows the refusal", async () => {
     await withScenario(bothRepos, async (scenario) => {
       await add(scenario, "@a/b", "-g");
-      const typo = await runCli(scenario, ["show", "skip-unfit-skill"]);
+      const typo = await runCli(scenario, ["show", "tests-before-the-fx"]);
       expect([typo.code, typo.stdout, typo.stderr]).toEqual([
         1,
         "",
-        ` ERROR  skip-unfit-skill is not installed\nTip: did you mean ${NAME}?\n`,
+        ` ERROR  tests-before-the-fx is not installed\nTip: did you mean ${NAME}?\n`,
       ]);
       const far = await runCli(scenario, ["show", "nothing-like-it"]);
       expect(far.stderr).toBe(" ERROR  nothing-like-it is not installed\n");
@@ -135,14 +135,14 @@ describe("show", () => {
       expect(scoped.stderr).toBe(" ERROR  @a/c is not installed\n");
       const missing = await runCli(scenario, ["show", "no-such-rule", "--source", "@a/b"]);
       expect(missing.stderr).toBe(" ERROR  @a/b does not provide no-such-rule\n");
-      const json = await runCli(scenario, ["show", "skip-unfit-skill", "--json"]);
+      const json = await runCli(scenario, ["show", "tests-before-the-fx", "--json"]);
       expect([json.code, json.stderr, JSON.parse(json.stdout)]).toEqual([
         1,
         "",
         {
           ok: false,
           code: 1,
-          message: "skip-unfit-skill is not installed",
+          message: "tests-before-the-fx is not installed",
           hint: `did you mean ${NAME}?`,
           notices: [],
         },
@@ -155,10 +155,10 @@ describe("show", () => {
   // must still not pick one silently.
   test("a name two sources provide lists them and takes --source, -g or -p to pick one", async () => {
     await withScenario({ project: true }, async (scenario) => {
-      const facts = await fetchedFacts(SKILLS, daysAgo(NOW, 1));
+      const facts = await fetchedFacts(RULES, daysAgo(NOW, 1));
       const [user, project] = [githubFrom("a/b"), githubFrom("a/c")];
-      seedStore(scenario.home, user, SKILLS);
-      seedStore(scenario.home, project, SKILLS);
+      seedStore(scenario.home, user, RULES);
+      seedStore(scenario.home, project, RULES);
       writeState(
         scenario,
         stateWith({
@@ -198,8 +198,8 @@ describe("show", () => {
   test("a held revision is reported with the show hint while the installed body still prints", async () => {
     await withScenario({}, async (scenario) => {
       const from = githubFrom("acme/rules");
-      seedStore(scenario.home, from, SKILLS);
-      const facts = await fetchedFacts(SKILLS, daysAgo(NOW, 1));
+      seedStore(scenario.home, from, RULES);
+      const facts = await fetchedFacts(RULES, daysAgo(NOW, 1));
       const pending = {
         sha: gitSha("b".repeat(40)),
         at: NOW.toISOString(),
@@ -222,7 +222,7 @@ describe("show", () => {
     await withScenario(bothRepos, async (scenario) => {
       await add(scenario, "@a/b", "-g");
       const from = githubFrom("acme/rules");
-      const facts = await fetchedFacts(SKILLS, daysAgo(NOW, 1));
+      const facts = await fetchedFacts(RULES, daysAgo(NOW, 1));
       const state = JSON.parse(readFileSync(homePaths(scenario.home).state, "utf8"));
       state.sources["@acme/rules"] = fetchedEntry(from, facts, { harnesses: ["codex"] });
       writeState(scenario, state);

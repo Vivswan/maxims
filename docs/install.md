@@ -8,7 +8,7 @@ group: Guides
 What `add` does with each of its flags, from the everyday command to a scripted install that resolves a name collision. The [CLI reference](cli.md#flags) has the one-row summary of every flag; this page has the behavior behind the `add` and `remove` rows. What a source must contain is on the [memory files page](write-memories.md).
 
 ```bash
-npx -y @vivswan/maxims add @Vivswan/skills -g --rule --add-hook
+npx -y @vivswan/maxims add @Octocat/rules -g --rule --add-hook
 ```
 
 The [quickstart](quickstart.md#install-a-source) shows what that command prints and writes. Every flag below changes one part of it.
@@ -43,19 +43,19 @@ A local directory source defaults to the user scope so personal text stays out o
 
 Re-running `add` with a different `--memory` list replaces the recorded one, shown in the plan first. It never unions.
 
-The output of `add @Vivswan/skills --list`, captured from the built CLI:
+The output of `add @Octocat/rules --list`, captured from the built CLI:
 
 ```text
 |
-o  Source: https://github.com/Vivswan/skills.git
+o  Source: https://github.com/Octocat/rules.git
 o  Repository cloned
 o  Found 4 memories
 |
 o  Available Memories
-|    fire-relevant-skills-and-memories
-|    gate-exit-conditions-the-merge
-|    no-sleep-waiting-on-subagents
-|    rubber-duck-before-every-commit
+|    commit-small-and-often
+|    never-retry-without-a-cap
+|    prefer-timeouts-to-hangs
+|    tests-before-the-fix
 |
 o  Run without --list to install
 ```
@@ -115,21 +115,21 @@ A scoped rule loads only when matching files are touched, so it trades away "eve
 A memory's name is its identity. When an incoming memory's name is already owned by another installed source, `add` stops instead of skipping it, because a silently skipped rule is a rule the user believes is loaded.
 
 ```text
-index:      gate-exit-conditions-the-merge  -> owned by @Vivswan/skills
-incoming:   gate-exit-conditions-the-merge  from @example-user/dotfiles      COLLISION
-interactive:      rename to gate-exit-conditions-the-merge-dotfiles; recorded in state
+index:      commit-small-and-often  -> owned by @Octocat/rules
+incoming:   commit-small-and-often  from @example-user/dotfiles      COLLISION
+interactive:      rename to commit-small-and-often-dotfiles; recorded in state
 non-interactive:  exit 6, nothing written, unless --rename names the pair
 result:           two rule lines, two names, one rename entry applied by every later sync
 ```
 
-The last two lines of the output when the prompt cannot be shown, captured from the built CLI with `@Vivswan/skills` already owning the name; above them are the ordinary progress lines of any `add`:
+The last two lines of the output when the prompt cannot be shown, captured from the built CLI with `@Octocat/rules` already owning the name; above them are the ordinary progress lines of any `add`:
 
 ```text
- ERROR  gate-exit-conditions-the-merge is owned by @Vivswan/skills
-Tip: --rename gate-exit-conditions-the-merge=<new>
+ ERROR  commit-small-and-often is owned by @Octocat/rules
+Tip: --rename commit-small-and-often=<new>
 ```
 
-`--rename gate-exit-conditions-the-merge=gate-exit-conditions-the-merge-dotfiles` records the same entry the prompt would, so a scripted `add` never meets exit 6 for a collision it knows about. It repeats, one pair per colliding memory.
+`--rename commit-small-and-often=commit-small-and-often-dotfiles` records the same entry the prompt would, so a scripted `add` never meets exit 6 for a collision it knows about. It repeats, one pair per colliding memory.
 
 The rename is a local identity only. The stored file keeps its upstream name and body, the mapping lives in state, and an upstream rename of that file retires the mapping with it.
 
@@ -153,6 +153,6 @@ The output of a non-interactive `remove` without `-y`, captured from the built C
 
 ```text
 |
-o  Memories to remove: @Vivswan/skills
+o  Memories to remove: @Octocat/rules
  ERROR  Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.
 ```

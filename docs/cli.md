@@ -112,7 +112,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 
 On `lint`, `--cap` is a threshold for this run only and persists nothing; the [lint section](write-memories.md#lint-a-folder-before-publishing) owns it.
 
-Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hook`, is the [quickstart](quickstart.md#install-a-source).
+Flags compose. The everyday invocation, `add @Octocat/rules -g --rule --add-hook`, is the [quickstart](quickstart.md#install-a-source).
 
 ## Exit codes
 

@@ -34,7 +34,7 @@ beforeAll(async () => {
   scratch = mkdtempSync(join(launcherHome(), "maxims-fixture-"));
   home = makeHome(scratch);
   mkdirSync(join(home.root, ".claude"));
-  source = fixtureRepo(scratch, "skills");
+  source = fixtureRepo(scratch, "rules");
   const add = await runMaxims(bundle, home, [
     "add",
     source,

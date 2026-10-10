@@ -12,8 +12,8 @@ const VALID = {
     "@example-user/rules": {
       intent: {
         from: { type: "github", repo: "example-user/rules", ref: "HEAD" },
-        select: ["rubber-duck-before-every-commit"],
-        rename: { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
+        select: ["prefer-timeouts-to-hangs"],
+        rename: { "commit-small-and-often": "commit-small-and-often-dotfiles" },
         rule: true,
         destination: { scope: "global" },
         copy: false,
@@ -27,7 +27,7 @@ const VALID = {
         sha: "fc675572711b0a1c9e0000000000000000000000",
         memoryPath: "memories",
         memories: {
-          "rubber-duck-before-every-commit": {
+          "prefer-timeouts-to-hangs": {
             content: `sha256:${"9f".repeat(32)}`,
             description: `sha256:${"11".repeat(32)}`,
           },

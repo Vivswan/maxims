@@ -7,9 +7,9 @@ o  Memories to install
    Dotfiles -> ~/.claude/rules/maxims-<SLUG>.md
    Dotfiles -> ~/.codex/AGENTS.md
 |
-|    gate-exit-conditions-the-merge
+|    commit-small-and-often
 |
-|      The dotfiles spelling of the merge gate rule, colliding with the skills
+|      The dotfiles spelling of the small-commit rule, colliding with the rules
 |      one by name
 |
 o  Installed 1 memory, 1 rule line (~N tokens)

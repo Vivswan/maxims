@@ -2,5 +2,5 @@
 o  Source: https://github.com/a/d.git
 o  Repository cloned
 o  Found 1 memory (1 internal, hidden)
- ERROR  gate-exit-conditions-the-merge is owned by @a/b
-Tip: --rename gate-exit-conditions-the-merge=<new>
+ ERROR  commit-small-and-often is owned by @a/b
+Tip: --rename commit-small-and-often=<new>

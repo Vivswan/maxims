@@ -28,13 +28,13 @@ A failed fetch keeps it out too, and so does a source standing stale, whose stal
 Until then the run prints one line on stderr naming the source and the failure, records the reason in `log/refresh.log`, and exits non-zero as the [failure paths](guarantees.md#failure-paths) say. The same run under `--quiet` prints nothing.
 
 ```text
-maxims: @Vivswan/skills: fetch failed (network unreachable); kept last-good
+maxims: @Octocat/rules: fetch failed (network unreachable); kept last-good
 ```
 
 In quiet mode the output is only what a session must hear: a line per source gone [stale](#the-staleness-notice-and-the-self-refresh-line), a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 
 ```text
-maxims: the rules from @Vivswan/skills have not refreshed since 2026-08-26T09:00:00.000Z (network unreachable) and may be out of date.
+maxims: the rules from @Octocat/rules have not refreshed since 2026-08-26T09:00:00.000Z (network unreachable) and may be out of date.
 maxims: rules refreshed (1 file updated)
 ```
 

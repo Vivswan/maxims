@@ -24,7 +24,7 @@ import {
 } from "../cli/harness.ts";
 
 const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
-const SKILLS = join(FIXTURES, "skills");
+const RULES = join(FIXTURES, "rules");
 const DOTFILES = join(FIXTURES, "dotfiles");
 const RISKY = join(FIXTURES, "risky");
 
@@ -37,12 +37,12 @@ type Golden = [string, Parameters<typeof withScenario>[0], (scenario: Scenario) 
 const goldens: Golden[] = [
   [
     "add-install",
-    { tty: true, agent: "claude-code", github: { "vivswan/skills": SKILLS } },
+    { tty: true, agent: "claude-code", github: { "octocat/rules": RULES } },
     async (scenario) => {
       scenario.options.loadEngine = async () => realEngineBundle(fixtureResolvers(() => scenario));
       const run = await runCli(scenario, [
         "add",
-        "@Vivswan/skills",
+        "@Octocat/rules",
         "-g",
         "--rule",
         "--add-hook",
@@ -56,14 +56,14 @@ const goldens: Golden[] = [
   // Pinned on a terminal, the one place the plan screen folds.
   [
     "add-list",
-    { tty: true, stdinTty: false, github: { "vivswan/skills": SKILLS } },
-    async (scenario) => (await runCli(scenario, ["add", "@Vivswan/skills", "--list"])).stdout,
+    { tty: true, stdinTty: false, github: { "octocat/rules": RULES } },
+    async (scenario) => (await runCli(scenario, ["add", "@Octocat/rules", "--list"])).stdout,
   ],
   [
     "add-plain-all-items",
-    { github: { "vivswan/skills": SKILLS }, syncReport: { rules: 4, tokens: 103 } },
+    { github: { "octocat/rules": RULES }, syncReport: { rules: 4, tokens: 103 } },
     async (scenario) =>
-      (await runCli(scenario, ["add", "@Vivswan/skills", "-g", "--rule", "-a", "codex"])).stdout,
+      (await runCli(scenario, ["add", "@Octocat/rules", "-g", "--rule", "-a", "codex"])).stdout,
   ],
   [
     "add-risk-warnings",
@@ -76,7 +76,7 @@ const goldens: Golden[] = [
   ],
   [
     "collision-error",
-    { github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    { github: { "a/b": RULES, "a/d": DOTFILES } },
     async (scenario) => {
       await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"]);
       const run = await runCli(scenario, ["add", "@a/d", "-g", "-a", "codex"]);
@@ -86,7 +86,7 @@ const goldens: Golden[] = [
   ],
   [
     "remove-refused",
-    { github: { "a/b": SKILLS } },
+    { github: { "a/b": RULES } },
     async (scenario) => {
       await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"]);
       const run = await runCli(scenario, ["remove", "@a/b"]);
@@ -97,26 +97,26 @@ const goldens: Golden[] = [
   [
     "update-run",
     {
-      github: { "a/b": SKILLS },
+      github: { "a/b": RULES },
       syncReport: {
         fetched: ["@a/b"],
-        upstreamChanges: { "@a/b": ["+ skip-unfit-skills", "- old-rule"] },
+        upstreamChanges: { "@a/b": ["+ tests-before-the-fix", "- old-rule"] },
         notices: [
-          "maxims: @a/b has new memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit",
+          "maxims: @a/b has new memories not in your selection: commit-small-and-often, never-retry-without-a-cap, prefer-timeouts-to-hangs",
         ],
       },
     },
     async (scenario) => {
-      await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "skip-unfit-skills"]);
+      await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "tests-before-the-fix"]);
       return (await runCli(scenario, ["update"])).stdout;
     },
   ],
   [
     "show-memory",
-    { github: { "vivswan/skills": SKILLS } },
+    { github: { "octocat/rules": RULES } },
     async (scenario) => {
-      await runCli(scenario, ["add", "@Vivswan/skills", "-g", "--rule", "-a", "codex"]);
-      const run = await runCli(scenario, ["show", "skip-unfit-skills"]);
+      await runCli(scenario, ["add", "@Octocat/rules", "-g", "--rule", "-a", "codex"]);
+      const run = await runCli(scenario, ["show", "tests-before-the-fix"]);
       expect(run.code).toBe(0);
       return redacted(run.stdout, scenario);
     },
@@ -184,20 +184,20 @@ function normalize(text: string): string {
 
 function scenarioLines(console: Console): void {
   console.intro();
-  console.step("Source: https://github.com/Vivswan/skills.git");
+  console.step("Source: https://github.com/Octocat/rules.git");
   console.spinner("Cloning repository...").stop("Repository cloned");
   console.warn("notes.md is not a memory: missing frontmatter");
   console.step("Found 4 memories");
   console.gap();
-  console.note("Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md", "Memories to install");
+  console.note("Octocat Rules -> ~/.claude/rules/maxims-octocat-rules.md", "Memories to install");
   console.gap();
   console.item(
-    "rubber-duck-before-every-commit",
-    "Use when about to commit or merge ANY change, however trivial - the rubber-duck review WITH CODEX must run and converge first",
+    "prefer-timeouts-to-hangs",
+    "Use when a call leaves the process, however small - give it a timeout, since a hang is worse than a clear failure",
   );
   console.more(3);
-  console.name("skip-unfit-skills");
-  console.error("gate-exit-conditions-the-merge is owned by @a/b");
+  console.name("tests-before-the-fix");
+  console.error("commit-small-and-often is owned by @a/b");
   console.outro("Run without --list to install");
 }
 

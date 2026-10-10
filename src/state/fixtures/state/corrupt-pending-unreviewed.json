@@ -27,7 +27,7 @@
         "sha": "fc675572711b0a1c9e0000000000000000000000",
         "memoryPath": "memories",
         "memories": {
-          "rubber-duck-before-every-commit": {
+          "prefer-timeouts-to-hangs": {
             "content": "sha256:9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
             "description": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
           }

@@ -1,18 +1,18 @@
 |
-o  skip-unfit-skills
-   source: @Vivswan/skills
-   revision: a8d5fe2
+o  tests-before-the-fix
+   source: @Octocat/rules
+   revision: 3701003
    disabled: no
    held: no
-   rule: - The agent may skip an invoked skill that does not fit the task, but must say why (detail: <HOME>/.agents/maxims/store/vivswan/skills/memories/skip-unfit-skills.md, 8a205e7)
+   rule: - A fix lands with the test that failed before it, never a test written after the fact (detail: <HOME>/.agents/maxims/store/octocat/rules/memories/tests-before-the-fix.md, 997856e)
 |
 ---
-name: skip-unfit-skills
-description: The agent may skip an invoked skill that does not fit the task, but must say why
+name: tests-before-the-fix
+description: A fix lands with the test that failed before it, never a test written after the fact
 metadata:
   node_type: memory
   type: feedback
   internal: false
 ---
 
-**Why:** a skill applied where it does not fit produces confident nonsense.
+**Why:** a test that was never red proves nothing about the bug.

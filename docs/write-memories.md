@@ -13,18 +13,18 @@ This page is the format, the folder layout, and the two verbs that help you writ
 
 ```markdown
 ---
-name: gate-exit-conditions-the-merge
-description: "Never chain a merge or push in the same compound command as reading a gate log; condition the merge on the gate's exit code, in a separate command after the result is read"
+name: commit-small-and-often
+description: "Keep every commit to one change; a reviewer reads a small diff in one pass, and a revert takes back one thing"
 metadata:
   node_type: memory
   type: feedback
   scope: common
 ---
 
-A landing merge is a SEPARATE command issued only after the gate's exit code is read and is zero.
+One change per commit, however small the second one looks.
 
-**Why:** 2026-08-23. A background gate chain merged before its own log was read.
-**How to apply:** Two commands minimum. Sibling trap to [[no-pipe-masked-exit-codes]].
+**Why:** 2026-08-23. A two-change commit was reverted for one of them and took the other down with it.
+**How to apply:** Stage by hunk when the tree holds two changes. Sibling of [[prefer-timeouts-to-hangs]].
 ```
 
 The `description` is the one-liner that reaches the rule file. Everything below the frontmatter stays in this file on disk, behind the pointer at the end of the rule line.
@@ -72,13 +72,13 @@ Resolution runs through the rename map, so a memory renamed locally after a [nam
 ```text
 <source root>/
 `-- memories/
-    |-- gate-exit-conditions-the-merge.md
-    |-- rubber-duck-before-every-commit.md
+    |-- commit-small-and-often.md
+    |-- prefer-timeouts-to-hangs.md
     |-- README.md                          # reserved, skipped
     `-- MEMORY.md                          # reserved, skipped
 ```
 
-The reference source `@Vivswan/skills` uses this layout, a `memories/` directory at the repo root beside its skills, so one repo and one review gate carry both.
+A source that also ships skills uses this layout, a `memories/` directory at the repo root beside them, so one repo and one review gate carry both.
 
 | flag on `add` | what it reads |
 | --- | --- |
@@ -91,7 +91,7 @@ The reference source `@Vivswan/skills` uses this layout, a `memories/` directory
 ## Scaffold a file with init
 
 ```bash
-npx -y @vivswan/maxims init gate-exit-conditions-the-merge
+npx -y @vivswan/maxims init commit-small-and-often
 ```
 
 `init <name>` writes `memories/<name>.md` under the current directory, creating `memories/` if needed, and refuses to overwrite an existing file. Without a name it prompts; non-interactively without one it exits 1.
