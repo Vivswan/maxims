@@ -1,11 +1,10 @@
 import { join } from "node:path";
 import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { SourceFrom } from "../../contracts/source.ts";
-import type { FetchResult, SourceResolver } from "../contract.ts";
+import { FetchFailure, type FetchResult, type SourceResolver } from "../contract.ts";
 import {
   climb,
   cloneRung,
-  FetchFailure,
   lsRemoteRung,
   type Runner,
   sparsePathFor,

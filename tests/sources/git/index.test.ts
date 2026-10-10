@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { FetchFailure } from "../../../src/sources/contract.ts";
 import { createGitResolver } from "../../../src/sources/git/index.ts";
 import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
 import {
@@ -13,7 +14,7 @@ import {
   scriptedGit,
   scriptedRunner,
 } from "../../../src/sources/github/fixtures/runner.ts";
-import { FetchFailure, simpleGitRunner } from "../../../src/sources/github/ladder.ts";
+import { simpleGitRunner } from "../../../src/sources/github/ladder.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";

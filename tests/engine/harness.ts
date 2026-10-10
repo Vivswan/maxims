@@ -19,8 +19,13 @@ import {
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
 import { contentHashOf, type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
-import type { FetchResult, ResolverFor, SourceResolver } from "../../src/sources/contract.ts";
-import { FetchFailure, type FetchFailureKind } from "../../src/sources/github/ladder.ts";
+import {
+  FetchFailure,
+  type FetchFailureKind,
+  type FetchResult,
+  type ResolverFor,
+  type SourceResolver,
+} from "../../src/sources/contract.ts";
 import { createLocalResolver } from "../../src/sources/local.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";

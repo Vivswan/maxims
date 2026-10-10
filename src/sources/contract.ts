@@ -1,4 +1,22 @@
+import type { LastError } from "../contracts/last-error.ts";
 import { isLiveLocal, type SourceFrom } from "../contracts/source.ts";
+
+export type FetchFailureKind = LastError["kind"];
+
+// What a remote resolver throws when a ref or a tree cannot be had, classed so a caller can tell
+// an unreachable source from one with nothing valid to install. It lives here, beside the resolver
+// contract, so the sync path can class a failure without loading the fetch ladder that raises it.
+export class FetchFailure extends Error {
+  readonly kind: FetchFailureKind;
+  readonly retryAfterSeconds: number | undefined;
+
+  constructor(kind: FetchFailureKind, message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "FetchFailure";
+    this.kind = kind;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 export type FetchOptions = {
   memoryPath: string;
