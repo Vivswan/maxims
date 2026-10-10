@@ -266,7 +266,7 @@ describe("parseState", () => {
     expect(parseState({ version: 99 })).toEqual({ ok: "newer", version: 99 });
   });
 
-  // Parser-level refusals; the fixtures under src/state/fixtures and the store test pin the same
+  // Parser-level refusals; the fixtures under src/state/fixtures/state and the store test pin the same
   // boundary at the file.
   const corrupt: { title: string; mutate: (json: typeof VALID) => unknown; issue: RegExp }[] = [
     { title: "not an object", mutate: () => "state", issue: /expected object/i },

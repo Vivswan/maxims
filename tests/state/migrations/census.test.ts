@@ -25,7 +25,7 @@ const KINDS: Kind[] = [
   {
     file: "state.json",
     ladder: STATE_LADDER,
-    fixtures: srcPath("state", "fixtures"),
+    fixtures: srcPath("state", "fixtures", "state"),
     parses: (json) => parseState(json).ok === "parsed",
   },
   {

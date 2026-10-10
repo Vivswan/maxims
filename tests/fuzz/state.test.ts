@@ -13,7 +13,7 @@ import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz, mutatedJson } from "./shared.ts";
 
-const FIXTURES = join(import.meta.dir, "..", "..", "src", "state", "fixtures");
+const FIXTURES = join(import.meta.dir, "..", "..", "src", "state", "fixtures", "state");
 
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
