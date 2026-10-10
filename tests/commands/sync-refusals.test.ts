@@ -21,6 +21,7 @@ import { runRemove } from "../../src/commands/remove.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
+import type { FetchIntent } from "../../src/engine/types.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -894,7 +895,7 @@ describe("what a refused or departed source leaves behind", () => {
       const detail = "`&#92;home&#92;user&#92;rules@work&#92;memories&#92;alpha.md,` 1234567";
       writeFileSync(
         join(rulesDir, `maxims-${sourceSlug(localFrom(live, true))}.md`),
-        `<!-- maxims:begin ${key} sha=sha256:0 -->\n- Alpha. (detail: ${detail})\n<!-- maxims:end ${key} -->\n`,
+        `<!-- maxims:begin ${key} sha=sha256:0 version=1 -->\n- Alpha. (detail: ${detail})\n<!-- maxims:end ${key} -->\n`,
       );
       const rival = writeSource(join(dir, "rival"), { alpha: { description: "Rival." } });
       writeState(
@@ -1357,7 +1358,7 @@ describe("what a refused or departed source leaves behind", () => {
     ],
     [
       "a linked file holding a departed source's block",
-      "# From dotfiles\n<!-- maxims:begin @acme/gone sha=abc1234 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n",
+      "# From dotfiles\n<!-- maxims:begin @acme/gone sha=abc1234 version=1 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n",
       "claude-code",
       "project",
       true,
@@ -1465,50 +1466,66 @@ describe("a vanished source's destination", () => {
 // stands between them; removing it would pair them into a block the next sweep takes. The grammar
 // refuses that removal, and the refusal holds that one file: every other write of the run lands,
 // a hook run stays exit 0 and says so on stdout, and only the verb asked for the removal exits 4.
+type TwoSourceWorld = {
+  io: ReturnType<typeof fakeIo>;
+  home: string;
+  wrappedKey: string;
+  otherKey: string;
+  shared: string;
+  sharedBefore: string;
+  rulesFile: string;
+  rulesFileBefore: string;
+};
+
+// Two sources, one per fixture harness, synced once: `decorate` then rewrites the shared file
+// (the wrapped source's only block) or the rules-dir file, and the rules-dir source gains a pending
+// refresh a hold must not take with it. That source is live unless `fetched` asks for a fetched
+// one, whose next forced sync marks its block refreshed.
+async function twoSourceWorld(
+  decorate: Partial<Record<"shared" | "rulesDir", (text: string) => string>>,
+  fn: (world: TwoSourceWorld) => Promise<void>,
+  fetched = false,
+): Promise<void> {
+  await world(async ({ home, dir, userHome }) => {
+    const wrappedKey = writeSource(join(dir, "wrapped"), { one: { description: "One." } });
+    const otherKey = writeSource(join(dir, "other"), { two: { description: "Two." } });
+    const otherFrom = localFrom(otherKey, !fetched);
+    writeState(
+      home,
+      stateWith({
+        [wrappedKey]: entryFor(localFrom(wrappedKey, true), { harnesses: ["codex"] }),
+        [otherKey]: entryFor(otherFrom, { harnesses: ["claude-code"] }),
+      }),
+    );
+    const io = fakeIo({ home, userHome, cwd: dir });
+    await runSync(SYNC, io);
+    const shared = join(userHome, ".fixture", "FIXTURE.md");
+    const rulesFile = globalRulesFile(userHome, sourceSlug(otherFrom));
+    const sharedBefore = (decorate.shared ?? ((text) => text))(readFileSync(shared, "utf8"));
+    const rulesFileBefore = (decorate.rulesDir ?? ((text) => text))(
+      readFileSync(rulesFile, "utf8"),
+    );
+    writeFileSync(shared, sharedBefore);
+    writeFileSync(rulesFile, rulesFileBefore);
+    writeFileSync(
+      join(otherKey, "memories", "two.md"),
+      memoryFile("two", { description: "Two, revised." }),
+    );
+    io.out.length = 0;
+    await fn({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile, rulesFileBefore });
+  });
+}
+
 describe("a shared file whose block a stray marker pair wraps", () => {
-  const STRAY_BEGIN = "<!-- maxims:begin @stray/notes sha=old -->\nKEEP ME\n";
+  const STRAY_BEGIN = "<!-- maxims:begin @stray/notes sha=old version=1 -->\nKEEP ME\n";
   const STRAY_END = "<!-- maxims:end @stray/notes -->\n";
   const hint =
     'edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry';
   const refusal = (key: string): string =>
     `removing the ${key} block would pair the stray maxims markers for @stray/notes around it into a managed block`;
 
-  // Two sources, one per fixture harness: the wrapped block is the shared file's only one, and the
-  // rules-dir source has a pending refresh the hold must not take with it.
-  async function wrapped(
-    fn: (world: {
-      io: ReturnType<typeof fakeIo>;
-      home: string;
-      wrappedKey: string;
-      otherKey: string;
-      shared: string;
-      sharedBefore: string;
-      rulesFile: string;
-    }) => Promise<void>,
-  ): Promise<void> {
-    await world(async ({ home, dir, userHome }) => {
-      const wrappedKey = writeSource(join(dir, "wrapped"), { one: { description: "One." } });
-      const otherKey = writeSource(join(dir, "other"), { two: { description: "Two." } });
-      writeState(
-        home,
-        stateWith({
-          [wrappedKey]: entryFor(localFrom(wrappedKey, true), { harnesses: ["codex"] }),
-          [otherKey]: entryFor(localFrom(otherKey, true), { harnesses: ["claude-code"] }),
-        }),
-      );
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const shared = join(userHome, ".fixture", "FIXTURE.md");
-      const sharedBefore = `${STRAY_BEGIN}${readFileSync(shared, "utf8")}${STRAY_END}`;
-      writeFileSync(shared, sharedBefore);
-      writeFileSync(
-        join(otherKey, "memories", "two.md"),
-        memoryFile("two", { description: "Two, revised." }),
-      );
-      const rulesFile = globalRulesFile(userHome, sourceSlug(localFrom(otherKey, true)));
-      await fn({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile });
-    });
-  }
+  const wrapped = (fn: (world: TwoSourceWorld) => Promise<void>): Promise<void> =>
+    twoSourceWorld({ shared: (text) => `${STRAY_BEGIN}${text}${STRAY_END}` }, fn);
 
   test("a hook run holds the file, lands the other write, exits 0 and logs the refusal as a line", async () => {
     await wrapped(async ({ io, home, wrappedKey, otherKey, shared, sharedBefore, rulesFile }) => {
@@ -1519,7 +1536,6 @@ describe("a shared file whose block a stray marker pair wraps", () => {
         }),
       );
       io.clock.now = new Date(NOW.getTime() + DAY_MS);
-      io.out.length = 0;
       const report = await runSync(QUIET, io);
       expect(report.notices).toEqual(
         expect.arrayContaining([`maxims: ${refusal(wrappedKey)}`, `maxims: ${hint}`]),
@@ -1587,5 +1603,120 @@ describe("a shared file whose block a stray marker pair wraps", () => {
       );
       expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
     });
+  });
+});
+
+// What would drift silently: a file holding a block whose begin marker carries no version (the
+// shape before the version field) is the one file a run must neither refresh nor delete, whether
+// the planner would splice it, overwrite it whole (a rules-dir file, where no splice reads it
+// back), or sweep it as an orphan; a scanner that read the marker as text would append a second
+// block beside it on every sync, and a sweep that passed over it would report a removal done.
+describe("a file holding a block whose marker carries no version", () => {
+  const OLD_BEGIN = "<!-- maxims:begin @old/notes sha=old -->";
+  const OLD_BLOCK = `${OLD_BEGIN}\n- An old rule.\n<!-- maxims:end @old/notes -->\n`;
+  const hint =
+    "delete the block from that line through its maxims:end line, then run sync, which writes it afresh";
+  const refusal = (path: string): string =>
+    `${path}: the marker ${JSON.stringify(OLD_BEGIN)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`;
+  const aged = (text: string): string => `${OLD_BLOCK}\n${text}`;
+
+  // The held file, and what the rest of the run still does: the shared file's hold lets the
+  // rules-dir refresh land, while the rules-dir file's hold is that refresh. The rules-dir source
+  // is a fetched one under a forced sync, so its block counts as refreshed: the planner then
+  // overwrites a rules-dir file whole without judging a hand edit, which is where a read of the
+  // old marker could be skipped.
+  const files: [
+    string,
+    Partial<Record<"shared" | "rulesDir", (text: string) => string>>,
+    FetchIntent,
+    (world: TwoSourceWorld) => { held: string; before: string; landed: () => void },
+  ][] = [
+    [
+      "the shared file",
+      { shared: aged },
+      "due",
+      ({ shared, sharedBefore, rulesFile }) => ({
+        held: shared,
+        before: sharedBefore,
+        landed: () => expect(readFileSync(rulesFile, "utf8")).toContain("Two, revised."),
+      }),
+    ],
+    [
+      "a rules-dir file",
+      { rulesDir: aged },
+      "force",
+      ({ rulesFile, rulesFileBefore, shared, sharedBefore }) => ({
+        held: rulesFile,
+        before: rulesFileBefore,
+        landed: () => expect(readFileSync(shared, "utf8")).toBe(sharedBefore),
+      }),
+    ],
+  ];
+
+  test.each(files)(
+    "an interactive sync holds %s byte for byte and exits 4",
+    async (_label, decorate, fetch, of) => {
+      await twoSourceWorld(
+        decorate,
+        async (world) => {
+          const { held, before, landed } = of(world);
+          const error = await expectExit(
+            runSync({ ...SYNC, fetch }, world.io),
+            ExitCode.DestinationWriteFailed,
+          );
+          expect({ message: error.message, hint: error.hint }).toEqual({
+            message: refusal(held),
+            hint,
+          });
+          expect(world.io.out.join("")).toContain(
+            `!  maxims: ${refusal(held)}\n!  maxims: ${hint}\n`,
+          );
+          expect(readFileSync(held, "utf8")).toBe(before);
+          landed();
+        },
+        fetch === "force",
+      );
+    },
+  );
+
+  test.each(files)(
+    "a hook run holds %s, exits 0 and logs the refusal as a line",
+    async (_label, decorate, fetch, of) => {
+      await twoSourceWorld(
+        decorate,
+        async (world) => {
+          const { held, before, landed } = of(world);
+          world.io.clock.now = new Date(NOW.getTime() + DAY_MS);
+          const report = await runSync({ ...QUIET, fetch }, world.io);
+          expect(report.heldFiles).toEqual([held]);
+          expect(world.io.out.join("")).toStartWith(`maxims: ${refusal(held)}\nmaxims: ${hint}\n`);
+          expect(readFileSync(held, "utf8")).toBe(before);
+          landed();
+          const log = readFileSync(homePaths(world.home).log, "utf8");
+          expect(log).not.toContain("crashed");
+          expect(log).toContain(`sync --quiet: maxims: ${refusal(held)}`);
+        },
+        fetch === "force",
+      );
+    },
+  );
+
+  test("a removed source's rules-dir file is held by the sweep, not deleted, and the removal exits 4", async () => {
+    await twoSourceWorld(
+      { rulesDir: aged },
+      async ({ io, home, otherKey, rulesFile, rulesFileBefore }) => {
+        const remove = { quiet: false, dryRun: false, json: false, all: false, confirmed: true };
+        const error = await expectExit(
+          runRemove({ ...remove, targets: [otherKey] }, io),
+          ExitCode.DestinationWriteFailed,
+        );
+        expect({ message: error.message, hint: error.hint }).toEqual({
+          message: refusal(rulesFile),
+          hint,
+        });
+        expect(Object.keys(readStateFile(home).sources)).not.toContain(otherKey);
+        expect(readFileSync(rulesFile, "utf8")).toBe(rulesFileBefore);
+      },
+    );
   });
 });

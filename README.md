@@ -13,7 +13,7 @@ npx -y @vivswan/maxims add @Octocat/rules -g --rule --add-hook
 What maxims writes for Claude Code, one line per memory, with the detail path, the body's short hash, and the two comment lines Claude Code strips before injection. The revision and the hashes are illustrative:
 
 ```markdown
-<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 version=1 -->
 <!-- managed by maxims: @Octocat/rules - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->
 - A timeout on EVERY call that leaves the process, however short; a hang is worse than a clear failure. (detail: /home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
