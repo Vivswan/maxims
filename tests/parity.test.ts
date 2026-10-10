@@ -1,10 +1,12 @@
 // Fails if maxims drifts from the `npx skills` surface captured from skills@1.7.2 into
 // tests/fixtures/golden/skills-help.txt: a shared flag respelled or re-shaped, a short letter
 // reassigned while `skills` keeps the old one, a documented alias dropped, a usage error that
-// stops exiting 1, or an upstream flag or verb that no parity decision claims yet.
+// stops exiting 1, an upstream flag or verb that no parity decision claims yet, or a flag table on
+// docs/parity.md that falls behind those decisions or the maxims flag registry.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { scanPage } from "../scripts/docs_probe.mts";
 import { normalizeHelp } from "../scripts/lib/skills_help.ts";
 import { FLAGS, type FlagSpec, GLOBAL_FLAGS } from "../src/commands/shared/options.ts";
 import { ExitCode } from "../src/util/exit-codes.ts";
@@ -115,6 +117,73 @@ const DIVERGE_VERBS = ["use", "find"];
 const UNCLAIMED_VERBS = ["experimental_install", "experimental_sync", "init"];
 
 const MAXIMS_FLAGS: readonly FlagSpec[] = [...GLOBAL_FLAGS, ...Object.values(FLAGS)];
+
+const PARITY_PAGE = readFileSync(join(import.meta.dir, "..", "docs", "parity.md"), "utf8");
+
+type ParityRow = { upstream: string[]; maxims: string[]; parity: string };
+
+// The page's own probe reads the cells, so an escaped pipe or a code span reads as the rendered
+// page shows it. A row is one source line and the probe records no empty cell, so a flag column
+// with nothing to list says `none` and a row's first three cells are its flag columns and verdict.
+// Only the lines under `## Flags` count: a verb cell may quote a flag, and the header row names
+// none. With the heading gone, no row is found.
+function flagTable(page: string): ParityRow[] {
+  const lines = page.split("\n");
+  const heading = lines.indexOf("## Flags") + 1;
+  if (heading === 0) return [];
+  const next = lines.findIndex((line, index) => index >= heading && line.startsWith("## ")) + 1;
+  const inSection = (line: number): boolean => line > heading && (next === 0 || line < next);
+  const byLine = new Map<number, string[]>();
+  for (const unit of scanPage(page).units) {
+    if (unit.kind !== "cell" || !inSection(unit.line)) continue;
+    byLine.set(unit.line, [...(byLine.get(unit.line) ?? []), unit.text]);
+  }
+  const longs = (cell: string): string[] =>
+    [...cell.matchAll(/--([a-z][a-z-]*)(?![\w-])/g)].map((match) => match[1] ?? "");
+  return [...byLine.values()]
+    .map(([upstream = "", maxims = "", parity = ""]) => ({
+      upstream: longs(upstream),
+      maxims: longs(maxims),
+      parity,
+    }))
+    .filter((row) => row.upstream.length + row.maxims.length > 0);
+}
+
+const sorted = (names: readonly string[]): string[] => [...names].sort();
+
+type Claim = { parity: string; maxims: string[] };
+
+// The decisions above and the flag registry both exist outside the page, so neither can stop a
+// row from going missing, a verdict from flipping, or two rows from trading their maxims cells;
+// `--help` and `--version` have no row because the page documents decisions, and those two are
+// standard.
+test("docs/parity.md's flag table carries every parity decision and every maxims flag", () => {
+  const rows = flagTable(PARITY_PAGE);
+  const claims: Record<string, Claim[]> = {};
+  for (const row of rows) {
+    for (const long of row.upstream) {
+      claims[long] = [...(claims[long] ?? []), { parity: row.parity, maxims: row.maxims }];
+    }
+  }
+  const expected: Record<string, Claim[]> = {};
+  for (const long of SAME_FLAGS) expected[long] = [{ parity: "same", maxims: [long] }];
+  for (const [long, flag] of Object.entries(ANALOG_FLAGS)) {
+    expected[long] = [{ parity: "analog", maxims: [flag.name] }];
+  }
+  for (const long of DIVERGE_FLAGS) expected[long] = [{ parity: "diverge", maxims: [] }];
+  const ours = MAXIMS_FLAGS.map((flag) => flag.name);
+  const analogs = Object.values(ANALOG_FLAGS).map((flag) => flag.name);
+  const maximsOnly = (row: ParityRow): string[] => (row.parity === "maxims-only" ? row.maxims : []);
+  expect({
+    claims,
+    documented: sorted(rows.flatMap((row) => row.maxims)),
+    maximsOnly: sorted(rows.flatMap(maximsOnly)),
+  }).toEqual({
+    claims: expected,
+    documented: sorted(ours),
+    maximsOnly: sorted(ours.filter((n) => !SAME_FLAGS.includes(n) && !analogs.includes(n))),
+  });
+});
 
 function maximsFlag(long: string): FlagSpec | undefined {
   return MAXIMS_FLAGS.find((flag) => flag.name === long);
