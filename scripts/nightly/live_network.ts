@@ -16,8 +16,9 @@ import {
 import { delimiter, join } from "node:path";
 import { parseRuleLines } from "../../src/rulefile/blocks.ts";
 import { redactUserinfo } from "../../src/sources/github/ladder.ts";
+import { markdownTable } from "../lib/markdown_table.ts";
 import { withScratchDir } from "../lib/scratch.ts";
-import { markdownTable, type Outcome } from "./report.ts";
+import type { Outcome } from "./report.ts";
 import { readRuleFile } from "./rule_file.ts";
 
 const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];

@@ -59,8 +59,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Docs
         run: bun run docs:check
-      - name: Harness matrix
-        run: bun run docs:matrix:check
+      - name: Docs tables
+        run: bun run docs:tables:check
       - name: Architecture lint
         run: bun run lint:arch
       - name: Architecture page

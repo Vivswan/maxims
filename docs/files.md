@@ -49,15 +49,19 @@ npx -y @vivswan/maxims config get rule
 npx -y @vivswan/maxims config unset rule
 ```
 
+<!-- BEGIN GENERATED: config-keys (bun run docs:tables) -->
+
 | key | stands in for | default when unset |
-| --- | --- | --- |
-| `agents` | `-a <agents>` | the detected harnesses |
+|---|---|---|
+| `agents` | `-a <ids>` | the detected harnesses |
 | `yes` | `-y` | prompt when interactive |
 | `addHook` | `--add-hook` | off |
 | `rule` | `--rule` | off |
 | `cooldownDays` | `--cooldown <days>` | 7 |
 | `ruleCap` | `--cap <n>` | 25 |
 | `lastAgents` | no flag; the harnesses the last interactive `add` selected | the detected harnesses |
+
+<!-- END GENERATED: config-keys -->
 
 `add` writes `lastAgents`, and the next interactive prompt preselects it.
 
