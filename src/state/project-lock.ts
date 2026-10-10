@@ -11,6 +11,8 @@ import {
   type SourceFrom,
 } from "../contracts/source.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
+import { CURRENT_PROJECT_LOCK_VERSION } from "./migrations/project-lock-ladder.ts";
+import { versionOf } from "./migrations/runner.ts";
 import {
   canonicalSourceKey,
   DisabledNamesSchema,
@@ -19,7 +21,6 @@ import {
   sourceKeyIssues,
 } from "./schema.ts";
 
-export const PROJECT_LOCK_VERSION = 1;
 /** @public */
 export const PROJECT_LOCK_RELATIVE_PATH = join(".agents", "maxims.lock");
 
@@ -90,7 +91,7 @@ function isRemote(source: LockSource): source is RemoteLockSource {
 
 export const ProjectLockSchema = z
   .strictObject({
-    version: z.literal(PROJECT_LOCK_VERSION),
+    version: z.literal(CURRENT_PROJECT_LOCK_VERSION),
     sources: z.record(z.string(), LockSourceSchema),
     // A committed copy of this project's list from state, for `install` on a fresh checkout; the
     // CLI writes it from state and never reads it back as the answer.
@@ -109,12 +110,30 @@ export type ParsedProjectLock =
   | { ok: "parsed"; lock: ProjectLock }
   | { ok: "corrupt"; issues: string[] };
 
+// The version is judged before the shape, and neither direction is climbed: a newer lock holds
+// fields this maxims cannot see, and an older one holds entries whose shape it cannot read, so the
+// machine that shared them deletes the file and `share` writes it whole from state again.
 export function parseProjectLock(text: string): ParsedProjectLock {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch (error) {
     return { ok: "corrupt", issues: [error instanceof Error ? error.message : String(error)] };
+  }
+  const version = versionOf(json);
+  if (version !== null && version > CURRENT_PROJECT_LOCK_VERSION) {
+    return {
+      ok: "corrupt",
+      issues: [`written by a newer maxims (lock version ${version}); upgrade maxims to install it`],
+    };
+  }
+  if (version !== null && version < CURRENT_PROJECT_LOCK_VERSION) {
+    return {
+      ok: "corrupt",
+      issues: [
+        `written by an older maxims (lock version ${version}, this maxims reads ${CURRENT_PROJECT_LOCK_VERSION}); delete it and run maxims share on the machine that shared it`,
+      ],
+    };
   }
   const result = ProjectLockSchema.safeParse(json);
   if (result.success) return { ok: "parsed", lock: result.data };

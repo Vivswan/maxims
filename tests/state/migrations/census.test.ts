@@ -7,8 +7,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseUserConfig } from "../../../src/state/config.ts";
 import { CONFIG_LADDER } from "../../../src/state/migrations/config-ladder.ts";
+import { PROJECT_LOCK_LADDER } from "../../../src/state/migrations/project-lock-ladder.ts";
 import { type Ladder, migrate, versionOf } from "../../../src/state/migrations/runner.ts";
 import { STATE_LADDER } from "../../../src/state/migrations/state-ladder.ts";
+import { parseProjectLock } from "../../../src/state/project-lock.ts";
 import { parseState } from "../../../src/state/schema.ts";
 import { srcPath } from "../../shared/src_path.ts";
 
@@ -31,6 +33,12 @@ const KINDS: Kind[] = [
     ladder: CONFIG_LADDER,
     fixtures: srcPath("state", "fixtures", "config"),
     parses: (json) => parseUserConfig(json).ok === "parsed",
+  },
+  {
+    file: "maxims.lock",
+    ladder: PROJECT_LOCK_LADDER,
+    fixtures: srcPath("state", "fixtures", "project-lock"),
+    parses: (json) => parseProjectLock(JSON.stringify(json)).ok === "parsed",
   },
 ];
 

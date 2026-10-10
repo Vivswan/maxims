@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sources": {
+    "./memories": {
+      "from": {
+        "type": "local",
+        "path": "./memories",
+        "live": true
+      },
+      "select": ["short-rule"],
+      "rule": true,
+      "harnesses": ["claude-code"],
+      "memoryPath": "rules"
+    },
+    "@example-user/rules": {
+      "from": {
+        "type": "github",
+        "repo": "example-user/rules"
+      },
+      "select": "*",
+      "rename": {
+        "zeta": "zeta-local"
+      },
+      "rule": true,
+      "harnesses": ["claude-code", "codex"]
+    },
+    "https://gitlab.example.com/team/rules.git#v2": {
+      "from": {
+        "type": "git",
+        "url": "https://gitlab.example.com/team/rules.git"
+      },
+      "pin": "v2",
+      "select": "*",
+      "rule": false,
+      "harnesses": ["codex"],
+      "auth": true
+    }
+  },
+  "disabled": ["alpha", "beta"]
+}

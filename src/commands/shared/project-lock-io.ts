@@ -2,11 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { DEFAULT_GIT_REF, isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import type { MemoryName } from "../../memory/contract.ts";
+import { CURRENT_PROJECT_LOCK_VERSION } from "../../state/migrations/project-lock-ladder.ts";
 import {
   type LockSource,
   lockSourceKey,
   PROJECT_LOCK_RELATIVE_PATH,
-  PROJECT_LOCK_VERSION,
   type ProjectLock,
   parseProjectLock,
   serializeProjectLock,
@@ -202,7 +202,7 @@ export async function projectLockChange(
     return current === null ? null : { kind: "delete", path };
   }
   const lock: ProjectLock = {
-    version: PROJECT_LOCK_VERSION,
+    version: CURRENT_PROJECT_LOCK_VERSION,
     sources,
     ...(disabled.size === 0 ? {} : { disabled: [...disabled].sort() }),
   };

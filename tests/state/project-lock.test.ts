@@ -124,10 +124,17 @@ describe("project lock", () => {
 
   const corrupt: { title: string; text: string; issue: RegExp }[] = [
     { title: "not JSON", text: "{", issue: /JSON/ },
+    // Neither direction is climbed; the user sees where the fix is: an upgrade, or a fresh share.
     {
       title: "a newer version",
       text: SERIALIZED.replace('"version": 1', '"version": 2'),
-      issue: /^version/,
+      issue: /^written by a newer maxims \(lock version 2\); upgrade maxims/,
+    },
+    {
+      title: "an older version",
+      text: SERIALIZED.replace('"version": 1', '"version": 0'),
+      issue:
+        /^written by an older maxims \(lock version 0, this maxims reads 1\); delete it and run maxims share/,
     },
     {
       title: "a key that is not the source's canonical key",
