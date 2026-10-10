@@ -4,9 +4,9 @@ import type { HarnessSpec } from "../spec.ts";
 // Cursor ignores a plain `.md` in `.cursor/rules`, and an `.mdc` is injected every session only
 // under `alwaysApply: true`; a scoped one is attached by its `globs` instead.
 //   global target   none: user rules live in Cursor's settings UI, not in a file
-//   debounceMs      `sessionStart` fires for every new conversation and is fire-and-forget on
+//   bursts          `sessionStart` fires for every new conversation and is fire-and-forget on
 //                   Cursor's side, so a burst of them each pays the npx start and only the first
-//                   does the sync's work
+//                   gets past the `sync --quiet` debounce stamp, the rest exit without work
 export const spec = {
   id: "cursor",
   displayName: "Cursor",
