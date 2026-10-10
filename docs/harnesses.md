@@ -63,7 +63,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 
 ```markdown
 <!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
-- A timeout on EVERY call that leaves the process, however short. (detail: ~/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
+- Use when a call leaves the process, however small - give it a timeout, since a hang is worse than a clear failure (detail: ~/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
 <!-- maxims:end @Octocat/rules -->
 ```
 
