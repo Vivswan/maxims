@@ -16,7 +16,7 @@ export const spec = {
   displayName: "OpenCode",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-10",
     sources: [
       {
         kind: "schema",
@@ -43,16 +43,29 @@ export const spec = {
         claims: [
           'const instructionFiles = [ "AGENTS.md",',
           'path.join(global.config, "AGENTS.md")',
+          "globUp(instruction, ctx.directory, ctx.worktree)",
         ],
-        note: "AGENTS.md and ~/.config/opencode/AGENTS.md",
+        note: "AGENTS.md, ~/.config/opencode/AGENTS.md, and a relative instructions entry globbed up from the working directory",
       },
       {
         kind: "file",
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/opencode/src/config/config.ts",
-        claims: ['"opencode.json", "opencode.jsonc"', "merged.instructions"],
-        note: "opencode.json locations and the instructions key",
+        claims: [
+          'ConfigPaths.files("opencode", ctx.directory, ctx.worktree)',
+          "merged.instructions",
+        ],
+        note: "the project opencode.json found walking up from the working directory, and the instructions merge",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/opencode/src/config/paths.ts",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: the claim quotes the source's template literal
+        claims: ["targets: [`${name}.jsonc`, `${name}.json`]"],
+        note: "opencode.jsonc and opencode.json as the two project config names",
       },
       {
         kind: "file",
