@@ -4,6 +4,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { isMemoryFile } from "../memory/contract.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { isInside } from "../util/fs.ts";
+import { compareCodeUnits } from "../util/order.ts";
 import type { FetchOptions } from "./contract.ts";
 
 export type WarnSink = (message: string) => void;
@@ -81,7 +82,7 @@ async function assertDirectory(dir: string, scope: TreeScope, sourceRoot: string
 // when it points at a regular file; that is what keeps a link named `x.md` out of the store.
 async function walkRegularFiles(root: string, rel: string[], warn: WarnSink): Promise<string[][]> {
   const entries = await readdir(join(root, ...rel), { withFileTypes: true });
-  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  entries.sort((a, b) => compareCodeUnits(a.name, b.name));
   const out: string[][] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
@@ -102,7 +103,7 @@ async function walkRegularFiles(root: string, rel: string[], warn: WarnSink): Pr
 // two file sets can produce one stream.
 export function hashFiles(files: TreeFile[]): string {
   const hash = createHash("sha256");
-  for (const file of [...files].sort((a, b) => (a.relPath < b.relPath ? -1 : 1))) {
+  for (const file of [...files].sort((a, b) => compareCodeUnits(a.relPath, b.relPath))) {
     const content = Buffer.from(file.text);
     hash.update(file.relPath);
     hash.update("\0");

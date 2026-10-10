@@ -58,8 +58,7 @@ export function parseSourceSlug(candidate: string): SourceSlug | null {
 // Blank as Codex judges it: Rust's `str::trim` strips the Unicode White_Space set, which differs
 // from JavaScript's `trim` on two characters. A byte order mark (U+FEFF) is whitespace only to
 // JavaScript, so a BOM-only file is a file Codex reads; U+0085 is whitespace only to Rust.
-const WHITE_SPACE_ONLY =
-  /^[\t\n\v\f\r \u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+const WHITE_SPACE_ONLY = /^\p{White_Space}*$/u;
 
 // A directory named in the list (Cline's `.clinerules/`) holds no block and is skipped.
 export function sharedBlockFile(target: SharedBlockTarget, root: string): string {

@@ -200,7 +200,7 @@ async function checkHarness(
     state,
     ctx.io.projectRoot,
     harnessCtx,
-    ctx.engine.planHookAlone,
+    ctx.engine.planHookOnly,
   );
   const tier = await ctx.engine.achievedTier(def, scope, harnessCtx);
   return { id: def.id, scope, ruleFiles, hook, tier };

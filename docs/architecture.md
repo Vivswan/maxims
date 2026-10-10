@@ -448,7 +448,7 @@ flowchart LR
   inspect["src/state/store.ts<br>inspectState()<br>src/commands/shared/report.ts<br>previewState()<br>src/commands/shared/cli-context.ts<br>peekIntent()"]
   statefile[("intent: state.json, read without the lock")]
   trees["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
-  derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/commands/shared/hooks.ts<br>planHookAlone()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
+  derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
   blocks["src/commands/shared/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
   manifest["src/commands/shared/project-lock-io.ts<br>readProjectLock()"]
   disk[("the store, the rule files, the registries, the manifest, the stamp")]

@@ -1,4 +1,4 @@
-import { compareCodeUnits } from "../../rulefile/block.ts";
+import { compareCodeUnits } from "../../util/order.ts";
 import type { HarnessDefinition } from "../contract.ts";
 
 // One target file carries the self-refresh line at most once, in the first stale block by byte

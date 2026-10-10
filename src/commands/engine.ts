@@ -55,7 +55,7 @@ export async function createEngine(options: EngineOptions): Promise<EngineBundle
       runSync,
       runRemove,
       runList,
-      planHookAlone: (def, scope, ctx, wanted) => planHookOnly({ def, scope, ctx, wanted }),
+      planHookOnly,
       achievedTier,
       serveMcpStub: (stub) =>
         serveMcpStub({

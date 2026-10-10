@@ -1,7 +1,7 @@
-import type { ContentHash, MemoryName } from "../memory/contract.ts";
+import { type ContentHash, type MemoryName, renamed } from "../memory/contract.ts";
 import type { RenameMap, Select, SourceIntent } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
-import { compareCodeUnits } from "./block.ts";
+import { compareCodeUnits } from "../util/order.ts";
 import { type CapCheck, checkCap } from "./budget.ts";
 import type { RuleLine } from "./types.ts";
 
@@ -51,12 +51,6 @@ function applySelect<T>(items: readonly T[], select: Select, nameOf: (item: T) =
   if (select === "*") return [...items];
   const wanted = new Set<string>(select);
   return items.filter((item) => wanted.has(nameOf(item)));
-}
-
-// A plain object lookup would hand back Object.prototype members for a memory named
-// `constructor` or `to-string`-like keys that exist on the prototype chain.
-function renamed(rename: RenameMap, name: MemoryName): MemoryName {
-  return Object.hasOwn(rename, name) ? rename[name] : name;
 }
 
 export type Candidate = {

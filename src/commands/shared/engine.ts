@@ -40,6 +40,7 @@ import {
   realpathOfExistingPrefix,
 } from "../../util/fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../util/home.ts";
+import { compareCodeUnits } from "../../util/order.ts";
 import type {
   EngineIo,
   FetchIntent,
@@ -209,7 +210,7 @@ export async function planSync(
         notices.trace(`deferred ${built.deferred.length} deletion(s) until an interactive sync`);
       }
       const failed = [...refreshed.failed, ...attempt.failed].sort((a, b) =>
-        a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+        compareCodeUnits(a.key, b.key),
       );
       return {
         plan: built.plan,

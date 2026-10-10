@@ -57,6 +57,7 @@ import {
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
+import { compareCodeUnits } from "../util/order.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import {
   configWrite,
@@ -852,7 +853,7 @@ function scanMemories(
     }
     memories.push(parsed.memory);
   }
-  const byName = (a: Memory, b: Memory) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const byName = (a: Memory, b: Memory) => compareCodeUnits(a.name, b.name);
   return { memories: memories.sort(byName), recorded: recorded.sort(byName), internalHidden };
 }
 
@@ -1101,7 +1102,9 @@ function showItems(
 }
 
 function sorted(chosen: readonly Memory[], rename: RenameMap): Memory[] {
-  return [...chosen].sort((a, b) => (renamed(rename, a.name) < renamed(rename, b.name) ? -1 : 1));
+  return [...chosen].sort((a, b) =>
+    compareCodeUnits(renamed(rename, a.name), renamed(rename, b.name)),
+  );
 }
 
 function sameSelect(a: Select, b: Select): boolean {
