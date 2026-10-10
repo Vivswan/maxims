@@ -1,12 +1,9 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Zed reads exactly one project instruction file, the first of nine names that exists at the
-// worktree root, so the block goes into whichever the repository already has and only a bare
-// repository gets an AGENTS.md. Zed's docs place the personal AGENTS.md and settings.json under
-// `~/.config/zed`; its paths.rs resolves that directory through `$XDG_CONFIG_HOME` on Linux and
-// FreeBSD and fixes it at `~/.config/zed` on macOS. Zed has no hook system; its MCP servers live
-// under `context_servers` in settings.json.
+// Zed reads exactly one project instruction file, and only at the worktree root. Its paths.rs
+// resolves the config directory through `$XDG_CONFIG_HOME` on Linux and FreeBSD and fixes it at
+// `~/.config/zed` on macOS.
 export const spec = {
   id: "zed",
   displayName: "Zed",

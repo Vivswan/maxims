@@ -18,21 +18,20 @@ export type HarnessContext = {
   env: Record<string, string | undefined>;
 };
 
-// What a tier probe read on this machine. A config the probe could not read is not one that
-// leaves hooks on: the harness is taken at tier 2 and `unreadable` says why, with no harness
-// named in it, so the surface that prints it (a sync notice, a doctor finding, a list note) can
-// put the harness where its own layout wants it.
+// A config the probe could not read is not one that leaves hooks on: the harness is taken at tier 2
+// and `unreadable` says why, with no harness named in it, so the surface that prints it (a sync
+// notice, a doctor finding, a list note) can put the harness where its own layout wants it.
 export type AchievedTier = { tier: 1 | 2; unreadable: null } | { tier: 2; unreadable: string };
 
-// Strategy A writes one whole file per source into a rules directory; strategy B writes a managed
-// block into a file the user also owns. A harness only chooses; the two writers exist once.
-// `dir` and `file` are RELATIVE to the scope root from `scopeRoot`; `HookShape.path`,
-// `bodiesDir` and `tierCheck.layers` return ABSOLUTE paths.
-// `precedence` lists, in the harness's own order, the files of which it reads only the first
-// that exists (Zed reads `.rules` and ignores `AGENTS.md` beside it); `file` is the one created
-// when none exists and must appear in the list. `skipsEmpty` marks a harness that passes over a
-// file in that list whose trimmed content is empty (Codex's home loader), so the block never fills
-// a blank file whose filling would silence the next one. `sharedBlockFile` is the one resolver.
+// A harness only chooses; the two writers exist once. `dir` and `file` are RELATIVE to the scope
+// root from `scopeRoot`; `HookShape.path`, `bodiesDir` and `tierCheck.layers` return ABSOLUTE
+// paths.
+//   precedence   the files of which the harness reads only the first that exists, in its own order
+//                (Zed reads `.rules` and ignores `AGENTS.md` beside it); `file` is the one created
+//                when none exists and must appear in the list
+//   skipsEmpty   the harness passes over a listed file whose trimmed content is empty (Codex's home
+//                loader), so the block never fills a blank file whose filling would silence the
+//                next one
 export type Target =
   | {
       kind: "rules-dir";
@@ -58,8 +57,9 @@ export function parseSourceSlug(candidate: string): SourceSlug | null {
 }
 
 // Blank as Codex judges it: Rust's `str::trim` strips the Unicode White_Space set, which differs
-// from JavaScript's `trim` on two characters. A byte order mark (U+FEFF) is whitespace only to
-// JavaScript, so a BOM-only file is a file Codex reads; U+0085 is whitespace only to Rust.
+// from JavaScript's `trim` on two characters.
+//   U+FEFF (byte order mark)   whitespace only to JavaScript, so a BOM-only file is one Codex reads
+//   U+0085                     whitespace only to Rust
 const WHITE_SPACE_ONLY = /^\p{White_Space}*$/u;
 
 // A directory named in the list (Cline's `.clinerules/`) holds no block and is skipped.
@@ -92,12 +92,12 @@ export type HookSpec = {
   timeoutSeconds: number;
 };
 
-// How a session-start hook may speak back to its harness; the `json:` variants name the path of
-// the key the harness reads inside the one JSON object it accepts. Plain stdout becomes context on
-// Claude Code and Codex. Two envelopes carry an `additionalContext`: Copilot reads it at the top
-// level, `{"additionalContext": "..."}`; Claude Code, Gemini and Devin read it nested under
-// `hookSpecificOutput` beside the event name. Cline and Cursor read their own keys. Sync renders
-// the staleness notice per this field, so a harness that requires silence never sees stray text.
+// How a session-start hook may speak back to its harness. Sync renders the staleness notice per
+// this field, so a harness that requires silence never sees stray text.
+//   plain                                        stdout becomes context (Claude Code, Codex)
+//   json:additionalContext                       Copilot, at the top level of the one JSON object
+//   json:hookSpecificOutput.additionalContext    Claude Code, Gemini and Devin, beside the event
+//   json:contextModification, additional_context Cline's and Cursor's own keys
 export type HookStdout =
   | "plain"
   | "json:additionalContext"
@@ -108,19 +108,17 @@ export type HookStdout =
 
 export type ConfigFormat = "json" | "toml";
 
-// Where a harness keeps its MCP servers, for the bundled stub whose start runs sync: the config
-// file per scope and the key path of the servers map inside it. `null` means that scope has no
-// file the harness starts servers from.
+// The config the bundled MCP stub is registered in, since its start runs sync; `null` means that
+// scope has no file the harness starts servers from.
 export type McpRegistry = {
   path: (scope: Scope, ctx: HarnessContext) => string | null;
   serversPath: string[];
 };
 
-// What one config layer says about a tier check's key. `absent` and `unset` defer to the next
-// layer; `value` is the key as the harness would read it, of `demotesWhen`'s own JSON type; and
-// `unreadable` covers a file that cannot be read or parsed as well as a key path or value of
-// another type, because what the harness makes of a config its own schema rejects is not for
-// another layer to answer.
+// `unreadable` covers a key path or value of another type as well as a file that cannot be read or
+// parsed: what the harness makes of a config its own schema rejects is not another layer's to say.
+// hook-writer.ts moves on to the next layer at `absent` and `unset`; `value` is the key as the
+// harness would read it, of `demotesWhen`'s own JSON type.
 export type ConfigLayer =
   | { kind: "absent" }
   | { kind: "unset" }
@@ -133,12 +131,11 @@ export type ConfigLayer =
 export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
 
 // A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
-// and `commandKey` carry every difference between the harnesses' registry files, so the one hook
-// writer needs no per-harness branch. `tierCheck` is read-only detection over the harness's own
-// config layers, `layers` giving them in the harness's precedence order (project over global, a
-// local override before the file it overrides): the first that sets the key decides whether it
-// holds `demotesWhen`, and `unreadable` says which broken layer is the reading instead. Nothing
-// ever writes them.
+// and `commandKey` carry every difference between the harnesses' registry files, so hook-writer.ts
+// needs no per-harness branch. `tierCheck` reads the harness's own config layers and writes none of
+// them, `layers` in the harness's precedence order (project over global, a local override before
+// the file it overrides): the first that sets the key decides whether it holds `demotesWhen`, and
+// `unreadable` says which broken layer is the reading instead.
 export type RegistryHook = {
   kind: "registry";
   path: (scope: Scope, ctx: HarnessContext) => string;
@@ -198,12 +195,10 @@ export type HarnessFixtures = {
   hookStdin?: string;
 };
 
-// The vendor sources the definition's facts were read from, each with the record the nightly
-// drift check re-reads: JSON pointers that must resolve in a published schema (to a given
-// primitive where one is named), or literal claims that must appear in a repository file or a documentation
-// page. A page is the last resort, and `why` says what programmatic source was looked for. One
-// source rarely states every fact (Pi's context-file order is in its resource loader, not its
-// extensions page), so `note` names the fact each one justifies.
+// The vendor sources the definition's facts were read from, which scripts/nightly/harness_drift.ts
+// re-reads. One source rarely states every fact (Pi's context-file order is in its resource loader,
+// not its extensions page), so `note` names the fact each one justifies; a `page` is the last
+// resort, and `why` says what programmatic source was looked for.
 export type PointerCheck = string | { pointer: string; equals: string | number | boolean | null };
 export type VerifiedSource =
   | {
@@ -249,13 +244,10 @@ export interface HarnessDefinition {
   globalRoot?: (ctx: HarnessContext) => string;
   mcp?: McpRegistry;
   // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`
-  // array entry), reconciled by sync like a hook: constructed from the spec, compared, written on a
-  // difference, removed when `wanted` is false.
+  // array entry), reconciled by sync like a hook.
   configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<Change[]>;
 }
 
-// The one place a scope becomes a directory: a harness whose global files honor an environment
-// override (`$CODEX_HOME`, `$COPILOT_HOME`) declares `globalRoot`; everyone else gets the home.
 export function scopeRoot(
   def: Pick<HarnessDefinition, "globalRoot">,
   scope: Scope,
