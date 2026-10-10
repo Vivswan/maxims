@@ -226,7 +226,7 @@ flowchart LR
 - **A custom `reconcile` quirk needs hook kind `none` in the spec;** `toDefinition()` throws otherwise, so a folder cannot declare a registry hook and then replace it in code.
 - **The registry is guarded by a completeness test:** a folder missing from the import list fails it, and a user spec that names a built-in id or repeats one is refused with the entry named.
 
-Demonstrated by: [tests/harnesses/from-spec.test.ts](../tests/harnesses/from-spec.test.ts), [tests/harnesses/contract.test.ts](../tests/harnesses/contract.test.ts), [tests/harnesses/registry.test.ts](../tests/harnesses/registry.test.ts), [tests/harnesses/user-defined.test.ts](../tests/harnesses/user-defined.test.ts), [tests/harnesses/conformance.test.ts](../tests/harnesses/conformance.test.ts), [tests/harnesses/codex/index.test.ts](../tests/harnesses/codex/index.test.ts).
+Demonstrated by: [tests/harnesses/from-spec.test.ts](../tests/harnesses/from-spec.test.ts), [tests/harnesses/contract.test.ts](../tests/harnesses/contract.test.ts), [tests/harnesses/registry.test.ts](../tests/harnesses/registry.test.ts), [tests/harnesses/user-defined.test.ts](../tests/harnesses/user-defined.test.ts), [tests/harnesses/conformance.test.ts](../tests/harnesses/conformance.test.ts), [tests/harnesses/codex/spec.test.ts](../tests/harnesses/codex/spec.test.ts).
 
 ## Every write is a planned change
 
@@ -323,7 +323,7 @@ flowchart LR
 - **The harness choice has an order:** `-a` as typed (every harness with a target under `--all`), else the harnesses detected on this machine, else `config.agents`, else a prompt pre-filled with the last answer. A harness with no target at the destination's scope is skipped: with a warning when it was named, detected or config-listed, silently under `--all` or `-a '*'`, and the prompt never offers it.
 - **`--list` stops before validation,** so a source whose install would be refused can still be seen and narrowed; it fetches unless `--no-fetch` walks the store copy, and it never writes.
 
-Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/commands/frame/options.test.ts](../tests/commands/frame/options.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
+Demonstrated by: [tests/commands/add.test.ts](../tests/commands/add.test.ts), [tests/commands/frame/options.test.ts](../tests/commands/frame/options.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
 
 ## A verb runs: sync
 
@@ -367,7 +367,7 @@ flowchart LR
 - **A refused fresh refresh is rolled back.** `planSync()` loops: the source's last-good copy is restored and the whole installation is planned again from it, so what the retained rules point at is what the name index and the sweeps see. The refusal's own lines are carried over once.
 - **A failed fetch is a report, not a stop.** The other sources land; the failure is logged, shown at once when the source is gone or its content invalid, otherwise once the source counts as stale; and the verb exits 2, or 3 when every failure is a source with nothing valid to install.
 
-Demonstrated by: [tests/commands/sync.test.ts](../tests/commands/sync.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/sync.test.ts](../tests/commands/sync.test.ts), [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts).
 
 ## A hook runs: sync --quiet
 
@@ -407,7 +407,7 @@ flowchart LR
 - **One stamp debounces every hook on the machine,** since each runs the same command; an interactive run is never debounced but writes the stamp too.
 - **Notices reach the session only in its protocol.** `stdoutVariantFor()` reads the definition's declared stdout shape; a harness this build does not know gets silence, since plain text into a JSON-only reader is a hook error at every session start.
 
-Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-failsoft.test.ts), [tests/harnesses/hook-stdin.test.ts](../tests/harnesses/hook-stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-failsoft.test.ts), [tests/harnesses/hook-stdin.test.ts](../tests/harnesses/hook-stdin.test.ts), [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts).
 
 ## A verb runs: remove
 
@@ -443,7 +443,7 @@ flowchart LR
 - **`-a` on a source drops that harness's artifacts and keeps the entry while another harness remains;** on a memory or a narrowed selection it is refused, since a memory has no per-harness half.
 - **A bare name two sources provide is refused** with both qualified forms and no change; a name nobody provides is a usage error before the engine runs.
 
-Demonstrated by: [tests/commands/remove.test.ts](../tests/commands/remove.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/remove.test.ts](../tests/commands/remove.test.ts), [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts).
 
 ## Two read-only verbs: list and doctor
 
@@ -480,7 +480,7 @@ flowchart LR
 - **`list` reports what state asks for,** with everything past intent re-derived on the spot: a hook the user deleted reads absent, a tier the config demoted reads 2, a rename whose collision is gone reads unneeded.
 - **`doctor` goes file by file.** A rule file counts as present only when the engine's own parser finds this source's block in it; each `x` line is one thing a harness will not load as state asks (a block, a preamble, a hook, an `--expect` name), and `--expect` is the CI assertion.
 
-Demonstrated by: [tests/commands/list.test.ts](../tests/commands/list.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [tests/state/store.test.ts](../tests/state/store.test.ts).
+Demonstrated by: [tests/commands/list.test.ts](../tests/commands/list.test.ts), [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts), [tests/state/store.test.ts](../tests/state/store.test.ts).
 
 ## The lock projection: add --share, share and unshare
 
@@ -516,7 +516,7 @@ flowchart LR
 - **This machine edits only its own entries,** because a clone that has not replayed the lock holds none of the team's entries in state; a teammate's disabled names are kept with their entries.
 - **Of the project's disabled names, the lock carries those a shared source provides;** a private source providing a name a teammate switched off says nothing about the teammate's choice.
 
-Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/engine/select.test.ts](../tests/engine/select.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
+Demonstrated by: [tests/commands/add.test.ts](../tests/commands/add.test.ts), [tests/engine/select.test.ts](../tests/engine/select.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## A verb runs: install
 
@@ -549,7 +549,7 @@ flowchart LR
 - **The manifest is input here, never output.** The lock is how a fresh clone learns what to add, and state stays the only thing `sync` reads: `sync` never installs from the lock; once state exists it prints one notice naming the lock-only sources and says to run `install`.
 - **Replayed entries are `shared`,** so the machine that installed from the lock writes the same entries back when it edits them; a field the lock omits is recorded at `add`'s default.
 
-Demonstrated by: [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
+Demonstrated by: [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## The module map
 

@@ -37,7 +37,7 @@ import { hashDirectory } from "../shared/hash_directory.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { FIXTURE_HARNESSES } from "./fixture-harnesses.ts";
 
-export const FIXTURES = resolve(import.meta.dir, "..", "fixtures", "cli");
+export const FIXTURES = resolve(import.meta.dir, "..", "fixtures", "commands");
 
 // A recording engine: the three runners record their options and answer with the report the
 // scenario dictates, printing nothing (the real engine's own output is pinned by its own tests);

@@ -37,9 +37,9 @@ export function hookPayload(fixture: string, home: Home): string {
   return fixture.replaceAll("/home/user", JSON.stringify(home.root).slice(1, -1));
 }
 
-const TREE_ROOT = resolve(import.meta.dir, "..", "fixtures", "cli");
+const TREE_ROOT = resolve(import.meta.dir, "..", "fixtures", "commands");
 
-// Copies `tests/fixtures/cli/<tree>/` to `<dir>/<tree>` and commits it; returns the path the
+// Copies `tests/fixtures/commands/<tree>/` to `<dir>/<tree>` and commits it; returns the path the
 // bundle installs from.
 export function fixtureRepo(dir: string, tree: string): string {
   const source = join(TREE_ROOT, tree);

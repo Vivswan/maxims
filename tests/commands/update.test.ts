@@ -4,7 +4,6 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homePaths } from "../../src/util/home.ts";
-import { realEngineBundle, runCli, type Scenario, snapshot, withScenario } from "../cli/harness.ts";
 import {
   ADDED_AT,
   fakeResolvers,
@@ -17,6 +16,7 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
+import { realEngineBundle, runCli, type Scenario, snapshot, withScenario } from "./fake-engine.ts";
 
 const FROM = githubFrom("a/b");
 const KEY = "@a/b";

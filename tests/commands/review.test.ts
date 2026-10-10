@@ -26,7 +26,7 @@ import {
   type Scenario,
   snapshot,
   withScenario,
-} from "./harness.ts";
+} from "./fake-engine.ts";
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
