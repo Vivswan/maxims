@@ -999,6 +999,58 @@ test("doctor reports a shared rule file once for the sources it carries", async 
   );
 });
 
+// What would drift silently: a block whose marker carries no version holds its file for sync,
+// and a doctor that read the file through the same parser without catching the refusal would
+// exit with it before reporting any other file, naming the marker line but never the path.
+test("doctor reports a file behind a marker the grammar refuses as that file's row and checks the rest", async () => {
+  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    const add = ["add", "@a/b", "-p", "-a", "codex,cursor", "--rule", "-m", "skip-unfit-skills"];
+    expect((await runCli(scenario, add)).code).toBe(0);
+    const shared = join(scenario.cwd, "AGENTS.md");
+    const rulesFile = join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc");
+    const oldBegin = "<!-- maxims:begin @old/notes sha=old -->";
+    const held = `${oldBegin}\n- An old rule.\n<!-- maxims:end @old/notes -->\n\n${block("@a/b", ["skip-unfit-skills"])}`;
+    writeFileSync(shared, held);
+    mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
+    writeFileSync(rulesFile, `${CURSOR_FRONTMATTER}${block("@a/b", ["skip-unfit-skills"])}`);
+    const before = await snapshot(scenario.root);
+    const run = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
+    expect(run.code).toBe(1);
+    expect(run.stdout.split("\n").slice(0, 3)).toEqual([
+      `x   codex: ${shared}: the marker ${JSON.stringify(oldBegin)} carries no version; this maxims writes version 1 and cannot refresh the block it opens (delete the block from that line through its maxims:end line, then run sync, which writes it afresh)`,
+      `ok  cursor: ${rulesFile}`,
+      `x   expect skip-unfit-skills: no rule line in ${shared}`,
+    ]);
+    expect(await snapshot(scenario.root)).toBe(before);
+    const json = await runCli(scenario, ["doctor", "--json"]);
+    expect(json.code).toBe(1);
+    const body = JSON.parse(json.stdout) as {
+      ok: boolean;
+      harnesses: { id: string; ruleFiles: Record<string, unknown>[] }[];
+    };
+    expect(body.ok).toBe(false);
+    expect(body.harnesses.map((h) => [h.id, h.ruleFiles])).toEqual([
+      [
+        "codex",
+        [
+          {
+            source: "@a/b",
+            path: shared,
+            held: {
+              message: `${shared}: the marker ${JSON.stringify(oldBegin)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`,
+              hint: "delete the block from that line through its maxims:end line, then run sync, which writes it afresh",
+            },
+          },
+        ],
+      ],
+      [
+        "cursor",
+        [{ source: "@a/b", path: rulesFile, held: null, present: true, preamble: { ok: true } }],
+      ],
+    ]);
+  });
+});
+
 test("link adds harnesses with a target and syncs them; unlink is the remove -a path", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
