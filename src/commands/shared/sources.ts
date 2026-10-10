@@ -44,6 +44,7 @@ import { storePathFor } from "../../util/home.ts";
 import type { CliIo } from "../types.ts";
 import { actsHere, harnessContext } from "./context.ts";
 import { validateMemoryFiles } from "./memories.ts";
+import { isHiddenInternal } from "./select.ts";
 import { parseSourceArgument, storable } from "./source-argument.ts";
 
 // The scope a destination's harness files belong to: an `-o` folder is written like a project
@@ -113,13 +114,9 @@ export async function upstreamNamesIfReadable(
       return parsed === null ? [] : [parsed];
     });
   }
-  const named = new Set<string>(entry.intent.select === "*" ? [] : entry.intent.select);
-  return memories.flatMap(({ memory }) => {
-    if (memory.metadata.internal === true && !io.installInternal && !named.has(memory.name)) {
-      return [];
-    }
-    return [memory.name];
-  });
+  return memories.flatMap(({ memory }) =>
+    isHiddenInternal(memory, entry.intent.select, io.installInternal) ? [] : [memory.name],
+  );
 }
 
 async function validMemoriesAt(

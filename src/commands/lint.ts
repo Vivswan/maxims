@@ -13,6 +13,7 @@ import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { type Command, FLAGS, type FlagSpec, INTEGER, parseInteger } from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
+import { isHiddenInternal } from "./shared/select.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 
@@ -39,7 +40,13 @@ export const lint: Command = {
     const cap =
       parseInteger(LINT_CAP, INTEGER.positive, args) ?? ctx.config.ruleCap ?? DEFAULT_RULE_CAP;
     const root = resolve(ctx.io.cwd, args.positionals[0] ?? "memories");
-    const problems = lintFolder(root, ctx.io.cwd, args.flag(FLAGS.fullDepth), cap);
+    const problems = lintFolder(
+      root,
+      ctx.io.cwd,
+      args.flag(FLAGS.fullDepth),
+      cap,
+      ctx.io.installInternal,
+    );
     if (ctx.global.json) {
       ctx.io.stdout.write(`${JSON.stringify({ ok: problems.length === 0, problems }, null, 2)}\n`);
     } else if (!ctx.global.quiet) {
@@ -56,6 +63,7 @@ export function lintFolder(
   cwd: string,
   recursive: boolean,
   cap: number,
+  installInternal: boolean,
 ): LintProblem[] {
   const files = collectMarkdown(root, recursive);
   const problems: LintProblem[] = [];
@@ -100,9 +108,10 @@ export function lintFolder(
       });
     }
   }
-  // The cap counts rule lines, so a memory marked internal, hidden from a `*` install, is not
-  // measured against it, as the planner measures a source.
-  const published = memories.filter(({ memory }) => memory.metadata.internal !== true).length;
+  // A folder has no `select`, so the cap measures it as a `*` install would publish it.
+  const published = memories.filter(
+    ({ memory }) => !isHiddenInternal(memory, "*", installInternal),
+  ).length;
   if (published > cap) {
     problems.push({
       path: relative(cwd, root) || ".",

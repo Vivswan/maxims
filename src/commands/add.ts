@@ -94,7 +94,7 @@ import {
   riskWarningsFor,
   showRiskWarnings,
 } from "./shared/risk.ts";
-import { disabledNames } from "./shared/select.ts";
+import { disabledNames, isHiddenInternal } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { parseSourceSelector, storable } from "./shared/source-argument.ts";
 import {
@@ -827,17 +827,13 @@ async function fetchTree(request: AddRequest, io: CliIo, console: Console): Prom
 
 type Scan = { memories: Memory[]; recorded: Memory[]; internalHidden: number };
 
-// Every `.md` under the memory folder is parsed; a file that fails the contract is skipped with
-// one warning naming the reason, never fatal. A memory marked internal is hidden unless it was
-// named on the command line or MAXIMS_INSTALL_INTERNAL=1 asks for the internal set; it still
-// enters the fetch record, which lists what the source ships.
+// A hidden internal memory still enters the fetch record, which lists what the source ships.
 function scanMemories(
   request: AddRequest,
   files: readonly TreeFile[],
   installInternal: boolean,
   console: Console,
 ): Scan {
-  const named = new Set<string>(request.select === "*" ? [] : request.select);
   const memories: Memory[] = [];
   const recorded: Memory[] = [];
   let internalHidden = 0;
@@ -850,11 +846,7 @@ function scanMemories(
     }
     if (parsed.warning !== undefined) console.warn(`${parsed.memory.name}: ${parsed.warning}`);
     recorded.push(parsed.memory);
-    if (
-      parsed.memory.metadata.internal === true &&
-      !installInternal &&
-      !named.has(parsed.memory.name)
-    ) {
+    if (isHiddenInternal(parsed.memory, request.select, installInternal)) {
       internalHidden += 1;
       continue;
     }

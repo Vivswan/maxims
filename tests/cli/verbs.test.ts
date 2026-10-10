@@ -17,7 +17,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/index.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
@@ -511,15 +511,26 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
   });
 });
 
-// The cap counts the rule lines an install publishes, as the planner counts them; a memory marked
-// internal is hidden from a `*` install, so a lint that counted it would tell an author to trim a
-// folder that already fits.
-test("lint measures only the memories an install publishes against the cap: an internal one is no rule line", async () => {
-  await withScenario({}, async (scenario) => {
-    const run = await runCli(scenario, ["lint", join(DOTFILES, "memories"), "--cap", "1"]);
-    expect(run).toEqual({ code: 0, stdout: "", stderr: "" });
-  });
-});
+// The cap counts the rule lines an install publishes, as the planner counts them: an internal
+// memory is hidden from a `*` install until MAXIMS_INSTALL_INTERNAL=1 asks for it. A lint that
+// counted differently would tell an author to trim a folder that fits, or clear one `add` refuses.
+test.each([
+  { installInternal: "0", published: 1 },
+  { installInternal: "1", published: 2 },
+])(
+  "lint measures the memories an install publishes against the cap (MAXIMS_INSTALL_INTERNAL=$installInternal)",
+  async ({ installInternal, published }) => {
+    const env = { MAXIMS_INSTALL_INTERNAL: installInternal };
+    await withScenario({ env }, async (scenario) => {
+      const folder = join(DOTFILES, "memories");
+      const run = await runCli(scenario, ["lint", folder, "--cap", "1"]);
+      const over = `${relative(scenario.cwd, folder)}:1: this folder would publish ${published} rule lines, over the cap of 1\n`;
+      expect(run).toEqual(
+        published > 1 ? { code: 3, stdout: over, stderr: "" } : { code: 0, stdout: "", stderr: "" },
+      );
+    });
+  },
+);
 
 test("install --strict refuses a manifest entry with a risky description before anything is recorded", async () => {
   await withScenario({ project: true, github: { "a/r": RISKY } }, async (scenario) => {
