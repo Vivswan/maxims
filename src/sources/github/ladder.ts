@@ -8,7 +8,7 @@ import { isGitEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
-import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
+import { DEFAULT_GIT_REF, URL_SCHEME } from "../../contracts/source.ts";
 import { FetchFailure, type FetchFailureKind } from "../contract.ts";
 import type { WarnSink } from "../tree.ts";
 import { DEFAULT_GH_HOST, isDotcomClass } from "./host.ts";
@@ -343,12 +343,10 @@ function gitOutcome<T>(
   return onSuccess(result.value);
 }
 
-// Git anonymizes the URL in only some of its messages, and which ones is git's to change; nothing
-// here relies on it. A userinfo-shaped token (no space or slash, ending in `@`) goes where an
-// authority can sit, after `//` or bare, as a `git://` lookup failure names it with no scheme. A
-// password may itself carry an `@` or a quote; git's own anonymization stops at the first `@` and
-// leaves the rest standing, so the whole run up to the last one goes. An over-redacted diagnostic
-// costs less than a printed password.
+// Git anonymizes the URL in only some of its messages, so nothing here relies on it; an
+// over-redacted diagnostic costs less than a printed password.
+//   after `//` or bare    a `git://` lookup failure names the authority with no scheme
+//   up to the LAST `@`    a password may carry an `@`; git's own anonymization stops at the first
 export function redactUserinfo(text: string): string {
   return text.replace(/(?<=\/\/|\s|^)[^\s/]+@/g, "");
 }
@@ -722,14 +720,19 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     if (baseDir !== undefined) settings.baseDir = baseDir;
     return simpleGit(settings).env(guarded.env);
   };
-  // An `insteadOf` rule matches the bytes the user typed, so git expands it before anything is
-  // withheld, and credentialConfig pins the result so git does not expand it again. An anonymous
-  // call drops the whole userinfo on http(s), where git would send it as Basic auth after a 401;
-  // transportUrl drops the password on git/ssh for every call. A token's URL is handed over as
-  // typed: its header is scoped to that URL, so a rewrite git applies afterwards leaves it home.
+  // An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
+  // withheld; credentialConfig pins the result against a second expansion.
+  //   header                   as typed: its header is scoped to that URL, so a rewrite leaves it
+  //   none, http(s)            whole userinfo goes: git would send it as Basic auth after a 401
+  //   not a URL, has userinfo  refused: git prints it as typed, password and all
   const target = async (url: string, credentials: GitCredentials): Promise<string> => {
-    if (credentials.kind === "header") return transportUrl(url);
     const expanded = await effectiveUrl(client([]), url);
+    if (hasUnparseableUserinfo(expanded)) {
+      throw new Error(
+        `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
+      );
+    }
+    if (credentials.kind === "header") return transportUrl(url);
     if (credentials.kind === "none" && /^https?:\/\//i.test(expanded)) {
       return withoutUserinfo(expanded);
     }
@@ -772,18 +775,19 @@ export function withoutUserinfo(url: string): string {
   }
 }
 
-// A URL whose password git prints in no piece a redaction cannot know, with host, port and path
-// left as typed. Git decodes the URL before parsing it and prints the decoded authority in pieces;
-// its one whole-URL print (a warning for a password holding an encoded newline) keeps the userinfo
-// as a single `//u:p@` run, which gitOutcome's redactUserinfo removes.
-//   git://, ssh://    cannot send a password: it goes, the typed user stays
-//   http(s)           git sends it after a 401 and anonymizes only a URL whose first `@` comes
-//                     before any `/`: the userinfo is re-encoded with one `@` after exactly `//`
-//   `u:@host`         keeps its colon: "no password" to git's credential code, where `u@host`
-//                     means "ask"
-//   `https:/\/\t/h`   the URL parser strips tab, CR and LF anywhere and skips any run of slashes
-//                     and backslashes after an http(s) scheme; git does neither, so the run after
-//                     the scheme is handed over as `//`
+// A URL-shaped string the parser rejects (`git://u:p@host:bad-port/`) can only go to git as
+// written, and git prints it that way; one with no userinfo has nothing to print.
+function hasUnparseableUserinfo(url: string): boolean {
+  if (!URL_SCHEME.test(url) || URL.canParse(url)) return false;
+  const authority = url.slice(url.indexOf("//") + 2).split("/", 1)[0] ?? "";
+  return authority.includes("@");
+}
+
+// Git decodes a URL before parsing it and prints the authority in pieces no redaction can know, so
+// the password comes off here and host, port and path stay as typed. Its one whole-URL print keeps
+// a `//u:p@` run, which redactUserinfo removes.
+//   git://, ssh://   cannot carry a password: it goes, the typed user stays
+//   http(s)          re-encoded with one `@` right after `//`, the only shape git anonymizes
 function transportUrl(url: string): string {
   let parsed: URL;
   try {
@@ -792,39 +796,35 @@ function transportUrl(url: string): string {
     return url;
   }
   const http = /^https?:$/.test(parsed.protocol);
-  if (parsed.password === "" && (!http || parsed.username === "")) return url;
+  if (parsed.username === "" && parsed.password === "") return url;
   const afterScheme = url.indexOf(":") + 1;
+  // The URL parser skips tab, CR, LF and any run of slashes after an http(s) scheme; git does not.
   const slashes = (http ? /^[/\\\t\r\n]*/ : /^\/\//).exec(url.slice(afterScheme))?.[0] ?? "";
   const start = afterScheme + slashes.length;
   const authority = url.slice(start).split(http ? /[/\\?]/ : /[/?]/, 1)[0] ?? "";
   const typed = authority.slice(0, authority.lastIndexOf("@"));
+  // Git decodes the userinfo before it splits it, so an encoded `:` starts the password too. On
+  // http(s) `u:@host` keeps its colon, "no password" to git's credential code; `u@host` means "ask".
+  const colon = typed.search(/:|%3a/i);
   const userinfo = http
     ? `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`
-    : (typed.split(":", 1)[0] ?? "");
+    : colon === -1
+      ? typed
+      : typed.slice(0, colon);
   const rest = url.slice(start + typed.length + 1);
   return `${url.slice(0, afterScheme)}//${userinfo === "" ? "" : `${userinfo}@`}${rest}`;
 }
 
-// The user's `insteadOf` rules may send a URL somewhere else entirely, and they match the bytes
-// the user typed. Resolving the destination here is what lets the password leave the URL
-// afterwards, and what lets an anonymous call reset the mirror's credentials too, so nothing the
-// user configured for the mirror leaves on a fetch they asked to be anonymous. Only git's line
-// terminator comes off: a quoted destination may end in a space, and that space names the
-// repository.
+// The destination of the user's `insteadOf` rules, resolved so the password can leave it and an
+// anonymous call can reset the mirror's credentials too. Only git's line terminator comes off: a
+// quoted destination may end in a space, and that space names the repository.
 async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
   const expanded = (await git.raw(["ls-remote", "--get-url", url])).replace(/\r?\n$/, "");
   return expanded === "" ? url : expanded;
 }
 
 // Credentials reach git through a private include file, never an argument or the environment:
-// simple-git echoes both to its debug log. The file scopes its entries to the exact URL, which is
-// the longest match git can find, so it outranks any `http.<prefix>.extraheader` or
-// `credential.<prefix>.helper` the user's gitconfig carries; an empty value resets that list. The
-// scope also means a URL rewritten by the user's own `insteadOf` no longer matches, and the
-// header stays home. A call whose destination target() already resolved (anonymous or inherited)
-// pins it with an `insteadOf` of the exact URL onto itself: the longest matching rule wins, so a
-// shorter user rule that would write credentials back into the URL is not applied a second time.
-// An inherited call carries that pin alone. An anonymous one also runs in a private HOME, because
+// simple-git echoes both to its debug log. An anonymous call also runs in a private HOME, because
 // libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
 async function withCredentials<T>(
   url: string,
@@ -844,6 +844,11 @@ async function withCredentials<T>(
   }
 }
 
+// Every entry is scoped to the exact URL, the longest match git can find, so it outranks any
+// prefix-scoped entry in the user's gitconfig.
+//   extraheader =, helper =   an empty value resets the user's list; the token's header follows
+//   insteadOf onto itself     the longest rule wins, so a shorter user rule cannot write credentials
+//                             back into a destination target() already resolved
 export function credentialConfig(url: string, remote: string, credentials: GitCredentials): string {
   const lines =
     credentials.kind === "inherited"

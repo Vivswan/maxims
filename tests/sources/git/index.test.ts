@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { FetchFailure } from "../../../src/sources/contract.ts";
 import { createGitResolver } from "../../../src/sources/git/index.ts";
 import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
@@ -151,11 +152,10 @@ describe("createGitResolver", () => {
     expect(error.message).toMatch(/^git ls-remote: /);
   });
 
-  // What would drift: a runner that hands git the URL as typed has git decode it and print the
-  // password in pieces (cut at a decoded `/`, `:port`, `@` or `[]`, lowercased or octal-escaped by
-  // ssh, a control byte written as `?`) that no shape-based redaction can know; one that
-  // re-serializes the URL changes the host, port or path an `insteadOf` rule matches. Every line
-  // names the host as typed and no piece of the password.
+  // What would drift: a runner that hands git the URL as typed has git print the decoded password in
+  // pieces no shape-based redaction can know; one that re-serializes the URL changes the host, port
+  // or path an `insteadOf` rule matches. Each row: typed URL, pieces absent from every line, kept.
+  //   cut at a decoded `/`, `:port`, `@` or `[]`   lowercased or octal-escaped by ssh   control byte as `?`
   const passwordUrls: [string, string[], string[]][] = [
     [
       "git://fixture-user:fixture%20secret@host.invalid/o/r.git",
@@ -179,6 +179,11 @@ describe("createGitResolver", () => {
     ],
     ["git://fixture-user:fixture%01%2Fsecret@host.invalid/o/r.git", ["fixture"], ["host.invalid"]],
     ["git://fixture-user:77%2Fsecret@host.invalid/o/r.git", ["77", "secret"], ["host.invalid"]],
+    [
+      "git://fixture-user%3Afixture%2Fsecret@host.invalid/o/r.git",
+      ["fixture-user:fixture", "fixture%3A", "fixture/secret", "fixture%2Fsecret"],
+      ["host.invalid"],
+    ],
     [
       "git://fixture-user:fixture\tsecret%2Frest@host.invalid/o/r.git",
       ["fixture", "secret"],
@@ -244,18 +249,19 @@ describe("createGitResolver", () => {
     (url, absent, kept) => passwordRung(url, process.env, absent, kept),
   );
 
-  // What would drift: git applies the user's `insteadOf` to the bytes they typed, after the runner
-  // has handed them over. A runner that withholds the password first defeats a rule keyed on it,
-  // so the lookup goes to the typed host instead of the mirror; one that lets git expand a rule
-  // whose target carries a password has git decode and print it in pieces. Each row is one
-  // gitconfig rule `url.<to>.insteadOf = <from>` and the URL the user typed.
+  // What would drift: git applies the user's `insteadOf` to the bytes it is handed, so the order of
+  // expanding, withholding and pinning decides what it prints.
+  //   withheld first           a rule keyed on the password misses
+  //   expanded, not withheld   git prints the target's password in pieces
+  //   withheld, not pinned     the user's rule applies again, password and all
+  //   target not a URL         with userinfo, refused; without, handed to git as written
   const rewrittenUrls: [string, string, string, string[], string[]][] = [
     [
       "https://host.invalid/o/r.git",
       "https://host.invalid/",
-      "git://fixture-user:fixture%2Fsecret@host.invalid/",
-      ["fixture/secret", "fixture%2Fsecret", "fixture-user:fixture"],
-      ["host.invalid"],
+      "git://fixture-user:fixture%2Fsecret@mirror.invalid/",
+      ["fixture/secret", "fixture%2Fsecret", "fixture-user:fixture", "host.invalid"],
+      ["mirror.invalid"],
     ],
     [
       "git://fixture-user:fixture-secret@host.invalid/o/r.git",
@@ -270,6 +276,34 @@ describe("createGitResolver", () => {
       "https://mirror.invalid/",
       ["fixture@secret", "fixture%40secret", "host.invalid"],
       ["mirror.invalid"],
+    ],
+    [
+      "git://fixture-user@host.invalid/o/r.git",
+      "git://fixture-user@host.invalid/",
+      "git://fixture-user:fixture%2Fsecret@host.invalid/",
+      ["fixture-user:fixture", "fixture%2Fsecret", "fixture/secret"],
+      ["host.invalid"],
+    ],
+    [
+      "https://host.invalid/o/r.git",
+      "https://host.invalid/",
+      "git://fixture-user:fixture%2Fsecret@mirror.invalid:bad-port/",
+      ["fixture-user:fixture", "fixture%2Fsecret", "fixture/secret", "mirror.invalid", "bad-port"],
+      ["https://host.invalid/o/r.git: an insteadOf rule in gitconfig rewrites it to a URL that"],
+    ],
+    [
+      "https://host.invalid/o/r.git",
+      "https://host.invalid/",
+      "host.invalid:rules@team/",
+      ["not allowed", "host.invalid://", "cannot be parsed"],
+      ["host.invalid"],
+    ],
+    [
+      "https://host.invalid/o/r.git",
+      "https://host.invalid/",
+      "git://[fe80::1%25lo]:9418/",
+      ["cannot be parsed"],
+      ["fe80::1"],
     ],
   ];
   test.each(rewrittenUrls)(
@@ -341,6 +375,27 @@ describe("createGitResolver", () => {
       expect(result.files).toEqual([{ relPath: "memories/first-rule.md", text: "first\n" }]);
       expect(readdirSync(join(tempDir, "tree"))).not.toContain("src");
       expect(existsSync(join(tempDir, "tree", "memories", "first-rule.md"))).toBe(true);
+    });
+  });
+
+  // What would drift: a quoted `insteadOf` destination may end in a space that names the repository;
+  // a runner that trims git's answer sends the lookup to a repository one byte short.
+  test("an insteadOf destination ending in a space reaches git with the space", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createFixtureRepo(join(dir, "rules.git "));
+      const spaced = `${pathToFileURL(join(dir, "rules.git")).href} `;
+      const typed = pathToFileURL(join(dir, "typed.git")).href;
+      const resolver = createGitResolver({
+        warn: () => {},
+        rung: () => {},
+        env: {
+          ...process.env,
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: `url.${spaced}.insteadOf`,
+          GIT_CONFIG_VALUE_0: typed,
+        },
+      });
+      expect(await resolver.resolveRef({ type: "git", url: typed, ref: "HEAD" })).toBe(repo.head);
     });
   });
 
