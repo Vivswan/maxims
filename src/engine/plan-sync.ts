@@ -59,6 +59,7 @@ import {
   type BlockRequest,
   changingBlocks,
   claimedByMaxims,
+  isSymlink,
   planRuleFile,
   planRulesDirSweep,
   type RuleFile,
@@ -316,6 +317,38 @@ async function planInstall(
     kept.add(key);
     keepAt.set(realKey, kept);
   };
+  const files = new Map<string, RuleFile>();
+  // Real paths of the rule files this run plans (or keeps), the identity the sweep compares by.
+  const planned = new Set<string>();
+  // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go out
+  // loud, since the block a session expects gone is still loaded. A hold that leaves the rules
+  // current fails only the remove verb: the user asked for that removal by name, and a hook run
+  // must stay exit 0. A hold over a block no run can refresh fails every verb. One file is held
+  // once, though the name reservation, the render and the sweeps each read it.
+  const heldKeys = new Set<string>();
+  const takeHold = (hold: RuleFileHeld): void => {
+    const realKey = realKeyOf(hold.path);
+    if (heldKeys.has(realKey)) return;
+    heldKeys.add(realKey);
+    planned.add(realKey);
+    heldFiles.push(hold.path);
+    notices.loud(`maxims: ${hold.message}`);
+    if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
+    if (extras.verb !== "remove" && hold.fails === "remove") return;
+    failures.push({
+      code: ExitCode.DestinationWriteFailed,
+      message: hold.message,
+      ...(hold.hint === undefined ? {} : { hint: hold.hint }),
+    });
+  };
+  // A link at a rule file's path holds nothing while this run writes the path: the write replaces
+  // the link and never reaches the file behind it. A link no write replaces stays, its block
+  // loaded, and is held like a file. Which it is is known once every file is rendered.
+  const linkedHolds: RuleFileHeld[] = [];
+  const reserveHold = (hold: RuleFileHeld): void => {
+    if (isSymlink(hold.path)) linkedHolds.push(hold);
+    else takeHold(hold);
+  };
   // What a source holds on disk enters the name index first, dated before every source, so a memory
   // another source newly ships under an installed name collides instead of taking the body over.
   // Ambiguity and ownership read one snapshot: every installed tree as the state as read left it.
@@ -345,7 +378,15 @@ async function planInstall(
       names:
         entry === undefined
           ? []
-          : await retainedNames(key, entry, ctx, io, ambiguous, installedTrees.get(key) ?? null),
+          : await retainedNames(
+              key,
+              entry,
+              ctx,
+              io,
+              reserveHold,
+              ambiguous,
+              installedTrees.get(key) ?? null,
+            ),
     });
   }
   const index = buildNameIndex([
@@ -357,25 +398,6 @@ async function planInstall(
       names: work.ownedUpstreamNames,
     })),
   ]);
-  const files = new Map<string, RuleFile>();
-  // Real paths of the rule files this run plans (or keeps), the identity the sweep compares by.
-  const planned = new Set<string>();
-  // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go out
-  // loud, since the block a session expects gone is still loaded. A hold that leaves the rules
-  // current fails only the remove verb: the user asked for that removal by name, and a hook run
-  // must stay exit 0. A hold over a block no run can refresh fails every verb.
-  const takeHold = (hold: RuleFileHeld): void => {
-    planned.add(realKeyOf(hold.path));
-    heldFiles.push(hold.path);
-    notices.loud(`maxims: ${hold.message}`);
-    if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
-    if (extras.verb !== "remove" && hold.fails === "remove") return;
-    failures.push({
-      code: ExitCode.DestinationWriteFailed,
-      message: hold.message,
-      ...(hold.hint === undefined ? {} : { hint: hold.hint }),
-    });
-  };
   const unreachable = new Set<string>();
   // Bodies to keep per directory: every admitted or refused source's, whatever `-a` limited this
   // run to, so a sweep never takes a body another harness's rule line points at. A directory an
@@ -634,6 +656,7 @@ async function planInstall(
   //   again        the file keeps every reader and is judged on the finished text until it fits or
   //                no source contributes to it
   let tokens = 0;
+  const written = new Set<string>();
   for (;;) {
     const rendered = await renderFiles(files, keepAt);
     if (rendered.ok) {
@@ -643,6 +666,7 @@ async function planInstall(
       for (const filePlan of rendered.plans) {
         builder.add("destination", filePlan.writes);
         builder.add("removal", filePlan.removals);
+        for (const change of filePlan.writes) written.add(realKeyOf(change.path));
         for (const line of filePlan.notices) {
           if (said.has(line)) continue;
           said.add(line);
@@ -676,6 +700,9 @@ async function planInstall(
       }
       each.blocks = each.blocks.filter((block) => block.key !== key);
     }
+  }
+  for (const hold of linkedHolds) {
+    if (!written.has(realKeyOf(hold.path))) takeHold(hold);
   }
   // What the admitted sources publish: a source's lines are counted once, however many files
   // carry them, so the count reads as memories with a rule line, not as files times memories.
@@ -1317,7 +1344,8 @@ function bodiesDir(dir: string, root: string): BodiesDir {
 
 // The local names a source holds installed right now, read from what the last run left behind. A
 // copy carries no owner of its own: one whose bytes match no current memory, because the memory
-// has since changed, names no owner either, and the dedupe rule decides the name.
+// has since changed, names no owner either, and the dedupe rule decides the name. A rule file
+// behind a marker the grammar refuses reserves no name and goes to `hold`.
 //   store copy read through the selection       so a hidden internal memory is left out
 //   user-scope detail paths through the renames  they name the store file under the upstream name
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
@@ -1326,6 +1354,7 @@ export async function retainedNames(
   entry: SourceEntry,
   ctx: EngineContext,
   io: EngineIo,
+  hold: (held: RuleFileHeld) => void,
   ambiguous: ReadonlySet<ContentHash> = new Set(),
   installedSnapshot?: SourceTree | null,
 ): Promise<MemoryName[]> {
@@ -1360,12 +1389,13 @@ export async function retainedNames(
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = regularFileText(path);
     if (text === null) continue;
-    // A file behind a marker the grammar refuses reserves no name: the planner holds it and says so.
     let blocks: RuleBlock[];
     try {
       blocks = parseRuleBlocks(text);
     } catch (error) {
       if (!(error instanceof MarkerRefused)) throw error;
+      // Reported here, where the file is read, so every verb names it.
+      hold(new RuleFileHeld(path, error));
       continue;
     }
     const block = blocks.find((candidate) => candidate.source === key);

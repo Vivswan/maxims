@@ -47,7 +47,17 @@ const BEGIN_LINE = markerPattern(BEGIN_MARKER, { source: "(.+)", sha: "(\\S+)", 
 const END_LINE = markerPattern(END_MARKER, { source: "(.+)" });
 const BEGIN_OPENER = BEGIN_MARKER.slice(0, BEGIN_MARKER.indexOf("{"));
 const MARKER_CLOSER = BEGIN_MARKER.slice(BEGIN_MARKER.lastIndexOf("}") + 1);
-const VERSION_FIELD = / version=(\d+)$/;
+const VERSION_FIELD = new RegExp(
+  `${util.escapeRegex(literalBefore(BEGIN_MARKER, "version"))}(\\d+)$`,
+);
+
+// The text the template writes just before a field, so a reader of that field alone spells it once.
+function literalBefore(template: string, field: string): string {
+  const parts = template.split(FIELD);
+  const literal = parts[parts.indexOf(field) - 1];
+  if (literal === undefined) throw new Error(`no field ${field} in the marker template`);
+  return literal;
+}
 
 // A begin marker of another version opens a block this maxims can neither refresh nor remove,
 // and only the user deletes it: the caller holds the file and says which line.

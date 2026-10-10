@@ -3,10 +3,11 @@
 // after the collision it resolved is gone, a lock entry this machine never installed), and a
 // `--json` document that hides any of those behind pre-rendered strings.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import type { ListReport, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { opencode } from "../../src/harnesses/opencode/spec.ts";
@@ -30,7 +31,7 @@ import {
   writeSource,
   writeState,
 } from "../engine/fakes.ts";
-import { TWO_MEMORIES, world } from "../engine/world.ts";
+import { globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { NOW } from "../shared/sync_support.ts";
 
 const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "none" };
@@ -328,6 +329,31 @@ describe("list", () => {
       });
     },
   );
+
+  // An unreadable source's names are read from its rule file; one behind a marker the grammar
+  // refuses is reported by the file and line, not passed over as holding nothing.
+  test("an unreadable source's rule file behind a refused marker is reported, not read as empty", async () => {
+    await world(async (w) => {
+      const live = writeSource(join(w.dir, "live"), TWO_MEMORIES);
+      writeState(w.home, stateWith({ [live]: entryFor(localFrom(live, true)) }));
+      const io = fakeIo({ ...w, cwd: w.dir });
+      await runSync(SYNC, io);
+      rmSync(live, { recursive: true });
+      const rulesFile = globalRulesFile(w.userHome, sourceSlug(localFrom(live, true)));
+      const marker = "<!-- maxims:begin @old/notes sha=old -->";
+      writeFileSync(
+        rulesFile,
+        `${marker}\n- An old rule.\n<!-- maxims:end @old/notes -->\n${readFileSync(rulesFile, "utf8")}`,
+      );
+      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+      expect(report.notices).toEqual(
+        expect.arrayContaining([
+          `maxims: ${rulesFile}: the marker ${JSON.stringify(marker)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`,
+          "maxims: delete the block from that line through its maxims:end line, then run sync, which writes it afresh",
+        ]),
+      );
+    });
+  });
 
   test("a fresh clone with a lock and no state still lists the lock's sources", async () => {
     await world(async (w) => {

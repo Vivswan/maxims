@@ -7,7 +7,7 @@ import {
   harnessContext,
   loadContext,
 } from "../engine/context.ts";
-import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
+import { noDefinitionReason, realKeyOf, resolveTargets } from "../engine/destination.ts";
 import { DAY_MS } from "../engine/fetch.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { hookStatus, hookStatusText } from "../engine/hooks.ts";
@@ -84,6 +84,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
   const report = emptyReport(ctx);
   if (ctx.configIssue !== null) report.notices.push(`maxims: ${ctx.configIssue}`);
   const loaded: (Loaded & { tree: Awaited<ReturnType<typeof readInstalledTree>> })[] = [];
+  const heldKeys = new Set<string>();
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined) continue;
@@ -100,7 +101,14 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
             disabled: new Set(),
             detailPath: () => "",
           }).ownedUpstreamNames
-        : await retainedNames(key, entry, ctx, io);
+        : await retainedNames(key, entry, ctx, io, (held) => {
+            // Two unreadable sources may share one held file; its lines are said once.
+            const realKey = realKeyOf(held.path);
+            if (heldKeys.has(realKey)) return;
+            heldKeys.add(realKey);
+            report.notices.push(`maxims: ${held.message}`);
+            if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
+          });
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
   // An unreadable source's names are already local (its selection and renames applied), so

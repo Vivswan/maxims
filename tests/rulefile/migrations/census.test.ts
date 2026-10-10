@@ -27,14 +27,31 @@ function named(prefix: string): string[] {
   return readdirSync(FIXTURES).filter((name) => name.startsWith(prefix));
 }
 
-test("current.md holds one block the scanner reads whole, and a before fixture stands per rung", () => {
+function refusalOf(read: () => unknown): MarkerRefused {
+  try {
+    read();
+  } catch (error) {
+    if (error instanceof MarkerRefused) return error;
+    throw error;
+  }
+  throw new Error("expected the scanner to refuse the marker");
+}
+
+// A before fixture is one rung's block as the user has it: the scanner refuses it by its version,
+// which is that rung's, so the registry and the fixtures name the same versions.
+test("current.md holds one block the scanner reads whole, and a before fixture is refused per rung", () => {
   const current = fixture("current.md");
   const { blocks, warnings } = parseBlocks(current);
   expect(warnings).toEqual([]);
   expect(blocks.map((block) => [block.source, current.slice(block.start, block.end)])).toEqual([
     [SOURCE, current.slice(current.indexOf("<!-- maxims:begin"))],
   ]);
-  expect(named("before-")).toHaveLength(BLOCK_LADDER.steps.length);
+  const rungs = BLOCK_LADDER.steps.map((_, index) => BLOCK_LADDER.firstVersion + index);
+  const refusedAs = named("before-").map((name) => {
+    const { version } = refusalOf(() => parseBlocks(fixture(name)));
+    return version === null ? null : Number(version);
+  });
+  expect(refusedAs.sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(rungs);
 });
 
 // Reading, replacing and stripping all refuse the file, so no path writes it: the refusal names the
@@ -48,14 +65,7 @@ test.each(named("corrupt-"))("%s is refused by the scanner and both writers", (n
     () => stripBlock(text, SOURCE),
   ];
   for (const read of reads) {
-    let caught: unknown;
-    try {
-      read();
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MarkerRefused);
-    if (!(caught instanceof MarkerRefused)) return;
+    const caught = refusalOf(read);
     expect({ code: caught.code, message: caught.message, hint: caught.hint }).toEqual({
       code: ExitCode.DestinationWriteFailed,
       message: `the marker ${JSON.stringify(marker)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`,
