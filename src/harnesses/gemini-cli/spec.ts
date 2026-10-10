@@ -5,13 +5,23 @@ import type { HarnessSpec } from "../spec.ts";
 // field to set, so the session waits for sync and a seconds value would kill it at 20ms. The
 // matcher group stays matcher-less: Gemini compares a lifecycle matcher with `===` against the
 // source, so `startup|resume|clear` would match nothing and no matcher matches every start.
+// settings.json is read through strip-json-comments and then `JSON.parse`, so a comment is fine
+// and a trailing comma is a file Gemini reports and skips.
 export const spec = {
   id: "gemini-cli",
   displayName: "Gemini CLI",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-09-21",
+    date: "2026-10-10",
     sources: [
+      {
+        kind: "file",
+        repo: "google-gemini/gemini-cli",
+        ref: "main",
+        path: "packages/cli/src/config/settings.ts",
+        claims: ["JSON.parse(stripJsonComments(content))"],
+        note: "settings.json takes comments and nothing else beyond strict JSON",
+      },
       {
         kind: "schema",
         url: "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
@@ -91,7 +101,7 @@ export const spec = {
   hook: {
     kind: "registry",
     path: { project: ".gemini/settings.json", global: ".gemini/settings.json" },
-    format: "json",
+    format: "json-with-comments",
     eventPath: ["hooks", "SessionStart"],
     grouped: true,
     handlerTemplate: {

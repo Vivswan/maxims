@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { createScanner, type Node, type ParseError, parseTree } from "jsonc-parser";
+import {
+  createScanner,
+  type Node,
+  type ParseError,
+  parseTree,
+  printParseErrorCode,
+} from "jsonc-parser";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
 // Edits to a JSON or JSONC config the user also owns are byte-range splices on the user's own
@@ -44,15 +50,93 @@ export async function readPresentFile(path: string): Promise<ConfigRead> {
   }
 }
 
-// The object root of a config, or exit 4: a typo in the user's file must never become a clobbered
-// file, and the same check after a splice keeps a cut through a comment out of the user's file.
-// `path` only names the file in the error.
-export function assertParses(text: string, path: string): Node {
+// What a vendor's parser takes beyond strict JSON. Claude Code's settings and Codex's hooks.json
+// are strict; Gemini CLI strips comments before `JSON.parse` and so still chokes on a trailing
+// comma; OpenCode documents JSONC. The splices below take JSONC everywhere, so a file is edited
+// in whatever dialect its vendor loads, and refused in one it would not.
+export type JsonDialect = "json" | "json-with-comments" | "jsonc";
+
+// The dialect a file is judged in, with the vendor named where a judgment can refuse: the refusal
+// says who would skip the file, which is the fact a user needs to accept the fix.
+export type JsonReader =
+  | { dialect: "jsonc" }
+  | { dialect: Exclude<JsonDialect, "jsonc">; vendor: string };
+
+export const JSONC: JsonReader = { dialect: "jsonc" };
+
+export function jsonReader(dialect: JsonDialect, vendor: string): JsonReader {
+  return dialect === "jsonc" ? JSONC : { dialect, vendor };
+}
+
+const DIALECT_NAMES: Record<Exclude<JsonDialect, "jsonc">, string> = {
+  json: "strict JSON",
+  "json-with-comments": "JSON with comments and no trailing commas",
+};
+
+// A config as its vendor would read it: the root, or why the vendor would not load it. `syntax` is
+// a file nothing parses; `dialect` is a file that parses as JSONC but holds a construct the
+// vendor's parser rejects, named with its position and who rejects it.
+export type JsonDocument =
+  | { kind: "root"; root: Node }
+  | { kind: "syntax"; reason: string }
+  | { kind: "dialect"; reason: string };
+
+// The one judgment of whether a vendor loads a JSON config, shared by the writer that edits the
+// file and the tier probe that reads it, so the two never disagree about the same bytes.
+export function parseJsonDocument(text: string, reader: JsonReader): JsonDocument {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: true });
-  if (errors.length > 0 || root === undefined) throw refuse(path, "it is not valid JSON");
-  if (root.type !== "object") throw refuse(path, "its top level is not an object");
-  return root;
+  const [first] = errors;
+  if (first !== undefined) {
+    return {
+      kind: "syntax",
+      reason: `${printParseErrorCode(first.error)} at offset ${first.offset}`,
+    };
+  }
+  if (root === undefined) return { kind: "syntax", reason: "no JSON value" };
+  if (reader.dialect === "jsonc") return { kind: "root", root };
+  const offence = dialectOffence(text, reader.dialect);
+  if (offence === undefined) return { kind: "root", root };
+  return {
+    kind: "dialect",
+    reason: `${offence}; ${reader.vendor} reads ${DIALECT_NAMES[reader.dialect]}`,
+  };
+}
+
+// The first construct a strict parser would stop at, in a text that already parses as JSONC: a
+// comment, or a comma whose next token closes its container, at the scanner's own line and
+// column (one-based, so a CR-only file counts its lines too). Token kinds are read off the text
+// because jsonc-parser's `SyntaxKind` is a const enum its typings do not let a module import.
+function dialectOffence(text: string, dialect: Exclude<JsonDialect, "jsonc">): string | undefined {
+  const scanner = createScanner(text, false);
+  let comma: string | undefined;
+  while (scanner.getPosition() < text.length) {
+    scanner.scan();
+    const char = text[scanner.getTokenOffset()];
+    if (char === undefined || /\s/.test(char)) continue;
+    const here = `line ${scanner.getTokenStartLine() + 1}, column ${scanner.getTokenStartCharacter() + 1}`;
+    if (char === "/") {
+      if (dialect === "json") return `a comment at ${here}`;
+      continue;
+    }
+    if (comma !== undefined && (char === "}" || char === "]")) {
+      return `a trailing comma at ${comma}`;
+    }
+    comma = char === "," ? here : undefined;
+  }
+  return undefined;
+}
+
+// The object root of a config, or exit 4: a typo in the user's file must never become a clobbered
+// file, a construct the vendor's parser rejects must never carry a hook the vendor would then skip,
+// and the same check after a splice keeps a cut through a comment out of the user's file. `path`
+// only names the file in the error.
+export function assertParses(text: string, path: string, reader: JsonReader = JSONC): Node {
+  const document = parseJsonDocument(text, reader);
+  if (document.kind === "syntax") throw refuse(path, "it is not valid JSON");
+  if (document.kind === "dialect") throw refuse(path, document.reason);
+  if (document.root.type !== "object") throw refuse(path, "its top level is not an object");
+  return document.root;
 }
 
 function refuse(path: string, reason: string): MaximsError {

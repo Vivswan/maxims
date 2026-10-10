@@ -46,7 +46,7 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | Field | Meaning |
 | --- | --- |
 | `path` | the registry file per scope |
-| `format` | `json`; `toml` is read for `tierCheck` and never written |
+| `format` | the dialect the vendor's parser takes: `json` (strict), `json-with-comments`, or `jsonc` |
 | `eventPath` | the key path to the event's handler list, such as `["hooks", "SessionStart"]` |
 | `grouped` | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups |
 | `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
@@ -55,13 +55,16 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
-| `tierCheck` | `{ layers, format, key, demotesWhen, unreadable }`: the config layers read for a demoting value |
+| `tierCheck` | `{ layers, format?, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value |
 
-The writer finds and prunes its own entries by the `commandKey` prefix.
+The writer finds and prunes its own entries by the `commandKey` prefix. A registry holding a construct outside its `format` (a trailing comma where the vendor reads strict JSON) is refused with exit 4, never written: the vendor would skip the file, hook included.
 
-A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
+A `tierCheck` reads its layers in the hook's `format`, or as `toml` when its own `format` says so, the one kind read and never written. A JSON tier check declares no dialect of its own, and a TOML one cannot name the registry file, so the writer and the probe cannot judge the same file by two parsers.
 
-- **An unreadable layer** is a file that does not parse (`json` is strict: no comments, no trailing commas), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
+It walks `layers.project`, then `layers.global`, each list in the order it gives. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
+
+- **An unreadable layer** is a file that does not parse in its dialect (strict `json` takes no comment or trailing comma), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
+- **A project layer under `projectTrust`** is read only where a global layer marks its directory trusted: the first of `<table>.<directory>.<key>` set for the layer's own directory, then for the project root, holds the `trusted` mark (Codex's `projects.<path>.trust_level = "trusted"`). Any other directory's layer is skipped whole, broken or not. A global layer whose table holds a mark outside `accepted` is unreadable, as the vendor refuses it.
 - **Otherwise the first layer that sets the key decides:** tier 2 when it holds `demotesWhen`, the declared tier when it does not.
 - **A key no layer sets** leaves the declared tier.
 
@@ -130,7 +133,8 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
       "format": "toml",
       "key": "features.hooks",
       "demotesWhen": false,
-      "unreadable": "refuses-to-start"
+      "unreadable": "refuses-to-start",
+      "projectTrust": { "table": "projects", "key": "trust_level", "trusted": "trusted", "accepted": ["trusted", "untrusted"] }
     }
   }
 }
@@ -144,7 +148,7 @@ The file is `$MAXIMS_HOME/harnesses.json`, so `~/.agents/maxims/harnesses.json` 
 { "harnesses": [ { "id": "acme", "displayName": "Acme Agent", "tier": 2, "...": "..." } ] }
 ```
 
-Every spec is parsed strictly. An unknown key, a path that is absolute or climbs out with `..`, a template with an unknown placeholder, an id that is a built-in, or an id declared twice stops the load with exit 4 and a message naming the file, the entry and the field:
+Every spec is parsed strictly. An unknown key, a path that is absolute, climbs out with `..`, or is not spelled as plain segments joined by `/` (a trailing `/`, a leading `./`, a backslash), a template with an unknown placeholder, an id that is a built-in, or an id declared twice stops the load with exit 4 and a message naming the file, the entry and the field:
 
 ```text
 /home/user/.agents/maxims/harnesses.json: harnesses[0] (id "acme"): targets.project.file: expected a path relative to the scope root

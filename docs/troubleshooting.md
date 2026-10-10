@@ -50,7 +50,13 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 ## Exit 4: a harness config could not be written
 
-**What you see:** exit 4 naming a file, for example a harness config such as `settings.json`, `hooks.json`, or `opencode.json` that did not parse. Codex's `config.toml` is only read, for its hooks flag, and is never refused: one that does not parse is read as hooks off, with the reason in a notice; see [Codex's unreadable config](harnesses.md#per-harness-catches).
+**What you see:** exit 4 naming a file, for example a harness config such as `settings.json`, `hooks.json`, or `opencode.json` that did not parse, or one that parses only as JSONC where the harness reads strict JSON:
+
+```text
+cannot edit ~/.claude/settings.json: a trailing comma at line 9, column 44; Claude Code reads strict JSON
+```
+
+Codex's `config.toml` is only read, for its hooks flag, and is never refused: a user or trusted-project one that does not parse is read as hooks off, with the reason in a notice, and an untrusted project's is skipped as Codex skips it; see [Codex's unreadable config](harnesses.md#per-harness-catches).
 
 **What it means:** maxims edits only the parsed tree of a config file and never rewrites one it cannot parse. Your intent is already recorded, so nothing is stranded. The [exit code table](cli.md#exit-codes) lists the other exit 4 causes.
 

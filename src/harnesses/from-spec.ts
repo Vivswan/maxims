@@ -10,6 +10,7 @@ import {
   type Scope,
   scopeRoot,
   type Target,
+  type TierLayer,
 } from "./contract.ts";
 import { configDirExists } from "./detect.ts";
 import {
@@ -62,16 +63,24 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (paths: PathsPerScope): ScopedPath =>
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
+  // `dir` is what a trust lookup asks about: a walked layer is trusted per directory, not per project.
   const layered =
     (layers: LayersSpec) =>
-    (ctx: HarnessContext): string[] => {
-      const user = layers.global.map((path) => join(scopeRoot(roots, "global", ctx), path));
+    (ctx: HarnessContext): TierLayer[] => {
+      const user: TierLayer[] = layers.global.map((path) => ({
+        scope: "global",
+        path: join(scopeRoot(roots, "global", ctx), path),
+      }));
       if (ctx.projectRoot === null) return user;
       const root = scopeRoot(roots, "project", ctx);
-      const project = layers.project.flatMap((layer) =>
+      const project: TierLayer[] = layers.project.flatMap((layer) =>
         typeof layer === "string"
-          ? [join(root, layer)]
-          : directoriesDownTo(root, ctx.cwd).map((dir) => join(dir, layer.file)),
+          ? [{ scope: "project", path: join(root, layer), dir: root }]
+          : directoriesDownTo(root, ctx.cwd).map((dir) => ({
+              scope: "project",
+              path: join(dir, layer.file),
+              dir,
+            })),
       );
       return [...project, ...user];
     };
@@ -230,7 +239,7 @@ function fenced(fields: Record<string, unknown>): string {
 function compileHook(
   hook: HookSpecData,
   under: (paths: PathsPerScope) => ScopedPath,
-  layered: (layers: LayersSpec) => (ctx: HarnessContext) => string[],
+  layered: (layers: LayersSpec) => (ctx: HarnessContext) => TierLayer[],
 ): HookShape {
   switch (hook.kind) {
     case "none":
@@ -262,10 +271,18 @@ function compileHook(
           : {
               tierCheck: {
                 layers: layered(tierCheck.layers),
-                format: tierCheck.format,
+                format: tierCheck.format ?? hook.format,
                 key: tierCheck.key,
                 demotesWhen: tierCheck.demotesWhen,
                 unreadable: tierCheck.unreadable,
+                ...(tierCheck.projectTrust === undefined
+                  ? {}
+                  : {
+                      projectTrust: {
+                        ...tierCheck.projectTrust,
+                        accepted: [...tierCheck.projectTrust.accepted],
+                      },
+                    }),
               },
             }),
       };

@@ -95,7 +95,6 @@ export const spec = {
         project: [".claude/settings.local.json", ".claude/settings.json"],
         global: [".claude/settings.json"],
       },
-      format: "json",
       key: "disableAllHooks",
       demotesWhen: true,
       unreadable: "skips-the-file",

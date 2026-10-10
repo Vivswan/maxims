@@ -211,6 +211,27 @@ test("every verified source reaches the definition with its claims and note", ()
   expect<unknown>(def.verifiedAgainst).toEqual({ date: "2026-09-21", sources });
 });
 
+// The writer parses the registry in `hook.format` and the probe parses its layers in the tier
+// check's; a JSON tier check has no format of its own, so a spec cannot hand them two dialects
+// for one file, and a TOML one is the only other kind read.
+test("a tier check reads JSON layers in the hook's dialect and TOML layers as TOML", () => {
+  const layers = { project: [".example/settings.json"], global: ["settings.json"] };
+  const check = { layers, key: "hooks.enabled", demotesWhen: false, unreadable: "skips-the-file" };
+  const formats = [
+    { hook: "jsonc", check: {}, compiled: "jsonc" },
+    { hook: "json", check: { format: "toml" }, compiled: "toml" },
+  ] as const;
+  for (const row of formats) {
+    const spec = specOf({
+      ...rendering,
+      hook: { ...rendering.hook, format: row.hook, tierCheck: { ...check, ...row.check } },
+    });
+    const def = toDefinition(spec);
+    if (def.hook.kind !== "registry") throw new Error("expected a registry hook");
+    expect(def.hook.tierCheck?.format).toBe(row.compiled);
+  }
+});
+
 test("a reconcile quirk becomes the custom hook of a spec that declares none", () => {
   const reconcile = async () => [];
   const custom = toDefinition(specOf({ ...rendering, hook: { kind: "none" } }), { reconcile });

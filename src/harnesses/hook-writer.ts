@@ -7,9 +7,6 @@ import {
   getNodePath,
   getNodeValue,
   type Node,
-  type ParseError,
-  parseTree,
-  printParseErrorCode,
 } from "jsonc-parser";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { util, z } from "zod";
@@ -20,6 +17,9 @@ import { jsonDocument } from "../util/json.ts";
 import {
   appendChild,
   assertParses,
+  type JsonReader,
+  jsonReader,
+  parseJsonDocument,
   readConfigText,
   readPresentFile,
   removeChild,
@@ -35,9 +35,11 @@ import {
   HOOK_COMMAND_PREFIX,
   type HookShape,
   hookSpecFor,
+  type ProjectTrust,
   type RegistryHook,
   type Scope,
   scopeRoot,
+  type TierLayer,
 } from "./contract.ts";
 
 export type HookPlan = {
@@ -110,7 +112,7 @@ export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
       notice: `registered the maxims hook in ${path}`,
     };
   }
-  const registry = new JsonRegistry(input.def.hook, path, input.currentText);
+  const registry = new JsonRegistry(input.def.hook, path, input.currentText, input.def.displayName);
   if (input.wanted) {
     if (registry.locateOurs().length === 0) {
       registry.append(handler);
@@ -150,16 +152,20 @@ export function freshRegistry(hook: RegistryShape, handler: Record<string, unkno
 
 // The registry policy over the splices in src/util/jsonc.ts: which entries are ours, where a new
 // one goes, and how far a removal climbs. Every splice invalidates the tree, so each step
-// re-parses the text it holds.
+// re-parses the text it holds, in the dialect the vendor reads: a file the vendor would skip is
+// refused at the first parse, before any splice.
 class JsonRegistry {
   private text: string;
+  private readonly reader: JsonReader;
 
   constructor(
     private readonly hook: RegistryHook,
     private readonly path: RootedPath,
     currentText: string,
+    vendor: string,
   ) {
     this.text = currentText;
+    this.reader = jsonReader(hook.format, vendor);
     this.eventArray();
   }
 
@@ -310,7 +316,7 @@ class JsonRegistry {
   }
 
   private root(): Node {
-    return assertParses(this.text, this.path);
+    return assertParses(this.text, this.path, this.reader);
   }
 
   private refuse(reason: string): MaximsError {
@@ -382,7 +388,8 @@ export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
 // sits in; the first that sets the key decides, and a key no layer sets leaves the declared tier.
 // An unreadable layer is the reading when the harness refuses to start on it, or when it is the
 // file this scope's hook is registered in; otherwise the harness skips that file, and so does the
-// walk.
+// walk. A project layer under `projectTrust` is read only where the user layers mark its directory
+// trusted, and skipped whole otherwise, as the harness skips it.
 export async function achievedTier(
   def: HarnessDefinition,
   scope: Scope,
@@ -391,17 +398,15 @@ export async function achievedTier(
   const declared: AchievedTier = { tier: def.tier, unreadable: null };
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return declared;
   const check = def.hook.tierCheck;
-  const layers = await Promise.all(
-    check.layers(ctx).map(async (path) => ({ path, layer: await readLayer(path, check) })),
-  );
+  const layers = await new ConfigWalk(check, ctx, def.displayName).readAll();
   const silences = (path: string): boolean =>
     check.unreadable === "refuses-to-start" || path === def.hook.path(scope, ctx);
-  for (const { path, layer } of layers) {
-    if (layer.kind === "unreadable" && silences(path)) {
-      return { tier: 2, unreadable: unreadableNotice(path, layer.reason) };
+  for (const { layer, reading } of layers) {
+    if (reading.kind === "unreadable" && silences(layer.path)) {
+      return { tier: 2, unreadable: unreadableNotice(layer.path, reading.reason) };
     }
   }
-  const deciding = layers.find(({ layer }) => layer.kind === "value")?.layer;
+  const deciding = layers.find(({ reading }) => reading.kind === "value")?.reading;
   const demoted = deciding?.kind === "value" && sameJson(deciding.value, check.demotesWhen);
   return demoted ? { tier: 2, unreadable: null } : declared;
 }
@@ -412,34 +417,120 @@ export function demotionNote(check: Pick<TierCheck, "key" | "demotesWhen">): str
   return `${check.key} = ${JSON.stringify(check.demotesWhen)}`;
 }
 
-// One layer as the harness reads it. The key path is parsed with the type `demotesWhen` has, so a
-// table where a flag belongs, a flag where a table belongs, or a value of another type is the
-// same `unreadable` as a file that does not parse, with zod's wording for the reason; a segment
-// the file lacks is `unset`. The value itself is taken from the parsed file, not from zod's
-// output, which drops a `__proto__` property an object-valued flag may hold.
-async function readLayer(path: string, check: TierCheck): Promise<ConfigLayer> {
-  const file = await readConfigValue(path, check.format);
-  if (file.kind !== "value") return file;
-  const segments = check.key.split(".");
-  const parsed = keySchema(segments, check.demotesWhen).safeParse(file.value);
-  if (!parsed.success) {
-    return { kind: "unreadable", reason: flattenIssues(parsed.error.issues).join("; ") };
+// The layers of one probe and their files, each read once however many layers or trust lookups
+// ask for it. The same path may sit in both scopes (a project rooted at the home directory), and
+// only the project reading passes the trust gate, so readings are kept per layer.
+class ConfigWalk {
+  private readonly files = new Map<string, Promise<FileReading>>();
+  private readonly readings = new Map<string, Promise<ConfigLayer>>();
+  private readonly layers: TierLayer[];
+  private readonly reader: { format: ConfigFormat; vendor: string };
+
+  constructor(
+    private readonly check: TierCheck,
+    private readonly ctx: HarnessContext,
+    vendor: string,
+  ) {
+    this.layers = check.layers(ctx);
+    this.reader = { format: check.format, vendor };
   }
-  const value = util.getElementAtPath(file.value, segments);
-  return value === undefined ? { kind: "unset" } : { kind: "value", value };
+
+  readAll(): Promise<{ layer: TierLayer; reading: ConfigLayer }[]> {
+    return Promise.all(
+      this.layers.map(async (layer) => ({ layer, reading: await this.read(layer) })),
+    );
+  }
+
+  private read(layer: TierLayer): Promise<ConfigLayer> {
+    const id = `${layer.scope}:${layer.path}`;
+    let reading = this.readings.get(id);
+    if (reading === undefined) {
+      reading = this.judge(layer);
+      this.readings.set(id, reading);
+    }
+    return reading;
+  }
+
+  // One layer as the harness reads it. The key path is parsed with the type `demotesWhen` has, so
+  // a table where a flag belongs, a flag where a table belongs, or a value of another type is the
+  // same `unreadable` as a file that does not parse, with zod's wording for the reason; a segment
+  // the file lacks is `unset`. A user layer's trust table is parsed the same way against the marks
+  // the vendor accepts, since the vendor reads the whole table before any project is looked up.
+  // The value itself is taken from the parsed file, not from zod's output, which drops a
+  // `__proto__` property an object-valued flag may hold.
+  private async judge(layer: TierLayer): Promise<ConfigLayer> {
+    if (layer.scope === "project" && !(await this.trusted(layer.dir))) return { kind: "absent" };
+    const file = await this.file(layer.path);
+    if (file.kind !== "value") return file;
+    const segments = this.check.key.split(".");
+    const schemas = [nestedSchema(segments, jsonTypeOf(this.check.demotesWhen))];
+    const gate = this.check.projectTrust;
+    if (layer.scope === "global" && gate !== undefined) schemas.push(trustSchema(gate));
+    for (const schema of schemas) {
+      const parsed = schema.safeParse(file.value);
+      if (!parsed.success) {
+        return { kind: "unreadable", reason: flattenIssues(parsed.error.issues).join("; ") };
+      }
+    }
+    const value = util.getElementAtPath(file.value, segments);
+    return value === undefined ? { kind: "unset" } : { kind: "value", value };
+  }
+
+  // Codex's lookup order: the directory itself, then the project root, each in the first user
+  // layer that marks it; a mark other than the trusted one, or no mark at all, is untrusted. A
+  // user layer that is unreadable marks nothing, and reports itself through the walk.
+  private async trusted(dir: string): Promise<boolean> {
+    const gate = this.check.projectTrust;
+    if (gate === undefined) return true;
+    const users = this.layers.filter((layer) => layer.scope === "global");
+    for (const candidate of new Set([dir, this.ctx.projectRoot ?? dir])) {
+      for (const layer of users) {
+        const [reading, file] = await Promise.all([this.read(layer), this.file(layer.path)]);
+        if (reading.kind === "unreadable" || file.kind !== "value") continue;
+        const value = util.getElementAtPath(file.value, trustPath(gate, candidate));
+        if (value !== undefined) return value === gate.trusted;
+      }
+    }
+    return false;
+  }
+
+  private file(path: string): Promise<FileReading> {
+    let reading = this.files.get(path);
+    if (reading === undefined) {
+      reading = readConfigValue(path, this.reader);
+      this.files.set(path, reading);
+    }
+    return reading;
+  }
+}
+
+// The directory is one segment whatever it holds: a dotted or slashed path names one key of the
+// table, as Codex keys its `projects` table.
+function trustPath(gate: ProjectTrust, dir: string): string[] {
+  return [...gate.table.split("."), dir, ...gate.key.split(".")];
 }
 
 // zod's object schemas take any non-array object, a Date included, and smol-toml hands a TOML date
 // back as a Date subclass, so a plain-object gate in front of each table keeps a date where a table
 // belongs from reading as an empty table.
-function keySchema(segments: string[], demotesWhen: unknown): z.ZodType {
-  const table = z.custom<Record<string, unknown>>(util.isPlainObject, {
-    error: (issue) => `Invalid input: expected object, received ${util.getParsedType(issue.input)}`,
-  });
+const plainTable = z.custom<Record<string, unknown>>(util.isPlainObject, {
+  error: (issue) => `Invalid input: expected object, received ${util.getParsedType(issue.input)}`,
+});
+
+function nestedSchema(segments: string[], leaf: z.ZodType): z.ZodType {
   return segments.reduceRight<z.ZodType>(
-    (inner, segment) => table.pipe(z.looseObject({ [segment]: inner.optional() })),
-    jsonTypeOf(demotesWhen),
+    (inner, segment) => plainTable.pipe(z.looseObject({ [segment]: inner.optional() })),
+    leaf,
   );
+}
+
+// The trust table as the vendor deserializes it: every entry a table whose mark, when set, is one
+// the vendor accepts.
+function trustSchema(gate: ProjectTrust): z.ZodType {
+  const [first, ...rest] = gate.accepted;
+  const mark = z.enum([first ?? gate.trusted, ...rest]);
+  const entry = nestedSchema(gate.key.split("."), mark);
+  return nestedSchema(gate.table.split("."), plainTable.pipe(z.record(z.string(), entry)));
 }
 
 // The spec schema admits only a JSON value as `demotesWhen`, so a value outside these is a
@@ -472,7 +563,10 @@ type FileReading = Exclude<ConfigLayer, { kind: "unset" }>;
 // A config maxims only reads, as a tier probe sees it. A regular file where the config directory
 // would be (ENOTDIR) sets nothing, like a missing file; anything else that stops the read is the
 // reason the probe reports, never a throw that would abort a sync over a file maxims never writes.
-async function readConfigValue(path: string, format: ConfigFormat): Promise<FileReading> {
+async function readConfigValue(
+  path: string,
+  reader: { format: ConfigFormat; vendor: string },
+): Promise<FileReading> {
   let text: string | null;
   try {
     ({ text } = await readPresentFile(path));
@@ -483,7 +577,10 @@ async function readConfigValue(path: string, format: ConfigFormat): Promise<File
     return { kind: "unreadable", reason: cause instanceof Error ? cause.message : String(cause) };
   }
   if (text === null) return { kind: "absent" };
-  return format === "toml" ? parseTomlConfig(text) : parseJsonConfig(text);
+  if (reader.format === "toml") return parseTomlConfig(text);
+  const document = parseJsonDocument(text, jsonReader(reader.format, reader.vendor));
+  if (document.kind !== "root") return { kind: "unreadable", reason: document.reason };
+  return { kind: "value", value: getNodeValue(document.root) };
 }
 
 // smol-toml's message carries a source excerpt with a caret on the lines after the first; the
@@ -496,23 +593,6 @@ function parseTomlConfig(text: string): FileReading {
     const [reason = cause.message] = cause.message.split("\n");
     return { kind: "unreadable", reason: `${reason} (line ${cause.line}, column ${cause.column})` };
   }
-}
-
-// Strict JSON, unlike the registry edits: Claude Code reports a `//` comment or a trailing comma
-// in a settings file as a Settings Error and skips the whole file, so the probe reads either as
-// unreadable too.
-function parseJsonConfig(text: string): FileReading {
-  const errors: ParseError[] = [];
-  const root = parseTree(text, errors, { disallowComments: true });
-  const [first] = errors;
-  if (first !== undefined) {
-    return {
-      kind: "unreadable",
-      reason: `${printParseErrorCode(first.error)} at offset ${first.offset}`,
-    };
-  }
-  if (root === undefined) return { kind: "unreadable", reason: "no JSON value" };
-  return { kind: "value", value: getNodeValue(root) };
 }
 
 export function hookPath(

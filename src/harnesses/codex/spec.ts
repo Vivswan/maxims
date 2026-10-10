@@ -9,8 +9,11 @@ import type { HarnessSpec } from "../spec.ts";
 // the block belongs in the override even when blank. Hooks are on unless `[features] hooks =
 // false` is set; Codex layers a `.codex/config.toml` from the project root down to the directory
 // it runs in over the user config.toml, the nearest deciding, so every one of them is read for
-// that flag and never written; Codex refuses to start on a config.toml it cannot parse or type,
-// so a broken layer anywhere is hooks off.
+// that flag and never written. A project layer applies only where the user config.toml marks its
+// directory, or the project root, `projects.<path>.trust_level = "trusted"`; an untrusted one is
+// skipped whole, broken or not. Codex refuses to start on a user or trusted project config.toml it
+// cannot parse or type, so such a layer anywhere is hooks off. hooks.json goes through serde_json,
+// which takes strict JSON: a comment or a trailing comma is a file Codex warns about and skips.
 export const spec = {
   id: "codex",
   displayName: "Codex",
@@ -54,6 +57,46 @@ export const spec = {
         kind: "file",
         repo: "openai/codex",
         ref: "main",
+        path: "codex-rs/config/src/loader/mod.rs",
+        claims: [
+          "let decision = trust_context.decision_for_dir(&dir);",
+          "for dir_key in normalized_project_trust_keys(dir.as_path()) {",
+          "for project_root_key in &self.project_root_lookup_keys {",
+          "matches!(self.trust_level, Some(TrustLevel::Trusted))",
+          "ConfigLayerEntry::new_disabled(source, config, reason)",
+          "if decision.is_trusted() {",
+          "config: TomlValue::Table(toml::map::Map::new()),",
+        ],
+        note: "a project layer is trusted by its directory's entry in the user config's projects table, else the project root's; an untrusted one that does not parse becomes an empty disabled layer, a trusted one the error above",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/protocol/src/config_types.rs",
+        claims: [
+          '#[serde(rename_all = "lowercase")]',
+          "pub enum TrustLevel {",
+          "Trusted,",
+          "Untrusted,",
+        ],
+        note: "the two marks a projects entry's trust_level takes; any other fails to deserialize and Codex does not start",
+      },
+      {
+        kind: "page",
+        url: "https://learn.chatgpt.com/docs/config-file/config-reference.md",
+        claims: [
+          "Codex loads project-scoped config files only when you trust the project.",
+          "projects.<path>.trust_level",
+          "Untrusted projects skip project-scoped `.codex/` layers, including project-local config, hooks, and rules.",
+        ],
+        why: "the trust key's spelling and the skip of untrusted layers are stated together only on the page; the loader source above carries the lookup order",
+        note: "projects.<path>.trust_level in the user config.toml gates every project-scoped layer",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
         path: "codex-rs/config/src/hook_config.rs",
         claims: [
           'rename = "SessionStart"',
@@ -79,8 +122,12 @@ export const spec = {
         repo: "openai/codex",
         ref: "main",
         path: "codex-rs/hooks/src/engine/discovery.rs",
-        claims: ['join("hooks.json")'],
-        note: "hooks.json discovery",
+        claims: [
+          'join("hooks.json")',
+          "let parsed: HooksFile = match serde_json::from_str(&contents) {",
+          '"failed to parse hooks config {}: {err}",',
+        ],
+        note: "hooks.json discovery, parsed as strict JSON by serde_json and skipped with a warning when it does not parse",
       },
       {
         kind: "file",
@@ -188,6 +235,12 @@ export const spec = {
       key: "features.hooks",
       demotesWhen: false,
       unreadable: "refuses-to-start",
+      projectTrust: {
+        table: "projects",
+        key: "trust_level",
+        trusted: "trusted",
+        accepted: ["trusted", "untrusted"],
+      },
     },
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
