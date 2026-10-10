@@ -377,17 +377,6 @@ const refusals: [string, Mutation, string][] = [
     "verifiedAgainst.sources.0.path: a path has no leading, trailing or doubled / and no . segment; write docs/hooks.md",
   ],
   [
-    "a repository file whose path collapses to the root",
-    at(["verifiedAgainst", "sources", "0"], {
-      kind: "file",
-      repo: "example/agent",
-      ref: "main",
-      path: "./",
-      claims: ["SessionStart"],
-    }),
-    "verifiedAgainst.sources.0.path: a repository path names a file, not the root",
-  ],
-  [
     "a repository file whose path climbs out",
     at(["verifiedAgainst", "sources", "0"], {
       kind: "file",
@@ -446,4 +435,15 @@ test.each(refusals)("refuses %s and names the field", (_, mutate, expected) => {
   const result = parseHarnessSpec(mutate(base()));
   if (result.ok) throw new Error("expected a refusal");
   expect(result.issues.some((issue) => issue.startsWith(expected))).toBe(true);
+});
+
+// The whole list is pinned: a root check that no longer runs ahead of `RelPath` would also tell the
+// author to write `.`, and the shared `some` above would still pass.
+test("a repository file whose path collapses to the root is refused once, as a missing file", () => {
+  const source = { kind: "file", repo: "example/agent", ref: "main", path: "./", claims: ["x"] };
+  const result = parseHarnessSpec(at(["verifiedAgainst", "sources", "0"], source)(base()));
+  if (result.ok) throw new Error("expected a refusal");
+  expect(result.issues).toEqual([
+    "verifiedAgainst.sources.0.path: a repository path names a file, not the root",
+  ]);
 });

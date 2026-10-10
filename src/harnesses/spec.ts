@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import { z } from "zod";
 import {
   HARNESS_ID_PATTERN,
@@ -92,12 +92,10 @@ function relPathIssue(value: string): string | undefined {
     return "expected a path relative to the scope root";
   if (value.includes("\0")) return "a path cannot contain NUL";
   if (value.includes("\\")) return "a path is spelled with / separators, never \\";
-  const segments = value.split("/");
-  if (segments.includes("..")) return "a path cannot contain ..";
-  if (value !== "." && segments.some((segment) => segment === "" || segment === ".")) {
-    const spelled = segments.filter((segment) => segment !== "" && segment !== ".").join("/");
-    return `a path has no leading, trailing or doubled / and no . segment; write ${spelled || "."}`;
-  }
+  if (value.split("/").includes("..")) return "a path cannot contain ..";
+  const spelled = posix.join(value, ".");
+  if (spelled !== value)
+    return `a path has no leading, trailing or doubled / and no . segment; write ${spelled}`;
   return undefined;
 }
 
@@ -329,7 +327,7 @@ const RegistryHook = z
 // registry file itself is refused as a layer: the writer would edit it as JSON while the probe read
 // the same bytes as TOML and called them unreadable. A walked layer is read in every directory up
 // to the project root, so it reaches the registry whenever the registry path ends with its file.
-// The comparison is textual because `RelPath` admits one spelling per file.
+// The comparison is textual because `RelPath` admits one spelling per path.
 function refuseTomlLayerOnRegistry(
   ctx: { issues: z.core.$ZodRawIssue[] },
   hook: { path: { project: string; global: string }; format: string; tierCheck?: TierCheckSpec },

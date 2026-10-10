@@ -141,8 +141,7 @@ test.each(refusals)(
 // without `unreadable` never said what its harness does with a broken layer; a default would
 // decide that for it. A JSON `format` of its own let a tier check read the registry file in a
 // dialect the hook writer did not, so the writer kept a construct the probe called unreadable. A
-// path with a trailing separator was a second spelling of the registry file, which the check that
-// keeps a TOML layer off that file compared as text and missed.
+// trailing separator was a second spelling of the registry file, past that check's text compare.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
