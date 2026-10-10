@@ -69,6 +69,7 @@ flowchart LR
   runner["src/state/migrations/runner.ts<br>Ladder versionOf() dueMigrations() migrate()"]
   migrations["src/state/migrations/state-ladder.ts<br>FIRST_VERSION MIGRATIONS CURRENT_STATE_VERSION STATE_LADDER"]
   configladder["src/state/migrations/config-ladder.ts<br>CURRENT_CONFIG_VERSION CONFIG_LADDER envelope()"]
+  lockladder["src/state/migrations/project-lock-ladder.ts<br>CURRENT_PROJECT_LOCK_VERSION PROJECT_LOCK_LADDER"]
   schema["src/state/schema.ts<br>StateSchema parseState() SourceEntry SourceIntent Destination Disabled canonicalSourceKey()"]
   intent["intent: the source, its selection and renames, whether it publishes rule lines, its harnesses, its destination"]
   fetched["fetch facts: the sha, when, the content hashes, the last error"]
@@ -83,6 +84,7 @@ flowchart LR
   runner -->|"the migrated document passes the same strict parse a fresh file gets"| schema
   configladder -->|"the config registry, and the stamp a file without a version gets: version 1 by definition"| runner
   runner -->|"the same climb, then the strict parse, before the keys reach a verb"| config
+  lockladder -->|"the lock registry derives the version its schema pins; the lock boundary refuses an older file and points at share instead of climbing"| runner
   store -->|"parseState(): strict objects, an unknown key is refused"| schema
   schema -->|"SourceIntent"| intent
   schema -->|"fetched, absent on a live local source"| fetched
