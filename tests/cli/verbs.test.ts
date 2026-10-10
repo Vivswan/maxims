@@ -1944,7 +1944,12 @@ test("doctor judges the frontmatter and the precedence file the real definitions
       ]);
       expect(add.code).toBe(0);
       const rendered = block("@a/b", ["skip-unfit-skills"]);
-      const ctx = { home: scenario.userHome, projectRoot: scenario.cwd, env: {} };
+      const ctx = {
+        home: scenario.userHome,
+        projectRoot: scenario.cwd,
+        cwd: scenario.cwd,
+        env: {},
+      };
       const written = (def: typeof cursor): string => {
         const target = def.targets.project;
         if (target === null || target.kind !== "rules-dir") throw new Error("not a rules dir");

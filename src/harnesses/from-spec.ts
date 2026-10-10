@@ -1,6 +1,7 @@
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { realpathOfExistingPrefix } from "../util/fs.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -25,10 +26,10 @@ import {
   type TargetSpec,
 } from "./spec.ts";
 
-// The members a spec cannot carry because they are code: a probe for the tier the machine really
-// reaches, a config edit a rules directory needs, or a hook the shared writers cannot express. A
-// quirk that needs the compiled paths (a probe reading the files `tierCheck` names under the
-// resolved global root) is given as a function of the data-only definition.
+// The members a spec cannot carry because they are code: a config edit a rules directory needs,
+// a hook the shared writers cannot express, or a probe for a tier no config file states. A quirk
+// that needs the compiled paths (a bridge row pointing at a file under the resolved global root)
+// is given as a function of the data-only definition.
 export type HarnessQuirks = {
   achievedTier?: HarnessDefinition["achievedTier"];
   configEdit?: HarnessDefinition["configEdit"];
@@ -38,6 +39,7 @@ export type QuirksInput = HarnessQuirks | ((declared: HarnessDefinition) => Harn
 
 type ScopedPath = (scope: Scope, ctx: HarnessContext) => string;
 type PathsPerScope = Record<Scope, string>;
+type LayersSpec = NonNullable<Extract<HookSpecData, { kind: "registry" }>["tierCheck"]>["layers"];
 
 export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): HarnessDefinition {
   const declared = compileData(spec);
@@ -62,6 +64,19 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (paths: PathsPerScope): ScopedPath =>
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
+  const layered =
+    (layers: LayersSpec) =>
+    (ctx: HarnessContext): string[] => {
+      const user = layers.global.map((path) => join(scopeRoot(roots, "global", ctx), path));
+      if (ctx.projectRoot === null) return user;
+      const root = scopeRoot(roots, "project", ctx);
+      const project = layers.project.flatMap((layer) =>
+        typeof layer === "string"
+          ? [join(root, layer)]
+          : directoriesDownTo(root, ctx.cwd).map((dir) => join(dir, layer.file)),
+      );
+      return [...project, ...user];
+    };
   const scopeFrontmatter = compileScopeFrontmatter(spec.scopeFrontmatter);
   const [first, ...rest] = spec.verifiedAgainst.sources;
 
@@ -77,7 +92,7 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
       const dir = spec.bodiesDir[scope];
       return dir === null ? null : join(scopeRoot(roots, scope, ctx), dir);
     },
-    hook: compileHook(spec.hook, under),
+    hook: compileHook(spec.hook, under, layered),
     markers: spec.markers,
     expands: [...spec.expands],
     ...(spec.byteBudget === undefined ? {} : { byteBudget: spec.byteBudget }),
@@ -109,6 +124,36 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
           },
         }),
   };
+}
+
+// The nearest layer outranks the ones above it, so the session's own directory comes first. The
+// root is recorded by its real path; the session directory climbs from its real path, or the
+// climb would pass an aliased root by.
+function directoriesDownTo(root: string, cwd: string): string[] {
+  const dirs: string[] = [];
+  let dir = sessionDirectory(cwd);
+  for (;;) {
+    dirs.push(dir);
+    if (dir === root) return dirs;
+    const parent = dirname(dir);
+    if (parent === dir) return [root];
+    dir = parent;
+  }
+}
+
+// A prefix nobody may inspect is climbed from the real path of the deepest ancestor that can be,
+// the rest kept as typed: the climb still meets a root recorded by its real path, and the probe
+// reports the layer that stopped it, where a throw here would abort a verb over files maxims
+// never writes.
+function sessionDirectory(cwd: string): string {
+  const typed = resolve(cwd);
+  try {
+    return realpathOfExistingPrefix(typed);
+  } catch (error) {
+    if (!(error instanceof MaximsError)) throw error;
+    const parent = dirname(typed);
+    return parent === typed ? typed : join(sessionDirectory(parent), basename(typed));
+  }
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
@@ -184,7 +229,11 @@ function fenced(fields: Record<string, unknown>): string {
   return `---\n${stringify(fields)}---\n`;
 }
 
-function compileHook(hook: HookSpecData, under: (paths: PathsPerScope) => ScopedPath): HookShape {
+function compileHook(
+  hook: HookSpecData,
+  under: (paths: PathsPerScope) => ScopedPath,
+  layered: (layers: LayersSpec) => (ctx: HarnessContext) => string[],
+): HookShape {
   switch (hook.kind) {
     case "none":
       return { kind: "none" };
@@ -214,10 +263,11 @@ function compileHook(hook: HookSpecData, under: (paths: PathsPerScope) => Scoped
           ? {}
           : {
               tierCheck: {
-                path: under(tierCheck.path),
+                layers: layered(tierCheck.layers),
                 format: tierCheck.format,
                 key: tierCheck.key,
                 demotesWhen: tierCheck.demotesWhen,
+                unreadable: tierCheck.unreadable,
               },
             }),
       };

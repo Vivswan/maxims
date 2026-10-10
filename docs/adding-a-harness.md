@@ -55,9 +55,15 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
-| `tierCheck` | `{ path, format, key, demotesWhen }`: a config value that demotes to tier 2 |
+| `tierCheck` | `{ layers, format, key, demotesWhen, unreadable }`: the config layers read for a demoting value |
 
 The writer finds and prunes its own entries by the `commandKey` prefix.
+
+A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
+
+- **An unreadable layer** is a file that does not parse (`json` is strict: no comments, no trailing commas), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
+- **Otherwise the first layer that sets the key decides:** tier 2 when it holds `demotesWhen`, the declared tier when it does not.
+- **A key no layer sets** leaves the declared tier.
 
 A `file` hook is `{ kind: "file", path, contentTemplate, executable, stdout }`: a whole file maxims owns, such as a plugin or an executable script.
 
@@ -75,7 +81,7 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. Its `verifiedAgainst` is abridged to one source with an illustrative note: the spec file holds the current date and every source, and each re-verification moves them.
 
-A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; Codex adds one quirk in code beside it, the tier probe that reads the project `config.toml` over the user one, because a `tierCheck` reads one file per scope.
+A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; dsh and OpenCode add a quirk in code beside theirs for what the data cannot say.
 
 ```json
 {
@@ -120,10 +126,11 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
     "stdout": "plain",
     "async": true,
     "tierCheck": {
-      "path": { "project": ".codex/config.toml", "global": "config.toml" },
+      "layers": { "project": [{ "kind": "root-to-cwd", "file": ".codex/config.toml" }], "global": ["config.toml"] },
       "format": "toml",
       "key": "features.hooks",
-      "demotesWhen": false
+      "demotesWhen": false,
+      "unreadable": "refuses-to-start"
     }
   }
 }
@@ -149,7 +156,7 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 
 1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/contracts/harness-id.ts`.
 2. Export the compiled definition from the same file as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`.
-3. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a tier probe (Codex), a config edit (OpenCode), or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`. One needing a spec value takes it as an argument: the spec imports the quirk, never the reverse.
+3. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a config edit (OpenCode) or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`. One needing a spec value takes it as an argument: the spec imports the quirk, never the reverse.
 4. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
 5. Write `tests/harnesses/<id>/index.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 

@@ -1,18 +1,19 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
-import { layeredDisableAllHooksProbe } from "./quirks.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
 // only a path-scoped install adds the `paths:` preamble. `disableAllHooks` silences every hook,
-// ours included, and is read after settings precedence applies, so quirks.ts probes the layers
-// rather than the one file `tierCheck` names. Claude Code strips HTML comments before injection
-// and expands `@path` imports; a rule file may grow to its 4 MiB memory cap.
+// ours included, and is read after settings precedence applies, so the tier check walks the
+// layers in that order: managed settings and `--settings` outrank all three and are not read.
+// Claude Code skips a settings file it cannot parse and keeps the other layers in effect, so only
+// the hook's own broken file demotes. Claude Code strips HTML comments before injection and
+// expands `@path` imports; a rule file may grow to its 4 MiB memory cap.
 export const spec = {
   id: "claude-code",
   displayName: "Claude Code",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-09",
+    date: "2026-10-10",
     sources: [
       {
         kind: "schema",
@@ -51,6 +52,17 @@ export const spec = {
         why: "Claude Code is closed source and the hook's stdin and stdout fields are stated only on the page; this is its markdown rendition",
         note: "SessionStart hook fields and disableAllHooks after settings precedence",
       },
+      {
+        kind: "page",
+        url: "https://code.claude.com/docs/en/settings.md",
+        claims: [
+          "Fix a broken settings file",
+          "Claude Code skips the broken file or values and continues with the rest",
+          "Settings files are strict JSON: a `//` comment or a trailing comma is a syntax error",
+        ],
+        why: "Claude Code is closed source and what it does with a settings file it cannot parse is stated only on the page; this is its markdown rendition",
+        note: "a broken settings file, a comment or a trailing comma included, is skipped and the other layers stay in effect",
+      },
     ],
   },
   targets: {
@@ -79,16 +91,18 @@ export const spec = {
     stdout: "plain",
     async: true,
     tierCheck: {
-      path: { project: ".claude/settings.json", global: ".claude/settings.json" },
+      layers: {
+        project: [".claude/settings.local.json", ".claude/settings.json"],
+        global: [".claude/settings.json"],
+      },
       format: "json",
       key: "disableAllHooks",
       demotesWhen: true,
+      unreadable: "skips-the-file",
     },
   },
   scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list" },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
 
-export const claudeCode = toDefinition(spec, (declared) => ({
-  achievedTier: layeredDisableAllHooksProbe(declared, spec.hook.tierCheck),
-}));
+export const claudeCode = toDefinition(spec);

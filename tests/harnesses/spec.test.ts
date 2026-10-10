@@ -171,6 +171,17 @@ const refusals: [string, Mutation, string][] = [
     "hook.format: a registry hook is json; toml is read for tierCheck and never written",
   ],
   [
+    "a tier check on a key zod would drop from what it parses",
+    at(["hook", "tierCheck"], {
+      layers: { project: [".example/settings.json"], global: ["settings.json"] },
+      format: "json",
+      key: "hooks.__proto__",
+      demotesWhen: false,
+      unreadable: "refuses-to-start",
+    }),
+    "hook.tierCheck.key: a key segment cannot be __proto__",
+  ],
+  [
     "a per-scope budget that names no scope",
     at(["byteBudget"], {}),
     "byteBudget: a per-scope budget names at least one scope",

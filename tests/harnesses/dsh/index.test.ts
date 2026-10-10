@@ -26,7 +26,12 @@ const reconcileBridge = dsh.hook.reconcile;
 const rooted = (root: string, ...parts: string[]) => assertInsideRoot(root, join(root, ...parts));
 
 function contextFor(home: string) {
-  return { home, projectRoot: join(home, "project"), env: { DSH_HOME: join(home, "dsh-home") } };
+  return {
+    home,
+    projectRoot: join(home, "project"),
+    cwd: join(home, "project"),
+    env: { DSH_HOME: join(home, "dsh-home") },
+  };
 }
 
 function ourRow(dshHome: string, indent = ""): string {
@@ -175,12 +180,17 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
   await withTempDir(async (home) => {
     const changes = await reconcileBridge(
       "global",
-      { home, projectRoot: null, env: {} },
+      { home, projectRoot: null, cwd: home, env: {} },
       spec,
       true,
     );
     expect(
-      await reconcileBridge("project", { home, projectRoot: join(home, "p"), env: {} }, spec, true),
+      await reconcileBridge(
+        "project",
+        { home, projectRoot: join(home, "p"), cwd: join(home, "p"), env: {} },
+        spec,
+        true,
+      ),
     ).toEqual(changes);
     expect(changes).toEqual([
       {
@@ -215,11 +225,11 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
     // Nothing is mounted and no hooks file exists, so there is nothing to take back: a plan that
     // named the file would report a deletion on every sync of a machine without dsh.
     expect(
-      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+      await reconcileBridge("global", { home, projectRoot: null, cwd: home, env: {} }, spec, false),
     ).toEqual([]);
     await applyChanges({ changes, notices: [] }, { dryRun: false });
     expect(
-      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+      await reconcileBridge("global", { home, projectRoot: null, cwd: home, env: {} }, spec, false),
     ).toEqual([
       { kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") },
       { kind: "write", path: rooted(join(home, ".dsh"), "cordis.patch.yml"), content: "[]\n" },
@@ -227,7 +237,7 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
     // A row the user removed by hand leaves the hooks file orphaned; the unmount still takes it.
     writeFileSync(join(home, ".dsh", "cordis.patch.yml"), "[]\n");
     expect(
-      await reconcileBridge("global", { home, projectRoot: null, env: {} }, spec, false),
+      await reconcileBridge("global", { home, projectRoot: null, cwd: home, env: {} }, spec, false),
     ).toEqual([{ kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") }]);
   });
 });

@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { heldToken } from "../console/strings.ts";
 import type { AchievedTier, Scope } from "../harnesses/contract.ts";
-import { achievedTier, hasHook, planHookOnly } from "../harnesses/hook-writer.ts";
+import { achievedTier, demotionNote, hasHook, planHookOnly } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts";
@@ -291,7 +291,7 @@ function tierNote(
   if (probed.unreadable !== null) return probed.unreadable;
   if (probed.tier === 1) return null;
   if (hasHook(def, "registry") && def.hook.tierCheck !== undefined) {
-    return `${def.hook.tierCheck.key} = ${JSON.stringify(def.hook.tierCheck.demotesWhen)}`;
+    return demotionNote(def.hook.tierCheck);
   }
   return "no hook";
 }

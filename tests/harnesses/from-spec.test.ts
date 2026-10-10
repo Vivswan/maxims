@@ -150,29 +150,31 @@ test("the global root joins the env override with its subdirectory and strips ~/
   const def = toDefinition(rendering);
   const home = resolve("/home/user");
   const xdg = resolve("/xdg");
-  expect(def.globalRoot?.({ home, projectRoot: null, env: {} })).toBe(
+  expect(def.globalRoot?.({ home, projectRoot: null, cwd: home, env: {} })).toBe(
     resolve("/home/user/.config/example"),
   );
-  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } })).toBe(
-    resolve("/xdg/example"),
-  );
-  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "" } })).toBe(
-    resolve("/home/user/.config/example"),
-  );
-  expect(def.globalRoot?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: "custom" } })).toBe(
-    join(process.cwd(), "custom", "example"),
-  );
+  expect(
+    def.globalRoot?.({ home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: xdg } }),
+  ).toBe(resolve("/xdg/example"));
+  expect(
+    def.globalRoot?.({ home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: "" } }),
+  ).toBe(resolve("/home/user/.config/example"));
+  expect(
+    def.globalRoot?.({ home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: "custom" } }),
+  ).toBe(join(process.cwd(), "custom", "example"));
   const whole = toDefinition(
     specOf({
       ...rendering,
       globalRoot: { default: "~/.example", env: { name: "EXAMPLE_HOME" } },
     }),
   );
-  expect(whole.globalRoot?.({ home, projectRoot: null, env: { EXAMPLE_HOME: "custom" } })).toBe(
-    join(process.cwd(), "custom"),
-  );
-  expect(def.mcp?.path("project", { home, projectRoot: resolve("/p"), env: {} })).toBeNull();
-  expect(def.mcp?.path("global", { home, projectRoot: null, env: {} })).toBe(
+  expect(
+    whole.globalRoot?.({ home, projectRoot: null, cwd: home, env: { EXAMPLE_HOME: "custom" } }),
+  ).toBe(join(process.cwd(), "custom"));
+  expect(
+    def.mcp?.path("project", { home, projectRoot: resolve("/p"), cwd: resolve("/p"), env: {} }),
+  ).toBeNull();
+  expect(def.mcp?.path("global", { home, projectRoot: null, cwd: home, env: {} })).toBe(
     resolve("/home/user/.config/example/mcp.json"),
   );
 });
@@ -227,12 +229,12 @@ test("quirks given as a function receive the compiled data definition", async ()
     }),
   }));
   const home = resolve("/home/user");
-  expect(await def.achievedTier?.({ home, projectRoot: null, env: {} })).toEqual({
+  expect(await def.achievedTier?.({ home, projectRoot: null, cwd: home, env: {} })).toEqual({
     tier: 1,
     unreadable: null,
   });
   expect(
-    await def.achievedTier?.({ home, projectRoot: null, env: { XDG_CONFIG_HOME: xdg } }),
+    await def.achievedTier?.({ home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: xdg } }),
   ).toEqual({ tier: 2, unreadable: null });
 });
 
@@ -249,7 +251,9 @@ test.skipIf(!CHMOD_DENIES)("a detection lookup that fails surfaces its error", a
     mkdirSync(join(dir, "locked", "inner"), { recursive: true });
     chmodSync(join(dir, "locked"), 0o000);
     try {
-      expect(() => def.detect({ home: dir, projectRoot: null, env: {} })).toThrow(/EACCES/);
+      expect(() => def.detect({ home: dir, projectRoot: null, cwd: dir, env: {} })).toThrow(
+        /EACCES/,
+      );
     } finally {
       chmodSync(join(dir, "locked"), 0o755);
     }

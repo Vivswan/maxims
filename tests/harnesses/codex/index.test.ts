@@ -6,7 +6,14 @@
 // the probe reads the config.toml under $CODEX_HOME, and the bytes a fresh hooks.json receives,
 // which Codex reads without checking them for us.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
@@ -15,8 +22,13 @@ import {
   type Scope,
   sharedBlockFile,
 } from "../../../src/harnesses/contract.ts";
-import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
+import {
+  hasHook,
+  planHookRegistryWrite,
+  achievedTier as probe,
+} from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext } from "../context.ts";
@@ -27,9 +39,10 @@ const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
 
+// The config.toml layers are the machine's whichever scope the hook sits in, so one scope stands
+// for both in the rows that set a readable flag; the broken-layer rows below probe both scopes.
 function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
-  if (codex.achievedTier === undefined) throw new Error("Codex probes its config.toml layers");
-  return codex.achievedTier(ctx);
+  return probe(codex, "global", ctx);
 }
 
 const layers: [string, string | null, string | null, 1 | 2][] = [
@@ -51,7 +64,7 @@ test.each(layers)(
       mkdirSync(join(project, ".codex"), { recursive: true });
       if (projectToml !== null) writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       if (userToml !== null) writeFileSync(join(home, ".codex", "config.toml"), userToml);
-      expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+      expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
         tier: expected,
         unreadable: null,
       });
@@ -68,7 +81,7 @@ test("achievedTier reads a config.toml it cannot open as hooks off, and says so"
   await withTempDir(async (dir) => {
     const path = join(dir, ".codex", "config.toml");
     mkdirSync(path, { recursive: true });
-    const reading = await achievedTier({ home: dir, projectRoot: null, env: {} });
+    const reading = await achievedTier({ home: dir, projectRoot: null, cwd: dir, env: {} });
     expect(reading.tier).toBe(2);
     expect(reading.unreadable).toMatch(
       new RegExp(
@@ -99,6 +112,70 @@ const malformed: [string, string, string][] = [
   ],
 ];
 
+// Codex reads a `.codex/config.toml` in every directory from the project root down to the one it
+// runs in, the nearest deciding, so a subdirectory switches hooks off under a root that leaves
+// them on. Layers that named the root alone would promise a refresh that never fires there.
+const walked: [string, string, string, 1 | 2, 1 | 2][] = [
+  ["the subdirectory disables under an enabling root", enabled, disabled, 2, 1],
+  ["the subdirectory enables under a disabling root", disabled, enabled, 1, 2],
+];
+
+test.each(walked)(
+  "achievedTier walks .codex/config.toml from the project root to the session's directory (%s)",
+  async (_, rootToml, subToml, fromSub, fromRoot) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      const sub = join(project, "packages", "app");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      mkdirSync(join(sub, ".codex"), { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), rootToml);
+      writeFileSync(join(sub, ".codex", "config.toml"), subToml);
+      const at = (cwd: string) => achievedTier({ home, projectRoot: project, cwd, env: {} });
+      expect(await at(sub)).toEqual({ tier: fromSub, unreadable: null });
+      expect(await at(project)).toEqual({ tier: fromRoot, unreadable: null });
+    });
+  },
+);
+
+// A folder nobody may search stops the real-path lookup of the session directory. The probe still
+// answers with the layer under it and the error that stopped the read, where a throw would abort
+// list, doctor and sync over files maxims never writes. Through an alias symlink to the project
+// the climb must still meet the root, recorded by its real path, or the sealed folder reads as
+// absent.
+const sealed: [string, (dir: string) => string][] = [
+  ["spelled under the root", (dir) => join(dir, "project", "locked", "app")],
+  ["spelled through an alias symlink to the root", (dir) => join(dir, "alias", "locked", "app")],
+];
+
+test.skipIf(!CHMOD_DENIES).each(sealed)(
+  "a session directory under a folder nobody may search is a reading, never a throw (%s)",
+  async (_, cwdIn) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      const locked = join(project, "locked");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      mkdirSync(join(locked, "app"), { recursive: true });
+      symlinkSync(project, join(dir, "alias"));
+      writeFileSync(join(project, ".codex", "config.toml"), enabled);
+      chmodSync(locked, 0o000);
+      try {
+        const projectRoot = realpathSync(project);
+        const probed = await achievedTier({ home, projectRoot, cwd: cwdIn(dir), env: {} });
+        expect(probed.tier).toBe(2);
+        expect(probed.unreadable).toMatch(
+          /^config\.toml could not be read \(.*locked.*config\.toml: EACCES.*\); assuming hooks off$/,
+        );
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    });
+  },
+);
+
 test.each(malformed)(
   "achievedTier reads a config.toml that does not parse, or sets hooks to a non-boolean, as hooks off with the reason (%s)",
   async (_, toml, reason) => {
@@ -106,31 +183,42 @@ test.each(malformed)(
       mkdirSync(join(dir, ".codex"), { recursive: true });
       const path = join(dir, ".codex", "config.toml");
       writeFileSync(path, toml);
-      expect(await achievedTier({ home: dir, projectRoot: null, env: {} })).toEqual(
+      expect(await achievedTier({ home: dir, projectRoot: null, cwd: dir, env: {} })).toEqual(
         unreadable(path, reason),
       );
     });
   },
 );
 
-// A project layer that cannot be read decides nothing for the user layer: the machine is taken
-// at hooks off whatever the user config says, since the layer Codex reads first is the broken one.
-test("an unreadable project config.toml is reported over an enabling user config", async () => {
-  await withTempDir(async (dir) => {
-    const home = join(dir, "home");
-    const project = join(dir, "project");
-    mkdirSync(join(home, ".codex"), { recursive: true });
-    mkdirSync(join(project, ".codex"), { recursive: true });
-    writeFileSync(join(home, ".codex", "config.toml"), enabled);
-    writeFileSync(join(project, ".codex", "config.toml"), "hooks\n");
-    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
-      unreadable(
-        join(project, ".codex", "config.toml"),
-        "Invalid TOML document: illegal character in key (line 1, column 6)",
-      ),
-    );
-  });
-});
+// Codex refuses to start on a config.toml that does not parse, so a broken layer is the reading
+// wherever it sits and whichever file the hook is registered in: the machine is taken at hooks off
+// whatever the other layer says.
+const brokenLayers: [string, string, string, "project" | "home"][] = [
+  ["project broken over an enabling user config", "hooks\n", enabled, "project"],
+  ["user broken under an enabling project config", enabled, "hooks\n", "home"],
+];
+
+test.each(brokenLayers)(
+  "an unreadable config.toml is reported over the other layer, for a hook in either scope (%s)",
+  async (_, projectToml, userToml, brokenIn) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      writeFileSync(join(home, ".codex", "config.toml"), userToml);
+      writeFileSync(join(project, ".codex", "config.toml"), projectToml);
+      const broken = join(dir, brokenIn, ".codex", "config.toml");
+      for (const scope of ["project", "global"] as const) {
+        expect(
+          await probe(codex, scope, { home, projectRoot: project, cwd: project, env: {} }),
+        ).toEqual(
+          unreadable(broken, "Invalid TOML document: illegal character in key (line 1, column 6)"),
+        );
+      }
+    });
+  },
+);
 
 test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
   await withTempDir(async (dir) => {
@@ -140,7 +228,7 @@ test("achievedTier skips a project whose .codex is a regular file and lets the u
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, ".codex"), "not a directory\n");
     writeFileSync(join(home, ".codex", "config.toml"), disabled);
-    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+    expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
       tier: 2,
       unreadable: null,
     });
@@ -152,7 +240,12 @@ test("achievedTier reads the config.toml under $CODEX_HOME", async () => {
     const codexHome = join(dir, "elsewhere");
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(join(codexHome, "config.toml"), disabled);
-    const ctx = { home: join(dir, "home"), projectRoot: null, env: { CODEX_HOME: codexHome } };
+    const ctx = {
+      home: join(dir, "home"),
+      projectRoot: null,
+      cwd: join(dir, "home"),
+      env: { CODEX_HOME: codexHome },
+    };
     expect(await achievedTier(ctx)).toEqual({ tier: 2, unreadable: null });
   });
 });

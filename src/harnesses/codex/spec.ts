@@ -1,6 +1,5 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
-import { layeredHooksProbe } from "./quirks.ts";
 
 // Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
 // (AGENTS.md, hooks.json, config.toml) moves with it. Its two instruction loaders differ on a blank
@@ -8,7 +7,10 @@ import { layeredHooksProbe } from "./quirks.ts";
 // is not empty, so a blank override is passed over there; in a project directory it takes the
 // first of the two that exists and drops a blank one without falling back to AGENTS.md, so there
 // the block belongs in the override even when blank. Hooks are on unless `[features] hooks =
-// false` is set, so `config.toml` is read for that flag and never written.
+// false` is set; Codex layers a `.codex/config.toml` from the project root down to the directory
+// it runs in over the user config.toml, the nearest deciding, so every one of them is read for
+// that flag and never written; Codex refuses to start on a config.toml it cannot parse or type,
+// so a broken layer anywhere is hooks off.
 export const spec = {
   id: "codex",
   displayName: "Codex",
@@ -21,6 +23,32 @@ export const spec = {
         url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/config.schema.json",
         paths: ["/properties/features/properties/hooks"],
         note: "features.hooks in config.toml",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/loader/mod.rs",
+        claims: [
+          "toml::from_str(&contents).map_err(|err| {",
+          "io_error_from_config_error(io::ErrorKind::InvalidData, config_error, Some(err))",
+          "typed_first_layer_config_error_from_entries::<ConfigToml>(layers, CONFIG_TOML_FILE)",
+        ],
+        note: "a config.toml that does not parse, or does not fit ConfigToml, is an error the loader returns for the user layer and a trusted project layer, not one it skips",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/loader/mod.rs",
+        claims: [
+          "let mut dirs = cwd",
+          ".scan(false, |done, a| {",
+          "if &a == project_root {",
+          "dirs.reverse();",
+          'let dot_codex_abs = dir.join(".codex");',
+        ],
+        note: "the project layers are the .codex/config.toml of every directory from the session's cwd up to the project root, loaded root first so the nearest wins",
       },
       {
         kind: "file",
@@ -152,15 +180,17 @@ export const spec = {
     stdout: "plain",
     async: true,
     tierCheck: {
-      path: { project: ".codex/config.toml", global: "config.toml" },
+      layers: {
+        project: [{ kind: "root-to-cwd", file: ".codex/config.toml" }],
+        global: ["config.toml"],
+      },
       format: "toml",
       key: "features.hooks",
       demotesWhen: false,
+      unreadable: "refuses-to-start",
     },
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
 
-export const codex = toDefinition(spec, (declared) => ({
-  achievedTier: layeredHooksProbe(declared, spec.hook.tierCheck.path),
-}));
+export const codex = toDefinition(spec);

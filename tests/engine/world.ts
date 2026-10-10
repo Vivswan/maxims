@@ -30,7 +30,7 @@ export const TWO_MEMORIES = {
 
 export function globalRulesFile(userHome: string, slug: string): string {
   return join(
-    fixtureRoot("global", { home: userHome, projectRoot: null, env: {} }),
+    fixtureRoot("global", { home: userHome, projectRoot: null, cwd: userHome, env: {} }),
     "rules",
     `maxims-${slug}.md`,
   );

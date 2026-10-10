@@ -52,7 +52,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 
 ## Harnesses
 
-- **Every harness in the [matrix](harnesses.md#the-matrix) ships in the first release.** Each built-in is declared from a spec, the shape [adding a harness](adding-a-harness.md) owns, and a user's own `harnesses.json` entries take the same shape. Codex, dsh, and OpenCode add a `quirks.ts` beside theirs for what the data cannot say.
+- **Every harness in the [matrix](harnesses.md#the-matrix) ships in the first release.** Each built-in is declared from a spec, the shape [adding a harness](adding-a-harness.md) owns, and a user's own `harnesses.json` entries take the same shape. dsh and OpenCode add a `quirks.ts` beside theirs for what the data cannot say.
 - **Pi ships with a file hook, not a deferred extension package.** An extension file in Pi's extensions directory receives `session_start` and runs the sync, the plugin-file pattern OpenCode uses.
 - **Codex's hooks flag is read-only detection.** Hooks are on by default there; maxims reads `hooks = false` to report tier 2 achieved and never writes the flag.
 - **Cursor gets a session-start hook, not a per-prompt one.** Current Cursor exposes `sessionStart`, so the earlier per-prompt shape is gone.

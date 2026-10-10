@@ -192,7 +192,8 @@ Demonstrated by: [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts)
 ```mermaid
 flowchart LR
   specfile["src/harnesses/codex/spec.ts<br>spec codex"]
-  quirks["src/harnesses/codex/quirks.ts<br>layeredHooksProbe()"]
+  dshspec["src/harnesses/dsh/spec.ts<br>spec dsh"]
+  quirks["src/harnesses/dsh/quirks.ts<br>bridgeReconciler()"]
   schema["src/harnesses/spec.ts<br>HarnessSpecSchema UserHarnessSpecSchema parseHarnessSpec()"]
   fromspec["src/harnesses/from-spec.ts<br>toDefinition() HarnessQuirks"]
   detect["src/harnesses/detect.ts<br>configDirExists()"]
@@ -204,8 +205,9 @@ flowchart LR
   rulesdir["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite() rulesDirPath()"]
   shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockRemove() sharedBlockPath()"]
   hook["src/harnesses/hook-writer.ts<br>planHookWrite() achievedTier()"]
-  quirks -->|"achievedTier: the project config read over the user one, which one file per scope cannot say"| specfile
-  specfile -->|"toDefinition(spec, quirks): paths relative to the scope root, a hook as a template"| fromspec
+  quirks -->|"reconcile: the bridge row dsh's patch layer needs, which no registry template can say"| dshspec
+  dshspec -->|"toDefinition(spec, quirks)"| fromspec
+  specfile -->|"toDefinition(spec): paths relative to the scope root, a hook as a template"| fromspec
   userfile -->|"parsed with UserHarnessSpecSchema"| userdef
   userdef --> schema
   ids -->|"a spec id is a built-in id or a kebab-case user-defined one"| schema
@@ -217,10 +219,10 @@ flowchart LR
   registry -->|"one HarnessDefinition per folder, a static import list"| contract
   contract -->|"targets of kind rules-dir"| rulesdir
   contract -->|"targets of kind shared-block"| shared
-  contract -->|"hook of kind registry, file, custom or none"| hook
+  contract -->|"hook of kind registry, file, custom or none; a tierCheck's layers read in order"| hook
 ```
 
-- **Writing logic lives once.** Two strategies and one hook writer serve every folder; a folder is data, and the three quirk kinds a spec cannot carry are a tier probe (codex), a config edit (opencode) and a custom reconcile (dsh). [Adding a harness](adding-a-harness.md) owns the spec, field by field.
+- **Writing logic lives once.** Two strategies and one hook writer serve every folder; a folder is data, and the quirk kinds a spec cannot carry are a config edit (opencode) and a custom reconcile (dsh). [Adding a harness](adding-a-harness.md) owns the spec, field by field.
 - **A custom `reconcile` quirk needs hook kind `none` in the spec;** `toDefinition()` throws otherwise, so a folder cannot declare a registry hook and then replace it in code.
 - **The registry is guarded by a completeness test:** a folder missing from the import list fails it, and a user spec that names a built-in id or repeats one is refused with the entry named.
 

@@ -12,6 +12,9 @@ export type Scope = "project" | "global";
 export type HarnessContext = {
   home: string;
   projectRoot: string | null;
+  // The directory the session runs in: a hook's start directory, else the process cwd. A harness
+  // that layers its config per directory reads from `projectRoot` down to it.
+  cwd: string;
   env: Record<string, string | undefined>;
 };
 
@@ -24,7 +27,7 @@ export type AchievedTier = { tier: 1 | 2; unreadable: null } | { tier: 2; unread
 // Strategy A writes one whole file per source into a rules directory; strategy B writes a managed
 // block into a file the user also owns. A harness only chooses; the two writers exist once.
 // `dir` and `file` are RELATIVE to the scope root from `scopeRoot`; `HookShape.path`,
-// `bodiesDir` and `tierCheck.path` return ABSOLUTE paths.
+// `bodiesDir` and `tierCheck.layers` return ABSOLUTE paths.
 // `precedence` lists, in the harness's own order, the files of which it reads only the first
 // that exists (Zed reads `.rules` and ignores `AGENTS.md` beside it); `file` is the one created
 // when none exists and must appear in the list. `skipsEmpty` marks a harness that passes over a
@@ -113,10 +116,29 @@ export type McpRegistry = {
   serversPath: string[];
 };
 
+// What one config layer says about a tier check's key. `absent` and `unset` defer to the next
+// layer; `value` is the key as the harness would read it, of `demotesWhen`'s own JSON type; and
+// `unreadable` covers a file that cannot be read or parsed as well as a key path or value of
+// another type, because what the harness makes of a config its own schema rejects is not for
+// another layer to answer.
+export type ConfigLayer =
+  | { kind: "absent" }
+  | { kind: "unset" }
+  | { kind: "value"; value: unknown }
+  | { kind: "unreadable"; reason: string };
+
+// What the harness does with a config layer it cannot parse or its schema rejects. One that skips
+// the file keeps its other layers in effect, so only the file the hook is registered in bears on
+// the tier; one that refuses to start runs no hook from any layer.
+export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
+
 // A registry hook is declared, never special-cased: `eventPath`, `grouped`, `wrapper`, `handler`
 // and `commandKey` carry every difference between the harnesses' registry files, so the one hook
-// writer needs no per-harness branch. `tierCheck` is read-only detection: a config value whose
-// presence demotes the harness to tier 2; nothing ever writes it.
+// writer needs no per-harness branch. `tierCheck` is read-only detection over the harness's own
+// config layers, `layers` giving them in the harness's precedence order (project over global, a
+// local override before the file it overrides): the first that sets the key decides whether it
+// holds `demotesWhen`, and `unreadable` says which broken layer is the reading instead. Nothing
+// ever writes them.
 export type RegistryHook = {
   kind: "registry";
   path: (scope: Scope, ctx: HarnessContext) => string;
@@ -130,10 +152,11 @@ export type RegistryHook = {
   async: boolean;
   debounceMs?: number;
   tierCheck?: {
-    path: (scope: Scope, ctx: HarnessContext) => string;
+    layers: (ctx: HarnessContext) => string[];
     format: ConfigFormat;
     key: string;
     demotesWhen: unknown;
+    unreadable: UnreadableLayer;
   };
 };
 

@@ -21,7 +21,7 @@ export const MATRIX_END = "<!-- END GENERATED: harness-matrix -->";
 const REGENERATE = "bun run docs:matrix";
 
 // Paths render as a user would type them: `~` for the home and nothing for the project root.
-const DISPLAY_CONTEXT: HarnessContext = { home: "~", projectRoot: ".", env: {} };
+const DISPLAY_CONTEXT: HarnessContext = { home: "~", projectRoot: ".", cwd: ".", env: {} };
 const SOURCE_PLACEHOLDER = "<source>";
 // A real slug goes through `fileName`, then gives way to the placeholder the matrix shows.
 const SLUG_SENTINEL = sentinelSlug();

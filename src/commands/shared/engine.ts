@@ -583,7 +583,10 @@ async function planInstall(
   for (const [key, entry] of Object.entries(refreshed.sources)) {
     const { intent } = entry;
     if (actsHere(entry, ctx) || intent.destination.scope !== "project" || !intent.rule) continue;
-    const there: EngineContext = { ...ctx, projectRoot: intent.destination.root };
+    // Where that project's sessions run is not known here, so its per-directory config layers are
+    // its root's alone.
+    const root = intent.destination.root;
+    const there: EngineContext = { ...ctx, projectRoot: root, cwd: root };
     for (const id of intent.harnesses) {
       let resolved: ReturnType<typeof resolveTargets>;
       try {
@@ -627,7 +630,7 @@ async function planInstall(
   // to it. The lines go out loud: a hook session must hear that rules it expects are not loaded.
   let tokens = 0;
   for (;;) {
-    const rendered = await renderFiles(files, ctx, keepAt);
+    const rendered = await renderFiles(files, keepAt);
     if (rendered.ok) {
       // A file's notices may name a machine-wide fact (a config a tier probe could not read), so a
       // line two files earn is said once.
@@ -664,10 +667,7 @@ async function planInstall(
       break;
     }
     const { error, file } = rendered;
-    const changingKeys = await changingBlocks(file, {
-      ctx,
-      keep: keepAt.get(fileIdentity(file)) ?? new Set(),
-    });
+    const changingKeys = await changingBlocks(file);
     const changing = file.blocks.filter((block) => changingKeys.includes(block.key));
     const newest = newestBlock(changing.length > 0 ? changing : file.blocks, refreshed.sources);
     if (newest === undefined) throw error;
@@ -851,7 +851,6 @@ type RenderedFiles =
 
 async function renderFiles(
   files: Map<string, RuleFile>,
-  ctx: EngineContext,
   keepAt: ReadonlyMap<string, ReadonlySet<string>>,
 ): Promise<RenderedFiles> {
   const plans: RuleFilePlan[] = [];
@@ -859,7 +858,7 @@ async function renderFiles(
   for (const file of files.values()) {
     try {
       const keep = keepAt.get(fileIdentity(file)) ?? new Set<string>();
-      plans.push(await planRuleFile(file, { ctx, keep }));
+      plans.push(await planRuleFile(file, { keep }));
     } catch (error) {
       if (error instanceof RuleFileHeld) {
         held.push(error);

@@ -174,7 +174,9 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     await withTempDir(async (dir) => {
       const file = join(dir, "home");
       writeFileSync(file, "");
-      expect(outcome(() => def.detect({ home: file, projectRoot: null, env: {} }))).toEqual({
+      expect(
+        outcome(() => def.detect({ home: file, projectRoot: null, cwd: file, env: {} })),
+      ).toEqual({
         kind: "value",
         value: false,
       });

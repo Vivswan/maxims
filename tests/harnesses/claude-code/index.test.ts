@@ -161,7 +161,7 @@ describe("claude-code", () => {
 
   test("disableAllHooks in settings.json demotes the achieved tier to 2", async () => {
     await withTempDir(async (home) => {
-      const local: HarnessContext = { home, projectRoot: null, env: {} };
+      const local: HarnessContext = { home, projectRoot: null, cwd: home, env: {} };
       mkdirSync(join(home, ".claude"));
       expect(await achievedTier(claudeCode, "global", local)).toEqual({
         tier: 1,
@@ -211,7 +211,7 @@ describe("claude-code", () => {
         write(join(project, ".claude", "settings.local.json"), localJson);
         write(join(project, ".claude", "settings.json"), projectJson);
         write(join(home, ".claude", "settings.json"), userJson);
-        const layered: HarnessContext = { home, projectRoot: project, env: {} };
+        const layered: HarnessContext = { home, projectRoot: project, cwd: project, env: {} };
         for (const scope of ["project", "global"] as const) {
           expect(await achievedTier(claudeCode, scope, layered)).toEqual({
             tier: expected,
@@ -222,24 +222,107 @@ describe("claude-code", () => {
     },
   );
 
-  // A layer that does not parse is not a layer that sets nothing: the walk stops at it with the
-  // reason, so a valid user setting below it never passes for the machine's answer.
-  test("a malformed project settings.json is tier 2 with the reason, over a valid user layer", async () => {
-    await withTempDir(async (dir) => {
-      const home = join(dir, "home");
-      const project = join(dir, "project");
-      mkdirSync(join(home, ".claude"), { recursive: true });
-      mkdirSync(join(project, ".claude"), { recursive: true });
-      const broken = join(project, ".claude", "settings.json");
-      writeFileSync(broken, "{ this is not json\n");
-      writeFileSync(join(home, ".claude", "settings.json"), on);
-      const layered: HarnessContext = { home, projectRoot: project, env: {} };
-      for (const scope of ["project", "global"] as const) {
-        expect(await achievedTier(claudeCode, scope, layered)).toEqual({
-          tier: 2,
-          unreadable: `settings.json could not be read (${broken}: InvalidSymbol at offset 2); assuming hooks off`,
-        });
-      }
-    });
-  });
+  // Claude Code skips a settings file it cannot parse and keeps the other layers in effect, so a
+  // broken file silences only a hook registered in it: that scope reads the reason, the other
+  // scope's walk leaves the file out and the remaining layers decide. Its settings files are strict
+  // JSON, so a `//` comment or a trailing comma is a broken file too.
+  const notJson = "{ this is not json\n";
+  const trailingComma = '{ "disableAllHooks": false, }\n';
+  const commented = '// hooks\n{ "disableAllHooks": false }\n';
+  type Reading = 1 | 2 | "unreadable";
+  const broken: [
+    string,
+    string | null,
+    string | null,
+    string | null,
+    { file: string; reason: string },
+    Record<Scope, Reading>,
+  ][] = [
+    [
+      "project broken over a user on",
+      null,
+      notJson,
+      on,
+      { file: "project/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: "unreadable", global: 1 },
+    ],
+    [
+      "user broken under a project on",
+      null,
+      on,
+      notJson,
+      { file: "home/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: "unreadable" },
+    ],
+    [
+      "user broken under a local on",
+      on,
+      null,
+      notJson,
+      { file: "home/.claude/settings.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: "unreadable" },
+    ],
+    [
+      "local broken over a user off",
+      notJson,
+      null,
+      off,
+      { file: "project/.claude/settings.local.json", reason: "InvalidSymbol at offset 2" },
+      { project: 2, global: 2 },
+    ],
+    [
+      "local broken over a project on",
+      notJson,
+      on,
+      off,
+      { file: "project/.claude/settings.local.json", reason: "InvalidSymbol at offset 2" },
+      { project: 1, global: 1 },
+    ],
+    [
+      "project with a trailing comma over a user on",
+      null,
+      trailingComma,
+      on,
+      { file: "project/.claude/settings.json", reason: "PropertyNameExpected at offset 28" },
+      { project: "unreadable", global: 1 },
+    ],
+    [
+      "user with a comment under a project on",
+      null,
+      on,
+      commented,
+      { file: "home/.claude/settings.json", reason: "InvalidCommentToken at offset 0" },
+      { project: 1, global: "unreadable" },
+    ],
+  ];
+
+  test.each(broken)(
+    "a malformed settings.json demotes only the hook registered in it; elsewhere in the walk it is skipped (%s)",
+    async (_, localJson, projectJson, userJson, brokenFile, expected) => {
+      await withTempDir(async (dir) => {
+        const home = join(dir, "home");
+        const project = join(dir, "project");
+        mkdirSync(join(home, ".claude"), { recursive: true });
+        mkdirSync(join(project, ".claude"), { recursive: true });
+        const write = (path: string, text: string | null): void => {
+          if (text !== null) writeFileSync(path, text);
+        };
+        write(join(project, ".claude", "settings.local.json"), localJson);
+        write(join(project, ".claude", "settings.json"), projectJson);
+        write(join(home, ".claude", "settings.json"), userJson);
+        const layered: HarnessContext = { home, projectRoot: project, cwd: project, env: {} };
+        for (const scope of ["project", "global"] as const) {
+          const reading = expected[scope];
+          expect(await achievedTier(claudeCode, scope, layered)).toEqual(
+            reading === "unreadable"
+              ? {
+                  tier: 2,
+                  unreadable: `settings.json could not be read (${join(dir, brokenFile.file)}: ${brokenFile.reason}); assuming hooks off`,
+                }
+              : { tier: reading, unreadable: null },
+          );
+        }
+      });
+    },
+  );
 });

@@ -11,11 +11,11 @@ import { classifyInvoker, type InvokerClassification, stdoutVariantFor } from ".
 
 export const DEFAULT_COOLDOWN_DAYS = 7;
 
-// `home` is the maxims home (state, store, log); `userHome` is the user's own, which the harness
-// definitions resolve their files against. `configIssue` is the notice an engine verb prints when
-// config.json could not be read as one: the engine always runs on the defaults then, since the
-// session-start hook is one of its callers and must refresh whatever a preference file holds;
-// the verbs that refuse the file instead do so at the command line, before the engine runs.
+// `home` is the maxims home (state, store, log); `userHome` is the user's own, which harness
+// definitions resolve files against. `projectRoot` is recorded by its real path; `cwd` stays as
+// spelled and climbs from its real path. `configIssue` is the notice printed when config.json
+// could not be read as one: the engine runs on the defaults so the session-start hook still
+// refreshes; the refusing verbs stop at the command line.
 export type EngineContext = {
   home: string;
   userHome: string;
@@ -61,7 +61,7 @@ export async function loadContext(
     userHome: io.userHome,
     paths,
     env: io.env,
-    cwd: io.cwd,
+    cwd: startDir,
     installInternal: io.installInternal,
     projectRoot: findProjectRoot(startDir),
     config,
@@ -100,9 +100,10 @@ export function agentsAllowed(filter: HarnessFilter | undefined, id: HarnessId):
 }
 
 // What a harness definition resolves its files against, from the engine's context or the command
-// line's io alike: both carry the user's home and the project root the run acts in.
+// line's io alike: both carry the user's home, the project root and the directory the run acts
+// from.
 export function harnessContext(
-  ctx: Pick<EngineContext, "userHome" | "projectRoot" | "env">,
+  ctx: Pick<EngineContext, "userHome" | "projectRoot" | "cwd" | "env">,
 ): HarnessContext {
-  return { home: ctx.userHome, projectRoot: ctx.projectRoot, env: ctx.env };
+  return { home: ctx.userHome, projectRoot: ctx.projectRoot, cwd: ctx.cwd, env: ctx.env };
 }
