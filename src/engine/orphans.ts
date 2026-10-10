@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, sep } from "node:path";
-import type { Change } from "../../util/change.ts";
-import { assertInsideRoot, isAbsent } from "../../util/fs.ts";
+import type { Change } from "../util/change.ts";
+import { assertInsideRoot, isAbsent } from "../util/fs.ts";
 
 // Where an entry can sit under the store, by the naming scheme in `storePathFor`: `_local/<x>`
 // and `<owner>/<repo>` at depth 2, `_github/<host>/<owner>/<repo>` at depth 4, and `_git/<host>/`

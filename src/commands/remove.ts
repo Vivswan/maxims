@@ -2,6 +2,7 @@ import { memories, notInstalled } from "../console/strings.ts";
 import { actsHere, type EngineContext, loadContext } from "../engine/context.ts";
 import { prunedHooks } from "../engine/hooks.ts";
 import type { SourceTree } from "../engine/memories.ts";
+import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "../engine/plan-sync.ts";
 import { selectMemories } from "../engine/select.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "../engine/types.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
@@ -10,7 +11,6 @@ import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
-import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
 import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
   EMPTY_REPORT,

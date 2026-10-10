@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { notInstalled, STRINGS } from "../console/strings.ts";
 import { actsHere } from "../engine/context.ts";
+import { isFetchedEntry, readInstalledTree, shortSha } from "../engine/plan-sync.ts";
 import { disabledNames, type SelectedMemory, selectMemories } from "../engine/select.ts";
 import type { CliIo } from "../engine/types.ts";
 import type { Scope } from "../harnesses/contract.ts";
@@ -13,7 +14,6 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import { peekIntent } from "./shared/cli-context.ts";
-import { isFetchedEntry, readInstalledTree, shortSha } from "./shared/engine.ts";
 import {
   type Args,
   type Command,

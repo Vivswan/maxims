@@ -1,4 +1,5 @@
 import { type EngineContext, loadContext } from "../engine/context.ts";
+import { planSync, recordedCopies } from "../engine/plan-sync.ts";
 import type { EngineIo, SyncOptions, SyncReport } from "../engine/types.ts";
 import type { State } from "../state/schema.ts";
 import type { StateLock } from "../state/store.ts";
@@ -6,7 +7,6 @@ import { withStateLock } from "../state/store.ts";
 import { maximsHome } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { isDebounced, stampLastSync } from "./shared/debounce.ts";
-import { planSync, recordedCopies } from "./shared/engine.ts";
 import {
   EMPTY_REPORT,
   emptyDocument,

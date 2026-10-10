@@ -1,40 +1,11 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { heldForReview } from "../../console/strings.ts";
-import type { HarnessId } from "../../contracts/harness-id.ts";
-import type { LastError } from "../../contracts/last-error.ts";
-import { isLiveLocal } from "../../contracts/source.ts";
-import {
-  actsHere,
-  agentsAllowed,
-  type EngineContext,
-  harnessContext,
-} from "../../engine/context.ts";
-import { type HarnessTarget, realKeyOf, resolveTargets } from "../../engine/destination.ts";
-import { DAY_MS, type FetchedEntry, refreshSource, storeEntryPresent } from "../../engine/fetch.ts";
-import { destinationUnresolvable } from "../../engine/fs-probe.ts";
-import { hookedAt, planHooks } from "../../engine/hooks.ts";
-import {
-  readSourceMemories,
-  type SourceMemory,
-  type SourceTree,
-  validateMemoryFiles,
-} from "../../engine/memories.ts";
-import { Notices } from "../../engine/notices.ts";
-import { readProjectLock } from "../../engine/project-lock-read.ts";
-import { disabledNames, inSelect, selectMemories } from "../../engine/select.ts";
-import { sourceSlug } from "../../engine/slug.ts";
-import { findSourceKey } from "../../engine/source-key.ts";
-import type {
-  EngineIo,
-  FetchIntent,
-  HarnessFilter,
-  SyncOptions,
-  SyncPreview,
-  SyncReport,
-} from "../../engine/types.ts";
-import type { Scope, SourceSlug } from "../../harnesses/contract.ts";
-import { BudgetExceeded } from "../../harnesses/strategies/rules-dir.ts";
+import { heldForReview } from "../console/strings.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
+import type { LastError } from "../contracts/last-error.ts";
+import { isLiveLocal } from "../contracts/source.ts";
+import type { Scope, SourceSlug } from "../harnesses/contract.ts";
+import { BudgetExceeded } from "../harnesses/strategies/rules-dir.ts";
 import {
   type ContentHash,
   contentHashOf,
@@ -42,39 +13,47 @@ import {
   memoryStem,
   parseMemoryName,
   renamed,
-} from "../../memory/contract.ts";
-import { parseRuleBlocks } from "../../rulefile/blocks.ts";
+} from "../memory/contract.ts";
+import { parseRuleBlocks } from "../rulefile/blocks.ts";
 import {
   buildNameIndex,
   compareInstalled,
   type IndexedSource,
   type Resolution,
   resolveSourceCandidates,
-} from "../../rulefile/dedupe.ts";
-import {
-  type RuleLine,
-  STALE_REASON,
-  type Staleness,
-  staleSentence,
-} from "../../rulefile/types.ts";
-import { type LocalSourceFrom, materializeLocal } from "../../sources/local.ts";
-import { hashFiles, type TreeFile } from "../../sources/tree.ts";
-import type { Fetched, SourceEntry, SourceIntent, State } from "../../state/schema.ts";
-import { serializeState, WRITTEN_BY } from "../../state/store.ts";
-import type { Change, Plan } from "../../util/change.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+} from "../rulefile/dedupe.ts";
+import { type RuleLine, STALE_REASON, type Staleness, staleSentence } from "../rulefile/types.ts";
+import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
+import { hashFiles, type TreeFile } from "../sources/tree.ts";
+import type { Fetched, SourceEntry, SourceIntent, State } from "../state/schema.ts";
+import { serializeState, WRITTEN_BY } from "../state/store.ts";
+import type { Change, Plan } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
   isAbsent,
   isInside,
   type RootedPath,
   realpathOfExistingPrefix,
-} from "../../util/fs.ts";
-import { homePaths, pendingPathFor, storePathFor } from "../../util/home.ts";
-import { compareCodeUnits } from "../../util/order.ts";
+} from "../util/fs.ts";
+import { homePaths, pendingPathFor, storePathFor } from "../util/home.ts";
+import { compareCodeUnits } from "../util/order.ts";
 import { inStore, planBodies, planBodySweep } from "./bodies.ts";
+import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";
+import { DAY_MS, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
+import { destinationUnresolvable } from "./fs-probe.ts";
+import { hookedAt, planHooks } from "./hooks.ts";
+import {
+  readSourceMemories,
+  type SourceMemory,
+  type SourceTree,
+  validateMemoryFiles,
+} from "./memories.ts";
+import { Notices } from "./notices.ts";
 import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
+import { readProjectLock } from "./project-lock-read.ts";
 import {
   type BlockRequest,
   changingBlocks,
@@ -86,6 +65,17 @@ import {
   type RuleFilePlan,
   regularFileText,
 } from "./rules.ts";
+import { disabledNames, inSelect, selectMemories } from "./select.ts";
+import { sourceSlug } from "./slug.ts";
+import { findSourceKey } from "./source-key.ts";
+import type {
+  EngineIo,
+  FetchIntent,
+  HarnessFilter,
+  SyncOptions,
+  SyncPreview,
+  SyncReport,
+} from "./types.ts";
 
 export type ScopeKind = SourceIntent["destination"]["scope"];
 

@@ -1,30 +1,27 @@
 import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { agentsAllowed, type EngineContext, harnessContext } from "../../engine/context.ts";
-import { type HarnessTarget, realKeyOf } from "../../engine/destination.ts";
-import type { HarnessFilter } from "../../engine/types.ts";
 import {
   type HarnessDefinition,
   type Scope,
   type SourceSlug,
   scopeRoot,
-} from "../../harnesses/contract.ts";
-import { achievedTier } from "../../harnesses/hook-writer.ts";
-import { chooseSelfRefreshSource } from "../../harnesses/strategies/once-per-target.ts";
-import { assertWithinBudget, planRulesDirWrite } from "../../harnesses/strategies/rules-dir.ts";
-import { planSharedBlockRemove } from "../../harnesses/strategies/shared-block.ts";
+} from "../harnesses/contract.ts";
+import { achievedTier } from "../harnesses/hook-writer.ts";
+import { chooseSelfRefreshSource } from "../harnesses/strategies/once-per-target.ts";
+import { assertWithinBudget, planRulesDirWrite } from "../harnesses/strategies/rules-dir.ts";
+import { planSharedBlockRemove } from "../harnesses/strategies/shared-block.ts";
 import {
   markdownLines,
   ownLineMatcher,
   parseBlocks,
   renderBlock,
   replaceBlock,
-} from "../../rulefile/block.ts";
-import { parseRuleLines, ruleLineName } from "../../rulefile/blocks.ts";
-import { estimateTokens } from "../../rulefile/budget.ts";
-import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
-import type { Change } from "../../util/change.ts";
-import { MaximsError } from "../../util/exit-codes.ts";
+} from "../rulefile/block.ts";
+import { parseRuleLines, ruleLineName } from "../rulefile/blocks.ts";
+import { estimateTokens } from "../rulefile/budget.ts";
+import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../rulefile/types.ts";
+import type { Change } from "../util/change.ts";
+import { MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
   cannotInspect,
@@ -32,7 +29,10 @@ import {
   type RootedPath,
   readIfPresent,
   realpathOfExistingPrefix,
-} from "../../util/fs.ts";
+} from "../util/fs.ts";
+import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import { type HarnessTarget, realKeyOf } from "./destination.ts";
+import type { HarnessFilter } from "./types.ts";
 
 export type BlockRequest = {
   key: string;

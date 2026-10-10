@@ -11,6 +11,14 @@ import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
 import { DAY_MS } from "../engine/fetch.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { hookStatus, hookStatusText } from "../engine/hooks.ts";
+import {
+  installedHere,
+  isFetchedEntry,
+  readInstalledTree,
+  retainedNames,
+  shortSha,
+  staleness,
+} from "../engine/plan-sync.ts";
 import { readProjectLock } from "../engine/project-lock-read.ts";
 import { disabledNames, selectMemories } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
@@ -31,14 +39,6 @@ import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
-import {
-  installedHere,
-  isFetchedEntry,
-  readInstalledTree,
-  retainedNames,
-  shortSha,
-  staleness,
-} from "./shared/engine.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
 
 // Read-only: what state asks for, with everything past intent (tier, hook presence, collisions,
