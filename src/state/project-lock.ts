@@ -110,9 +110,8 @@ export type ParsedProjectLock =
   | { ok: "parsed"; lock: ProjectLock }
   | { ok: "corrupt"; issues: string[] };
 
-// The version is judged before the shape, and neither direction is climbed: a newer lock holds
-// fields this maxims cannot see, and an older one holds entries whose shape it cannot read, so the
-// machine that shared them deletes the file and `share` writes it whole from state again.
+// The version is judged before the shape and neither direction is climbed: the lock is small and
+// `share` writes it whole from state, so an older one is refused rather than migrated.
 export function parseProjectLock(text: string): ParsedProjectLock {
   let json: unknown;
   try {
@@ -131,7 +130,7 @@ export function parseProjectLock(text: string): ParsedProjectLock {
     return {
       ok: "corrupt",
       issues: [
-        `written by an older maxims (lock version ${version}, this maxims reads ${CURRENT_PROJECT_LOCK_VERSION}); delete it and run maxims share on the machine that shared it`,
+        `written by an older maxims (lock version ${version}, this maxims reads ${CURRENT_PROJECT_LOCK_VERSION}); delete it and run maxims share on each machine that shared into it`,
       ],
     };
   }

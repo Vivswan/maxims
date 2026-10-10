@@ -125,7 +125,7 @@ The ladder is `src/state/migrations/state-ladder.ts`, run by the mechanism in `s
 
 `config.json` has its own ladder, `src/state/migrations/config-ladder.ts`, with the same shape and the same two outcomes: an older file climbs it before the strict parse, and a newer one is refused until maxims is upgraded. The [user defaults section](files.md#user-defaults-in-configjson) owns the file.
 
-The [project lock](share.md#the-project-manifest) has `src/state/migrations/project-lock-ladder.ts`, which derives the version the lock schema pins. Its read boundary refuses an older lock and points at a fresh `share` instead of climbing, since the lock is written whole from state.
+The [project lock](share.md#the-project-manifest) has `src/state/migrations/project-lock-ladder.ts`, which derives the version the lock schema pins. Its read boundary refuses an older lock and points at a fresh `share` instead of climbing.
 
 Compatibility with an older file lives in the ladder and nowhere else. A step may run twice on a retried update, so each is idempotent; a step is deleted once a hard break makes it unreachable, and downgrading past one is quarantine and re-add.
 

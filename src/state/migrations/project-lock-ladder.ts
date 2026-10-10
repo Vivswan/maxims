@@ -1,7 +1,6 @@
-// The one place that knows an older project lock shape; the mechanism is runner.ts. The lock is
-// small and written whole from state by `share`, so its read boundary refuses a version below the
-// current one and points at a fresh `share` rather than climbing; the registry still derives the
-// version the schema pins and records each shape change as a step.
+// The project lock's ladder; the mechanism is runner.ts. The read boundary refuses every version
+// below the current one rather than climbing, so a lock shape change raises FIRST_VERSION and ships
+// the fixture that pins the refusal, and MIGRATIONS stays empty.
 
 import type { Ladder, MigrationStep } from "./runner.ts";
 
