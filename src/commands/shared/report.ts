@@ -4,6 +4,7 @@ import { inspectState, type LoadedState } from "../../state/store.ts";
 import { applyChanges, type Change, renderPlan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside } from "../../util/fs.ts";
+import { jsonDocument } from "../../util/json.ts";
 import { appendRefreshLog } from "../../util/log.ts";
 import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
 import type { EngineContext } from "./context.ts";
@@ -105,7 +106,7 @@ function printOutcome(
   const visible = report.changed.filter((path) => !isInside(ctx.home, path));
   const changed = visible.length > 0;
   if (options.json) {
-    io.stdout(jsonDocument(report, outcome.failures));
+    io.stdout(reportDocument(report, outcome.failures));
     return;
   }
   if (options.quiet) {
@@ -145,7 +146,7 @@ export function summaryLine(report: SyncReport): string {
 
 // The failure document, when a change failed to apply or a fetch failed, carries what the success
 // document carries beside the failure; a failed fetch is the same failure `update` ends in.
-function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
+function reportDocument(report: SyncReport, failures: SyncFailure[]): string {
   const { plan, ...rest } = report;
   const [failure] = failures;
   if (failure !== undefined) {
@@ -155,13 +156,13 @@ function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
   if (report.failed.length > 0) {
     return errorDocument(failedFetches(report.failed), { report: rest, plan });
   }
-  return `${JSON.stringify({ ok: true, report: rest, plan }, null, 2)}\n`;
+  return jsonDocument({ ok: true, report: rest, plan });
 }
 
 // The `--json` document of a run that changed nothing and planned nothing.
 export function emptyDocument(notices: readonly string[]): string {
   const { plan, ...report } = EMPTY_REPORT;
-  return `${JSON.stringify({ ok: true, report: { ...report, notices }, plan }, null, 2)}\n`;
+  return jsonDocument({ ok: true, report: { ...report, notices }, plan });
 }
 
 // Under `--json` a failure that escaped the plan is printed as the one document and rethrown as

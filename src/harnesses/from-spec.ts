@@ -18,6 +18,7 @@ import {
   HOOK_PLACEHOLDERS,
   type HookPlaceholder,
   type HookSpecData,
+  homeRelative,
   placeholderPattern,
   placeholdersIn,
   type ScopedFrontmatterSpec,
@@ -113,7 +114,7 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
 // working directory, not against HOME.
 function compileGlobalRoot(root: GlobalRootSpec): (ctx: HarnessContext) => string {
-  const fallback = root.default.startsWith("~/") ? root.default.slice("~/".length) : root.default;
+  const fallback = homeRelative(root.default);
   const env = root.env;
   return (ctx) => {
     const override = env === undefined ? undefined : ctx.env[env.name];

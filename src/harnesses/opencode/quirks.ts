@@ -3,6 +3,7 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
+import { jsonDocument } from "../../util/json.ts";
 import {
   appendChild,
   assertParses,
@@ -51,7 +52,7 @@ export async function reconcileInstructions(
   if (target === undefined) return [];
   const next =
     target.text === null
-      ? `${JSON.stringify({ instructions: [INSTRUCTIONS_GLOB] }, null, 2)}\n`
+      ? jsonDocument({ instructions: [INSTRUCTIONS_GLOB] })
       : editInstructions(target.text, target.path, true);
   return writeIfChanged(target, next);
 }

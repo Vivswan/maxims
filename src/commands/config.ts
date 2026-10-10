@@ -8,6 +8,7 @@ import {
 import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
+import { jsonDocument } from "../util/json.ts";
 import { configWrite } from "./shared/cli-context.ts";
 import { type Command, closestName, INTEGER, integerOrUsage, usage } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
@@ -71,7 +72,7 @@ export const config: Command = {
     const console = await ctx.openConsole(true);
     if (action === "get") {
       if (rawKey === undefined) {
-        ctx.io.stdout.write(`${JSON.stringify(ctx.config, null, 2)}\n`);
+        ctx.io.stdout.write(jsonDocument(ctx.config));
         return ExitCode.Ok;
       }
       const value = ctx.config[keyOrUsage(rawKey)];

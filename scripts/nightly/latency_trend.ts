@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { jsonDocument } from "../../src/util/json.ts";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
 import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
 import { percent, quantity, readPositiveNumber } from "../lib/figures.ts";
@@ -177,7 +178,7 @@ export async function runLatencyTrend(
   const measured = await withScratchDir("maxims-latency-trend-", measure);
   const current: Entry = { at: now.toISOString(), runs: RUNS, ...measured };
   const baseline = pickBaseline(read.trend.entries, now);
-  writeFileSync(trendPath, `${JSON.stringify(appendEntry(read.trend, current), null, 2)}\n`);
+  writeFileSync(trendPath, jsonDocument(appendEntry(read.trend, current)));
   if (baseline === null) {
     const notice =
       `Recorded ${describe(current)}; no entry is ${BASELINE_AGE_DAYS} days old yet, ` +

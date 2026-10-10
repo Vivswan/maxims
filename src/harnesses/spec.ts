@@ -92,12 +92,13 @@ const RelPath = z
   .refine((value) => !value.split(/[\\/]/).includes(".."), { error: "a path cannot contain .." });
 
 // The global root may also be spelled with a leading `~/`; it is relative to HOME either way.
-const HomePath = z
-  .string()
-  .refine(
-    (value) => RelPath.safeParse(value.startsWith("~/") ? value.slice("~/".length) : value).success,
-    { error: "expected a path relative to HOME, with or without a leading ~/" },
-  );
+export function homeRelative(value: string): string {
+  return value.startsWith("~/") ? value.slice("~/".length) : value;
+}
+
+const HomePath = z.string().refine((value) => RelPath.safeParse(homeRelative(value)).success, {
+  error: "expected a path relative to HOME, with or without a leading ~/",
+});
 
 const EnvName = z.string().regex(ENV_NAME, { error: "expected an environment variable name" });
 const FixtureName = z

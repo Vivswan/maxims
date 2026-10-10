@@ -7,6 +7,7 @@ import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
+import { jsonDocument } from "../util/json.ts";
 import {
   actsHere,
   DEFAULT_COOLDOWN_DAYS,
@@ -59,7 +60,7 @@ async function runListChecked(options: ListOptions, io: EngineIo): Promise<ListR
       ? await listState(preview.state, ctx, io)
       : { ...emptyReport(ctx), notices: [preview.line] };
   if (preview.kind !== "loaded") await addLockOnly(report, null, ctx);
-  io.stdout(options.json ? `${JSON.stringify(report, null, 2)}\n` : renderList(report));
+  io.stdout(options.json ? jsonDocument(report) : renderList(report));
   return report;
 }
 

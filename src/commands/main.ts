@@ -4,6 +4,7 @@ import { jsonNeedsYes, STRINGS, unknownCommand } from "../console/strings.ts";
 import { readUserConfig } from "../state/config.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
+import { jsonDocument } from "../util/json.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { VERSION } from "../version.ts";
 import { configRefusal } from "./shared/cli-context.ts";
@@ -262,7 +263,7 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   const invocation = scan(argv);
   const { quiet, json, dryRun } = invocation;
   const print = (plain: string, body: Record<string, unknown>): number => {
-    io.stdout.write(json ? `${JSON.stringify({ ok: true, ...body }, null, 2)}\n` : plain);
+    io.stdout.write(json ? jsonDocument({ ok: true, ...body }) : plain);
     return ExitCode.Ok;
   };
   if (invocation.version) return print(`maxims ${VERSION}\n`, { version: VERSION });

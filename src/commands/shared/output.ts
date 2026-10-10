@@ -1,6 +1,7 @@
 import type { Console } from "../../console/contract.ts";
 import { type Plan, renderPlan } from "../../util/change.ts";
 import { ExitCode, type MaximsError } from "../../util/exit-codes.ts";
+import { jsonDocument } from "../../util/json.ts";
 import { errorDocument, ReportedMaximsError } from "./errors.ts";
 import type { CommandContext } from "./options.ts";
 
@@ -23,7 +24,7 @@ export function finish(ctx: CommandContext, console: Console, outcome: Outcome):
   const code = outcome.code ?? ExitCode.Ok;
   if (global.json) {
     const body = { ok: code === ExitCode.Ok, ...documentFields(outcome) };
-    io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+    io.stdout.write(jsonDocument(body));
     return code;
   }
   if (global.quiet) {
