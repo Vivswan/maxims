@@ -25,11 +25,12 @@ export type GitOutcome<T> =
   | { kind: "absent" }
   | { kind: "failed"; message: string };
 
-// What identity a git call may carry. `none` clears the headers and credential helpers the user's
-// own gitconfig would add for the URL, so an anonymous fetch is anonymous even on a machine that is
-// logged in. `header` is one complete header line applied to that URL only, so an `insteadOf`
-// rewrite to another host cannot carry it along; it is the only way a token reaches git, and it
-// never appears in a URL or an argument. `sparsePath` undefined checks out the whole tree.
+// `header` is the only way the ladder's own token reaches git; it never appears in a URL or an
+// argument.
+//   none     clears the headers and credential helpers the user's own gitconfig would add for the
+//            URL, so an anonymous fetch is anonymous even on a machine that is logged in
+//   header   one complete header line applied to that URL only, so an `insteadOf` rewrite to
+//            another host cannot carry it along
 export type GitCredentials =
   | { kind: "none" }
   | { kind: "inherited" }
@@ -60,11 +61,10 @@ export type Endpoints = {
   archiveUrl(repo: RepoCoordinate, ref: string): string;
 };
 
-// gh's URL shapes (go-gh pkg/api restPrefix): the github.com class serves its API from an `api.`
-// subdomain, an enterprise server under its own /api/v3. Archives come from codeload for github.com
-// alone; a tenant has no documented archive host, so the REST tarball endpoint, which redirects to
-// wherever the tenant stores them, is asked instead; an enterprise server serves them under the
-// repository's own path.
+// gh's URL shapes (go-gh pkg/api restPrefix). A tenant has no documented archive host, so the REST
+// tarball endpoint, which redirects to wherever the tenant stores them, is asked instead.
+//   github.com class    API from an `api.` subdomain; archives from codeload for github.com alone
+//   enterprise server   API under its own /api/v3; archives under the repository's own path
 export function endpointsFor(host: string): Endpoints {
   const ghHost = host.toLowerCase();
   const isDotCom = ghHost === DEFAULT_GH_HOST;
@@ -127,10 +127,8 @@ export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
 }
 
-// gh's own names and precedence: GH_TOKEN and GITHUB_TOKEN authenticate the github.com class, the
-// two ENTERPRISE names every other host. A token is offered only to the host class it was named
-// for, so a github.com token never reaches an enterprise server and an enterprise token never
-// reaches a tenant.
+// gh's own names and precedence. A token is offered only to the host class it was named for, so a
+// github.com token never reaches an enterprise server, nor an enterprise token a tenant.
 const DOTCOM_TOKEN_NAMES = ["GH_TOKEN", "GITHUB_TOKEN"];
 const ENTERPRISE_TOKEN_NAMES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
@@ -599,10 +597,9 @@ function batchSshCommand(base: NodeJS.ProcessEnv): string {
   return `${word.raw} -o BatchMode=yes${command.slice(word.raw.length)}`;
 }
 
-// The first word of a POSIX command line, as spelled and as sh reads it: unquoted whitespace or an
-// operator character ends it. Inside double quotes a backslash escapes only `$`, a backquote, `"`,
-// `\` and a newline, and stays a character before anything else, which is how a Windows path keeps
-// its separators.
+// The first word of a POSIX command line, as spelled (`raw`) and as sh reads it (`text`). Inside
+// double quotes a backslash stays a character unless it escapes one of sh's five, which is how a
+// Windows path keeps its separators.
 function leadingShellWord(command: string): { raw: string; text: string } {
   let quote: string | null = null;
   let text = "";
@@ -667,8 +664,8 @@ const GIT_CONFIG = [
 
 // The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
 // upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
-// repository. simple-git refuses a guarded variable handed to `.env()` unless `allowEnvironment`
-// lists it, so an unlisted one is dropped rather than failing the fetch.
+// repository. simple-git refuses a guarded variable unless `allowEnvironment` lists it, so an
+// unlisted one is dropped rather than failing the fetch.
 const isGuardedEnvKey = (key: string): boolean => {
   const normalized = key.toLowerCase().trim();
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
@@ -695,8 +692,7 @@ function guardedEnvironment(env: Record<string, string>): {
 // A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
 // prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
 // simple-git's debug channel is switched off for the whole process: under `DEBUG=simple-git:*` it
-// prints every spawn's arguments and environment, which is where a remote URL's password or an
-// inherited token would appear.
+// prints every spawn's arguments and environment, where a URL's password or a token would appear.
 export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   debug.disable();
   const binary = options.binary ?? "git";
@@ -873,19 +869,17 @@ export function credentialConfig(url: string, remote: string, credentials: GitCr
   return lines.join("\n");
 }
 
-// Quoting is what lets a remote carry a backslash or a quote: unquoted, a backslash starts an
-// escape git may not know (the `\r` of a Windows path) and the whole file is refused, and `#` or
-// `;` would start a comment. Backslash and double quote are the escapes a subsection name and a
-// quoted value both need.
+// Unquoted, a backslash starts an escape git may not know (the `\r` of a Windows path) and the
+// whole file is refused, and `#` or `;` would start a comment. Backslash and double quote are the
+// escapes a subsection name and a quoted value both need.
 function gitConfigString(value: string): string {
   return `"${value.replace(/[\\"]/g, "\\$&")}"`;
 }
 
-// HOME is libcurl's only pointer to `.netrc`, and also git's for `~/.gitconfig`, `~/.config`, every
-// `~`-relative path in them, and ssh's for `~/.ssh`. The private HOME mirrors the real one entry by
-// entry through symlinks, minus the netrc files, so all of those keep resolving. A HOME that cannot
-// be mirrored fails the call outright: proceeding without the user's proxy or CA settings would
-// only surface later as a network error that points nowhere.
+// HOME is where libcurl looks for `.netrc` and git for `~/.gitconfig`, `~/.config` and every
+// `~`-relative path in them, so the private HOME mirrors the real one entry by entry through
+// symlinks, minus the netrc files. A HOME that cannot be mirrored fails the call outright: without
+// the user's proxy or CA settings it would only fail later as a network error.
 async function privateHome(
   env: Record<string, string>,
   home: string,

@@ -2,15 +2,12 @@ import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 import { configEdit, RULE_FILE_NAME, RULES_DIR } from "./quirks.ts";
 
-// OpenCode resolves its global directory through the XDG base directories, so an override of
-// `XDG_CONFIG_HOME` moves the config file, the plugins directory and AGENTS.md with it. The
-// project target is a rules directory OpenCode does not read on its own: the configEdit quirk
-// lists it in `opencode.json`. The global scope is a block in the one file OpenCode always reads,
-// so it needs no such entry. OpenCode has no hook registry; a plugin file in its plugins directory
-// is auto-discovered and `session.created` fires once per session. The sync runs through Bun's
-// shell with `.nothrow().quiet()`, so an offline npx can never surface as a plugin error and there
-// is no stdout channel for the staleness notice. Documented: "opencode doesn't automatically parse
-// file references in AGENTS.md".
+// OpenCode reads no rules directory on its own, so the configEdit quirk lists the project target in
+// the project's `opencode.jsonc` or `opencode.json`; the global scope is a block in the one file
+// OpenCode always reads and needs no entry.
+//   session.created      fires once per session
+//   .nothrow().quiet()   the plugin swallows the sync's exit and output, so an offline npx never
+//                        surfaces as a plugin error and the staleness notice has no stdout channel
 export const spec = {
   id: "opencode",
   displayName: "OpenCode",

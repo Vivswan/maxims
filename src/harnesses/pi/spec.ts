@@ -2,14 +2,11 @@ import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
-// working directory: AGENTS.override.md, else AGENTS.md or AGENTS.MD, else CLAUDE.md or CLAUDE.MD,
-// so a block written into AGENTS.md beside AGENTS.override.md would never load and creating
-// AGENTS.md beside a lone CLAUDE.md would stop Pi reading the user's file. The config directory
-// moves with `PI_CODING_AGENT_DIR`. Pi has no hook registry: an extension file in its extensions
-// directory receives `session_start` and runs the sync through `pi.exec`, which takes an argv
-// rather than a shell string and a timeout in milliseconds. Its MCP servers live under
-// `mcpServers` in `mcp.json` beside the extensions; the project file is read once the project is
-// trusted, and every enabled server connects when a session starts.
+// working directory, AGENTS.override.md first and the CLAUDE spellings last, so a block written
+// into AGENTS.md beside AGENTS.override.md would never load and creating AGENTS.md beside a lone
+// CLAUDE.md would stop Pi reading the user's file. `pi.exec` takes an argv with no shell; the
+// project `mcp.json` is read once the project is trusted, and every enabled server connects when a
+// session starts.
 export const spec = {
   id: "pi",
   displayName: "Pi",

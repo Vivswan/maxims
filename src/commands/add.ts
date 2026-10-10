@@ -119,8 +119,6 @@ import {
 } from "./frame/risk.ts";
 import { parseSourceSelector, storable } from "./frame/source-argument.ts";
 
-// Everything `add` decided from the command line and the config, parsed once into a shape that
-// cannot hold a conflict: one destination, one selection, one harness choice.
 export type AddRequest = {
   key: string;
   from: SourceFrom;
@@ -227,11 +225,11 @@ export const add: Command = {
   },
 };
 
-// The sync that follows a commit never fetches (the commit just did) and, under --dry-run, plans
-// against the state the commit would have written, since the file itself was left alone. The
-// verb frames the output, so the engine's own lines go nowhere and its report is what is shown;
-// `--quiet` is the frame's silence, never the hook's debounce or deferred deletions, so the
-// engine runs it as an interactive sync.
+// The sync that follows a commit never fetches: the verb fetched what it needed, or edited intent
+// alone. The verb frames the output, so the engine's own lines go nowhere.
+//   --dry-run   plans against the state the commit would have written; the file was left alone
+//   --quiet     the frame's silence only: the engine runs an interactive sync, with no debounce and
+//               no deferred deletions
 export function syncCommitted(
   ctx: CommandContext,
   preview: SyncPreview & { retired?: readonly SourceEntry[] },
@@ -256,10 +254,9 @@ function committedSyncOptions(
   };
 }
 
-// Whether the destinations admit what an intent edit would install: the plan the edit's sync
-// would make, drawn against the state and store writes as they would land, before any of them
-// does. A collision, a cap or a byte budget the engine refuses stops here, so the one commit point
-// keeps its promise that a refused install leaves the machine as it was.
+// The plan the edit's sync would make, drawn against the state and store writes as they would land,
+// before any of them does. A collision, a cap or a byte budget the engine refuses stops here, so
+// the one commit point keeps its promise that a refused install leaves the machine as it was.
 export async function admitIntent(
   ctx: CommandContext,
   preview: SyncPreview,
@@ -371,8 +368,7 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
   };
 }
 
-// A local source outside the checkout has no path a teammate's checkout can follow, so it cannot
-// be shared; the refusal names the way out.
+// A local source outside the checkout has no path a teammate's checkout can follow.
 export function assertShareable(from: SourceFrom, projectRoot: string): void {
   if (from.type !== "local" || insideProject(projectRoot, from.path)) return;
   throw usage(`${from.path} lies outside the project, so a teammate's checkout cannot reach it`, {
@@ -409,10 +405,9 @@ export type PrepareOutcome =
   | { kind: "cancelled" }
   | { kind: "prepared"; prepared: PreparedAdd };
 
-// A source after steps 1 and 2: fetched, scanned and filtered, nothing validated yet. `install`
-// stages every manifest entry before planning any, so the entries validate against each other.
-// `memories` are the ones the user can see; `recorded` every valid one, hidden internal memories
-// included, because the fetch record is a fact about the source and a refresh writes it that way.
+// `install` stages every manifest entry before planning any, so the entries validate against each
+// other. `recorded` holds hidden internal memories too: the fetch record is a fact about the
+// source, and a refresh writes it that way.
 export type StagedAdd = {
   request: AddRequest;
   tree: FetchedFiles;
@@ -465,14 +460,13 @@ export async function stageAdd(
   };
 }
 
-// Steps 3 and 4: validate, show the plan and confirm. No intent and no destination is written, so
-// a failure here (exit 3, 6, 7, 8) leaves the machine as it was, apart from a corrupt state file a
-// real run's locking read has already moved aside. `--list` stops before validation: a preview
-// exists so the user can see and narrow a source whose install would be refused. `siblings` are
-// the other sources staged in the same run: their names satisfy wikilinks and take part in the
-// collision walk as if they were already recorded. The risk warnings sit above the plan, so the
-// reader judges the one-liners with the shapes named; `--strict` turns them into the refusal. A
-// memory disabled at the destination lands in no rule file, so its description is not judged.
+// No intent and no destination is written here, so a failure (exit 3, 6, 7, 8) leaves the machine
+// as it was, apart from a corrupt state file a real run's locking read has already moved aside.
+//   --list     stops before validation: a preview exists so the user can see and narrow a source
+//              whose install would be refused
+//   siblings   the other sources staged in the same run, treated as if they were already recorded
+//   warnings   sit above the plan, so the one-liners are judged with the shapes named; `--strict`
+//              turns them into the refusal, and a memory disabled at the destination is not judged
 export async function planAdd(
   staged: StagedAdd,
   ctx: CommandContext,
@@ -545,8 +539,7 @@ export async function planAdd(
 
 // Every colliding name owned by one repository recorded under another ref is a repin: two source
 // keys, one repository, and a rename prompt would only obscure the order that repins it. A name
-// the incoming source collides with itself on (two renamed onto one) or with any other source
-// keeps the rename path. A local directory has no ref.
+// the incoming source collides with itself on, or with any other source, keeps the rename path.
 function repinRefusal(from: SourceFrom, owners: string[], state: State): MaximsError | null {
   if (from.type === "local") return null;
   const base = { ...from, ref: DEFAULT_GIT_REF };
@@ -569,13 +562,12 @@ function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
   return ids.filter((id) => io.harnesses.some((def) => def.id === id && def.hook.kind !== "none"));
 }
 
-// GitHub names are case-insensitive and the state file refuses two spellings of one repository,
-// so a re-add typed in another case continues the recorded entry under its recorded key. State
-// holds one entry per source, so a source recorded for another project cannot be added here in
-// any scope without taking that project's entry over, and one recorded at another scope cannot be
-// moved by a re-add; both are refused with the way out named. A re-add under another `-o` folder
-// stays a move of the same scope: the retired folder is swept by the sync that follows. A
-// `--list` takes nothing over and previews the source wherever it is recorded.
+// GitHub names are case-insensitive and the state file refuses two spellings of one repository, so
+// a re-add typed in another case continues the recorded entry under its recorded key. State holds
+// one entry per source, so a re-add cannot take another project's entry over or move one between
+// scopes; both are refused with the way out named.
+//   another `-o` folder   a move within the scope; the sync that follows sweeps the retired folder
+//   `--list`              takes nothing over and previews the source wherever it is recorded
 function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequest {
   const recorded = findSourceKey(state, request.key);
   if (recorded === null) return request;
@@ -592,11 +584,13 @@ function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequ
   return { ...request, key: recorded, from: entry.intent.from };
 }
 
-// `harnesses` are the ones the sync after the commit must reach: every harness the recorded
-// entries list now and listed before, so a re-add that drops one takes its files with it; empty
-// means every harness, which a manifest's disabled names call for, since a name switched off may
-// belong to any project source. `retired` are the previous entries a re-add moved to another
-// destination, whose old folders the sync sweeps.
+// The sync after the commit must reach what the entries listed before as well as what they list
+// now.
+//   harnesses   those listed now and before, so a re-add that drops one takes its files with it;
+//               empty means every harness, which a manifest's disabled names call for, since a
+//               name switched off may belong to any project source
+//   retired     the previous entries a re-add moved to another destination, whose old folders the
+//               sync sweeps
 export type CommitOutcome = SyncPreview & {
   notices: string[];
   hooked: HarnessId[];
@@ -709,8 +703,6 @@ function sameDestination(a: Destination, b: Destination): boolean {
   return a.scope === b.scope && (a.scope !== "out" || b.scope !== "out" || a.path === b.path);
 }
 
-// The store entry a fetched tree lands in: a local directory through the local materializer (a
-// live one becomes a link), a remote through the same swap every refresh plans.
 function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeFile[]): Change[] {
   if (from.type === "local") return materializeLocal(from, home, [...files]);
   return swapStoreEntry(storePathFor(home, from), [...files]);
@@ -727,10 +719,9 @@ export function describeSource(from: SourceFrom): string {
   }
 }
 
-// Where a remote source comes from, shown once, on the first install from an owner this machine
-// holds nothing else from: the review gate for a source is the plan, and a plan from a stranger
-// deserves the repository, the commit and the size named beside it. `pinned` is the ref a pin
-// tracks, null when the source follows the default branch.
+// Shown once, on the first install from an owner this machine holds nothing else from: the review
+// gate for a source is the plan, and a plan from a stranger deserves the repository, the commit and
+// the size named beside it.
 export type Provenance = {
   owner: string;
   url: string;
@@ -739,10 +730,9 @@ export type Provenance = {
   pinned: string | null;
 };
 
-// The owner of a remote: the GitHub account under its host, or a git host and the first path
-// segment (`git.example.com/team`), both lower-cased so a GitHub Enterprise repository spelled as
-// a URL and as a shorthand is one owner (GitHub names are case-insensitive). A local directory
-// has no owner to be new. A git URL the store cannot place is its own owner.
+// The GitHub account under its host, or a git host and the first path segment
+// (`git.example.com/team`), both lower-cased so a GitHub Enterprise repository spelled as a URL and
+// as a shorthand is one owner (GitHub names are case-insensitive).
 export function sourceOwner(from: SourceFrom): string | null {
   if (from.type === "github") {
     const [owner = ""] = from.repo.toLowerCase().split("/", 1);
@@ -874,9 +864,6 @@ function filterSelection(select: Select, memories: readonly Memory[]): Memory[] 
   });
 }
 
-// Step 3: the hidden-character gate, the wikilink check and the collision walk, in that order, all
-// before anything is written. A collision is offered a rename when the console can ask; the
-// answer is merged into the request's rename map and the walk runs again against it.
 async function validate(
   request: AddRequest,
   chosen: readonly Memory[],
@@ -984,11 +971,6 @@ function renameSuffix(from: SourceFrom): string {
 
 type HarnessChoice = { ids: HarnessId[]; warnings: string[]; remember: boolean };
 
-// Default `-a`: the harnesses detected on this machine, then `config.agents`, then the remembered
-// last selection, then a prompt when the console can ask. A harness without a target at the
-// destination's scope is dropped: with a warning when its id was named, detected or config-listed,
-// silently under `--all` or `-a '*'`, and the prompt never offers it. Null means the user
-// cancelled the prompt, which ends the run like a declined confirmation.
 async function chooseHarnesses(
   request: AddRequest,
   ctx: CommandContext,
@@ -1116,10 +1098,6 @@ function showSelect(select: Select): string {
   return select === "*" ? "*" : select.join(", ");
 }
 
-// Three entry shapes, one per source variant: a remote source records the sha its remote
-// reported, a copied local directory records a content hash of its tree, and a live directory
-// records no fetch at all. Each hash is parsed into its brand here, at the one place a resolver's
-// answer becomes state.
 function buildEntry(
   request: AddRequest,
   rename: RenameMap,

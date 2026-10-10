@@ -1,16 +1,10 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
-// (AGENTS.md, hooks.json, config.toml) moves with it. Its two instruction loaders differ on a blank
-// file: in that home it reads the first of AGENTS.override.md and AGENTS.md whose trimmed content
-// is not empty, so a blank override is passed over there; in a project directory it takes the
-// first of the two that exists and drops a blank one without falling back to AGENTS.md, so there
-// the block belongs in the override even when blank. Hooks are on unless `[features] hooks =
-// false` is set; Codex layers a `.codex/config.toml` from the project root down to the directory
-// it runs in over the user config.toml, the nearest deciding, so every one of them is read for
-// that flag and never written; Codex refuses to start on a config.toml it cannot parse or type,
-// so a broken layer anywhere is hooks off.
+// Codex's two instruction loaders differ on a blank file. In its home it passes a blank
+// AGENTS.override.md over and reads AGENTS.md; in a project directory it takes the first that
+// exists and drops a blank one without falling back, so there the block belongs in the override
+// even when blank.
 export const spec = {
   id: "codex",
   displayName: "Codex",
