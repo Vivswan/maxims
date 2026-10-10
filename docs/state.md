@@ -84,6 +84,8 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`writtenBy`** says which maxims wrote this, so a bug report is reproducible without asking.
 - **`hooks`** lists the harnesses where the user wants a sync hook kept, per scope: `global` is one sorted list for the user scope, `project` one sorted list per project root, so `add --add-hook` in one project says nothing about the user scope or another project. A harness leaves a list with its last source at that scope. Lists, not records: whether the hook is registered is read from the harness.
 - **`overrides`** is reserved for the one hook fact that is intent, a config path the user chose over the harness definition; accepted as an open record, and nothing writes or reads it yet.
+<!-- BEGIN GENERATED: intent-fields (bun run docs:tables) -->
+
 - **`intent.from`** is `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down.
 - **`ref` is `HEAD`** for the default branch's head; the branch name is never stored because a repo can rename it.
 - **`intent.auth`** is whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own.
@@ -96,6 +98,8 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`intent.harnesses`** is which harnesses this source writes to.
 - **`intent.review`** is `true` or absent, never `false`: set by `add --review` or `review`, so refreshes wait for `accept` instead of applying. The [review hold](keep-fresh.md#hold-changes-for-review) owns the verbs.
 - **`intent.shared`** is `true` or absent: `true` marks a project source as projected into `.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or `out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns the verbs.
+
+<!-- END GENERATED: intent-fields -->
 - **`fetched.at` and `fetched.sha`** drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record.
 - **`fetched.memories`** holds a content hash and a description hash per memory; a refresh diffs the content hashes to report each memory added, removed, or changed.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.

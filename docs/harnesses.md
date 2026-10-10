@@ -5,16 +5,16 @@ group: Reference
 
 # Harnesses
 
-Every registered harness gets a rule file in its always-loaded layer, and every harness with a hook system gets one hook that runs `npx -y @vivswan/maxims sync --quiet` on the event the hook column names. The matrix below is rendered from the harness definitions by `scripts/render_harness_matrix.ts`: `bun run docs:matrix` regenerates it, and `bun run check` fails while the page is behind the registry.
+Every registered harness gets a rule file in its always-loaded layer, and every harness with a hook system gets one hook that runs `npx -y @vivswan/maxims sync --quiet` on the event the hook column names. The matrix below is rendered from the harness definitions by `scripts/render_docs_tables.ts`: `bun run docs:tables` regenerates it, and `bun run check` fails while the page is behind the registry.
 
 ## The matrix
 
 Ids in the first column are what `--agent` accepts. A project target is written for a project install, a global target for `-g`; a harness with no global target [skips `-g`](install.md#where-it-lands).
 
-<!-- BEGIN GENERATED: harness-matrix -->
+<!-- BEGIN GENERATED: harness-matrix (bun run docs:tables) -->
 
 | id | harness | tier | project target | global target | strategy | hook | stdout | mcp stub | markers | byte budget |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|---|---|---|---|---|
 | `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | - | stripped | 4,194,304 bytes |
 | `codex` | Codex | 1, or 2 when `features.hooks` is `false` | `AGENTS.md` block, written into the first existing of `AGENTS.override.md`, `AGENTS.md` | `~/.codex/AGENTS.md` block, written into the first non-empty of `~/.codex/AGENTS.override.md`, `~/.codex/AGENTS.md` | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | `plain` | - | counted | - |
 | `gemini-cli` | Gemini CLI | 1 | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | `json:hookSpecificOutput.additionalContext` | - | counted | - |
