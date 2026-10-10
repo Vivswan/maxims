@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { stringify } from "smol-toml";
 import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
   type AchievedTier,
@@ -28,7 +29,7 @@ import {
   achievedTier as probe,
 } from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
-import { CHMOD_DENIES } from "../../shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext } from "../context.ts";
@@ -38,8 +39,12 @@ const fixture = (name: string): string =>
 const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
-const trustedBy = (path: string): string => `[projects."${path}"]\ntrust_level = "trusted"\n`;
-const untrustedBy = (path: string): string => `[projects."${path}"]\ntrust_level = "untrusted"\n`;
+// The projects entry as Codex's own trust prompt writes it, the path spelled as a TOML key
+// whatever it holds (a Windows path's backslashes included).
+const marked = (path: string, level: unknown): string =>
+  `\n${stringify({ projects: { [path]: { trust_level: level } } })}\n`;
+const trustedBy = (path: string): string => marked(path, "trusted");
+const untrustedBy = (path: string): string => marked(path, "untrusted");
 
 // The config.toml layers are the machine's whichever scope the hook sits in, so one scope stands
 // for both in the rows that set a readable flag; the broken-layer rows below probe both scopes.
@@ -387,7 +392,7 @@ const trustRows: [
   [
     "a mark outside Codex's own two is a user config Codex refuses, so the reading",
     disabled,
-    (project) => `${enabled}[projects."${project}"]\ntrust_level = "trustd"\n`,
+    (project) => `${enabled}${marked(project, "trustd")}`,
     (project, home) =>
       unreadable(
         join(home, ".codex", "config.toml"),
@@ -397,7 +402,7 @@ const trustRows: [
   [
     "a mark of another type is the same refused user config",
     disabled,
-    (project) => `${enabled}[projects."${project}"]\ntrust_level = 42\n`,
+    (project) => `${enabled}${marked(project, 42)}`,
     (project, home) =>
       unreadable(
         join(home, ".codex", "config.toml"),
@@ -443,3 +448,25 @@ test("achievedTier applies a subdirectory layer only under a trusted project roo
     expect(await at(enabled)).toEqual({ tier: 1, unreadable: null });
   });
 });
+
+// The projects table is keyed by the directory's path, which Codex writes as a TOML string: a
+// Windows path's backslashes, or a quote in a directory name, must be spelled as TOML escapes or
+// the user config does not parse at all. Windows forbids a quote in a file name, so the row runs
+// where the name can exist; the Windows leg pins the backslash through every other row.
+test.skipIf(WINDOWS)(
+  "a project directory holding a backslash and a quote is keyed as TOML spells it",
+  async () => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(realpathSync(dir), 'pro"j\\ect');
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), disabled);
+      writeFileSync(join(home, ".codex", "config.toml"), `${enabled}${trustedBy(project)}`);
+      expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
+        tier: 2,
+        unreadable: null,
+      });
+    });
+  },
+);

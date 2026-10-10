@@ -67,7 +67,7 @@ export const spec = {
           "if decision.is_trusted() {",
           "config: TomlValue::Table(toml::map::Map::new()),",
         ],
-        note: "a project layer is trusted by its own directory's entry in the user config's projects table, else the project root's, and only a trusted one applies; an untrusted layer that does not parse becomes an empty disabled layer where a trusted one is the error above",
+        note: "a project layer is trusted by its directory's entry in the user config's projects table, else the project root's; an untrusted one that does not parse becomes an empty disabled layer, a trusted one the error above",
       },
       {
         kind: "file",
