@@ -1022,8 +1022,8 @@ describe("git rung against a file:// fixture repo", () => {
 
   // What would drift: a bare GIT_SSH is a literal path, so its spaces and quotes must survive the
   // shell git runs the command through; only a program named ssh takes the option, judged on the
-  // word as sh reads it, where a backslash inside double quotes is a plain character and an
-  // unquoted redirection ends the word.
+  // word as sh reads it, where a backslash inside double quotes escapes only $, `, ", \ and a
+  // newline, and an unquoted redirection ends the word.
   const sshPrograms: [string, Record<string, string>, string][] = [
     [
       "a GIT_SSH path to ssh stays one literal word ahead of BatchMode",
