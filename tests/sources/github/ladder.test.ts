@@ -981,35 +981,74 @@ describe("git rung against a file:// fixture repo", () => {
     }
   });
 
-  test("ssh runs in batch mode ahead of the user's own options, so a question fails instead of waiting", async () => {
+  // What would drift: ssh honors the first occurrence of an option, so BatchMode has to land ahead
+  // of the user's own; a wrapper (a cloud CLI's git-ssh subcommand) rejects an ssh option in its
+  // own argument slot, so it has to see none. The fixture records what reached it; git probes an
+  // unknown program with `-G` first, so the last call is the fetch.
+  const sshWords: [string, string, string, string[]][] = [
+    [
+      "ssh gets BatchMode ahead of the user's own options, so a question fails instead of waiting",
+      "ssh",
+      "-o BatchMode=no -i /home/user/.ssh/key",
+      ["-o", "BatchMode=yes", "-o", "BatchMode=no", "-i", "/home/user/.ssh/key"],
+    ],
+    [
+      "a wrapper's own arguments stay first, with no ssh option in between",
+      "fixture-wrapper",
+      "gitssh --",
+      ["gitssh", "--"],
+    ],
+  ];
+  test.each(sshWords)("%s", async (_name, program, tail, leading) => {
     await withTempDir(async (dir) => {
-      const record = join(dir, "ssh-args");
-      const fakeSsh = join(dir, "ssh.sh");
-      writeFileSync(fakeSsh, `#!/bin/sh\necho "$@" > '${shellPath(record)}'\nexit 255\n`, {
+      const record = join(dir, "argv");
+      const fake = join(dir, program);
+      writeFileSync(fake, `#!/bin/sh\necho "$@" >> '${shellPath(record)}'\nexit 255\n`, {
         mode: 0o755,
       });
-      const env = gitEnvironment({
-        ...process.env,
-        GIT_SSH_COMMAND: `${shellPath(fakeSsh)} -o BatchMode=no -i /home/user/.ssh/key`,
-      });
+      const env = gitEnvironment({ ...process.env, GIT_SSH_COMMAND: `${shellPath(fake)} ${tail}` });
       const outcome = await simpleGitRunner({ env }).lsRemote(
         "ssh://example.com/rules.git",
         ["HEAD"],
-        {
-          credentials: { kind: "inherited" },
-        },
+        { credentials: { kind: "inherited" } },
       );
       expect(outcome.kind).toBe("failed");
-      const args = readFileSync(record, "utf8").trim().split(" ");
-      expect(args.indexOf("BatchMode=yes")).toBeGreaterThan(-1);
-      expect(args.indexOf("BatchMode=yes")).toBeLessThan(args.indexOf("BatchMode=no"));
-      expect(args).toContain("/home/user/.ssh/key");
+      const calls = readFileSync(record, "utf8").trim().split("\n");
+      const args = (calls.at(-1) ?? "").split(" ");
+      expect(args.slice(0, leading.length)).toEqual(leading);
+      expect(args).toContain("example.com");
     });
   });
 
-  test("a GIT_SSH program path stays one literal word ahead of BatchMode", () => {
-    const env = gitEnvironment({ GIT_SSH: "/home/user/My $Tools/it's ssh" });
-    expect(env.GIT_SSH_COMMAND).toBe("'/home/user/My $Tools/it'\\''s ssh' -o BatchMode=yes");
+  // What would drift: a bare GIT_SSH is a literal path, so its spaces and quotes must survive the
+  // shell git runs the command through; only a program named ssh takes the option, judged on the
+  // word as sh reads it, where a backslash inside double quotes is a plain character and an
+  // unquoted redirection ends the word.
+  const sshPrograms: [string, Record<string, string>, string][] = [
+    [
+      "a GIT_SSH path to ssh stays one literal word ahead of BatchMode",
+      { GIT_SSH: "/home/user/My $Tools/it's/ssh" },
+      "'/home/user/My $Tools/it'\\''s/ssh' -o BatchMode=yes",
+    ],
+    [
+      "a GIT_SSH path to a wrapper is quoted and otherwise left alone",
+      { GIT_SSH: "/home/user/My Tools/fixture-wrapper" },
+      "'/home/user/My Tools/fixture-wrapper'",
+    ],
+    [
+      "a double-quoted Windows ssh.exe path keeps its backslashes and is one word",
+      { GIT_SSH_COMMAND: '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -i key' },
+      '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -o BatchMode=yes -i key',
+    ],
+    [
+      "a redirection glued to ssh is not part of its name",
+      { GIT_SSH_COMMAND: "ssh</dev/null -i key" },
+      "ssh -o BatchMode=yes</dev/null -i key",
+    ],
+  ];
+  test.each(sshPrograms)("%s", (_name, base, expected) => {
+    const env = gitEnvironment(base);
+    expect(env.GIT_SSH_COMMAND).toBe(expected);
     expect(env.GIT_SSH).toBeUndefined();
   });
 
