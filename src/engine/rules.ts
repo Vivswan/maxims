@@ -456,7 +456,7 @@ export function claimedByMaxims(text: string): boolean {
   return parseBlocks(text).blocks.length > 0;
 }
 
-function isSymlink(path: string): boolean {
+export function isSymlink(path: string): boolean {
   try {
     return lstatSync(path).isSymbolicLink();
   } catch (cause) {

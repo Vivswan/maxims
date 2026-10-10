@@ -1072,7 +1072,9 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("two rule-file links pointing at one stale file each become a real file", async () => {
+  // The file behind the links carries a block whose marker the grammar refuses: a link is replaced,
+  // never written through, so the file behind it is neither touched nor held.
+  test("two rule-file links pointing at one stale file each become a real file, the stale file unheld", async () => {
     await world(async ({ home, dir, userHome }) => {
       const other: HarnessDefinition = {
         ...rulesDirHarness,
@@ -1098,17 +1100,19 @@ describe("what a refused or departed source leaves behind", () => {
       const rules = join(userHome, ".fixture", "rules");
       mkdirSync(rules, { recursive: true });
       const stale = join(dir, "stale.md");
-      writeFileSync(stale, "old rules\n");
+      const staleText =
+        "<!-- maxims:begin @old/notes sha=old -->\n- An old rule.\n<!-- maxims:end @old/notes -->\nold rules\n";
+      writeFileSync(stale, staleText);
       const slug = sourceSlug(localFrom(source));
       symlinkSync(stale, join(rules, `maxims-${slug}.md`));
       symlinkSync(stale, join(rules, `maxims-${slug}.other.md`));
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [rulesDirHarness, other] });
-      await runSync(SYNC, io);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ heldFiles: [] });
       for (const name of [`maxims-${slug}.md`, `maxims-${slug}.other.md`]) {
         expect(lstatSync(join(rules, name)).isFile()).toBe(true);
         expect(readFileSync(join(rules, name), "utf8")).toContain("Never merge red.");
       }
-      expect(readFileSync(stale, "utf8")).toBe("old rules\n");
+      expect(readFileSync(stale, "utf8")).toBe(staleText);
     });
   });
 
@@ -1719,4 +1723,70 @@ describe("a file holding a block whose marker carries no version", () => {
       },
     );
   });
+
+  // The rules-dir source's own directory is gone: the planner keeps its file without rendering
+  // it, so the only read of the file is the one that looks for the names it still holds. The
+  // file may sit behind a link at the rule file's path, which no run replaces while it is kept.
+  const unreadable = (
+    linked: boolean,
+    fn: (world: TwoSourceWorld & { behind: string }) => Promise<void>,
+  ): Promise<void> =>
+    twoSourceWorld({ rulesDir: aged }, async (world) => {
+      rmSync(world.otherKey, { recursive: true });
+      let behind = world.rulesFile;
+      if (linked) {
+        behind = join(dirname(world.otherKey), "behind.md");
+        renameSync(world.rulesFile, behind);
+        symlinkSync(behind, world.rulesFile);
+      }
+      await fn({ ...world, behind });
+    });
+  const placements: [string, boolean][] = [
+    ["a regular file", false],
+    ["a link to the file", true],
+  ];
+
+  test.each(placements)(
+    "an unreadable source's rules-dir file, %s, is held byte for byte and the sync exits 4",
+    async (_label, linked) => {
+      await unreadable(
+        linked,
+        async ({ io, rulesFile, rulesFileBefore, behind, shared, sharedBefore }) => {
+          const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+          expect({ message: error.message, hint: error.hint }).toEqual({
+            message: refusal(rulesFile),
+            hint,
+          });
+          expect(io.out.join("")).toContain(
+            `!  maxims: ${refusal(rulesFile)}\n!  maxims: ${hint}\n`,
+          );
+          expect(lstatSync(rulesFile).isSymbolicLink()).toBe(linked);
+          expect(readFileSync(behind, "utf8")).toBe(rulesFileBefore);
+          expect(readFileSync(shared, "utf8")).toBe(sharedBefore);
+        },
+      );
+    },
+  );
+
+  test.each(placements)(
+    "a memory whose only record is an unreadable source's held file, %s, is refused by that file, not reported absent",
+    async (_label, linked) => {
+      await unreadable(
+        linked,
+        async ({ io, home, otherKey, rulesFile, rulesFileBefore, behind }) => {
+          const remove = { quiet: false, dryRun: false, json: false, all: false, confirmed: true };
+          const error = await expectExit(
+            runRemove({ ...remove, targets: ["two"] }, io),
+            ExitCode.DestinationWriteFailed,
+          );
+          expect({ message: error.message, hint: error.hint }).toEqual({
+            message: refusal(rulesFile),
+            hint,
+          });
+          expect(Object.keys(readStateFile(home).sources)).toContain(otherKey);
+          expect(readFileSync(behind, "utf8")).toBe(rulesFileBefore);
+        },
+      );
+    },
+  );
 });

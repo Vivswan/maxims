@@ -71,7 +71,7 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 ## Exit 4: a block's marker carries no version, or another one
 
-**What you see:** `sync` exits 4 with these two lines naming the file and the marker line, and every other file refreshes. A hook run prints the same two lines and exits 0.
+**What you see:** `sync` exits 4 with these two lines naming the file and the marker line, and every other file refreshes. A hook run exits 0 and writes the same two lines without the `!` prefix, which reach the session where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
 
 ```text
 !  maxims: /home/user/AGENTS.md: the marker "<!-- maxims:begin @you/notes sha=3f2a9c1e -->" carries no version; this maxims writes version 1 and cannot refresh the block it opens
