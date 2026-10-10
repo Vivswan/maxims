@@ -4,6 +4,8 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { data, Evaluator, Lexer, Parser } from "@actions/expressions";
+import type { FunctionDefinition } from "@actions/expressions/funcs/info";
+import { TokenType } from "@actions/expressions/lexer";
 import { truthy } from "@actions/expressions/result";
 import { parse } from "yaml";
 import { CATEGORIES } from "../../scripts/nightly.ts";
@@ -11,9 +13,16 @@ import { CATEGORIES } from "../../scripts/nightly.ts";
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const read = (path: string): unknown => parse(readFileSync(resolve(repoRoot, path), "utf8"));
 
-type Step = { if?: string; run?: string; uses?: string; with?: Record<string, string> };
+// YAML reads a bare `if: true` as a boolean; GitHub reads every condition as its text.
+type Condition = string | boolean;
+type Step = { if?: Condition; run?: string; uses?: string; with?: Record<string, string> };
 type Leg = { category: string; description: string };
-type Job = { needs?: string[]; steps: Step[]; strategy?: { matrix: { include: Leg[] } } };
+type Job = {
+  needs?: string[];
+  if?: Condition | null;
+  steps: Step[];
+  strategy?: { matrix: { include: Leg[] } };
+};
 type Workflow = { jobs: Record<string, Job> };
 type Settings = { labels: { name: string; color: string; description: string }[] };
 
@@ -29,11 +38,47 @@ const legs = report?.strategy?.matrix.include ?? [];
 type Result = "success" | "failure" | "cancelled";
 type Context = Record<string, unknown>;
 
-function evaluate(expression: string, context: Context): data.ExpressionData {
+function evaluate(
+  expression: string,
+  context: Context,
+  functions: FunctionDefinition[] = [],
+): data.ExpressionData {
   const tokens = new Lexer(expression).lex().tokens;
-  const tree = new Parser(tokens, Object.keys(context), []).parse();
+  const tree = new Parser(tokens, Object.keys(context), functions).parse();
   const dictionary = JSON.parse(JSON.stringify(context), data.reviver) as data.Dictionary;
-  return new Evaluator(tree, dictionary).evaluate();
+  const table = new Map(functions.map((definition) => [definition.name, definition]));
+  return new Evaluator(tree, dictionary, table).evaluate();
+}
+
+// The status functions a job-level `if` reads off its needed jobs' results. cancelled() asks
+// whether the workflow run was cancelled, which a timed-out category never is, so a simulated
+// night keeps it false.
+const statusFunctions = (results: Result[]): FunctionDefinition[] =>
+  Object.entries({
+    always: true,
+    success: results.every((result) => result === "success"),
+    failure: results.includes("failure"),
+    cancelled: false,
+  }).map(([name, value]) => ({
+    name,
+    minArgs: 0,
+    maxArgs: 0,
+    call: () => new data.BooleanData(value),
+  }));
+
+// GitHub guards a job condition that names no status function with an implicit `success()`, so
+// `if: true` skips the job on a red night as surely as an empty `if` or none at all.
+function jobCondition(condition: Condition | null | undefined): string {
+  const expression = String(condition ?? "").trim();
+  if (expression === "") return "success()";
+  const tokens = new Lexer(expression).lex().tokens;
+  const named = tokens.some(
+    (token, index) =>
+      token.type === TokenType.IDENTIFIER &&
+      ["always", "success", "failure", "cancelled"].includes(token.lexeme.toLowerCase()) &&
+      tokens[index + 1]?.type === TokenType.LEFT_PAREN,
+  );
+  return named ? expression : `success() && (${expression})`;
 }
 
 const fill = (template: string, context: Context): string =>
@@ -48,8 +93,11 @@ function night(category: string, own: Result, siblings: Result): Step[] {
     (job?.needs ?? []).map((name) => [name, { result: name === category ? own : siblings }]),
   );
   const context: Context = { needs, matrix: leg ?? {} };
+  const results = Object.values(needs).map((need) => need.result);
+  // A job-level `if` sees `needs` but not `matrix`; GitHub rejects the workflow otherwise.
+  if (!truthy(evaluate(jobCondition(job?.if), { needs }, statusFunctions(results)))) return [];
   return (job?.steps ?? [])
-    .filter((step) => step.if === undefined || truthy(evaluate(step.if, context)))
+    .filter((step) => step.if === undefined || truthy(evaluate(String(step.if), context)))
     .map((step) => ({
       ...step,
       with:
