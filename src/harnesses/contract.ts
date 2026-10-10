@@ -18,9 +18,9 @@ export type HarnessContext = {
   env: Record<string, string | undefined>;
 };
 
-// A config the probe could not read is not one that leaves hooks on: the harness is taken at tier 2
-// and `unreadable` says why, with no harness named in it, so the surface that prints it (a sync
-// notice, a doctor finding, a list note) can put the harness where its own layout wants it.
+// A broken config layer reads as tier 2 only where the harness runs no hook from it (`achievedTier`
+// in hook-writer.ts). `unreadable` says why with no harness named in it, so the surface that prints
+// it (a sync notice, a doctor finding, a list note) puts the harness where its own layout wants it.
 export type AchievedTier = { tier: 1 | 2; unreadable: null } | { tier: 2; unreadable: string };
 
 // A harness only chooses; the two writers exist once. `dir` and `file` are RELATIVE to the scope

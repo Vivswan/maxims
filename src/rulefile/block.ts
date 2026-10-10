@@ -179,7 +179,8 @@ export type OpenLeaf = { block: OpenBlock; column: number };
 // A leaf lives in the innermost item, and a line that ends that item ends the leaf too.
 //   items         a non-blank line indented short of one ends it, unless it lazily continues an
 //                 open paragraph
-//   quote         dropped whenever `items` changes; `paragraph` then mirrors the quote's
+//   quote         dropped whenever `items` changes; while one is open, `paragraph` mirrors
+//                 whether the quote ends in one
 //   definitions   decides whether an `===` line under the paragraph underlines a heading
 type Scanner = {
   items: number[];
@@ -331,7 +332,6 @@ function nextLine(fileText: string, scanner: Scanner, start: number): MarkdownLi
   return { text, start: from, end, kind: scanLine(scanner, text) };
 }
 
-// A level's reading of its part of the line, or the blockquote the rest of the line belongs to.
 type Step = MarkdownLine["kind"] | { quote: Scanner; content: Content };
 
 // Each `>` hands the rest of the line to the blockquote's own scanner; the chain is walked as a

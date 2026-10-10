@@ -876,10 +876,10 @@ function gitConfigString(value: string): string {
   return `"${value.replace(/[\\"]/g, "\\$&")}"`;
 }
 
-// HOME is libcurl's only pointer to `.netrc`, and also git's for `~/.gitconfig`, `~/.config`, every
-// `~`-relative path in them, and ssh's for `~/.ssh`, so the private HOME mirrors the real one entry
-// by entry through symlinks, minus the netrc files. A HOME that cannot be mirrored fails the call
-// outright: without the user's proxy or CA settings it would only fail later as a network error.
+// HOME is where libcurl looks for `.netrc` and git for `~/.gitconfig`, `~/.config` and every
+// `~`-relative path in them, so the private HOME mirrors the real one entry by entry through
+// symlinks, minus the netrc files. A HOME that cannot be mirrored fails the call outright: without
+// the user's proxy or CA settings it would only fail later as a network error.
 async function privateHome(
   env: Record<string, string>,
   home: string,

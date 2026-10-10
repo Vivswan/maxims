@@ -119,8 +119,6 @@ import {
 } from "./frame/risk.ts";
 import { parseSourceSelector, storable } from "./frame/source-argument.ts";
 
-// Everything `add` decided from the command line and the config, parsed once into a shape that
-// cannot hold a conflict: one destination, one selection, one harness choice.
 export type AddRequest = {
   key: string;
   from: SourceFrom;
@@ -227,10 +225,11 @@ export const add: Command = {
   },
 };
 
-// The sync that follows a commit never fetches (the commit just did) and, under --dry-run, plans
-// against the state the commit would have written, since the file itself was left alone. The verb
-// frames the output, so the engine's own lines go nowhere; `--quiet` is the frame's silence, never
-// the hook's debounce or deferred deletions, so the engine runs it as an interactive sync.
+// The sync that follows a commit never fetches: the verb fetched what it needed, or edited intent
+// alone. The verb frames the output, so the engine's own lines go nowhere.
+//   --dry-run   plans against the state the commit would have written; the file was left alone
+//   --quiet     the frame's silence only: the engine runs an interactive sync, with no debounce and
+//               no deferred deletions
 export function syncCommitted(
   ctx: CommandContext,
   preview: SyncPreview & { retired?: readonly SourceEntry[] },
