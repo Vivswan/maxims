@@ -1,4 +1,6 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
+import { layeredHooksProbe } from "./quirks.ts";
 
 // Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
 // (AGENTS.md, hooks.json, config.toml) moves with it. Its two instruction loaders differ on a blank
@@ -158,3 +160,7 @@ export const spec = {
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const codex = toDefinition(spec, (declared) => ({
+  achievedTier: layeredHooksProbe(declared, spec.hook.tierCheck.path),
+}));

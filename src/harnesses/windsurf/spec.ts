@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // The earlier Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
@@ -89,3 +90,5 @@ export const spec = {
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const windsurf = toDefinition(spec);

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessContext, Scope } from "../../../src/harnesses/contract.ts";
-import { geminiCli } from "../../../src/harnesses/gemini-cli/index.ts";
+import { geminiCli } from "../../../src/harnesses/gemini-cli/spec.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";

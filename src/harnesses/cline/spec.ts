@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cline rules without frontmatter are always active, so the file is the block and nothing more.
@@ -105,3 +106,5 @@ export const spec = {
   },
   fixtures: { hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const cline = toDefinition(spec);

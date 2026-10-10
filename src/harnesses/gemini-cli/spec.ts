@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Gemini reads `timeout` in milliseconds and runs every hook synchronously; there is no async
@@ -105,3 +106,5 @@ export const spec = {
   },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const geminiCli = toDefinition(spec);

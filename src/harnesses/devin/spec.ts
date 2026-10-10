@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Devin Local is the agent new Devin Desktop (formerly Windsurf) tabs start with, and it shares
@@ -76,3 +77,5 @@ export const spec = {
   },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const devin = toDefinition(spec);

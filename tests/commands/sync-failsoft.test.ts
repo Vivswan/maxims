@@ -20,7 +20,7 @@ import { classifyInvoker, renderHookStdout } from "../../src/commands/shared/std
 import { runSync } from "../../src/commands/sync.ts";
 import type { SyncOptions } from "../../src/commands/types.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
-import { codex } from "../../src/harnesses/codex/index.ts";
+import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";

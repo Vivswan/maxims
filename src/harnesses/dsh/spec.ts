@@ -1,4 +1,6 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
+import { bridgeReconciler } from "./quirks.ts";
 
 // dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
 // specific file when the total exceeds it, so a block that pushes AGENTS.md over the line would
@@ -115,3 +117,5 @@ export const spec = {
   hook: { kind: "none" },
   fixtures: { config: "config.yml", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const dsh = toDefinition(spec, (declared) => ({ reconcile: bridgeReconciler(declared) }));

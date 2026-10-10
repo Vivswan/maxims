@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { claudeCode } from "../../../src/harnesses/claude-code/index.ts";
+import { claudeCode } from "../../../src/harnesses/claude-code/spec.ts";
 import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import {
   achievedTier,

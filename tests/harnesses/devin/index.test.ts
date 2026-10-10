@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { hookSpecFor, scopeRoot } from "../../../src/harnesses/contract.ts";
-import { devin } from "../../../src/harnesses/devin/index.ts";
+import { devin } from "../../../src/harnesses/devin/spec.ts";
 
 const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
 

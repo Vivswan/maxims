@@ -9,7 +9,6 @@ import {
   scopeRoot,
 } from "../contract.ts";
 import { type ConfigReading, readConfigValue, unreadableNotice } from "../hook-writer.ts";
-import { spec } from "./spec.ts";
 
 // Codex enables hooks unless `[features] hooks = false` is present, so an absent key is not the
 // same as `true`: a project config that leaves it unset defers to the user config, which may
@@ -40,9 +39,10 @@ async function readLayer(path: string): Promise<Layer> {
 // install tier 1 while the user config has hooks off.
 export function layeredHooksProbe(
   roots: Pick<HarnessDefinition, "globalRoot">,
+  configPath: Record<Scope, string>,
 ): (ctx: HarnessContext) => Promise<AchievedTier> {
   const configToml = (scope: Scope, ctx: HarnessContext): string =>
-    join(scopeRoot(roots, scope, ctx), spec.hook.tierCheck.path[scope]);
+    join(scopeRoot(roots, scope, ctx), configPath[scope]);
   return async (ctx) => {
     const layers = [
       ...(ctx.projectRoot === null ? [] : [configToml("project", ctx)]),

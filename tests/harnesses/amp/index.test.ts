@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { amp } from "../../../src/harnesses/amp/index.ts";
+import { amp } from "../../../src/harnesses/amp/spec.ts";
 import { hookSpecFor, sharedBlockFile } from "../../../src/harnesses/contract.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 

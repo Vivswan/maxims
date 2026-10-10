@@ -11,13 +11,14 @@ import {
   removeChild,
 } from "../../util/jsonc.ts";
 import { type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
-import { spec } from "./spec.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
-// files load only when `opencode.json` lists them. One glob over the spec's own rules directory
-// covers every source, so adding the tenth source edits nothing here, and removal is the single
-// entry coming back out.
-export const INSTRUCTIONS_GLOB = `${spec.targets.project.dir}/${spec.targets.project.fileName.replaceAll("{{slug}}", "*")}`;
+// files load only when `opencode.json` lists them. One glob over the rules directory covers every
+// source, so adding the tenth source edits nothing here, and removal is the single entry coming
+// back out. The two literals sit here rather than in the spec because the spec imports this file.
+export const RULES_DIR = ".opencode/memories";
+export const RULE_FILE_NAME = "maxims-{{slug}}.md";
+export const INSTRUCTIONS_GLOB = `${RULES_DIR}/${RULE_FILE_NAME.replaceAll("{{slug}}", "*")}`;
 
 // OpenCode loads both names when both exist and merges their `instructions`, so the entry is
 // added to one file (the `.jsonc` when present) only if neither already lists it, and removed

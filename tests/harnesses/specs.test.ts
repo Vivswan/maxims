@@ -1,7 +1,7 @@
 // Guards the folder census no single folder can: every `src/harnesses/<id>/spec.ts` parses under
 // the schema (a spec object is type-checked but its refinements, such as placeholder names, only
-// run here), compiles, carries the id its folder is named for, is exported from the folder's
-// index.ts, and names only fixtures that exist. A folder that drifted on any of these would ship
+// run here), compiles, carries the id its folder is named for, exports the compiled definition
+// beside it, and names only fixtures that exist. A folder that drifted on any of these would ship
 // a harness the registry cannot pick up or a fixture the conformance suite cannot open.
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -46,9 +46,10 @@ test.each(folders)("%s: spec parses, compiles to its own id, and is exported", a
   for (const name of Object.values(parsed.spec.fixtures ?? {})) {
     expect(existsSync(join(root, folder, "fixtures", name))).toBe(true);
   }
-  const indexModule: unknown = await import(join(root, folder, "index.ts"));
-  if (typeof indexModule !== "object" || indexModule === null) throw new Error("no index.ts");
-  const exported = Object.values(indexModule).filter(isDefinition);
+  const exported = Object.entries(specModule)
+    .filter(([name]) => name !== "spec")
+    .map(([, value]) => value)
+    .filter(isDefinition);
   expect(exported.map((def) => String(def.id))).toEqual([folder]);
   expect(exported[0]?.displayName).toBe(compiled.displayName);
 });

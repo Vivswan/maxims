@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
-import { cursor } from "../../../src/harnesses/cursor/index.ts";
+import { cursor } from "../../../src/harnesses/cursor/spec.ts";
 import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { renderBlock } from "../../../src/rulefile/block.ts";

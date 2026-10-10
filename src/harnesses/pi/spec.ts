@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
@@ -125,3 +126,5 @@ export const spec = {
   },
   mcp: { path: { project: ".pi/mcp.json", global: "mcp.json" }, serversPath: ["mcpServers"] },
 } satisfies HarnessSpec;
+
+export const pi = toDefinition(spec);

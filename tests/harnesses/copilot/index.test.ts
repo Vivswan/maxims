@@ -13,7 +13,7 @@ import {
   type SourceSlug,
   scopeRoot,
 } from "../../../src/harnesses/contract.ts";
-import { copilot } from "../../../src/harnesses/copilot/index.ts";
+import { copilot } from "../../../src/harnesses/copilot/spec.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";

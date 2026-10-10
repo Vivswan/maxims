@@ -1,4 +1,6 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
+import { configEdit, RULE_FILE_NAME, RULES_DIR } from "./quirks.ts";
 
 // OpenCode resolves its global directory through the XDG base directories, so an override of
 // `XDG_CONFIG_HOME` moves the config file, the plugins directory and AGENTS.md with it. The
@@ -104,7 +106,7 @@ export const spec = {
   },
   globalRoot: { default: ".config/opencode", env: { name: "XDG_CONFIG_HOME", subdir: "opencode" } },
   targets: {
-    project: { kind: "rules-dir", dir: ".opencode/memories", fileName: "maxims-{{slug}}.md" },
+    project: { kind: "rules-dir", dir: RULES_DIR, fileName: RULE_FILE_NAME },
     global: { kind: "shared-block", file: "AGENTS.md" },
   },
   bodiesDir: { project: ".agents/memories", global: null },
@@ -132,3 +134,5 @@ export const spec = {
   },
   fixtures: { config: "config.jsonc" },
 } satisfies HarnessSpec;
+
+export const opencode = toDefinition(spec, { configEdit });

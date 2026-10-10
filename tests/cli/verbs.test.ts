@@ -19,11 +19,11 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
-import { claudeCode } from "../../src/harnesses/claude-code/index.ts";
+import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
-import { cursor } from "../../src/harnesses/cursor/index.ts";
+import { cursor } from "../../src/harnesses/cursor/spec.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
-import { zed } from "../../src/harnesses/zed/index.ts";
+import { zed } from "../../src/harnesses/zed/spec.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
 import { renderBlock } from "../../src/rulefile/block.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
