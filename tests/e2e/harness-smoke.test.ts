@@ -18,6 +18,7 @@ import {
   type HarnessSmokeCli,
   inContainerTier,
 } from "../container/tier.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { type CapturedRequest, startFakeLlm, type Wire, wireFor } from "./fake-llm.ts";
 
 const PROMPT = "Reply with the single word ok.";
@@ -26,9 +27,6 @@ const FAKE_TOKEN = "fake-token";
 // waiting on a prompt into a named failure instead of a hung suite.
 const CLI_DEADLINE_MS = 90_000;
 const ROW_TIMEOUT_MS = 150_000;
-// After the deadline kill, how long the output pipes get to close before the run is reported
-// without them: a hook child outside the killed group could otherwise hold them open.
-const KILL_GRACE_MS = 5_000;
 const TAIL_CHARS = 800;
 
 type Row = {
@@ -375,19 +373,16 @@ function shimSource(log: string): string {
 
 const EXPECTED_SHIM_LINE = HOOK_COMMAND.split(" ").slice(1).join(" ");
 
-type Run = { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean };
+type Run = {
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+};
 
-function after<T>(ms: number, value: T): { promise: Promise<T>; cancel: () => void } {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const promise = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(value), ms);
-  });
-  return { promise, cancel: () => clearTimeout(timer) };
-}
-
-// The deadline covers the exit and the closing of both output pipes: an asynchronous hook child
-// (the shell and maxims sync a harness leaves running past its own exit) inherits the pipes, so
-// the CLI runs in its own process group and the kill reaches the whole group.
+// Bun's kill reaches the CLI alone, and a reader attached while its hook child (the shell and
+// maxims sync a harness leaves running) still holds the pipes waits for that child. A reader
+// attached after `exited` ends at the kill with what Bun buffered.
 async function runWithDeadline(
   command: readonly string[],
   options: { cwd: string; env: Record<string, string> },
@@ -399,28 +394,15 @@ async function runWithDeadline(
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
-    detached: true,
+    timeout: deadlineMs,
+    killSignal: "SIGKILL",
   });
-  const output = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-  const settled = Promise.all([proc.exited, output]).then(([, streams]) => streams);
-  const deadline = after(deadlineMs, null);
-  const streams = await Promise.race([settled, deadline.promise]);
-  deadline.cancel();
-  if (streams !== null) {
-    const [stdout, stderr] = streams;
-    return { exitCode: proc.exitCode, stdout, stderr, timedOut: false };
-  }
-  try {
-    process.kill(-proc.pid, "SIGKILL");
-  } catch {
-    proc.kill("SIGKILL");
-  }
   await proc.exited;
-  const grace = after(KILL_GRACE_MS, null);
-  const late = await Promise.race([output, grace.promise]);
-  grace.cancel();
-  const [stdout, stderr] = late ?? ["", ""];
-  return { exitCode: null, stdout, stderr, timedOut: true };
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { exitCode: proc.exitCode, signalCode: proc.signalCode, stdout, stderr };
 }
 
 function tail(text: string): string {
@@ -528,9 +510,10 @@ function judge(
   const cli = row.command[row.command.length - 1] ?? name;
   const seen = requests.map((r) => `${r.method} ${r.path}`).join(", ");
   const captured = `${requests.length} request(s) captured: ${seen}`;
-  if (run.timedOut) {
+  if (run.signalCode !== null) {
     problems.push(
-      `${cli} timed out after ${CLI_DEADLINE_MS} ms; ${captured}; stderr: ${tail(run.stderr)}`,
+      `${cli} was killed with ${run.signalCode} (the deadline is ${CLI_DEADLINE_MS} ms); ` +
+        `${captured}; stderr: ${tail(run.stderr)}`,
     );
   } else if (run.exitCode !== 0) {
     problems.push(
@@ -583,6 +566,22 @@ describe("the smoke's own logic on a stub CLI", () => {
       expect<unknown>(run).toEqual(verdict);
     },
     ROW_TIMEOUT_MS,
+  );
+
+  // The hook a harness leaves running past the deadline inherits the output pipes, so a run that
+  // waited for their EOF would hold the row for as long as that child lives.
+  test.skipIf(WINDOWS)(
+    "a CLI that outlives its deadline reports the kill at the deadline, with what it wrote, even while its hook child holds the pipes",
+    async () => {
+      const started = performance.now();
+      const run = await runWithDeadline(
+        ["sh", "-c", "printf partial; sleep 20 & sleep 20"],
+        { cwd: ready().root, env: { PATH: process.env.PATH ?? "" } },
+        200,
+      );
+      expect(run).toEqual({ exitCode: null, signalCode: "SIGKILL", stdout: "partial", stderr: "" });
+      expect(performance.now() - started).toBeLessThan(3_000);
+    },
   );
 });
 
