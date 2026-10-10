@@ -124,7 +124,6 @@ function renderTier(def: HarnessDefinition): string {
   if (tierCheck !== undefined) {
     return `${def.tier}, or 2 when ${code(tierCheck.key)} is ${code(String(tierCheck.demotesWhen))}`;
   }
-  if (def.achievedTier !== undefined) return `${def.tier}, or 2 by config`;
   return String(def.tier);
 }
 

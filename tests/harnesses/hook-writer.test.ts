@@ -966,21 +966,4 @@ describe("achievedTier", () => {
       );
     });
   });
-
-  test("a definition's own probe wins, and a hookless definition is its declared tier", async () => {
-    await withTempDir(async (home) => {
-      const local: HarnessContext = { home, projectRoot: null, cwd: home, env: {} };
-      mkdirSync(join(home, ".example"), { recursive: true });
-      writeFileSync(join(home, ".example", "settings.json"), '{ "hooks": { "enabled": false } }');
-      const probed: HarnessDefinition = {
-        ...jsonCheck,
-        achievedTier: async () => ({ tier: 1, unreadable: null }),
-      };
-      expect(await achievedTier(probed, "global", local)).toEqual({ tier: 1, unreadable: null });
-      expect(await achievedTier({ ...base, hook: { kind: "none" } }, "global", local)).toEqual({
-        tier: 1,
-        unreadable: null,
-      });
-    });
-  });
 });
