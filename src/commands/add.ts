@@ -75,33 +75,8 @@ import {
   peekIntent,
   updateIntent,
   withDisabled,
-} from "./shared/cli-context.ts";
-import { framed } from "./shared/engine-io.ts";
-import {
-  type AgentSelection,
-  type Args,
-  agentsFilter,
-  type Command,
-  type CommandContext,
-  commonOptions,
-  FLAGS,
-  type FlagSpec,
-  INTENT_DEFAULTS,
-  parseAgents,
-  parseDestination,
-  parseRenames,
-  parseSelect,
-  usage,
-} from "./shared/options.ts";
-import { finish, mergePlans } from "./shared/output.ts";
-import { listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
-import {
-  type MemoryRiskWarning,
-  refuseRisky,
-  riskWarningsFor,
-  showRiskWarnings,
-} from "./shared/risk.ts";
-import { parseSourceSelector, storable } from "./shared/source-argument.ts";
+} from "./frame/cli-context.ts";
+import { framed } from "./frame/engine-io.ts";
 import {
   detectedHarnesses,
   effectiveNames,
@@ -117,7 +92,32 @@ import {
   sourcesHere,
   targetPath,
   tildify,
-} from "./shared/sources.ts";
+} from "./frame/lookup.ts";
+import {
+  type AgentSelection,
+  type Args,
+  agentsFilter,
+  type Command,
+  type CommandContext,
+  commonOptions,
+  FLAGS,
+  type FlagSpec,
+  INTENT_DEFAULTS,
+  parseAgents,
+  parseDestination,
+  parseRenames,
+  parseSelect,
+  usage,
+} from "./frame/options.ts";
+import { finish, mergePlans } from "./frame/output.ts";
+import { listedInLock, projectLockChange } from "./frame/project-lock-io.ts";
+import {
+  type MemoryRiskWarning,
+  refuseRisky,
+  riskWarningsFor,
+  showRiskWarnings,
+} from "./frame/risk.ts";
+import { parseSourceSelector, storable } from "./frame/source-argument.ts";
 
 // Everything `add` decided from the command line and the config, parsed once into a shape that
 // cannot hold a conflict: one destination, one selection, one harness choice.

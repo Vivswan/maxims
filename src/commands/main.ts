@@ -8,8 +8,8 @@ import { homePaths } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import { appendRefreshLog } from "../util/log.ts";
 import { VERSION } from "../version.ts";
-import { configRefusal } from "./shared/cli-context.ts";
-import { errorDocument, ReportedMaximsError } from "./shared/errors.ts";
+import { configRefusal } from "./frame/cli-context.ts";
+import { errorDocument, ReportedMaximsError } from "./frame/errors.ts";
 import {
   type Args,
   type Command,
@@ -20,7 +20,7 @@ import {
   globalFlags,
   parseVerbArgs,
   usage,
-} from "./shared/options.ts";
+} from "./frame/options.ts";
 
 // The engine is a loader, called only once a verb is about to run: `--help`, `--version` and a
 // usage error never pay for it. It learns whether the run is quiet, so a hook run's resolver

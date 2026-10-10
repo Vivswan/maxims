@@ -7,7 +7,7 @@
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createEngine } from "../../src/commands/engine.ts";
+import { createEngine } from "../../src/commands/loader.ts";
 import {
   exited,
   ghScript,

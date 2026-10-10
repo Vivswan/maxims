@@ -2,7 +2,8 @@ import { wasNotDisabled } from "../console/strings.ts";
 import type { ScopeAt } from "../state/scoped.ts";
 import { applyChanges } from "../util/change.ts";
 import { syncCommitted } from "./add.ts";
-import { loadIntentFor, updateIntent, withDisabled } from "./shared/cli-context.ts";
+import { loadIntentFor, updateIntent, withDisabled } from "./frame/cli-context.ts";
+import { resolveMemoryName } from "./frame/lookup.ts";
 import {
   type Args,
   type Command,
@@ -11,10 +12,9 @@ import {
   type FlagSpec,
   parseDestination,
   usage,
-} from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
-import { projectLockChange } from "./shared/project-lock-io.ts";
-import { resolveMemoryName } from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
+import { projectLockChange } from "./frame/project-lock-io.ts";
 
 const DISABLE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.agent];
 

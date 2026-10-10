@@ -10,8 +10,14 @@ import type {
 } from "../engine/types.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { cooldownCapConfig, loadIntentFor, persistConfig } from "./shared/cli-context.ts";
-import { engineIo, exitForFailed } from "./shared/engine-io.ts";
+import { cooldownCapConfig, loadIntentFor, persistConfig } from "./frame/cli-context.ts";
+import { engineIo, exitForFailed } from "./frame/engine-io.ts";
+import {
+  installedSourceOrNull,
+  knownHarnessIds,
+  type ResolvedMemory,
+  resolveMemoryName,
+} from "./frame/lookup.ts";
 import {
   type Args,
   agentsFilter,
@@ -24,13 +30,7 @@ import {
   parseDestination,
   parseSelect,
   usage,
-} from "./shared/options.ts";
-import {
-  installedSourceOrNull,
-  knownHarnessIds,
-  type ResolvedMemory,
-  resolveMemoryName,
-} from "./shared/sources.ts";
+} from "./frame/options.ts";
 
 // The three engine verbs as the command line dispatches them: parse, hand the typed options to
 // the engine, and let the engine speak. Its output is the frame here: the `--json` document, the

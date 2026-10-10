@@ -5,8 +5,8 @@ import { type MemoryName, parseMemory, parseMemoryName } from "../memory/contrac
 import { applyChanges, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot } from "../util/fs.ts";
-import { type Command, INTENT_DEFAULTS, usage } from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
+import { type Command, INTENT_DEFAULTS, usage } from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
 
 // The scaffold every new memory starts from; it passes the contract as written, so `lint` on a
 // fresh folder is clean and only the placeholder text asks to be replaced. The name is quoted

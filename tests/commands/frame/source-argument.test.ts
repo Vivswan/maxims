@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   parseSourceArgument,
   parseSourceSelector,
-} from "../../../src/commands/shared/source-argument.ts";
+} from "../../../src/commands/frame/source-argument.ts";
 import type { SourceFrom } from "../../../src/contracts/source.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { memoryName } from "../../engine/fakes.ts";

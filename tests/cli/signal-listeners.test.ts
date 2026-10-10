@@ -21,7 +21,7 @@ for (const file of [
   "commands/main.ts", "console/contract.ts", "console/mode.ts", "commands/add.ts",
   "commands/update.ts", "commands/install.ts", "commands/init.ts", "commands/config.ts",
   "commands/lint.ts", "commands/doctor.ts", "commands/link.ts", "commands/disable.ts",
-  "commands/engine-verbs.ts", "commands/mcp-serve.ts", "commands/engine.ts",
+  "commands/engine-verbs.ts", "commands/mcp-serve.ts", "commands/loader.ts",
 ]) {
   await import(${JSON.stringify(SRC)} + "/" + file);
 }

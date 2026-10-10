@@ -17,8 +17,8 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { ReportedMaximsError } from "../../src/commands/frame/errors.ts";
 import { runRemove } from "../../src/commands/remove.ts";
-import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import type { RemoveOptions } from "../../src/engine/types.ts";

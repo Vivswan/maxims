@@ -288,19 +288,19 @@ Demonstrated by: [tests/harnesses/hook-writer.test.ts](../tests/harnesses/hook-w
 flowchart LR
   bin[["maxims add: the bin entry hands real streams and an engine loader to main"]]
   main["src/commands/main.ts<br>main() CliDeps"]
-  options["src/commands/shared/options.ts<br>parseVerbArgs() GLOBAL_FLAGS FLAGS parseDestination() parseSelect() parseAgents()"]
-  engine["src/commands/engine.ts<br>createEngine()<br>src/sources/resolvers.ts<br>createResolvers()"]
+  options["src/commands/frame/options.ts<br>parseVerbArgs() GLOBAL_FLAGS FLAGS parseDestination() parseSelect() parseAgents()"]
+  engine["src/commands/loader.ts<br>createEngine()<br>src/sources/resolvers.ts<br>createResolvers()"]
   console["src/console/mode.ts<br>consoleMode()<br>src/console/contract.ts<br>createConsole() promptsAllowed()"]
   add["src/commands/add.ts<br>add parseAddRequest() stageAdd() provenanceFor() showProvenance() planAdd()"]
   temp[("the fetch's temporary directory, removed on every path")]
-  intent["src/commands/shared/cli-context.ts<br>loadIntentFor() peekIntent()"]
+  intent["src/commands/frame/cli-context.ts<br>loadIntentFor() peekIntent()"]
   commit["src/commands/add.ts<br>commitAdd() admitIntent()"]
-  update["src/commands/shared/cli-context.ts<br>updateIntent()<br>src/state/store.ts<br>withStateLock()"]
-  riders["src/engine/fetch.ts<br>swapStoreEntry()<br>src/sources/local.ts<br>materializeLocal()<br>src/commands/shared/project-lock-io.ts<br>projectLockChange()<br>src/commands/shared/cli-context.ts<br>configWrite()"]
+  update["src/commands/frame/cli-context.ts<br>updateIntent()<br>src/state/store.ts<br>withStateLock()"]
+  riders["src/engine/fetch.ts<br>swapStoreEntry()<br>src/sources/local.ts<br>materializeLocal()<br>src/commands/frame/project-lock-io.ts<br>projectLockChange()<br>src/commands/frame/cli-context.ts<br>configWrite()"]
   apply["src/util/change.ts<br>applyChanges()"]
   written[("intent: state.json, the store entry, config.json, the manifest")]
-  after["src/commands/add.ts<br>syncCommitted()<br>src/commands/shared/engine-io.ts<br>framed()<br>src/commands/sync.ts<br>runSync()"]
-  finish["src/commands/shared/output.ts<br>finish() mergePlans()"]
+  after["src/commands/add.ts<br>syncCommitted()<br>src/commands/frame/engine-io.ts<br>framed()<br>src/commands/sync.ts<br>runSync()"]
+  finish["src/commands/frame/output.ts<br>finish() mergePlans()"]
   bin --> main
   main -->|"-h, -v, --quiet, --json and --dry-run are read off argv before any verb module loads"| options
   main -->|"loaded once a verb is about to run, never for help, the version or an unknown verb"| engine
@@ -323,25 +323,25 @@ flowchart LR
 - **The harness choice has an order:** `-a` as typed (every harness with a target under `--all`), else the harnesses detected on this machine, else `config.agents`, else a prompt pre-filled with the last answer. A harness with no target at the destination's scope is skipped: with a warning when it was named, detected or config-listed, silently under `--all` or `-a '*'`, and the prompt never offers it.
 - **`--list` stops before validation,** so a source whose install would be refused can still be seen and narrowed; it fetches unless `--no-fetch` walks the store copy, and it never writes.
 
-Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/cli/parser.test.ts](../tests/cli/parser.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
+Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/commands/frame/options.test.ts](../tests/commands/frame/options.test.ts), [tests/console/golden.test.ts](../tests/console/golden.test.ts).
 
 ## A verb runs: sync
 
 ```mermaid
 flowchart LR
   verb["src/commands/engine-verbs.ts<br>sync"]
-  persist["src/commands/shared/cli-context.ts<br>cooldownCapConfig() persistConfig()"]
-  io["src/commands/shared/engine-io.ts<br>engineIo() exitForFailed()"]
+  persist["src/commands/frame/cli-context.ts<br>cooldownCapConfig() persistConfig()"]
+  io["src/commands/frame/engine-io.ts<br>engineIo() exitForFailed()"]
   runsync["src/commands/sync.ts<br>runSync()"]
   context["src/engine/context.ts<br>loadContext() findProjectRoot() EngineContext"]
-  preview["src/commands/shared/report.ts<br>previewState()"]
-  lock["src/commands/shared/debounce.ts<br>stampLastSync()<br>src/state/store.ts<br>withStateLock()"]
+  preview["src/commands/frame/report.ts<br>previewState()"]
+  lock["src/commands/frame/debounce.ts<br>stampLastSync()<br>src/state/store.ts<br>withStateLock()"]
   plan["src/engine/plan-sync.ts<br>planSync() SyncOutcome SyncExtras"]
   refresh["src/engine/fetch.ts<br>refreshSource() isDue() FAILED_FETCH_RETRY_MS"]
   select["src/engine/select.ts<br>selectMemories() disabledNames()<br>src/rulefile/dedupe.ts<br>buildNameIndex() resolveSourceCandidates()"]
   writers["src/engine/bodies.ts<br>planBodies() planBodySweep()<br>src/engine/rules.ts<br>planRuleFile() planRulesDirSweep()<br>src/engine/hooks.ts<br>planHooks()<br>src/engine/orphans.ts<br>planOrphanSweep()"]
   builder["src/engine/plan.ts<br>PlanBuilder ChangeCategory<br>src/engine/notices.ts<br>Notices"]
-  finish["src/commands/shared/report.ts<br>finishSync() summaryLine()"]
+  finish["src/commands/frame/report.ts<br>finishSync() summaryLine()"]
   apply["src/util/change.ts<br>applyChanges()"]
   log["src/util/log.ts<br>appendRefreshLog()"]
   disk[("destinations, the store, state.json, the log")]
@@ -378,12 +378,12 @@ flowchart LR
   runsync["src/commands/sync.ts<br>runSync()"]
   stdin["src/harnesses/hook-stdin.ts<br>readHookStdin() classifyInvoker() stdoutVariantFor() HOOK_STDIN_FIRST_CHUNK_MS"]
   context["src/engine/context.ts<br>loadContext()"]
-  debounce["src/commands/shared/debounce.ts<br>isDebounced() stampLastSync() QUIET_DEBOUNCE_MS"]
+  debounce["src/commands/frame/debounce.ts<br>isDebounced() stampLastSync() QUIET_DEBOUNCE_MS"]
   stamp[("the quiet-mode stamp: last-sync")]
   lock["src/state/store.ts<br>withStateLock() HookLockOutcome"]
   plan["src/engine/plan-sync.ts<br>planSync()"]
   builder["src/engine/plan.ts<br>PlanBuilder"]
-  finish["src/commands/shared/report.ts<br>finishSync() EMPTY_REPORT"]
+  finish["src/commands/frame/report.ts<br>finishSync() EMPTY_REPORT"]
   render["src/harnesses/hook-stdin.ts<br>renderHookStdout()"]
   log["src/util/log.ts<br>appendRefreshLog()"]
   session[["the session that started: stdout in the harness's protocol, exit 0 always"]]
@@ -414,16 +414,16 @@ Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-f
 ```mermaid
 flowchart LR
   verb["src/commands/engine-verbs.ts<br>remove removeOptions()"]
-  options["src/commands/shared/options.ts<br>parseDestination() parseSelect() parseAgents()"]
-  lookup["src/commands/shared/sources.ts<br>lookupSource() resolveMemoryName() installedElsewhere()"]
+  options["src/commands/frame/options.ts<br>parseDestination() parseSelect() parseAgents()"]
+  lookup["src/commands/frame/lookup.ts<br>lookupSource() resolveMemoryName() installedElsewhere()"]
   console["src/console/contract.ts<br>promptsAllowed()<br>src/console/strings.ts<br>STRINGS"]
   runremove["src/commands/remove.ts<br>runRemove()"]
-  lock["src/state/store.ts<br>withStateLock()<br>src/commands/shared/report.ts<br>previewState()"]
+  lock["src/state/store.ts<br>withStateLock()<br>src/commands/frame/report.ts<br>previewState()"]
   installed["src/engine/plan-sync.ts<br>readInstalledTree() retainedNames()<br>src/engine/select.ts<br>selectMemories()"]
-  lockio["src/commands/shared/project-lock-io.ts<br>projectLockChange()"]
+  lockio["src/commands/frame/project-lock-io.ts<br>projectLockChange()"]
   plan["src/engine/plan-sync.ts<br>planSync() SyncExtras"]
   sweeps["src/engine/rules.ts<br>planRuleFile() planRulesDirSweep() claimedByMaxims()<br>src/engine/bodies.ts<br>planBodySweep()<br>src/engine/hooks.ts<br>planHooks()"]
-  finish["src/commands/shared/report.ts<br>finishSync()"]
+  finish["src/commands/frame/report.ts<br>finishSync()"]
   disk[("rule files, body links and copies, the store entry, registries, the manifest, state.json")]
   verb -->|"one target: every source that acts here under --all, a source key, or memories of one source"| options
   options -->|"a source first; a bare name when no recorded source answers; another project's is refused"| lookup
@@ -452,7 +452,7 @@ flowchart LR
   listverb["src/commands/engine-verbs.ts<br>list"]
   runlist["src/commands/list.ts<br>runList() renderList()<br>src/engine/types.ts<br>ListReport ListedSource ListedHarness"]
   doctor["src/commands/doctor.ts<br>doctor"]
-  inspect["src/state/store.ts<br>inspectState()<br>src/commands/shared/report.ts<br>previewState()<br>src/commands/shared/cli-context.ts<br>peekIntent()"]
+  inspect["src/state/store.ts<br>inspectState()<br>src/commands/frame/report.ts<br>previewState()<br>src/commands/frame/cli-context.ts<br>peekIntent()"]
   statefile[("intent: state.json, read without the lock")]
   trees["src/engine/plan-sync.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
   derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
@@ -487,17 +487,17 @@ Demonstrated by: [tests/commands/list.test.ts](../tests/commands/list.test.ts), 
 ```mermaid
 flowchart LR
   verb["src/commands/share.ts<br>share unshare"]
-  options["src/commands/shared/options.ts<br>parseDestination()"]
-  find["src/commands/shared/sources.ts<br>findInstalledSource() installedElsewhere() withShared()"]
-  intent["src/commands/shared/cli-context.ts<br>loadIntentFor() updateIntent()"]
+  options["src/commands/frame/options.ts<br>parseDestination()"]
+  find["src/commands/frame/lookup.ts<br>findInstalledSource() installedElsewhere() withShared()"]
+  intent["src/commands/frame/cli-context.ts<br>loadIntentFor() updateIntent()"]
   shareable["src/commands/add.ts<br>assertShareable()<br>src/engine/project-lock-read.ts<br>insideProject()"]
   schema["src/state/schema.ts<br>SourceIntent"]
-  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange()<br>src/engine/project-lock-read.ts<br>readProjectLock()"]
+  lockio["src/commands/frame/project-lock-io.ts<br>lockChanges() projectLockChange()<br>src/engine/project-lock-read.ts<br>readProjectLock()"]
   plock["src/state/project-lock.ts<br>serializeProjectLock() parseProjectLock() lockSourceKey() PROJECT_LOCK_RELATIVE_PATH"]
   manifest[("the committed manifest: maxims.lock under the agents folder")]
   statefile[("intent: state.json")]
   after["src/commands/add.ts<br>syncCommitted()<br>src/commands/sync.ts<br>runSync()"]
-  finish["src/commands/shared/output.ts<br>finish()"]
+  finish["src/commands/frame/output.ts<br>finish()"]
   verb -->|"-g is refused: a user-scope source has no lock to enter"| options
   verb -->|"the source key, exact or GitHub case-folded; a source recorded for another project is refused"| find
   find --> intent
@@ -529,10 +529,10 @@ flowchart LR
   stage["src/commands/add.ts<br>stageAdd() hookWanted()"]
   plan["src/commands/add.ts<br>planAdd()"]
   wikilinks["src/memory/wikilinks.ts<br>resolveWikilinks()"]
-  commit["src/commands/add.ts<br>commitAdd()<br>src/commands/shared/cli-context.ts<br>updateIntent() withDisabled()"]
+  commit["src/commands/add.ts<br>commitAdd()<br>src/commands/frame/cli-context.ts<br>updateIntent() withDisabled()"]
   statefile[("intent: state.json and the store entries")]
   after["src/commands/add.ts<br>syncCommitted()<br>src/commands/sync.ts<br>runSync()"]
-  finish["src/commands/shared/output.ts<br>finish() mergePlans()"]
+  finish["src/commands/frame/output.ts<br>finish() mergePlans()"]
   manifest --> lockio
   lockio -->|"a shape error, an entry leaving the checkout, or two entries naming one source stops the replay whole"| plock
   plock --> install

@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { realLocal, withIntent } from "../../../src/commands/shared/sources.ts";
+import { realLocal, withIntent } from "../../../src/commands/frame/lookup.ts";
 import { parseState, type SourceEntry } from "../../../src/state/schema.ts";
 import { serializeState } from "../../../src/state/store.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";

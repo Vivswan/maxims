@@ -4,7 +4,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { createEngine } from "../../../src/commands/engine.ts";
+import { createEngine } from "../../../src/commands/loader.ts";
 import { type CliDeps, main } from "../../../src/commands/main.ts";
 import type { EngineBundle } from "../../../src/engine/types.ts";
 import {

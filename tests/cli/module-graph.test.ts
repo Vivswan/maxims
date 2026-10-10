@@ -40,7 +40,7 @@ const HOOK_PATH_EXCLUDES = [
 
 const HOOK_PATH_ROOTS = [
   "cli.ts",
-  "commands/engine.ts",
+  "commands/loader.ts",
   "commands/engine-verbs.ts",
   "commands/sync.ts",
 ].map((path) => resolve(SRC, path));

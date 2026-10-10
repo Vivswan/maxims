@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { QUIET_DEBOUNCE_MS } from "../src/commands/shared/debounce.ts";
+import { QUIET_DEBOUNCE_MS } from "../src/commands/frame/debounce.ts";
 import { HOOK_TIMEOUT_SECONDS } from "../src/harnesses/contract.ts";
 import { DEFAULT_LOCK_STALE_MS, DEFAULT_LOCK_WAIT_MS } from "../src/util/lock.ts";
 

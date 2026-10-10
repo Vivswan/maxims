@@ -225,7 +225,7 @@ async function quarantine(paths: StatePaths, issues: string[]): Promise<LoadedSt
   return { kind: "quarantined", movedTo, issues };
 }
 
-// The plans in commands/shared that write the state file themselves must spell it as the store does.
+// The plans in commands/frame and engine that write the state file themselves must spell it as the store does.
 export function serializeState(state: State): string {
   return jsonDocument(state);
 }

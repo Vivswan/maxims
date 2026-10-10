@@ -9,9 +9,9 @@ import { type UserConfig, UserConfigSchema } from "../state/config.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { jsonDocument } from "../util/json.ts";
-import { configWrite } from "./shared/cli-context.ts";
-import { type Command, closestName, INTEGER, integerOrUsage, usage } from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
+import { configWrite } from "./frame/cli-context.ts";
+import { type Command, closestName, INTEGER, integerOrUsage, usage } from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
 
 type ConfigKey = keyof UserConfig;
 

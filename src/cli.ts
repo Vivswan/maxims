@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
-import { createEngine } from "./commands/engine.ts";
+import { createEngine } from "./commands/loader.ts";
 import { main } from "./commands/main.ts";
 import { detectAgent } from "./console/mode.ts";
 import { findProjectRoot } from "./engine/context.ts";

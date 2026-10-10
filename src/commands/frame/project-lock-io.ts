@@ -22,8 +22,8 @@ import type { SourceEntry, SourceIntent, State } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../../util/fs.ts";
+import { effectiveNames } from "./lookup.ts";
 import { INTENT_DEFAULTS } from "./options.ts";
-import { effectiveNames } from "./sources.ts";
 
 function realRelative(projectRoot: string, path: string): string {
   return relative(realpathOfExistingPrefix(projectRoot), realpathOfExistingPrefix(path));

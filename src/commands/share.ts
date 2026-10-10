@@ -2,11 +2,11 @@ import { notInstalled } from "../console/strings.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertShareable, syncCommitted } from "./add.ts";
-import { loadIntentFor, updateIntent } from "./shared/cli-context.ts";
-import { type Command, FLAGS, type FlagSpec, parseDestination, usage } from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
-import { lockChanges } from "./shared/project-lock-io.ts";
-import { findInstalledSource, installedElsewhere, withShared } from "./shared/sources.ts";
+import { loadIntentFor, updateIntent } from "./frame/cli-context.ts";
+import { findInstalledSource, installedElsewhere, withShared } from "./frame/lookup.ts";
+import { type Command, FLAGS, type FlagSpec, parseDestination, usage } from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
+import { lockChanges } from "./frame/project-lock-io.ts";
 
 const SHARE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project];
 

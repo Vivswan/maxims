@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createEngine } from "../../src/commands/engine.ts";
+import { createEngine } from "../../src/commands/loader.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { estimateTokens } from "../../src/rulefile/budget.ts";
 import { homePaths } from "../../src/util/home.ts";

@@ -15,22 +15,16 @@ import { ExitCode } from "../util/exit-codes.ts";
 import { readIfPresent } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
-import { peekIntent } from "./shared/cli-context.ts";
-import { readLastSync } from "./shared/debounce.ts";
-import {
-  type Command,
-  type CommandContext,
-  FLAGS,
-  type FlagSpec,
-  usage,
-} from "./shared/options.ts";
+import { peekIntent } from "./frame/cli-context.ts";
+import { readLastSync } from "./frame/debounce.ts";
 import {
   effectiveNames,
   effectiveNamesIfReadable,
   scopeOf,
   targetPath,
   tildify,
-} from "./shared/sources.ts";
+} from "./frame/lookup.ts";
+import { type Command, type CommandContext, FLAGS, type FlagSpec, usage } from "./frame/options.ts";
 
 type Finding = { kind: "ok" | "warn" | "fail"; text: string };
 
