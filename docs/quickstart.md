@@ -13,6 +13,8 @@ One command installs a source's one-liners into your agent's always-loaded layer
 npx -y @vivswan/maxims add @Octocat/rules -g --rule --add-hook
 ```
 
+`@Octocat/rules` stands for your own rules repository.
+
 - `-g` installs at user level, for every project on the machine.
 - `--rule` publishes each memory's one-liner into the rule file.
 - `--add-hook` registers the session-start sync hook, once per harness.

@@ -8,6 +8,8 @@ An agent can hold a rule in its memory and still not act on it, because memory b
 npx -y @vivswan/maxims add @Octocat/rules -g --rule --add-hook
 ```
 
+`@Octocat/rules` stands for your own rules repository.
+
 What maxims writes for Claude Code, one line per memory, with the detail path, the body's short hash, and the two comment lines Claude Code strips before injection. The revision and the hashes are illustrative:
 
 ```markdown
