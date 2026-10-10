@@ -1,10 +1,11 @@
 // Every run is a fresh process with its own throwaway HOME, so the number is the every-session
 // cost and nothing the developer's real home holds can shorten or lengthen it.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
+import { withScratchDir } from "./lib/scratch.ts";
 
 const DEFAULT_COMMAND = ["node", "dist/cli.js", "--version"];
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
@@ -66,30 +67,35 @@ interface RunResult {
   stderr: string;
 }
 
-// The exit-code check lives in the caller: exiting from inside this try would skip the finally and
-// leave the run's HOME behind.
-function timeOneRun(command: string[]): RunResult {
-  const home = mkdtempSync(join(tmpdir(), "maxims-bench-home-"));
-  try {
-    const env = {
-      ...process.env,
-      HOME: home,
-      USERPROFILE: home,
-      MAXIMS_HOME: join(home, ".agents", "maxims"),
-      NO_COLOR: "1",
-    };
-    const started = performance.now();
-    const proc = Bun.spawnSync(command, { env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-    const elapsedMs = performance.now() - started;
-    return {
-      elapsedMs,
-      exitCode: proc.exitCode,
-      signalCode: proc.signalCode,
-      stderr: proc.stderr.toString(),
-    };
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
+// The HOME is rooted at tmpdir(), never RUNNER_TEMP: tests/bench.test.ts finds it through TMPDIR.
+function timeOneRun(command: string[]): Promise<RunResult> {
+  return withScratchDir(
+    "maxims-bench-home-",
+    (home) => {
+      const env = {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        MAXIMS_HOME: join(home, ".agents", "maxims"),
+        NO_COLOR: "1",
+      };
+      const started = performance.now();
+      const proc = Bun.spawnSync(command, {
+        env,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const elapsedMs = performance.now() - started;
+      return {
+        elapsedMs,
+        exitCode: proc.exitCode,
+        signalCode: proc.signalCode,
+        stderr: proc.stderr.toString(),
+      };
+    },
+    tmpdir(),
+  );
 }
 
 const round = (ms: number): number => Math.round(ms * 1000) / 1000;
@@ -108,11 +114,11 @@ export function summarize(durationsMs: number[]): Summary {
   };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const timings: number[] = [];
   for (let run = 0; run < options.runs; run++) {
-    const result = timeOneRun(options.command);
+    const result = await timeOneRun(options.command);
     if (result.exitCode !== 0) {
       const how =
         result.exitCode === null
@@ -138,4 +144,4 @@ function main(): void {
   process.stdout.write(line);
 }
 
-if (import.meta.main) main();
+if (import.meta.main) await main();

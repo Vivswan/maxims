@@ -221,7 +221,8 @@ interface Fixture {
 
 // The bench derives the repository from its own location, so a copy of the script, with every
 // module it loads at its place in the tree, measures the checkout it is copied into. A fixed
-// directory list would miss a script's next import from src/.
+// directory list would miss a script's next import from src/. Without the node_modules link, bun
+// would fetch the copy's bare imports from the registry.
 function copyBenchInto(root: string): string {
   const bench = join(repoRoot, "scripts", "bench.ts");
   const files = new Set([bench]);
@@ -232,6 +233,7 @@ function copyBenchInto(root: string): string {
     copyFileSync(file, target);
     for (const specifier of importSpecifiers(text, file)) files.add(resolveImport(file, specifier));
   }
+  symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "junction");
   return join(root, relative(repoRoot, bench));
 }
 

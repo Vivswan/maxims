@@ -1,12 +1,12 @@
 // Builds and times HEAD and the base ref on the same machine in one run, so the figures compare
 // two bundles under the same noise instead of one bundle against a budget written for other
 // hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { percent, quantity, readPositiveNumber, type Unit } from "./lib/figures.ts";
 import { outsideCheckouts } from "./lib/paths.ts";
+import { withScratchDir } from "./lib/scratch.ts";
 import { captureOrThrow, runOrThrow } from "./lib/spawn.ts";
 
 const USAGE = "usage: bun scripts/bench_ci.ts --base <ref> [--runs N] [--out dir]\n";
@@ -267,43 +267,43 @@ function buildBase(options: Options, scratch: string, baseSha: string): Side {
   return build(baseRoot, "base", options.runs, scratch);
 }
 
-function main(): number {
+async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   const headSha = git(["rev-parse", "HEAD"]);
   const baseSha = git(["rev-parse", "--verify", `${options.base}^{commit}`]);
-  const scratch = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "maxims-bench-ci-"));
   try {
-    const base = buildBase(options, scratch, baseSha);
-    const head = build(repoRoot, "head", options.runs, scratch);
-    const report = compare(
-      {
-        base: { ref: options.base, sha: baseSha },
-        head: { sha: headSha },
-        runs: options.runs,
-        commands: TIMED_PATHS.map((timed) => ["node", "dist/cli.js", ...timed.argv]),
-      },
-      base,
-      head,
-    );
-    const markdown = renderMarkdown(report);
-    if (options.out !== undefined) {
-      mkdirSync(options.out, { recursive: true });
-      writeFileSync(join(options.out, "report.md"), markdown);
-      writeFileSync(join(options.out, "report.json"), renderJson(report));
-    }
-    process.stdout.write(markdown);
-    return verdict(report) === "fail" ? 1 : 0;
+    return await withScratchDir("maxims-bench-ci-", (scratch) => {
+      const base = buildBase(options, scratch, baseSha);
+      const head = build(repoRoot, "head", options.runs, scratch);
+      const report = compare(
+        {
+          base: { ref: options.base, sha: baseSha },
+          head: { sha: headSha },
+          runs: options.runs,
+          commands: TIMED_PATHS.map((timed) => ["node", "dist/cli.js", ...timed.argv]),
+        },
+        base,
+        head,
+      );
+      const markdown = renderMarkdown(report);
+      if (options.out !== undefined) {
+        mkdirSync(options.out, { recursive: true });
+        writeFileSync(join(options.out, "report.md"), markdown);
+        writeFileSync(join(options.out, "report.json"), renderJson(report));
+      }
+      process.stdout.write(markdown);
+      return verdict(report) === "fail" ? 1 : 0;
+    });
   } finally {
-    // Deleting the scratch tree and pruning covers a worktree add that registered the checkout
+    // Pruning once the scratch tree is gone covers a worktree add that registered the checkout
     // and then failed (a post-checkout hook, for one), which a remove keyed on success would miss.
-    rmSync(scratch, { recursive: true, force: true });
     git(["worktree", "prune"]);
   }
 }
 
 if (import.meta.main) {
   try {
-    process.exit(main());
+    process.exit(await main());
   } catch (error) {
     process.stderr.write(`bench_ci: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
