@@ -228,8 +228,9 @@ export const add: Command = {
   },
 };
 
-// The sync that follows a commit never fetches: the verb fetched what it needed, or edited intent
-// alone. The verb frames the output, so the engine's own lines go nowhere.
+// The sync that follows a commit never fetches: it plans from what the verb prepared (a fetch, a
+// promoted hold, or an intent edit), or from the state as it stands when the verb had nothing to
+// do. The verb frames the output, so the engine's own lines go nowhere.
 //   --dry-run   plans against the state the commit would have written; the file was left alone
 //   --quiet     the frame's silence only: the engine runs an interactive sync, with no debounce and
 //               no deferred deletions

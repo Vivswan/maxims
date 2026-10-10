@@ -2,11 +2,12 @@ import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
-// working directory, AGENTS.override.md first and the CLAUDE spellings last, so a block written
-// into AGENTS.md beside AGENTS.override.md would never load and creating AGENTS.md beside a lone
-// CLAUDE.md would stop Pi reading the user's file. `pi.exec` takes an argv with no shell; the
-// project `mcp.json` is read once the project is trusted, and every enabled server connects when a
-// session starts.
+// working directory, AGENTS.override.md first and the CLAUDE spellings last.
+//   AGENTS.md beside AGENTS.override.md   a block written there would never load
+//   AGENTS.md beside a lone CLAUDE.md     creating it would stop Pi reading the user's file
+//   `pi.exec`                             takes an argv with no shell
+//   project `mcp.json`                    read once the project is trusted, and every enabled
+//                                         server connects when a session starts
 export const spec = {
   id: "pi",
   displayName: "Pi",
