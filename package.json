@@ -9,7 +9,7 @@
     "url": "git+https://github.com/Vivswan/maxims.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "bin": {
     "maxims": "dist/cli.js"
@@ -26,7 +26,8 @@
     "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip && bun run docs:check && bun run docs:matrix:check && bun run lint:arch && bun run test:arch && bun run docs:arch:check",
     "lint": "bun x biome ci .",
     "lint:fix": "bun x biome check --write .",
-    "typecheck": "bun x tsc -p .",
+    "typecheck": "bun x tsc -p . && bun run typecheck:node-floor",
+    "typecheck:node-floor": "bun x tsc -p tsconfig.node-floor.json",
     "test": "bun scripts/run_tests.ts",
     "build": "bun scripts/build.ts",
     "knip": "bun x knip",
@@ -50,6 +51,7 @@
     "@simple-git/argv-parser": "2.0.1",
     "@types/bun": "1.4.2",
     "@types/debug": "4.1.13",
+    "@types/node": "24.19.2",
     "@types/semver": "7.8.0",
     "@vercel/detect-agent": "1.2.5",
     "debug": "4.4.3",

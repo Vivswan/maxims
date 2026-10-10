@@ -45,6 +45,26 @@
   },
   "overrides": [
     {
+      "includes": ["src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["bun", "bun:*"],
+                    "message": "src/ ships as dist/cli.js under node. bun-types also declares the Bun globals from inside these modules, so even a type import would hide them from the Node floor typecheck."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["tests/**", "!tests/container/runner.ts", "!tests/shared/preload.ts"],
       "linter": {
         "rules": {
