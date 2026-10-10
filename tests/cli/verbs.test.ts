@@ -1017,7 +1017,9 @@ test("doctor reports a file behind a marker the grammar refuses as that file's r
     const run = await runCli(scenario, ["doctor", "--expect", "skip-unfit-skills"]);
     expect(run.code).toBe(1);
     expect(run.stdout.split("\n").slice(0, 3)).toEqual([
-      `x   codex: ${shared}: the marker ${JSON.stringify(oldBegin)} carries no version; this maxims writes version 1 and cannot refresh the block it opens (delete the block from that line through its maxims:end line, then run sync, which writes it afresh)`,
+      `x   codex: ${shared}: the marker ${JSON.stringify(oldBegin)} carries no version; ` +
+        "this maxims writes version 1 and cannot refresh the block it opens (delete the block " +
+        "from that line through its maxims:end line, then run sync, which writes it afresh)",
       `ok  cursor: ${rulesFile}`,
       `x   expect skip-unfit-skills: no rule line in ${shared}`,
     ]);
