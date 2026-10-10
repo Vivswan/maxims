@@ -212,7 +212,10 @@ export function summarizeSteps(version: string, results: readonly StepResult[]):
 // `sync` and `remove` after a failed `add` would only report the same defect from further away.
 export async function runPublishedSmoke(run: CommandRunner = spawnCommand): Promise<Outcome> {
   const started = performance.now();
-  const remaining = (): number => Math.max(1, TOTAL_BUDGET_MS - (performance.now() - started));
+  // Bun.spawn takes an integer timeout and performance.now() is fractional, so the remainder is
+  // rounded once here, up, so a child is never given less than what is left.
+  const remaining = (): number =>
+    Math.max(1, Math.ceil(TOTAL_BUDGET_MS - (performance.now() - started)));
   return withScratchDir("maxims-published-smoke-", async (scratch) => {
     const home = join(scratch, "home");
     const fixture = join(scratch, "fixture");
