@@ -598,8 +598,8 @@ function batchSshCommand(base: NodeJS.ProcessEnv): string {
 }
 
 // The first word of a POSIX command line, as spelled (`raw`) and as sh reads it (`text`). Inside
-// double quotes a backslash before any character it does not escape stays a character, which is
-// how a Windows path keeps its separators.
+// double quotes a backslash stays a character unless it escapes one of sh's five, which is how a
+// Windows path keeps its separators.
 function leadingShellWord(command: string): { raw: string; text: string } {
   let quote: string | null = null;
   let text = "";
