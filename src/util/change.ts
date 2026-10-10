@@ -14,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { POSIX_MODES, type RootedPath, writeFileAtomic } from "./fs.ts";
+import { cannotInspect, isAbsent, POSIX_MODES, type RootedPath, writeFileAtomic } from "./fs.ts";
 
 // Every `path` is a RootedPath, so a change can only name a location some planner has already
 // proven to lie under its destination root; a symlink `target` may point anywhere (the store).
@@ -153,15 +153,8 @@ async function probe(path: string, look: (path: string) => Promise<Stats>): Prom
 }
 
 function absentOrThrow(path: string, error: unknown): null {
-  const code = (error as NodeJS.ErrnoException).code;
-  if (code === "ENOENT" || code === "ENOTDIR") return null;
-  throw new MaximsError(
-    ExitCode.DestinationWriteFailed,
-    `cannot inspect ${path}: ${detail(error)}`,
-    {
-      cause: error,
-    },
-  );
+  if (isAbsent(error)) return null;
+  throw cannotInspect(path, error);
 }
 
 async function guarded(path: string, action: () => Promise<unknown>): Promise<void> {

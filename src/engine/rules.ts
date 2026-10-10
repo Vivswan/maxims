@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
+import { readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   type HarnessDefinition,
@@ -22,7 +22,7 @@ import {
 import { parseRuleLines, ruleLineName } from "../rulefile/blocks.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../rulefile/types.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, lstatOrNullSync } from "../util/change.ts";
 import { MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -228,7 +228,7 @@ type RenderedFile = {
 // at its path reads as absent and the write that replaces it is planned even when the linked
 // content matches.
 async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
-  const linked = isSymlink(file.path);
+  const linked = lstatOrNullSync(file.path)?.isSymbolicLink() ?? false;
   if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
     return null;
   }
@@ -454,15 +454,6 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
 // the sweep holds the file where it is.
 export function claimedByMaxims(text: string): boolean {
   return parseBlocks(text).blocks.length > 0;
-}
-
-export function isSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch (cause) {
-    if (isAbsent(cause)) return false;
-    throw cannotInspect(path, cause);
-  }
 }
 
 // The text of the file at a derived rule-file name, read through a link, for the reads that take
