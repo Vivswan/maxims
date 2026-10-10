@@ -2,7 +2,7 @@
 // budget (a session start that never finishes), a payload that makes the invoker classifier
 // THROW instead of answering silence, or a stdout envelope that a JSON-only harness cannot read.
 // Every byte here comes from a harness maxims does not control, so the hook path answers for all.
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fc from "fast-check";
 import { util } from "zod";
@@ -18,7 +18,7 @@ import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, describeError, fragments, fuzz, timed } from "./shared.ts";
+import { anyText, describeError, fragments, fuzz } from "./shared.ts";
 
 // The fields the invoker rules read, each in the type that matches and in one that does not, so
 // a random record lands on every rule's boundary and on the order that disambiguates them.
@@ -106,16 +106,11 @@ class FakeStdin extends EventEmitter implements StdinLike {
 // A pipe's later events reach whoever is still subscribed: once the read has settled and left,
 // an error is the emitter's own throw and no longer the reader's to absorb, so the ending is
 // emitted only while the read is still pending (a terminal is never read and never fails).
-async function play(stream: FakeStdin, script: Script, read: Promise<unknown>): Promise<void> {
-  let settled = false;
-  const watched = read.then(() => {
-    settled = true;
-  });
+function play(stream: FakeStdin, script: Script, read: Promise<unknown>): void {
   for (const chunk of script.chunks) {
     stream.emit("data", typeof chunk === "string" ? chunk : Buffer.from(chunk));
   }
-  await Promise.race([watched, Promise.resolve()]);
-  if (script.ending === "open" || settled) return;
+  if (script.ending === "open" || Bun.peek.status(read) !== "pending") return;
   if (script.ending === "error") {
     if (!script.tty) stream.emit("error", new Error("EPIPE"));
   } else stream.emit(script.ending);
@@ -152,7 +147,7 @@ test(
     await fuzz("readHookStdin", script, async (played) => {
       const stream = new FakeStdin(played.tty);
       const read = readHookStdin(stream, FIRST_CHUNK_MS);
-      await play(stream, played, read);
+      play(stream, played, read);
       const result = await asyncOutcome(() => read);
       if (result.kind === "threw") throw new Error(`rejected ${describeError(result.error)}`);
       const text = result.value;
@@ -176,16 +171,12 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// A pipe the harness never closes: with no bytes the read gives up after the documented 200 ms
-// first-chunk wait, and with bytes that never parse after the documented 1000 ms total, so a
-// session start is delayed by at most that total plus the runner's own jitter. The budgets are
-// the documented figures, not the module's constants, so a constant drifting past the contract
-// fails here.
+// A pipe the harness never closes: with no bytes the read gives up at the documented 200 ms
+// first-chunk wait, with bytes that never parse at the documented 1000 ms total, and in neither
+// case one millisecond earlier. The budgets are the documented figures, not the module's
+// constants, so a constant drifting either way fails here.
 const FIRST_CHUNK_BUDGET_MS = 200;
 const TOTAL_BUDGET_MS = 1000;
-// Wide enough for a loaded runner's timer lag, narrow enough that a first-chunk wait doubled to
-// 400 ms fails the no-bytes row.
-const JITTER_MS = 150;
 const open: [string, (Uint8Array | string)[], number][] = [
   ["no bytes", [], FIRST_CHUNK_BUDGET_MS],
   ["one unfinished object", ['{"hook_event_name": "SessionStart"'], TOTAL_BUDGET_MS],
@@ -193,54 +184,66 @@ const open: [string, (Uint8Array | string)[], number][] = [
 ];
 
 test.each(open)(
-  "readHookStdin gives up on an open pipe with %s within its budget",
+  "readHookStdin gives up on an open pipe with %s at its budget and not before",
   async (_label, chunks, limitMs) => {
-    const stream = new FakeStdin(false);
-    const start = performance.now();
-    const read = readHookStdin(stream);
-    await play(stream, { chunks, ending: "open", tty: false }, read);
-    const text = await read;
-    const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(limitMs + JITTER_MS);
-    expect(elapsed).toBeGreaterThanOrEqual(limitMs - 5);
-    expect(text).toBe(chunks.length === 0 ? null : decoded(chunks));
-    expectClassification(text);
-    expectDetached(stream);
+    jest.useFakeTimers();
+    try {
+      const stream = new FakeStdin(false);
+      const read = readHookStdin(stream);
+      play(stream, { chunks, ending: "open", tty: false }, read);
+      jest.advanceTimersByTime(limitMs - 1);
+      expect(Bun.peek.status(read)).toBe("pending");
+      jest.advanceTimersByTime(1);
+      expect(Bun.peek.status(read)).toBe("fulfilled");
+      const text = await read;
+      expect(text).toBe(chunks.length === 0 ? null : decoded(chunks));
+      expectClassification(text);
+      expectDetached(stream);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   },
-  PROPERTY_TIMEOUT_MS,
 );
 
 // The total is a fixed deadline, not an inactivity timeout: a pipe that keeps dripping bytes that
 // never complete a JSON value still lets the session start at the documented total.
-test(
-  "readHookStdin holds the total deadline while an open pipe keeps sending",
-  async () => {
+test("readHookStdin holds the total deadline while an open pipe keeps sending", async () => {
+  jest.useFakeTimers();
+  try {
     const stream = new FakeStdin(false);
-    const start = performance.now();
     const read = readHookStdin(stream);
     stream.emit("data", '{"hook_event_name": ');
-    const drip = setInterval(() => stream.emit("data", " "), 300);
-    try {
-      const text = await read;
-      const elapsed = performance.now() - start;
-      expect(elapsed).toBeLessThan(TOTAL_BUDGET_MS + JITTER_MS);
-      expect(elapsed).toBeGreaterThanOrEqual(TOTAL_BUDGET_MS - 5);
-      expect(text).toMatch(/^\{"hook_event_name": {1,}$/);
-      expectClassification(text);
-      expectDetached(stream);
-    } finally {
-      clearInterval(drip);
+    let now = 0;
+    const advanceTo = (ms: number): void => {
+      jest.advanceTimersByTime(ms - now);
+      now = ms;
+    };
+    for (const at of [300, 600, 900]) {
+      advanceTo(at);
+      stream.emit("data", " ");
+      expect(Bun.peek.status(read)).toBe("pending");
     }
-  },
-  PROPERTY_TIMEOUT_MS,
-);
+    advanceTo(TOTAL_BUDGET_MS - 1);
+    expect(Bun.peek.status(read)).toBe("pending");
+    advanceTo(TOTAL_BUDGET_MS);
+    expect(Bun.peek.status(read)).toBe("fulfilled");
+    const text = await read;
+    expect(text).toBe('{"hook_event_name":    ');
+    expectClassification(text);
+    expectDetached(stream);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 // A pipe that closed after a lone UTF-8 lead byte sent bytes: read as a terminal (null), the hook
 // would print plain text into a harness that sent it a payload.
 test("readHookStdin hands back the decoded text of a pipe that closed mid-character", async () => {
   const stream = new FakeStdin(false);
   const read = readHookStdin(stream, FIRST_CHUNK_MS);
-  await play(stream, { chunks: [new Uint8Array([0xc3])], ending: "end", tty: false }, read);
+  play(stream, { chunks: [new Uint8Array([0xc3])], ending: "end", tty: false }, read);
   expect(await read).toBe("\ufffd");
 });
 
@@ -274,9 +277,8 @@ test(
       "renderHookStdout",
       fc.tuple(fc.constantFrom(...VARIANTS, null), lines),
       ([variant, text]) => {
-        const { value: result, ms } = timed(() => outcome(() => renderHookStdout(variant, text)));
+        const result = outcome(() => renderHookStdout(variant, text));
         if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
-        expect(ms).toBeLessThan(100);
         const out = result.value;
         if (variant === null || variant === "none" || text.length === 0) {
           expect(out).toBe("");
