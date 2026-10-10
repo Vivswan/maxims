@@ -173,7 +173,7 @@ flowchart LR
 The block `renderBlock()` produces for two rule lines under stripped markers, in the shape [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins, with an illustrative revision:
 
 ```text
-<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 version=1 -->
 <!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
 - Codex rubber-duck review before EVERY commit, however trivial (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
@@ -181,7 +181,7 @@ The block `renderBlock()` produces for two rule lines under stripped markers, in
 <!-- maxims:end @Vivswan/skills -->
 ```
 
-- **A BEGIN pairs only with the very next marker line,** and only when that line is its own END; an orphaned BEGIN is plain text, never a span that swallows the user's lines and a later valid block.
+- **A BEGIN pairs only with the very next marker line,** and only when that line is its own END; an orphaned BEGIN of the current version is plain text, never a span that swallows the user's lines and a later valid block, and a BEGIN of another version [holds the file](troubleshooting.md#exit-4-a-blocks-marker-carries-no-version-or-another-one).
 - **Appending closes what the user's text left open.** A fence, comment or raw HTML block still open at the end of the file gets the closer its kind has, or the blank line alone when a block tag needs none; otherwise the fence would swallow the markers and every later sync would append again.
 - **Escaping follows the harness's `expands` list,** and the [rule file](harnesses.md#the-rule-file) owns the table of what is escaped and why.
 

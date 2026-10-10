@@ -69,6 +69,19 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 **What to do:** open the file, delete or edit the stray `maxims:begin` and `maxims:end` lines the message names, then run `sync`; the block leaves with that run.
 
+## Exit 4: a block's marker carries no version, or another one
+
+**What you see:** `sync` exits 4 with these two lines naming the file and the marker line, and every other file refreshes. A hook run prints the same two lines and exits 0.
+
+```text
+!  maxims: /home/user/AGENTS.md: the marker "<!-- maxims:begin @you/notes sha=3f2a9c1e -->" carries no version; this maxims writes version 1 and cannot refresh the block it opens
+!  maxims: delete the block from that line through its maxims:end line, then run sync, which writes it afresh
+```
+
+**What it means:** the [rule file section](harnesses.md#the-rule-file) owns the marker grammar and its version. The block behind that marker can be neither refreshed nor removed, so the file is held rather than given a second block or stripped of yours. A newer version names the upgrade in the hint.
+
+**What to do:** open the file, delete the block from that `maxims:begin` line through its `maxims:end` line, then run `sync`; the block is written afresh.
+
 ## Exit 3: nothing resolved to install
 
 **What you see:** one of three messages, each with exit 3 and nothing written.

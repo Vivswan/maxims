@@ -62,7 +62,7 @@ The tier a harness achieves is a sync-time result that `list` reports. It is not
 Generated on every sync, compared to what is on disk, and written only on a difference. Hand edits inside the block are overwritten by design; `--dry-run` shows what would be lost, and the marker text says where the real edit belongs. The block below carries an illustrative revision and hash.
 
 ```markdown
-<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 version=1 -->
 - Codex rubber-duck review before EVERY commit, however trivial. (detail: ~/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
 <!-- maxims:end @Vivswan/skills -->
 ```
@@ -71,6 +71,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 - **Strategy A writes one file per source, `maxims-<source>` plus the harness's suffix; strategy B writes one block per source.** Removal is a file delete or a block cut, provenance is visible, and two sources never fight over one file.
 - **Markers are HTML comments matched at line start only.** Every target is markdown; a marker quoted inside someone's fenced code block is not a marker.
 - **The begin marker carries the revision installed, whole.** A GitHub or git source's is its 40-hex commit id; a local directory's is `sha256:` and the 64-hex hash of its tree.
+- **The begin marker ends in the version of the block grammar, `version=1` today.** maxims reads only its own version; a block behind a marker of another version, or of none, holds the file with [exit 4](troubleshooting.md#exit-4-a-blocks-marker-carries-no-version-or-another-one) rather than being rewritten or deleted.
 - **Everything outside the marker pair is preserved byte for byte.** A user may keep hand-written rules in the same file.
 - **Rule lines are sorted by memory name.** Two machines with the same source produce the same file, and "nothing changed" is detectable.
 - **`-->` in a description is escaped, and a token a harness would expand (Claude Code's and Gemini's `@path` imports) is wrapped in backticks.** An unescaped one would end the comment early or read a file into context; an undocumented syntax is escaped conservatively.

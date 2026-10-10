@@ -1,14 +1,15 @@
-// What would drift silently: a rule file whose bytes make the block scanner THROW, report lines
-// that do not partition the file, find a block whose span does not start and end on its own
-// markers, deal a shared file's blocks out of source order, move the user's bytes between them,
-// fail to hand the file back after stripping what it added, or go quadratic on a large file; the
-// name index throwing on odd names or timestamps or handing a name to a later installer. Every
-// rule file is one the user also edits by hand, so the scanner must answer for any bytes it finds
-// there.
+// What would drift silently: a rule file whose bytes make the block scanner THROW (the one refusal
+// it owes, a begin marker of another version, excepted), report lines that do not partition the
+// file, find a block whose span does not start and end on its own markers, deal a shared file's
+// blocks out of source order, move the user's bytes between them, fail to hand the file back
+// after stripping what it added, or go quadratic on a large file; the name index throwing on odd
+// names or timestamps or handing a name to a later installer. Every rule file is one the user also
+// edits by hand, so the scanner must answer for any bytes it finds there.
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import type { MemoryName } from "../../src/memory/contract.ts";
 import {
+  MarkerRefused,
   markdownLines,
   ownLineMatcher,
   parseBlocks,
@@ -24,19 +25,23 @@ import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
 
 const SOURCE = "@example-user/rules";
-const BEGIN = `<!-- maxims:begin ${SOURCE} sha=3f2a9c1e -->`;
+const BEGIN = `<!-- maxims:begin ${SOURCE} sha=3f2a9c1e version=1 -->`;
 const END = `<!-- maxims:end ${SOURCE} -->`;
 const BLOCK = `${BEGIN}\n- Rule one. (detail: rules/one.md, 3f2a9c1)\n${END}\n`;
 
 // Marker fragments, every block opener the scanner knows, list and quote prefixes, link
 // reference definition pieces and the three line endings, so a random join lands on the
-// scanner's own state transitions.
+// scanner's own state transitions. The version fields let a join spell a current marker, one of
+// another version and one with none.
 const FILE_PIECES = [
   "<!-- maxims:begin ",
   SOURCE,
   "@other/source",
   " sha=",
   "3f2a9c1e",
+  " version=1",
+  " version=2",
+  " version=01",
   " -->",
   "<!-- maxims:end ",
   "-->",
@@ -98,7 +103,7 @@ const blockFor = fc
   )
   .map(
     ([source, sha]) =>
-      `<!-- maxims:begin ${source} sha=${sha} -->\n- Rule. (detail: d.md, ${sha})\n<!-- maxims:end ${source} -->`,
+      `<!-- maxims:begin ${source} sha=${sha} version=1 -->\n- Rule. (detail: d.md, ${sha})\n<!-- maxims:end ${source} -->`,
   );
 const segment = fc.oneof(
   blockFor,
@@ -126,6 +131,27 @@ const MS_PER_KIB = 1;
 
 const LINE_ENDING = /^(\r\n|\r|\n)?$/;
 
+// Whether the file holds a begin marker of another version, or none, restated from the marker
+// grammar: the version is the last field of any begin marker line the scanner reads as a comment,
+// judged as the token written (`01` is another version). The scanner must refuse exactly these
+// files, since reading such a marker as text would leave the block it opens beside a fresh one,
+// and must read every other file.
+function holdsForeignBegin(text: string): boolean {
+  return markdownLines(text).some((line) => {
+    if (line.kind !== "comment") return false;
+    const marker = /^<!-- maxims:begin (.*) -->$/s.exec(line.text);
+    if (marker === null) return false;
+    return / version=(\d+)$/.exec(marker[1])?.[1] !== "1";
+  });
+}
+
+function refusesForeignBegin(read: () => unknown): void {
+  const result = outcome(read);
+  if (result.kind !== "threw" || !(result.error instanceof MarkerRefused)) {
+    throw new Error("a begin marker of another version was read rather than refused");
+  }
+}
+
 test(
   "markdownLines partitions any file into lines that carry their own bytes",
   async () => {
@@ -149,9 +175,13 @@ test(
 );
 
 test(
-  "parseBlocks finds only spans that open and close on their own markers, one per source",
+  "parseBlocks finds only spans that open and close on their own markers, one per source, and refuses a marker of another version",
   async () => {
     await fuzz("parseBlocks", fileText, (text) => {
+      if (holdsForeignBegin(text)) {
+        refusesForeignBegin(() => parseBlocks(text));
+        return;
+      }
       const result = outcome(() => parseBlocks(text));
       if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
       const { blocks, warnings } = result.value;
@@ -160,9 +190,9 @@ test(
       for (const block of blocks) {
         expect(block.start).toBeGreaterThanOrEqual(previousEnd);
         const span = text.slice(block.start, block.end);
-        expect(span.startsWith(`<!-- maxims:begin ${block.source} sha=${block.sha} -->`)).toBe(
-          true,
-        );
+        expect(
+          span.startsWith(`<!-- maxims:begin ${block.source} sha=${block.sha} version=1 -->`),
+        ).toBe(true);
         const body = span.replace(/(\r\n|\r|\n)$/, "");
         expect(body.endsWith(`<!-- maxims:end ${block.source} -->`)).toBe(true);
         previousEnd = block.end;
@@ -183,7 +213,7 @@ function pairsOf(text: string): Pair[] {
   let begin: { key: string; start: number } | null = null;
   for (const line of markdownLines(text)) {
     if (line.kind !== "comment") continue;
-    const opened = /^<!-- maxims:begin (.+) sha=\S+ -->$/s.exec(line.text);
+    const opened = /^<!-- maxims:begin (.+) sha=\S+ version=1 -->$/s.exec(line.text);
     if (opened !== null) {
       begin = { key: opened[1], start: line.start };
       continue;
@@ -250,11 +280,17 @@ const JOIN_CAN_OPEN = /[<`~[]/;
 // dealt without it, which is the file itself once its blocks stood in key order, each closed with
 // LF. A file with no pair is appended to behind its own bytes, and stripping restores it when it
 // ended on a line ending with no block left open. Removing a block the user's stray markers
-// surround may be refused, never answered with a plain throw.
+// surround may be refused, never answered with a plain throw. A file holding a begin marker of
+// another version is refused by both writers, so neither ever rewrites it.
 test(
   "replaceBlock deals the blocks by source over the user's bytes and stripBlock hands them back",
   async () => {
     await fuzz("replaceBlock and stripBlock", fileText, (before) => {
+      if (holdsForeignBegin(before)) {
+        refusesForeignBegin(() => stripBlock(before, SOURCE));
+        refusesForeignBegin(() => replaceBlock(before, SOURCE, BLOCK));
+        return;
+      }
       const pairs = pairsOf(before);
       const firstPerKey = pairs.filter(
         (pair, index) => pairs.findIndex((other) => other.key === pair.key) === index,

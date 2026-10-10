@@ -14,7 +14,8 @@ import {
   parseMemoryName,
   renamed,
 } from "../memory/contract.ts";
-import { parseRuleBlocks } from "../rulefile/blocks.ts";
+import { MarkerRefused } from "../rulefile/block.ts";
+import { parseRuleBlocks, type RuleBlock } from "../rulefile/blocks.ts";
 import {
   buildNameIndex,
   compareInstalled,
@@ -363,6 +364,23 @@ async function planInstall(
   const files = new Map<string, RuleFile>();
   // Real paths of the rule files this run plans (or keeps), the identity the sweep compares by.
   const planned = new Set<string>();
+  // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go out
+  // loud, since the block a session expects gone is still loaded. A hold that leaves the rules
+  // current fails only the remove verb: the user asked for that removal by name, while a sync
+  // that finds the block still there has done its own job, and a hook run must stay exit 0. A
+  // hold over a block no run can refresh fails every verb.
+  const takeHold = (hold: RuleFileHeld): void => {
+    planned.add(realKeyOf(hold.path));
+    heldFiles.push(hold.path);
+    notices.loud(`maxims: ${hold.message}`);
+    if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
+    if (extras.verb !== "remove" && hold.fails === "remove") return;
+    failures.push({
+      code: ExitCode.DestinationWriteFailed,
+      message: hold.message,
+      ...(hold.hint === undefined ? {} : { hint: hold.hint }),
+    });
+  };
   const unreachable = new Set<string>();
   // Bodies to keep per directory: every admitted or refused source's, whatever `-a` limited this
   // run to, so a sweep never takes a body another harness's rule line points at. A directory an
@@ -643,22 +661,7 @@ async function planInstall(
           notices.notice(`~${token.tokens} tokens in ${token.path}`);
         }
       }
-      // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go
-      // out loud, since the block a session expects gone is still loaded. Only the remove verb
-      // fails on it: the user asked for that removal by name, while a sync that finds the block
-      // still there has done its own job, and a hook run must stay exit 0.
-      for (const hold of rendered.held) {
-        planned.add(realKeyOf(hold.path));
-        heldFiles.push(hold.path);
-        notices.loud(`maxims: ${hold.message}`);
-        if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
-        if (extras.verb !== "remove") continue;
-        failures.push({
-          code: ExitCode.DestinationWriteFailed,
-          message: hold.message,
-          ...(hold.hint === undefined ? {} : { hint: hold.hint }),
-        });
-      }
+      for (const hold of rendered.held) takeHold(hold);
       break;
     }
     const { error, file } = rendered;
@@ -698,6 +701,7 @@ async function planInstall(
       scopes,
       planned,
       warn: (line) => notices.notice(`maxims: ${line}`),
+      hold: takeHold,
     }),
   );
   const store = resolve(ctx.paths.store);
@@ -714,7 +718,10 @@ async function planInstall(
   const entries = Object.values(refreshed.sources).filter((entry) => actsHere(entry, ctx));
   const elsewhere = Object.values(refreshed.sources).filter((entry) => !actsHere(entry, ctx));
   const outRulesOff = entries.filter((entry) => !entry.intent.rule);
-  builder.add("removal", removedOutRuleFiles([...extras.removed, ...outRulesOff], planned));
+  builder.add(
+    "removal",
+    removedOutRuleFiles([...extras.removed, ...outRulesOff], planned, takeHold),
+  );
   const at = (scope: Scope, id: HarnessId) =>
     entries.filter(
       (entry) => entry.intent.destination.scope === scope && entry.intent.harnesses.includes(id),
@@ -1375,7 +1382,15 @@ export async function retainedNames(
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = regularFileText(path);
     if (text === null) continue;
-    const block = parseRuleBlocks(text).find((candidate) => candidate.source === key);
+    // A file behind a marker the grammar refuses reserves no name: the planner holds it and says so.
+    let blocks: RuleBlock[];
+    try {
+      blocks = parseRuleBlocks(text);
+    } catch (error) {
+      if (!(error instanceof MarkerRefused)) throw error;
+      continue;
+    }
+    const block = blocks.find((candidate) => candidate.source === key);
     for (const name of block?.names ?? []) {
       names.add(upstreamPaths ? renamed(intent.rename, name) : name);
     }
@@ -1467,10 +1482,12 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
 // The `-o` rule files of sources that left intent or switched rules off, taken only when the file
 // carries maxims markers: the name is derived, and a user's own file at it stays theirs. A file
 // this run plans (an `-o` folder that is also a harness's rules directory) is kept: it is the
-// current destination's, written moments before.
+// current destination's, written moments before. A file behind a marker the grammar refuses is
+// held where it is.
 function removedOutRuleFiles(
   removed: readonly SourceEntry[],
   planned: ReadonlySet<string>,
+  hold: (held: RuleFileHeld) => void,
 ): Change[] {
   const changes: Change[] = [];
   for (const entry of removed) {
@@ -1479,7 +1496,14 @@ function removedOutRuleFiles(
     const path = outRuleFile(root, sourceSlug(entry.intent.from));
     if (planned.has(realKeyOf(path))) continue;
     const text = regularFileText(path);
-    if (text === null || !claimedByMaxims(text)) continue;
+    if (text === null) continue;
+    try {
+      if (!claimedByMaxims(text)) continue;
+    } catch (error) {
+      if (!(error instanceof MarkerRefused)) throw error;
+      hold(new RuleFileHeld(path, error));
+      continue;
+    }
     changes.push({ kind: "delete", path: assertInsideRoot(root, path) });
   }
   return changes;
