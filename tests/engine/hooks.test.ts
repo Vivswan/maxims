@@ -177,6 +177,30 @@ describe("the MCP server entry follows the hook intent", () => {
     });
   });
 
+  // A user-defined harness may name the one file by two spellings: the hook by its path, the
+  // servers through a directory link. Compared by name they would be two writes of one file.
+  test("in the hook's registry reached through a directory link it still rides in the hook's write", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const alias = join(userHome, "fixture-alias");
+      symlinkSync(join(userHome, FIXTURE_DIR), alias);
+      const linked: HarnessDefinition = {
+        ...rulesDirHarness,
+        mcp: {
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), "fixture-alias", "settings.json"),
+          serversPath: ["mcpServers"],
+        },
+      };
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(linked, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      expect(write.content).toContain(HOOK_COMMAND);
+      expect(write.content).toContain('"mcp-serve"');
+    });
+  });
+
   // Each artifact is planned on its own: a servers file that cannot be read costs this run that
   // one registration, reported when it was wanted, and never the hook's own edit or removal.
   test("a servers file that cannot be read is reported when wanted and leaves the hook's plan standing", async () => {

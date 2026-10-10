@@ -106,6 +106,30 @@ export const fixtureCursor: HarnessDefinition = {
   verifiedAgainst,
 };
 
+// A harness with no hook shape and a servers file at both scopes, the shape of zed: `sync`
+// registers the stub MCP server there under the hook intent.
+export const fixtureZed: HarnessDefinition = {
+  id: "zed",
+  displayName: "Zed",
+  tier: 2,
+  targets: {
+    global: { kind: "shared-block", file: "AGENTS.md" },
+    project: { kind: "shared-block", file: "AGENTS.md" },
+  },
+  bodiesDir: (scope, ctx) =>
+    scope === "project" ? join(scopeRoot({}, scope, ctx), ".agents", "memories") : null,
+  hook: { kind: "none" },
+  mcp: {
+    path: (scope, ctx) =>
+      join(scopeRoot({}, scope, ctx), scope === "global" ? "settings.json" : ".zed/settings.json"),
+    serversPath: ["context_servers"],
+  },
+  markers: "counted",
+  expands: [],
+  detect: detects("zed"),
+  verifiedAgainst,
+};
+
 export const FIXTURE_HARNESSES: readonly HarnessDefinition[] = [
   fixtureClaudeCode,
   fixtureCodex,

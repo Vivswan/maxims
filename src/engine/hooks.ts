@@ -18,7 +18,7 @@ import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { destinationConflict } from "./destination.ts";
+import { destinationConflict, realKeyOf } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import type { HarnessFilter } from "./types.ts";
 
@@ -262,18 +262,19 @@ async function hookAnswer(
   return { artifact: plan.changes, claims, wanted, notices: noticesOf(plan.notice) };
 }
 
-// The stub server entry. A user-defined harness may name one file for its hooks and its servers:
-// the entry is then planned over the hook's planned text and lands in the hook's write, notice
-// included, so one plan never writes one path twice and the hook answer owns the whole edit. Two
-// names for one file are two writes, as the writer replaces by name.
+// The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
+// the entry is then planned over the hook's planned text and rides in the hook's write, notice
+// included. The names are matched by `realKeyOf`: a servers path through a directory link is the
+// hook's registry, while a leaf that is a link is replaced by the write and stays its own file.
 async function mcpAnswer(
   registration: McpRegistration,
   wanted: boolean,
   hook: ScopeAnswer | null,
 ): Promise<ScopeAnswer> {
+  const file = realKeyOf(registration.path);
   const shared =
     hook?.artifact.findIndex(
-      (change) => change.kind === "write" && change.path === registration.path,
+      (change) => change.kind === "write" && realKeyOf(change.path) === file,
     ) ?? -1;
   const current = hook?.artifact[shared];
   if (hook === null || current?.kind !== "write") {
