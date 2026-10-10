@@ -14,6 +14,7 @@ import {
   parseMemoryName,
   renamed,
 } from "../../memory/contract.ts";
+import { parseRuleBlocks } from "../../rulefile/blocks.ts";
 import {
   buildNameIndex,
   compareInstalled,
@@ -50,7 +51,6 @@ import type {
   SyncPreview,
   SyncReport,
 } from "../types.ts";
-import { parseRuleBlocks } from "./blocks.ts";
 import { inStore, planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";

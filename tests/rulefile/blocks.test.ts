@@ -4,9 +4,9 @@
 // read such a file as a block with no rules), and a detail path carrying a Unicode line separator
 // still names its memory (a dot without dotAll would refuse it).
 import { expect, test } from "bun:test";
-import { parseRuleBlocks } from "../../../src/commands/shared/blocks.ts";
-import type { MemoryName } from "../../../src/memory/contract.ts";
-import { renderBlock } from "../../../src/rulefile/block.ts";
+import type { MemoryName } from "../../src/memory/contract.ts";
+import { renderBlock } from "../../src/rulefile/block.ts";
+import { parseRuleBlocks } from "../../src/rulefile/blocks.ts";
 
 const NAMES = ["always-review", "keep-tests-green"] as MemoryName[];
 

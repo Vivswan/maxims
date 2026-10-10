@@ -8,9 +8,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
-import { renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import { heldForReview } from "../../src/console/strings.ts";
+import { renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
 import type { SourceEntry } from "../../src/state/schema.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../src/util/home.ts";
 import {

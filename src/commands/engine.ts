@@ -36,7 +36,7 @@ export async function createEngine(options: EngineOptions): Promise<EngineBundle
     import("../harnesses/mcp-stub/server.ts"),
     import("../harnesses/registry.ts"),
     import("../harnesses/user-defined.ts"),
-    import("./shared/resolvers.ts"),
+    import("../sources/resolvers.ts"),
   ]);
   const warn = options.quiet
     ? () => undefined

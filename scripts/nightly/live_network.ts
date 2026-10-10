@@ -14,7 +14,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { delimiter, join } from "node:path";
-import { parseRuleLines } from "../../src/commands/shared/blocks.ts";
+import { parseRuleLines } from "../../src/rulefile/blocks.ts";
 import { redactUserinfo } from "../../src/sources/github/ladder.ts";
 import { withScratchDir } from "../lib/scratch.ts";
 import { markdownTable, type Outcome } from "./report.ts";

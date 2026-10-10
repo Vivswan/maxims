@@ -16,11 +16,11 @@ import {
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
-import { classifyInvoker, renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import { type HarnessDefinition, scopeRoot } from "../../src/harnesses/contract.ts";
+import { classifyInvoker, renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { withStateLock } from "../../src/state/store.ts";

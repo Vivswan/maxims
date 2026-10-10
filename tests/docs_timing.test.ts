@@ -45,7 +45,7 @@ const PHRASES: Phrase[] = [
   // OpenCode startup times measured on one machine, in prose and in the two rows of one table.
   phrase("measured startup", null, String.raw`takes about ${N}`),
   phrase("measured startup", null, String.raw`(?:as installed|together) \| ${N} \|`),
-  // The whole stdin budget is private to src/commands/shared/stdin.ts; only its first-chunk share is exported.
+  // The whole stdin budget is private to src/harnesses/hook-stdin.ts; only its first-chunk share is exported.
   phrase("hook stdin budget", null, String.raw`${N} in all`),
 ];
 

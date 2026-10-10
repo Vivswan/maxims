@@ -14,12 +14,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
-import { renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { SyncOptions } from "../../src/commands/types.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
+import { renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../src/sources/local.ts";
 import { readMemoryTree } from "../../src/sources/tree.ts";

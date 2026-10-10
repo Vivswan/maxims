@@ -5,7 +5,7 @@
 import { expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseRuleBlocks } from "../../../src/commands/shared/blocks.ts";
+import { parseRuleBlocks } from "../../../src/rulefile/blocks.ts";
 import { type MemorySpec, memoryFile } from "./fixture-repo.ts";
 
 export function ruleLines(text: string): string[] {
