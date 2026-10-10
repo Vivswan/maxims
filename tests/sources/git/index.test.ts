@@ -7,17 +7,17 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FetchFailure } from "../../../src/sources/contract.ts";
 import { createGitResolver } from "../../../src/sources/git/index.ts";
-import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
+import { simpleGitRunner } from "../../../src/sources/github/ladder.ts";
+import { WINDOWS } from "../../shared/platform.ts";
+import { withTempDir } from "../../shared/temp_dir.ts";
+import { createFixtureRepo } from "../../sources/github/fakes/repo.ts";
 import {
   exited,
   ghScript,
   httpResponse,
   scriptedGit,
   scriptedRunner,
-} from "../../../src/sources/github/fixtures/runner.ts";
-import { simpleGitRunner } from "../../../src/sources/github/ladder.ts";
-import { WINDOWS } from "../../shared/platform.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
+} from "../../sources/github/fakes/runner.ts";
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";
 const MIRROR = "https://mirror.example.com/github.com/example-user/rules.git";

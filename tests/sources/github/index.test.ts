@@ -2,16 +2,10 @@
 // network, a fetch that ran gh or sent a token without `auth`, or a fetched tree read from the
 // wrong folder would each cost every session start or install the wrong memories.
 import { describe, expect, test } from "bun:test";
-import {
-  exited,
-  ghScript,
-  httpResponse,
-  scriptedGit,
-  scriptedRunner,
-} from "../../../src/sources/github/fixtures/runner.ts";
-import { cleanTarball, FIXTURE_MEMORIES } from "../../../src/sources/github/fixtures/tarballs.ts";
 import { createGithubResolver } from "../../../src/sources/github/index.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exited, ghScript, httpResponse, scriptedGit, scriptedRunner } from "./fakes/runner.ts";
+import { cleanTarball, FIXTURE_MEMORIES } from "./fakes/tarballs.ts";
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";
 const FROM = { type: "github" as const, repo: "Example-User/rules", ref: "HEAD" };

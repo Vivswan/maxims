@@ -7,8 +7,8 @@ import {
   networkError,
   type ScriptedRunner,
   scriptedRunner,
-} from "../../../src/sources/github/fixtures/runner.ts";
-import { buildTarball, type FixtureEntry } from "../../../src/sources/github/fixtures/tarballs.ts";
+} from "../../sources/github/fakes/runner.ts";
+import { buildTarball, type FixtureEntry } from "../../sources/github/fakes/tarballs.ts";
 import { type FileSpec, memoryFile } from "./fixture-repo.ts";
 
 export type GithubScript = {

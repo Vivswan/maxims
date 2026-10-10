@@ -7,17 +7,17 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import type { LastError } from "../../src/contracts/last-error.ts";
-import { httpResponse } from "../../src/sources/github/fixtures/runner.ts";
+import { sha256 } from "../../src/util/fs.ts";
+import { homePaths, storePathFor } from "../../src/util/home.ts";
+import { snapshot } from "../e2e/fixtures.ts";
+import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
+import { httpResponse } from "../sources/github/fakes/runner.ts";
 import {
   buildTarball,
   FIXTURE_TOP,
   symlinkTarball,
   zipSlipTarball,
-} from "../../src/sources/github/fixtures/tarballs.ts";
-import { sha256 } from "../../src/util/fs.ts";
-import { homePaths, storePathFor } from "../../src/util/home.ts";
-import { snapshot } from "../e2e/fixtures.ts";
-import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
+} from "../sources/github/fakes/tarballs.ts";
 import { type MemorySpec, memoryFile } from "./shared/fixture-repo.ts";
 import {
   type GithubScript,

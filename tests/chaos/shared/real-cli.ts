@@ -7,12 +7,9 @@ import { PassThrough } from "node:stream";
 import { createEngine } from "../../../src/commands/loader.ts";
 import { type CliDeps, main } from "../../../src/commands/main.ts";
 import type { EngineBundle } from "../../../src/engine/types.ts";
-import {
-  type ScriptedRunner,
-  scriptedRunner,
-} from "../../../src/sources/github/fixtures/runner.ts";
 import { createResolvers } from "../../../src/sources/resolvers.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { type ScriptedRunner, scriptedRunner } from "../../sources/github/fakes/runner.ts";
 
 export type RealWorld = {
   dir: string;
