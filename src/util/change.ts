@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { lstatSync, type Stats } from "node:fs";
+import { lstatSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -14,12 +14,27 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
-import { POSIX_MODES, type RootedPath, writeFileAtomic } from "./fs.ts";
+import {
+  assertInsideRoot,
+  cannotInspect,
+  isAbsent,
+  isInside,
+  POSIX_MODES,
+  type RootedPath,
+  realpathOfExistingPrefix,
+  writeFileAtomic,
+} from "./fs.ts";
 
 // Every `path` is a RootedPath, so a change can only name a location some planner has already
 // proven to lie under its destination root; a symlink `target` may point anywhere (the store).
+//
+// `write` is a file maxims owns whole (a rule file, a body, a hook script): a link at the path is
+// replaced by a real file. `edit` is a file the user owns and maxims keeps a region of (a hook
+// registry, a shared AGENTS.md): the bytes change where they live, so `target` is the file a link
+// at `path` resolves to and the link stays; `editInPlace` is the one place a target is resolved.
 export type Change =
   | { kind: "write"; path: RootedPath; content: string; mode?: number }
+  | { kind: "edit"; path: RootedPath; target: RootedPath; content: string }
   | { kind: "delete"; path: RootedPath }
   | { kind: "symlink"; path: RootedPath; target: string }
   | { kind: "unlink"; path: RootedPath }
@@ -50,8 +65,62 @@ export async function applyChanges(plan: Plan, options: ApplyOptions): Promise<A
   return { applied };
 }
 
+// Where a user-owned file's bytes live: `path` itself, or the file a link there resolves to, so a
+// settings.json kept in a dotfiles checkout is edited there and the link survives. The target is
+// held to the destination root like every written path; a link maxims cannot follow (dangling,
+// to a directory, out of the root) is the user's to fix and is refused by name with the fix,
+// before the caller reads through it.
+export function editInPlace(root: string, path: RootedPath): (content: string) => Change {
+  const target = editTarget(root, path);
+  return (content) => ({ kind: "edit", path, target, content });
+}
+
+function editTarget(root: string, path: RootedPath): RootedPath {
+  const entry = lstatOrNullSync(path);
+  if (entry === null || !entry.isSymbolicLink()) return path;
+  const refuse = (reason: string, hint: string) =>
+    new MaximsError(ExitCode.DestinationWriteFailed, `cannot edit ${path}: ${reason}`, { hint });
+  let target: string;
+  let stats: Stats;
+  try {
+    target = realpathSync(path);
+    stats = statSync(target);
+  } catch (cause) {
+    if (!isAbsent(cause)) throw cannotInspect(path, cause);
+    throw refuse(
+      `it is a symlink to ${readlinkSync(path)}, which does not exist`,
+      "create the file the link points to, or remove the link, then run maxims sync",
+    );
+  }
+  if (!stats.isFile()) {
+    throw refuse(
+      `it is a symlink to ${target}, which is not a file`,
+      "point the link at a file, or remove it, then run maxims sync",
+    );
+  }
+  const realRoot = realpathOfExistingPrefix(root);
+  if (!isInside(realRoot, target)) {
+    throw refuse(
+      `it is a symlink to ${target}, outside ${realRoot}`,
+      `move the file the link points to under ${realRoot}, or replace the link with a real file, then run maxims sync`,
+    );
+  }
+  return assertInsideRoot(root, target);
+}
+
 async function applyOne(change: Change): Promise<boolean> {
   switch (change.kind) {
+    // The file is the user's, so its mode is theirs too: a 0600 registry stays 0600.
+    case "edit": {
+      const existing = await lstatOrNull(change.target);
+      const current = existing?.isFile()
+        ? await guardedValue(change.target, () => readFile(change.target, "utf8"))
+        : null;
+      if (current === change.content) return false;
+      const mode = POSIX_MODES && existing?.isFile() ? { mode: existing.mode & 0o7777 } : {};
+      writeFileAtomic(change.target, change.content, mode);
+      return true;
+    }
     case "write": {
       const existing = await lstatOrNull(change.path);
       const current = existing?.isFile()
@@ -197,6 +266,10 @@ function describeChange(change: Change): string {
   switch (change.kind) {
     case "write":
       return `write   ${change.path} (${Buffer.byteLength(change.content)} bytes)`;
+    case "edit": {
+      const through = change.target === change.path ? "" : ` -> ${change.target}`;
+      return `edit    ${change.path}${through} (${Buffer.byteLength(change.content)} bytes)`;
+    }
     case "delete":
       return `delete  ${change.path}`;
     case "symlink":
