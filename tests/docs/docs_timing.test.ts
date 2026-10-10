@@ -23,30 +23,22 @@ function phrase(constant: string, ms: number | null, wording: string): Phrase {
 }
 
 const PHRASES: Phrase[] = [
-  phrase("DEFAULT_LOCK_WAIT_MS", DEFAULT_LOCK_WAIT_MS, String.raw`(?:polls|waits?) up to ${N}`),
-  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, String.raw`older than ${N} is stolen`),
-  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, String.raw`stolen after ${N}`),
-  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, String.raw`stolen past ${N} of age`),
-  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, String.raw`breaks the lock at ${N}`),
-  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, String.raw`within ${N} of the last`),
-  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, String.raw`debounced by ${N}`),
-  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, String.raw`a stamp younger than ${N}`),
-  phrase(
-    "HOOK_TIMEOUT_SECONDS",
-    HOOK_TIMEOUT_SECONDS * 1000,
-    String.raw`HookSpec: the command, ${N}`,
-  ),
+  phrase("DEFAULT_LOCK_WAIT_MS", DEFAULT_LOCK_WAIT_MS, `(?:polls|waits?) up to ${N}`),
+  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, `older than ${N} is stolen`),
+  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, `stolen after ${N}`),
+  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, `stolen past ${N} of age`),
+  phrase("DEFAULT_LOCK_STALE_MS", DEFAULT_LOCK_STALE_MS, `breaks the lock at ${N}`),
+  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, `within ${N} of the last`),
+  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, `debounced by ${N}`),
+  phrase("QUIET_DEBOUNCE_MS", QUIET_DEBOUNCE_MS, `a stamp younger than ${N}`),
+  phrase("HOOK_TIMEOUT_SECONDS", HOOK_TIMEOUT_SECONDS * 1000, `HookSpec: the command, ${N}`),
   // Cline's own limit on a hook; maxims only describes it.
-  phrase(
-    "cline hook timeout",
-    null,
-    String.raw`Cline stops a hook that has not finished after ${N}`,
-  ),
+  phrase("cline hook timeout", null, `Cline stops a hook that has not finished after ${N}`),
   // OpenCode startup times measured on one machine, in prose and in the two rows of one table.
-  phrase("measured startup", null, String.raw`takes about ${N}`),
+  phrase("measured startup", null, `takes about ${N}`),
   phrase("measured startup", null, String.raw`(?:as installed|together) \| ${N} \|`),
   // The whole stdin budget is private to src/harnesses/hook-stdin.ts; only its first-chunk share is exported.
-  phrase("hook stdin budget", null, String.raw`${N} in all`),
+  phrase("hook stdin budget", null, `${N} in all`),
 ];
 
 const SECONDS = /\b(\d+(?:\.\d+)?)[ -]s(?:econds?)?\b/g;
