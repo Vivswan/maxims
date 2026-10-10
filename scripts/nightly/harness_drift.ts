@@ -16,7 +16,8 @@ import {
 import { count } from "../../src/console/strings.ts";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
-import { markdownTable, type Outcome } from "./report.ts";
+import { markdownTable } from "../lib/markdown.ts";
+import type { Outcome } from "./report.ts";
 
 export const FETCH_TIMEOUT_MS = 20_000;
 const USER_AGENT = "maxims-nightly";

@@ -5,8 +5,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inheritedEnv } from "../lib/env.ts";
+import { markdownTable } from "../lib/markdown.ts";
 import { withScratchDir } from "../lib/scratch.ts";
-import { markdownTable, type Outcome } from "./report.ts";
+import type { Outcome } from "./report.ts";
 import { type RuleFile, readRuleFile } from "./rule_file.ts";
 
 export const PACKAGE = "@vivswan/maxims";
