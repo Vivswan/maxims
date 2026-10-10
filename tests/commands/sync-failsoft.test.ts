@@ -18,7 +18,6 @@ import { runList } from "../../src/commands/list.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { classifyInvoker, renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { SyncOptions } from "../../src/commands/types.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
@@ -26,6 +25,7 @@ import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { withStateLock } from "../../src/state/store.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import { readIfPresent } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { PACKAGE_COMMAND } from "../../src/util/package.ts";
 import {
@@ -49,30 +49,16 @@ import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/worl
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
+import { DAY_MS, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
 
 // The self-refresh line as a rule file carries it, spelled through the package command like the
 // renderer does, so a package rename cannot leave these pins matching nothing.
 const SELF_REFRESH = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
 
-const SYNC: SyncOptions = {
-  quiet: false,
-  dryRun: false,
-  json: false,
-  fetch: "due",
-};
-const QUIET: SyncOptions = { ...SYNC, quiet: true };
-const NOW = new Date("2026-09-20T12:00:00.000Z");
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
 
-function logText(home: string): string {
-  try {
-    return readFileSync(homePaths(home).log, "utf8");
-  } catch {
-    return "";
-  }
-}
+const logText = (home: string): string => readIfPresent(homePaths(home).log) ?? "";
 
 // A last-good install of `@acme/rules` fetched `ageDays` ago under a `cooldownDays` cooldown
 // (one day unless said), whose next fetch behaves as scripted.
@@ -111,7 +97,7 @@ describe("fail-soft rungs under --quiet", () => {
     },
   ];
   for (const rung of rungs) {
-    test(`a ${rung.kind} failure keeps last-good, records lastError and exits clean`, async () => {
+    test(`a ${rung.kind} failure keeps last-good, records lastError, is reported as failed and exits clean`, async () => {
       await world(async (w) => {
         const { fake, io, rules } = await lastGood(w, 9);
         await runSync(SYNC, io);
@@ -135,9 +121,16 @@ describe("fail-soft rungs under --quiet", () => {
         expect(written.sources[KEY].fetched.lastError.retryAfter).toBe(
           new Date(io.clock.now.getTime() + 120_000).toISOString(),
         );
+        expect(report.failed).toEqual([
+          { key: KEY, message: `scripted ${rung.kind}`, kind: rung.kind },
+        ]);
         const stdout = io.out.join("");
         if (rung.stdout === null) expect(stdout).toBe("");
         else expect(stdout).toMatch(rung.stdout);
+        // The recorded error is the fetch's, not the run's: a run that fetches nothing reports none.
+        await expect(runSync({ ...SYNC, fetch: "none" }, io)).resolves.toMatchObject({
+          failed: [],
+        });
       });
     });
   }
@@ -159,60 +152,58 @@ describe("fail-soft rungs under --quiet", () => {
     });
   });
 
-  test("a fetch with zero valid memories keeps the block and marks it stale at once", async () => {
-    await world(async (w) => {
-      const { fake, io, rules } = await lastGood(w, 9);
-      await runSync(SYNC, io);
-      const before = readFileSync(rules, "utf8");
-      const broken = join(w.dir, "broken");
-      mkdirSync(join(broken, "memories"), { recursive: true });
-      writeFileSync(join(broken, "memories", "not-a-memory.md"), "no frontmatter\n");
-      fake.set(FROM, { kind: "dir", dir: broken, sha: "c".repeat(40) });
-      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
-      io.out.length = 0;
-      await runSync(QUIET, io);
-      // Invalid content is stale at once: the block keeps every rule and gains the stale line.
-      const after = readFileSync(rules, "utf8");
-      expect(staleLines(after)).toHaveLength(1);
-      expect(withoutStaleLine(after)).toBe(before);
-      expect(io.out.join("")).toBe(
-        `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.\n` +
-          "maxims: rules refreshed (1 file updated)\n",
-      );
-      expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
-        true,
-      );
-      // The reason itself stays off stdout and in the log and the fetch record.
-      expect(logText(w.home)).toContain(
-        `${KEY}: fetch failed (invalid): no valid memories at memories (layout probably changed upstream)`,
-      );
-    });
-  });
-
-  test("a commit id the state cannot record is a failed fetch that says so, never a crash", async () => {
-    await world(async (w) => {
-      const { fake, io, rules, upstream } = await lastGood(w, 9);
-      await runSync(SYNC, io);
-      const before = readFileSync(rules, "utf8");
-      fake.set(FROM, { kind: "dir", dir: upstream, sha: `sha256:${"d".repeat(64)}` });
-      io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
-      io.out.length = 0;
-      await runSync(QUIET, io);
-      const after = readFileSync(rules, "utf8");
-      expect(staleLines(after)).toHaveLength(1);
-      expect(withoutStaleLine(after)).toBe(before);
-      expect(io.out.join("")).toBe(
-        `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.\n` +
-          "maxims: rules refreshed (1 file updated)\n",
-      );
-      const entry = readStateFile(w.home).sources[KEY];
-      const lastError = entry !== undefined && "fetched" in entry ? entry.fetched?.lastError : null;
-      expect(lastError?.kind).toBe("invalid");
-      expect(lastError?.message).toBe(
-        `the source reported an unusable commit id "sha256:${"d".repeat(64)}"`,
-      );
-    });
-  });
+  // A fetch that answers with nothing the state can record is `invalid`: stale at once, and the
+  // reason reaches the log and the fetch record, never stdout.
+  const invalidFetches: {
+    label: string;
+    remote: (dir: string, upstream: string) => { kind: "dir"; dir: string; sha: string };
+    message: string;
+  }[] = [
+    {
+      label: "a fetch with zero valid memories",
+      remote: (dir) => {
+        const broken = join(dir, "broken");
+        mkdirSync(join(broken, "memories"), { recursive: true });
+        writeFileSync(join(broken, "memories", "not-a-memory.md"), "no frontmatter\n");
+        return { kind: "dir", dir: broken, sha: "c".repeat(40) };
+      },
+      message: "no valid memories at memories (layout probably changed upstream)",
+    },
+    {
+      label: "a commit id the state cannot record",
+      remote: (_dir, upstream) => ({ kind: "dir", dir: upstream, sha: `sha256:${"d".repeat(64)}` }),
+      message: `the source reported an unusable commit id "sha256:${"d".repeat(64)}"`,
+    },
+  ];
+  test.each(invalidFetches)(
+    "$label is a failed fetch that says so, never a crash: the block keeps its rules and is stale at once",
+    async ({ remote, message }) => {
+      await world(async (w) => {
+        const { fake, io, rules, upstream } = await lastGood(w, 9);
+        await runSync(SYNC, io);
+        const before = readFileSync(rules, "utf8");
+        fake.set(FROM, remote(w.dir, upstream));
+        io.clock.now = new Date(NOW.getTime() + 2 * DAY_MS);
+        io.out.length = 0;
+        await runSync(QUIET, io);
+        const after = readFileSync(rules, "utf8");
+        expect(staleLines(after)).toHaveLength(1);
+        expect(withoutStaleLine(after)).toBe(before);
+        expect(io.out.join("")).toBe(
+          `maxims: the rules from ${KEY} have not refreshed since 2026-09-20T12:00:00.000Z (source content invalid) and may be out of date.\n` +
+            "maxims: rules refreshed (1 file updated)\n",
+        );
+        expect(existsSync(join(storePathFor(w.home, FROM), "memories", "always-review.md"))).toBe(
+          true,
+        );
+        const entry = readStateFile(w.home).sources[KEY];
+        const lastError =
+          entry !== undefined && "fetched" in entry ? entry.fetched?.lastError : null;
+        expect(lastError).toEqual({ kind: "invalid", message, at: io.clock.now.toISOString() });
+        expect(logText(w.home)).toContain(`${KEY}: fetch failed (invalid): ${message}`);
+      });
+    },
+  );
 
   // A non-zero exit with no line is a defect of its own: inside the week of grace the stale line
   // is not yet due, so the interactive run, dry or real, says on stderr which source failed and
@@ -343,27 +334,8 @@ describe("planning failures under --quiet --json", () => {
 });
 
 describe.skipIf(!CHMOD_DENIES)("native errors under --quiet --json", () => {
-  test("a rule file that cannot be read yields one ok:false document and a logged stack", async () => {
-    await world(async (w) => {
-      const { io, rules } = await lastGood(w, 1);
-      await runSync(SYNC, io);
-      chmodSync(rules, 0o000);
-      try {
-        io.out.length = 0;
-        io.clock.now = new Date(NOW.getTime() + 120_000);
-        await runSync({ ...QUIET, json: true }, io);
-        const document = JSON.parse(io.out.join(""));
-        expect(document.ok).toBe(false);
-        expect(document.message).toContain("EACCES");
-        expect(logText(w.home)).toContain("sync --quiet: crashed");
-      } finally {
-        chmodSync(rules, 0o644);
-      }
-    });
-  });
-
-  // The control is the test above: the same crash on a real run does log its stack.
-  test("a crashed dry run appends nothing to the log", async () => {
+  // A crash under a dry run leaves the log untouched: only the run that writes logs its stack.
+  test("a rule file that cannot be read: a dry run appends nothing to the log, a real run yields one ok:false document and a logged stack", async () => {
     await world(async (w) => {
       const { io, rules } = await lastGood(w, 1);
       await runSync(SYNC, io);
@@ -373,6 +345,12 @@ describe.skipIf(!CHMOD_DENIES)("native errors under --quiet --json", () => {
         io.clock.now = new Date(NOW.getTime() + 120_000);
         await runSync({ ...QUIET, dryRun: true }, io);
         expect(logText(w.home)).toBe(before);
+        io.out.length = 0;
+        await runSync({ ...QUIET, json: true }, io);
+        const document = JSON.parse(io.out.join(""));
+        expect(document.ok).toBe(false);
+        expect(document.message).toContain("EACCES");
+        expect(logText(w.home)).toContain("sync --quiet: crashed");
       } finally {
         chmodSync(rules, 0o644);
       }
@@ -644,18 +622,6 @@ describe("hook runs", () => {
       expect(existsSync(rules)).toBe(true);
       await runSync(SYNC, io);
       expect(readdirSync(w.home).some((name) => name.startsWith("state.json.corrupt-"))).toBe(true);
-    });
-  });
-
-  test("a failed refresh is reported as failed under --quiet too, and never thrown", async () => {
-    await world(async (w) => {
-      const { fake, io } = await lastGood(w, 9);
-      fake.set(FROM, { kind: "fail", failure: "ratelimit", retryAfterSeconds: 60 });
-      const report = await runSync(QUIET, io);
-      expect(report.failed).toEqual([
-        { key: KEY, message: "scripted ratelimit", kind: "ratelimit" },
-      ]);
-      expect(await runSync({ ...SYNC, fetch: "none" }, io)).toMatchObject({ failed: [] });
     });
   });
 

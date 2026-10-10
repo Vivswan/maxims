@@ -39,14 +39,15 @@ type Document = SourceFacts & { ok: boolean; kind: "source"; notices: string[] }
 // Revision A installed with `--review` (its own fetch applies), then revision B upstream.
 async function reviewedScenario(
   fn: (scenario: Scenario, fake: FakeResolvers) => Promise<void>,
+  addFlags: string[] = [],
 ): Promise<void> {
   const fake = fakeResolvers();
   const loadEngine = async () => realEngineBundle(fake.resolvers);
   await withScenario({ loadEngine }, async (scenario) => {
     const a = writeSource(join(scenario.root, "a"), TWO_MEMORIES);
     fake.set(FROM, { kind: "dir", dir: a });
-    const added = await runCli(scenario, ["add", KEY, "-g", "--rule", "-a", "codex", "--review"]);
-    expect(added.code).toBe(0);
+    const argv = ["add", KEY, "-g", "--rule", "-a", "codex", "--review", ...addFlags];
+    expect((await runCli(scenario, argv)).code).toBe(0);
     await fn(scenario, fake);
   });
 }
@@ -269,50 +270,30 @@ test("a memory name is printed even when the same spelling is a source recorded 
 });
 
 // The hold's summary counts only the memories the user could see when it was recorded, and the
-// selection can narrow afterwards (`remove <memory>`); a check that re-derives the summary under
-// either selection alone forgets an intact hold as "altered", in `accept` and `show` alike.
-test("a narrowed source whose unselected memory also changed still shows and accepts its hold", async () => {
-  const fake = fakeResolvers();
-  const loadEngine = async () => realEngineBundle(fake.resolvers);
-  await withScenario({ loadEngine }, async (scenario) => {
-    fake.set(FROM, { kind: "dir", dir: writeSource(join(scenario.root, "a"), TWO_MEMORIES) });
-    const argv = ["add", KEY, "-g", "-a", "codex", "--review", "-m", "always-review"];
-    expect((await runCli(scenario, argv)).code).toBe(0);
-    const both = {
-      "always-review": { description: "Review before every push." },
-      "keep-tests-green": { description: "Never merge red, ever." },
-    };
-    fake.set(FROM, { kind: "dir", dir: writeSource(join(scenario.root, "b"), both) });
-    expect((await runCli(scenario, ["update"])).code).toBe(0);
-    const shown = await shownSource(scenario, KEY);
-    expect(shown.held).toMatchObject({
-      added: [],
-      removed: [],
-      changed: [{ name: "always-review" }],
-    });
-    expect(shown.select).toEqual([memoryName("always-review")]);
-    const accepted = await runCli(scenario, ["accept", KEY, "--json"]);
-    expect(JSON.parse(accepted.stdout)).toMatchObject({ ok: true, accepted: true });
-  });
-});
-
-test("a hold survives the selection narrowing after it was recorded", async () => {
-  await reviewedScenario(async (scenario, fake) => {
-    const both = {
-      "always-review": { description: "Review before every push." },
-      "keep-tests-green": { description: "Never merge red, ever." },
-    };
-    fake.set(FROM, { kind: "dir", dir: writeSource(join(scenario.root, "b"), both) });
-    expect((await runCli(scenario, ["update"])).code).toBe(0);
-    expect((await runCli(scenario, ["remove", "always-review", "-y"])).code).toBe(0);
-    const shown = await shownSource(scenario, KEY);
-    expect(shown.select).toEqual([memoryName("keep-tests-green")]);
-    expect(shown.held).toMatchObject({
-      added: [],
-      removed: [],
-      changed: [{ name: "keep-tests-green" }],
-    });
-    const accepted = await runCli(scenario, ["accept", KEY, "--json"]);
-    expect(JSON.parse(accepted.stdout)).toMatchObject({ ok: true, accepted: true });
-  });
-});
+// selection can narrow before it (`-m` at the add) or after it (`remove <memory>`); a check that
+// re-derives the summary under either selection alone forgets an intact hold as "altered", in
+// `accept` and `show` alike. Both memories change upstream, so the narrowed selection and the
+// recorded summary disagree in either direction.
+const BOTH_CHANGED = {
+  "always-review": { description: "Review before every push." },
+  "keep-tests-green": { description: "Never merge red, ever." },
+};
+const narrowings: [string, string[], string[][], string][] = [
+  ["before the hold, at the add", ["-m", "always-review"], [], "always-review"],
+  ["after the hold, by a removal", [], [["remove", "always-review", "-y"]], "keep-tests-green"],
+];
+test.each(narrowings)(
+  "a hold on a source narrowed %s still shows and accepts",
+  async (_label, addFlags, afterHold, visible) => {
+    await reviewedScenario(async (scenario, fake) => {
+      fake.set(FROM, { kind: "dir", dir: writeSource(join(scenario.root, "b"), BOTH_CHANGED) });
+      expect((await runCli(scenario, ["update"])).code).toBe(0);
+      for (const argv of afterHold) expect((await runCli(scenario, argv)).code).toBe(0);
+      const shown = await shownSource(scenario, KEY);
+      expect(shown.select).toEqual([memoryName(visible)]);
+      expect(shown.held).toMatchObject({ added: [], removed: [], changed: [{ name: visible }] });
+      const accepted = await runCli(scenario, ["accept", KEY, "--json"]);
+      expect(JSON.parse(accepted.stdout)).toMatchObject({ ok: true, accepted: true });
+    }, addFlags);
+  },
+);

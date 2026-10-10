@@ -21,12 +21,16 @@ describe("readHookStdin", () => {
     expect(await read).toBeNull();
   });
 
+  // The read settles on the parse, never on the 1000 ms total deadline, or every session start
+  // under a harness that keeps the pipe open would wait that long.
   test("a pipe that never closes still yields the payload once it parses, and null when nothing arrives", async () => {
     const open = new PassThrough();
+    const started = performance.now();
     const read = readHookStdin(open, 50);
     open.write('{"hook_event_name":');
     open.write('"SessionStart","cwd":"/home/user"}');
     expect(await read).toBe('{"hook_event_name":"SessionStart","cwd":"/home/user"}');
+    expect(performance.now() - started).toBeLessThan(900);
     const silent = new PassThrough();
     expect(await readHookStdin(silent, 20)).toBeNull();
   });

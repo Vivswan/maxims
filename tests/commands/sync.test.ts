@@ -20,10 +20,10 @@ import {
 import { isAbsolute, join } from "node:path";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
+import type { SourceEntry } from "../../src/state/schema.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
@@ -78,26 +78,42 @@ describe("idempotency and convergence", () => {
     });
   });
 
-  test("the second sync plans nothing and leaves every file, and state, untouched", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(
-        home,
-        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
-      );
-      const io = fakeIo({ home, userHome, cwd: dir });
-      const first = await runSync(SYNC, io);
-      expect(first.rules).toBe(2);
-      expect(first.memories).toBe(2);
-      const before = treeDigest(userHome);
-      const stateMtime = statSync(homePaths(home).state).mtimeMs;
-      io.clock.now = new Date(NOW.getTime() + 1000);
-      const second = await runSync(SYNC, io);
-      expect(second.plan.changes).toEqual([]);
-      expect(treeDigest(userHome)).toBe(before);
-      expect(statSync(homePaths(home).state).mtimeMs).toBe(stateMtime);
-    });
-  });
+  const registries: [string, readonly HarnessDefinition[]][] = [
+    ["the fixture harnesses", [rulesDirHarness, sharedBlockHarness]],
+    ["the shipped registry", HARNESSES],
+  ];
+  test.each(registries)(
+    "with %s a second sync plans nothing, leaves every file and state untouched, says up to date, and a hook run prints nothing",
+    async (_label, harnesses) => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+        );
+        const io = fakeIo({ home, userHome, cwd: dir, harnesses });
+        const first = await runSync(SYNC, io);
+        expect([first.memories, first.rules]).toEqual([2, 2]);
+        const before = treeDigest(userHome);
+        const stateMtime = statSync(homePaths(home).state).mtimeMs;
+        io.out.length = 0;
+        io.clock.now = new Date(NOW.getTime() + 1000);
+        const second = await runSync(SYNC, io);
+        expect([second.plan.changes, second.changed]).toEqual([[], []]);
+        expect(treeDigest(userHome)).toBe(before);
+        expect(statSync(homePaths(home).state).mtimeMs).toBe(stateMtime);
+        expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
+        io.out.length = 0;
+        await runSync({ ...SYNC, dryRun: true }, io);
+        expect(io.out.join("")).toBe("nothing to change\n");
+        io.out.length = 0;
+        io.clock.now = new Date(NOW.getTime() + 120_000);
+        await runSync(QUIET, io);
+        expect(io.out.join("")).toBe("");
+        expect(readFileSync(homePaths(home).log, "utf8")).not.toContain("deferred");
+      });
+    },
+  );
 
   test("a change planned every run but landing nothing is not reported: the run says up to date, a hook run says nothing", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -128,32 +144,6 @@ describe("idempotency and convergence", () => {
     });
   });
 
-  test("with the shipped registry a second sync plans nothing, says up to date, and a hook run prints nothing", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(
-        home,
-        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
-      );
-      const io = fakeIo({ home, userHome, cwd: dir, harnesses: HARNESSES });
-      await runSync(SYNC, io);
-      io.out.length = 0;
-      io.clock.now = new Date(NOW.getTime() + 1000);
-      const second = await runSync(SYNC, io);
-      expect(second.plan.changes).toEqual([]);
-      expect(second.changed).toEqual([]);
-      expect(io.out.join("")).toBe("o  Up to date: 2 memories, 2 rule lines\n");
-      io.out.length = 0;
-      await runSync({ ...SYNC, dryRun: true }, io);
-      expect(io.out.join("")).toBe("nothing to change\n");
-      io.out.length = 0;
-      io.clock.now = new Date(NOW.getTime() + 120_000);
-      await runSync(QUIET, io);
-      expect(io.out.join("")).toBe("");
-      expect(readFileSync(homePaths(home).log, "utf8")).not.toContain("deferred");
-    });
-  });
-
   test("wiped rule files and a hand-edited hook come back byte-identical from intent and store", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
@@ -179,43 +169,41 @@ describe("idempotency and convergence", () => {
     });
   });
 
-  test("a github source with a store copy inside its cooldown never touches the resolver", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 2));
-      writeState(home, stateWith({ "@acme/rules": fetchedEntry(from, facts) }));
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: upstream });
-      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      const report = await runSync(SYNC, io);
-      expect(fake.calls).toEqual([]);
-      expect(report.fetched).toEqual([]);
-      expect(existsSync(globalRulesFile(userHome, "acme-rules"))).toBe(true);
-    });
-  });
-
-  test("past the cooldown an unchanged remote refreshes the timestamp and writes no file", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9));
-      writeState(home, stateWith({ "@acme/rules": fetchedEntry(from, facts) }));
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: upstream });
-      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await runSync(SYNC, io);
-      const before = treeDigest(userHome);
-      io.clock.now = new Date(NOW.getTime() + 8 * DAY_MS);
-      const report = await runSync(SYNC, io);
-      expect(fake.calls).toEqual(["resolveRef @acme/rules", "resolveRef @acme/rules"]);
-      expect(report.fetched).toEqual([]);
-      expect(fetchedOf(home, "@acme/rules")?.at).toBe(io.clock.now.toISOString());
-      expect(treeDigest(userHome)).toBe(before);
-    });
-  });
+  const cooldownRuns: [string, number, string[], boolean][] = [
+    ["inside its cooldown is not asked and keeps its timestamp", 2, [], false],
+    [
+      "past its cooldown and unchanged upstream is asked once and refreshes its timestamp",
+      9,
+      ["resolveRef @acme/rules"],
+      true,
+    ],
+  ];
+  test.each(cooldownRuns)(
+    "a github source with a store copy %s, and no file is written",
+    async (_label, ageDays, calls, refreshed) => {
+      await world(async ({ home, dir, userHome }) => {
+        const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
+        const from = githubFrom("acme/rules");
+        seedStore(home, from, upstream);
+        const facts = await fetchedFacts(upstream, daysAgo(NOW, 1));
+        writeState(home, stateWith({ "@acme/rules": fetchedEntry(from, facts) }));
+        const fake = fakeResolvers();
+        fake.set(from, { kind: "dir", dir: upstream });
+        const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
+        await runSync(SYNC, io);
+        expect(fake.calls).toEqual([]);
+        expect(existsSync(globalRulesFile(userHome, "acme-rules"))).toBe(true);
+        const before = treeDigest(userHome);
+        io.clock.now = new Date(NOW.getTime() + (ageDays - 1) * DAY_MS);
+        const report = await runSync(SYNC, io);
+        expect([fake.calls, report.fetched]).toEqual([calls, []]);
+        expect(fetchedOf(home, "@acme/rules")?.at).toBe(
+          refreshed ? io.clock.now.toISOString() : facts.at,
+        );
+        expect(treeDigest(userHome)).toBe(before);
+      });
+    },
+  );
 
   test("a changed remote lands its new lines and reports the diff, never the local-edit notice", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -258,29 +246,11 @@ describe("idempotency and convergence", () => {
     });
   });
 
-  test("an edit inside the block is discarded with one notice; text outside a shared block survives", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const both = entryFor(localFrom(source), { harnesses: ["claude-code", "codex"] });
-      writeState(home, stateWith({ [source]: both }));
-      const shared = join(userHome, ".fixture", "FIXTURE.md");
-      writeFileSync(shared, "# Mine\n\nKeep this.\n");
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
-      const original = readFileSync(rules, "utf8");
-      writeFileSync(rules, original.replace("Never merge red.", "Never merge anything."));
-      const report = await runSync(SYNC, io);
-      expect(report.notices).toContain(
-        `maxims: local edit in ${rules} discarded (the block is regenerated from ${source})`,
-      );
-      expect(readFileSync(rules, "utf8")).toBe(original);
-      const sharedText = readFileSync(shared, "utf8");
-      expect(sharedText.startsWith("# Mine\n\nKeep this.\n\n<!-- maxims:begin ")).toBe(true);
-    });
-  });
-
   const handEdits: [string, (block: string) => string][] = [
+    [
+      "an edited rule description",
+      (block) => block.replace("Never merge red.", "Never merge anything."),
+    ],
     [
       "a line of the user's own inside the markers",
       (block) => block.replace("<!-- maxims:end", "- My own rule.\n<!-- maxims:end"),
@@ -302,31 +272,39 @@ describe("idempotency and convergence", () => {
         ),
     ],
   ];
-  test.each(handEdits)("%s is a local edit, discarded with the notice", async (_label, edit) => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeFileSync(
-        join(source, "memories", "review-upstream.md"),
-        memoryFile("review-upstream", { description: "Review upstream." }).replace(
-          "description: Review upstream.",
-          'description: "maxims: the rules below from upstream need review."',
-        ),
-      );
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
-      const original = readFileSync(rules, "utf8");
-      const edited = edit(original);
-      expect(edited).not.toBe(original);
-      writeFileSync(rules, edited);
-      const report = await runSync(SYNC, io);
-      expect(report.notices).toContain(
-        `maxims: local edit in ${rules} discarded (the block is regenerated from ${source})`,
-      );
-      expect(readFileSync(rules, "utf8")).toBe(original);
-    });
-  });
+  test.each(handEdits)(
+    "%s is a local edit, discarded with one notice; text outside a shared block survives",
+    async (_label, edit) => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeFileSync(
+          join(source, "memories", "review-upstream.md"),
+          memoryFile("review-upstream", { description: "Review upstream." }).replace(
+            "description: Review upstream.",
+            'description: "maxims: the rules below from upstream need review."',
+          ),
+        );
+        const both = entryFor(localFrom(source), { harnesses: ["claude-code", "codex"] });
+        writeState(home, stateWith({ [source]: both }));
+        const shared = join(userHome, ".fixture", "FIXTURE.md");
+        writeFileSync(shared, "# Mine\n\nKeep this.\n");
+        const io = fakeIo({ home, userHome, cwd: dir });
+        await runSync(SYNC, io);
+        const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+        const original = readFileSync(rules, "utf8");
+        const edited = edit(original);
+        expect(edited).not.toBe(original);
+        writeFileSync(rules, edited);
+        const report = await runSync(SYNC, io);
+        expect(report.notices.filter((line) => line.includes("local edit"))).toEqual([
+          `maxims: local edit in ${rules} discarded (the block is regenerated from ${source})`,
+        ]);
+        expect(readFileSync(rules, "utf8")).toBe(original);
+        const sharedText = readFileSync(shared, "utf8");
+        expect(sharedText.startsWith("# Mine\n\nKeep this.\n\n<!-- maxims:begin ")).toBe(true);
+      });
+    },
+  );
 
   // A marker-only rule file loads nothing the user asked for, and a symlink the user left at the
   // path is not a file maxims wrote: both leave when the source has no line left to publish.
@@ -526,16 +504,11 @@ describe("a project rooted at the home directory", () => {
       });
       writeState(home, stateWith({ [source]: entry }));
       const io = fakeIo({ home, userHome, cwd: project, harnesses: [rulesDirHarness] });
-      const symlinked = await runSync(SYNC, io);
-      expect(["symlinked", symlinked.failed, symlinked.plan.changes]).toEqual([
-        "symlinked",
-        [],
-        [],
-      ]);
+      const settled = { failed: [], plan: { changes: [] } };
+      await expect(runSync(SYNC, io)).resolves.toMatchObject(settled);
       chmodSync(other, 0o000);
       try {
-        const sealed = await runSync(SYNC, io);
-        expect(["sealed", sealed.failed, sealed.plan.changes]).toEqual(["sealed", [], []]);
+        await expect(runSync(SYNC, io)).resolves.toMatchObject(settled);
       } finally {
         chmodSync(other, 0o700);
       }
@@ -670,15 +643,36 @@ describe("shared files and dedupe", () => {
     });
   });
 
-  const readerOrders: HarnessId[][] = [
-    ["codex", "dsh"],
-    ["dsh", "codex"],
+  // Who reads the shared file and which source brings the reader: the finished file is judged
+  // against every reader, and the newest source contributing to it is the one blamed.
+  type Readers = (first: string, second: string) => Record<string, SourceEntry>;
+  const budgetReaders: [string, Readers, "first" | "second"][] = [
+    [
+      "one source read by codex then dsh",
+      (first) => ({ [first]: entryFor(localFrom(first), { harnesses: ["codex", "dsh"] }) }),
+      "first",
+    ],
+    [
+      "one source read by dsh then codex",
+      (first) => ({ [first]: entryFor(localFrom(first), { harnesses: ["dsh", "codex"] }) }),
+      "first",
+    ],
+    [
+      "a reader only the later source brings",
+      (first, second) => ({
+        [first]: entryFor(localFrom(first), { harnesses: ["codex"] }),
+        [second]: entryFor(localFrom(second), { harnesses: ["codex", "dsh"] }),
+      }),
+      "second",
+    ],
   ];
-  for (const harnesses of readerOrders) {
-    test(`a shared file over one reader's byte budget is refused with readers ${harnesses.join(",")}`, async () => {
+  test.each(budgetReaders)(
+    "a shared file over one reader's byte budget is refused whole: %s",
+    async (_label, readers, blamed) => {
       await world(async ({ home, dir, userHome }) => {
-        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-        writeState(home, stateWith({ [source]: entryFor(localFrom(source), { harnesses }) }));
+        const first = writeSource(join(dir, "first"), { one: { description: "One." } });
+        const second = writeSource(join(dir, "second"), { two: { description: "Two." } });
+        writeState(home, stateWith(readers(first, second)));
         const io = fakeIo({
           home,
           userHome,
@@ -687,39 +681,14 @@ describe("shared files and dedupe", () => {
         });
         const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
         const shared = join(userHome, ".fixture", "FIXTURE.md");
-        expect(error.message).toStartWith(`${source} is `);
+        const key = blamed === "first" ? first : second;
+        expect(error.message).toStartWith(`${key} is `);
         expect(error.message).toEndWith(` bytes over the budget for ${shared}`);
-        expect(error.hint).toBe(heldHint(source));
+        expect(error.hint).toBe(heldHint(key));
         expect(existsSync(shared)).toBe(false);
       });
-    });
-  }
-
-  test("a reader only a later source brings to a shared file still judges the whole file", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const first = writeSource(join(dir, "first"), { one: { description: "One." } });
-      const second = writeSource(join(dir, "second"), { two: { description: "Two." } });
-      writeState(
-        home,
-        stateWith({
-          [first]: entryFor(localFrom(first), { harnesses: ["codex"] }),
-          [second]: entryFor(localFrom(second), { harnesses: ["codex", "dsh"] }),
-        }),
-      );
-      const io = fakeIo({
-        home,
-        userHome,
-        cwd: dir,
-        harnesses: [sharedBlockHarness, budgetedReader(64)],
-      });
-      const error = await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
-      const shared = join(userHome, ".fixture", "FIXTURE.md");
-      expect(error.message).toStartWith(`${second} is `);
-      expect(error.message).toEndWith(` bytes over the budget for ${shared}`);
-      expect(error.hint).toBe(heldHint(second));
-      expect(existsSync(shared)).toBe(false);
-    });
-  });
+    },
+  );
 
   // A live source's store entry is a link its rule lines and bodies resolve through; a source the
   // cap refuses lands nothing, the link included, so the store stays as the last run left it.

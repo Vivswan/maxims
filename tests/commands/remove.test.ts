@@ -15,12 +15,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { RemoveOptions, SyncOptions } from "../../src/commands/types.ts";
+import type { RemoveOptions } from "../../src/commands/types.ts";
 import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
@@ -44,13 +45,8 @@ import {
 } from "../engine/harness.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
+import { SYNC } from "../shared/sync_support.ts";
 
-const SYNC: SyncOptions = {
-  quiet: false,
-  dryRun: false,
-  json: false,
-  fetch: "due",
-};
 const REMOVE: RemoveOptions = {
   quiet: false,
   dryRun: false,
@@ -287,9 +283,12 @@ describe("remove", () => {
       expect(existsSync(join(bodies, "always-review.md"))).toBe(false);
       expect(existsSync(join(bodies, "three.md"))).toBe(true);
       expect(readFileSync(join(bodies, "mine.md"), "utf8")).toBe("the user's own note\n");
-      const lock = JSON.parse(readFileSync(join(project, ".agents", "maxims.lock"), "utf8"));
-      expect(Object.keys(lock.sources)).toEqual(["./other"]);
-      expect(lock.sources["./other"].from).toEqual({ type: "local", path: "./other" });
+      const lockPath = join(project, ".agents", "maxims.lock");
+      await expect(
+        readFile(lockPath, "utf8").then((text) => JSON.parse(text).sources),
+      ).resolves.toEqual({
+        "./other": expect.objectContaining({ from: { type: "local", path: "./other" } }),
+      });
       const second = await runRemove({ ...REMOVE, targets: [other] }, io);
       expect(lockOnly(second)).toEqual([]);
       expect(existsSync(join(project, ".agents", "maxims.lock"))).toBe(false);
@@ -318,8 +317,9 @@ describe("remove", () => {
       );
       expect(error.message).toBe(`${source} is installed for the project at ${elsewhere}`);
       expect(readStateFile(home).sources[source]).toBeDefined();
-      const all = await runRemove({ ...REMOVE, all: true }, io);
-      expect(all.notices).toContain("No memories found to remove.");
+      await expect(runRemove({ ...REMOVE, all: true }, io)).resolves.toMatchObject({
+        notices: ["No memories found to remove."],
+      });
       expect(readStateFile(home).sources[source]).toBeDefined();
     });
   });
@@ -373,8 +373,9 @@ describe("remove", () => {
       writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
       const io = fakeIo({ home, userHome, cwd: dir });
       await runSync(SYNC, io);
-      const report = await runRemove({ ...REMOVE, targets: [alias] }, io);
-      expect(report.notices).not.toContain(`${alias} is not installed`);
+      await expect(runRemove({ ...REMOVE, targets: [alias] }, io)).resolves.toMatchObject({
+        notices: expect.not.arrayContaining([`${alias} is not installed`]),
+      });
       expect(readStateFile(home).sources).toEqual({});
     });
   });
@@ -460,42 +461,49 @@ describe("remove", () => {
     });
   });
 
-  test("a bare name of a source whose store copy is gone is refused, not silently kept", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
-      const from = githubFrom("acme/rules");
-      const entry = fetchedEntry(from, await fetchedFacts(upstream, ADDED_AT));
-      writeState(home, stateWith({ "@acme/rules": entry }));
-      const io = fakeIo({ home, userHome, cwd: dir });
-      const refused = runRemove({ ...REMOVE, targets: ["always-review"] }, io);
-      const error = await expectExit(refused, ExitCode.SourceUnresolvable);
-      expect(error.message).toBe(
-        "@acme/rules cannot be read here, so always-review cannot be removed on its own",
-      );
-      expect(readStateFile(home).sources["@acme/rules"]?.intent.select).toBe("*");
-      await runRemove({ ...REMOVE, targets: ["@acme/rules"] }, io);
-      expect(readStateFile(home).sources).toEqual({});
-    });
-  });
-
-  test("a bare name of an unreadable live source is refused, its retained block naming the owner", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
-      const entry = entryFor(localFrom(live, true), {
-        destination: { scope: "project", root: project },
-        copy: true,
+  // A memory leaves by regenerating its source's block without it, which needs the source's
+  // memories; a source nobody can read here keeps its whole block, so the bare name is refused
+  // rather than recorded as done. The name is still found: a fetched source by its recorded
+  // fetch, a live one by the retained block its last run left behind.
+  const unreadable: [string, "fetched" | "live"][] = [
+    ["a fetched source whose store copy is gone", "fetched"],
+    ["a live source whose directory is gone", "live"],
+  ];
+  test.each(unreadable)(
+    "a bare name of %s is refused, not silently kept; the whole source still leaves",
+    async (_label, kind) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        const io = fakeIo({ home, userHome, cwd: kind === "live" ? project : dir });
+        let key: string;
+        if (kind === "fetched") {
+          key = "@acme/rules";
+          const entry = fetchedEntry(
+            githubFrom("acme/rules"),
+            await fetchedFacts(source, ADDED_AT),
+          );
+          writeState(home, stateWith({ [key]: entry }));
+        } else {
+          key = source;
+          const entry = entryFor(localFrom(source, true), {
+            destination: { scope: "project", root: project },
+            copy: true,
+          });
+          writeState(home, stateWith({ [key]: entry }));
+          await runSync(SYNC, io);
+          rmSync(source, { recursive: true });
+        }
+        const refused = runRemove({ ...REMOVE, targets: ["always-review"] }, io);
+        const error = await expectExit(refused, ExitCode.SourceUnresolvable);
+        expect(error.message).toBe(
+          `${key} cannot be read here, so always-review cannot be removed on its own`,
+        );
+        expect(readStateFile(home).sources[key]?.intent.select).toBe("*");
+        await runRemove({ ...REMOVE, targets: [key] }, io);
+        expect(readStateFile(home).sources).toEqual({});
       });
-      writeState(home, stateWith({ [live]: entry }));
-      const io = fakeIo({ home, userHome, cwd: project });
-      await runSync(SYNC, io);
-      rmSync(live, { recursive: true });
-      const refused = runRemove({ ...REMOVE, targets: ["alpha"] }, io);
-      const error = await expectExit(refused, ExitCode.SourceUnresolvable);
-      expect(error.message).toBe(
-        `${live} cannot be read here, so alpha cannot be removed on its own`,
-      );
-    });
-  });
+    },
+  );
 
   test("-a on an unreadable source still strips that harness's block", async () => {
     await world(async ({ home, dir, userHome }) => {
