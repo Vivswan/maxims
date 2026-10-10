@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ListReport } from "../../src/commands/types.ts";
+import type { ListReport } from "../../src/engine/types.ts";
 import { pendingPathFor, storePathFor } from "../../src/util/home.ts";
 import {
   type FakeResolvers,
@@ -17,7 +17,7 @@ import {
   githubFrom,
   treeDigest,
   writeSource,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import {
   readState,

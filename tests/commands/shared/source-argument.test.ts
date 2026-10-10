@@ -9,7 +9,7 @@ import {
 } from "../../../src/commands/shared/source-argument.ts";
 import type { SourceFrom } from "../../../src/contracts/source.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
-import { memoryName } from "../../engine/harness.ts";
+import { memoryName } from "../../engine/fakes.ts";
 import { outcome } from "../../shared/outcome.ts";
 
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");

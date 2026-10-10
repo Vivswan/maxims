@@ -30,6 +30,14 @@ import {
   parseRemote,
   type SourceFrom,
 } from "../contracts/source.ts";
+import { harnessContext } from "../engine/context.ts";
+import { swapStoreEntry } from "../engine/fetch.ts";
+import { prunedHooks, withHooks } from "../engine/hooks.ts";
+import { insideProject } from "../engine/project-lock-read.ts";
+import { disabledNames, isHiddenInternal } from "../engine/select.ts";
+import { sourceSlug } from "../engine/slug.ts";
+import { findSourceKey, sourceIdentity, storeTree } from "../engine/source-key.ts";
+import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "../engine/types.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
 import {
   contentHashOf,
@@ -68,10 +76,7 @@ import {
   updateIntent,
   withDisabled,
 } from "./shared/cli-context.ts";
-import { harnessContext } from "./shared/context.ts";
 import { framed } from "./shared/engine-io.ts";
-import { swapStoreEntry } from "./shared/fetch.ts";
-import { prunedHooks, withHooks } from "./shared/hooks.ts";
 import {
   type AgentSelection,
   type Args,
@@ -90,17 +95,13 @@ import {
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
 import { listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
-import { insideProject } from "./shared/project-lock-read.ts";
 import {
   type MemoryRiskWarning,
   refuseRisky,
   riskWarningsFor,
   showRiskWarnings,
 } from "./shared/risk.ts";
-import { disabledNames, isHiddenInternal } from "./shared/select.ts";
-import { sourceSlug } from "./shared/slug.ts";
 import { parseSourceSelector, storable } from "./shared/source-argument.ts";
-import { findSourceKey, sourceIdentity, storeTree } from "./shared/source-key.ts";
 import {
   detectedHarnesses,
   effectiveNames,
@@ -117,7 +118,6 @@ import {
   targetPath,
   tildify,
 } from "./shared/sources.ts";
-import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "./types.ts";
 
 // Everything `add` decided from the command line and the config, parsed once into a shape that
 // cannot hold a conflict: one destination, one selection, one harness choice.

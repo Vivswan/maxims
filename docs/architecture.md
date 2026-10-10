@@ -296,7 +296,7 @@ flowchart LR
   intent["src/commands/shared/cli-context.ts<br>loadIntentFor() peekIntent()"]
   commit["src/commands/add.ts<br>commitAdd() admitIntent()"]
   update["src/commands/shared/cli-context.ts<br>updateIntent()<br>src/state/store.ts<br>withStateLock()"]
-  riders["src/commands/shared/fetch.ts<br>swapStoreEntry()<br>src/sources/local.ts<br>materializeLocal()<br>src/commands/shared/project-lock-io.ts<br>projectLockChange()<br>src/commands/shared/cli-context.ts<br>configWrite()"]
+  riders["src/engine/fetch.ts<br>swapStoreEntry()<br>src/sources/local.ts<br>materializeLocal()<br>src/commands/shared/project-lock-io.ts<br>projectLockChange()<br>src/commands/shared/cli-context.ts<br>configWrite()"]
   apply["src/util/change.ts<br>applyChanges()"]
   written[("intent: state.json, the store entry, config.json, the manifest")]
   after["src/commands/add.ts<br>syncCommitted()<br>src/commands/shared/engine-io.ts<br>framed()<br>src/commands/sync.ts<br>runSync()"]
@@ -333,14 +333,14 @@ flowchart LR
   persist["src/commands/shared/cli-context.ts<br>cooldownCapConfig() persistConfig()"]
   io["src/commands/shared/engine-io.ts<br>engineIo() exitForFailed()"]
   runsync["src/commands/sync.ts<br>runSync()"]
-  context["src/commands/shared/context.ts<br>loadContext() findProjectRoot() EngineContext"]
+  context["src/engine/context.ts<br>loadContext() findProjectRoot() EngineContext"]
   preview["src/commands/shared/report.ts<br>previewState()"]
   lock["src/commands/shared/debounce.ts<br>stampLastSync()<br>src/state/store.ts<br>withStateLock()"]
   plan["src/commands/shared/engine.ts<br>planSync() SyncOutcome SyncExtras"]
-  refresh["src/commands/shared/fetch.ts<br>refreshSource() isDue() FAILED_FETCH_RETRY_MS"]
-  select["src/commands/shared/select.ts<br>selectMemories() disabledNames()<br>src/rulefile/dedupe.ts<br>buildNameIndex() resolveSourceCandidates()"]
-  writers["src/commands/shared/bodies.ts<br>planBodies() planBodySweep()<br>src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep()<br>src/commands/shared/hooks.ts<br>planHooks()<br>src/commands/shared/orphans.ts<br>planOrphanSweep()"]
-  builder["src/commands/shared/plan.ts<br>PlanBuilder ChangeCategory<br>src/commands/shared/notices.ts<br>Notices"]
+  refresh["src/engine/fetch.ts<br>refreshSource() isDue() FAILED_FETCH_RETRY_MS"]
+  select["src/engine/select.ts<br>selectMemories() disabledNames()<br>src/rulefile/dedupe.ts<br>buildNameIndex() resolveSourceCandidates()"]
+  writers["src/commands/shared/bodies.ts<br>planBodies() planBodySweep()<br>src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep()<br>src/engine/hooks.ts<br>planHooks()<br>src/commands/shared/orphans.ts<br>planOrphanSweep()"]
+  builder["src/commands/shared/plan.ts<br>PlanBuilder ChangeCategory<br>src/engine/notices.ts<br>Notices"]
   finish["src/commands/shared/report.ts<br>finishSync() summaryLine()"]
   apply["src/util/change.ts<br>applyChanges()"]
   log["src/util/log.ts<br>appendRefreshLog()"]
@@ -377,7 +377,7 @@ flowchart LR
   main["src/commands/main.ts<br>main()"]
   runsync["src/commands/sync.ts<br>runSync()"]
   stdin["src/harnesses/hook-stdin.ts<br>readHookStdin() classifyInvoker() stdoutVariantFor() HOOK_STDIN_FIRST_CHUNK_MS"]
-  context["src/commands/shared/context.ts<br>loadContext()"]
+  context["src/engine/context.ts<br>loadContext()"]
   debounce["src/commands/shared/debounce.ts<br>isDebounced() stampLastSync() QUIET_DEBOUNCE_MS"]
   stamp[("the quiet-mode stamp: last-sync")]
   lock["src/state/store.ts<br>withStateLock() HookLockOutcome"]
@@ -419,10 +419,10 @@ flowchart LR
   console["src/console/contract.ts<br>promptsAllowed()<br>src/console/strings.ts<br>STRINGS"]
   runremove["src/commands/remove.ts<br>runRemove()"]
   lock["src/state/store.ts<br>withStateLock()<br>src/commands/shared/report.ts<br>previewState()"]
-  installed["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames()<br>src/commands/shared/select.ts<br>selectMemories()"]
+  installed["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames()<br>src/engine/select.ts<br>selectMemories()"]
   lockio["src/commands/shared/project-lock-io.ts<br>projectLockChange()"]
   plan["src/commands/shared/engine.ts<br>planSync() SyncExtras"]
-  sweeps["src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep() claimedByMaxims()<br>src/commands/shared/bodies.ts<br>planBodySweep()<br>src/commands/shared/hooks.ts<br>planHooks()"]
+  sweeps["src/commands/shared/rules.ts<br>planRuleFile() planRulesDirSweep() claimedByMaxims()<br>src/commands/shared/bodies.ts<br>planBodySweep()<br>src/engine/hooks.ts<br>planHooks()"]
   finish["src/commands/shared/report.ts<br>finishSync()"]
   disk[("rule files, body links and copies, the store entry, registries, the manifest, state.json")]
   verb -->|"one target: every source that acts here under --all, a source key, or memories of one source"| options
@@ -450,14 +450,14 @@ Demonstrated by: [tests/commands/remove.test.ts](../tests/commands/remove.test.t
 ```mermaid
 flowchart LR
   listverb["src/commands/engine-verbs.ts<br>list"]
-  runlist["src/commands/list.ts<br>runList() renderList()<br>src/commands/types.ts<br>ListReport ListedSource ListedHarness"]
+  runlist["src/commands/list.ts<br>runList() renderList()<br>src/engine/types.ts<br>ListReport ListedSource ListedHarness"]
   doctor["src/commands/doctor.ts<br>doctor"]
   inspect["src/state/store.ts<br>inspectState()<br>src/commands/shared/report.ts<br>previewState()<br>src/commands/shared/cli-context.ts<br>peekIntent()"]
   statefile[("intent: state.json, read without the lock")]
   trees["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
   derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
   blocks["src/rulefile/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
-  manifest["src/commands/shared/project-lock-read.ts<br>readProjectLock()"]
+  manifest["src/engine/project-lock-read.ts<br>readProjectLock()"]
   disk[("the store, the rule files, the registries, the manifest, the stamp")]
   stdout[["stdout: the listing, or the ok, warn and x lines; one document under --json"]]
   listverb --> runlist
@@ -490,9 +490,9 @@ flowchart LR
   options["src/commands/shared/options.ts<br>parseDestination()"]
   find["src/commands/shared/sources.ts<br>findInstalledSource() installedElsewhere() withShared()"]
   intent["src/commands/shared/cli-context.ts<br>loadIntentFor() updateIntent()"]
-  shareable["src/commands/add.ts<br>assertShareable()<br>src/commands/shared/project-lock-read.ts<br>insideProject()"]
+  shareable["src/commands/add.ts<br>assertShareable()<br>src/engine/project-lock-read.ts<br>insideProject()"]
   schema["src/state/schema.ts<br>SourceIntent"]
-  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange()<br>src/commands/shared/project-lock-read.ts<br>readProjectLock()"]
+  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange()<br>src/engine/project-lock-read.ts<br>readProjectLock()"]
   plock["src/state/project-lock.ts<br>serializeProjectLock() parseProjectLock() lockSourceKey() PROJECT_LOCK_RELATIVE_PATH"]
   manifest[("the committed manifest: maxims.lock under the agents folder")]
   statefile[("intent: state.json")]
@@ -516,14 +516,14 @@ flowchart LR
 - **This machine edits only its own entries,** because a clone that has not replayed the lock holds none of the team's entries in state; a teammate's disabled names are kept with their entries.
 - **Of the project's disabled names, the lock carries those a shared source provides;** a private source providing a name a teammate switched off says nothing about the teammate's choice.
 
-Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/commands/shared/select.test.ts](../tests/commands/shared/select.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
+Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/engine/select.test.ts](../tests/engine/select.test.ts), [tests/state/project-lock.test.ts](../tests/state/project-lock.test.ts).
 
 ## A verb runs: install
 
 ```mermaid
 flowchart LR
   manifest[("the committed manifest: maxims.lock under the agents folder")]
-  lockio["src/commands/shared/project-lock-read.ts<br>readProjectLock() projectLockPath() sourceFromLock()"]
+  lockio["src/engine/project-lock-read.ts<br>readProjectLock() projectLockPath() sourceFromLock()"]
   plock["src/state/project-lock.ts<br>ProjectLockSchema parseProjectLock()"]
   install["src/commands/install.ts<br>install"]
   stage["src/commands/add.ts<br>stageAdd() hookWanted()"]
@@ -569,6 +569,7 @@ An edge is any relative import: runtime, type-only, re-export, side-effect, or a
 graph TD
   cli["src/cli.ts"]
   commands["src/commands/"]
+  engine["src/engine/"]
   console["src/console/"]
   harnesses["src/harnesses/"]
   rulefile["src/rulefile/"]
@@ -580,9 +581,11 @@ graph TD
   version["src/version.ts<br>package.json"]
   cli --> commands
   cli --> console
+  cli --> engine
   cli --> util
   commands --> console
   commands --> contracts
+  commands --> engine
   commands --> harnesses
   commands --> memory
   commands --> rulefile
@@ -590,6 +593,14 @@ graph TD
   commands --> state
   commands --> util
   commands --> version
+  engine --> console
+  engine --> contracts
+  engine --> harnesses
+  engine --> memory
+  engine --> rulefile
+  engine --> sources
+  engine --> state
+  engine --> util
   console --> memory
   harnesses --> contracts
   harnesses --> rulefile

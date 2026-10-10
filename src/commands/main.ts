@@ -1,6 +1,7 @@
 import { createConsole, type InteractiveStreams } from "../console/contract.ts";
 import { consoleMode } from "../console/mode.ts";
 import { jsonNeedsYes, STRINGS, unknownCommand } from "../console/strings.ts";
+import type { EngineBundle, MachineIo } from "../engine/types.ts";
 import { readUserConfig } from "../state/config.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { homePaths } from "../util/home.ts";
@@ -20,7 +21,6 @@ import {
   parseVerbArgs,
   usage,
 } from "./shared/options.ts";
-import type { EngineBundle, MachineIo } from "./types.ts";
 
 // The engine is a loader, called only once a verb is about to run: `--help`, `--version` and a
 // usage error never pay for it. It learns whether the run is quiet, so a hook run's resolver

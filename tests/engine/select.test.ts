@@ -4,22 +4,15 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SourceMemory } from "../../../src/commands/shared/memories.ts";
-import { projectLockChange } from "../../../src/commands/shared/project-lock-io.ts";
-import { readProjectLock } from "../../../src/commands/shared/project-lock-read.ts";
-import { disabledNames, selectMemories } from "../../../src/commands/shared/select.ts";
-import { withShared } from "../../../src/commands/shared/sources.ts";
-import { parseMemory } from "../../../src/memory/contract.ts";
-import type { SourceEntry } from "../../../src/state/schema.ts";
-import {
-  entryFor,
-  localFrom,
-  memoryFile,
-  memoryName,
-  stateWith,
-  writeSource,
-} from "../../engine/harness.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
+import { projectLockChange } from "../../src/commands/shared/project-lock-io.ts";
+import { withShared } from "../../src/commands/shared/sources.ts";
+import type { SourceMemory } from "../../src/engine/memories.ts";
+import { readProjectLock } from "../../src/engine/project-lock-read.ts";
+import { disabledNames, selectMemories } from "../../src/engine/select.ts";
+import { parseMemory } from "../../src/memory/contract.ts";
+import type { SourceEntry } from "../../src/state/schema.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
+import { entryFor, localFrom, memoryFile, memoryName, stateWith, writeSource } from "./fakes.ts";
 
 function sourceMemory(name: string, description: string, internal = false): SourceMemory {
   const text = memoryFile(name, { description, internal });

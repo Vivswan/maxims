@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { type HarnessId, isBuiltInHarnessId } from "../../contracts/harness-id.ts";
+import { type HarnessId, isBuiltInHarnessId } from "../contracts/harness-id.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -8,15 +8,15 @@ import {
   type SourceSlug,
   scopeRoot,
   type Target,
-} from "../../harnesses/contract.ts";
-import { configDirExists } from "../../harnesses/detect.ts";
-import { rulesDirPath } from "../../harnesses/strategies/rules-dir.ts";
-import { sharedBlockPath } from "../../harnesses/strategies/shared-block.ts";
-import type { SourceIntent } from "../../state/schema.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { type RootedPath, realpathOfExistingPrefix } from "../../util/fs.ts";
-import type { HarnessFilter } from "../types.ts";
+} from "../harnesses/contract.ts";
+import { configDirExists } from "../harnesses/detect.ts";
+import { rulesDirPath } from "../harnesses/strategies/rules-dir.ts";
+import { sharedBlockPath } from "../harnesses/strategies/shared-block.ts";
+import type { SourceIntent } from "../state/schema.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { type RootedPath, realpathOfExistingPrefix } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import type { HarnessFilter } from "./types.ts";
 
 export type HarnessTarget = {
   def: HarnessDefinition;

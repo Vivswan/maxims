@@ -1,16 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
+import { DEFAULT_GIT_REF, type SourceFrom } from "../contracts/source.ts";
 import {
   type LockSource,
   PROJECT_LOCK_RELATIVE_PATH,
   type ProjectLock,
   parseProjectLock,
-} from "../../state/project-lock.ts";
-import { canonicalSourceKey } from "../../state/schema.ts";
-import type { Change } from "../../util/change.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
+} from "../state/project-lock.ts";
+import { canonicalSourceKey } from "../state/schema.ts";
+import type { Change } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { isInside, realpathOfExistingPrefix } from "../util/fs.ts";
 
 export type LoadedProjectLock =
   | { kind: "absent" }

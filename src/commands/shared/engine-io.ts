@@ -1,10 +1,10 @@
 import type { Sink } from "../../console/contract.ts";
 import { failedToUpdate, STRINGS } from "../../console/strings.ts";
+import { probeSymlinkSupport } from "../../engine/fs-probe.ts";
+import type { CliIo, EngineIo, SymlinkSupport, SyncReport } from "../../engine/types.ts";
 import { readHookStdin } from "../../harnesses/hook-stdin.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { CliIo, EngineIo, SymlinkSupport, SyncReport } from "../types.ts";
 import { ReportedMaximsError } from "./errors.ts";
-import { probeSymlinkSupport } from "./fs-probe.ts";
 
 // What the engine may take from the process on this run: where its lines go, and whether it may
 // read stdin for a hook payload. `mcp-serve` owns both streams for its protocol, so its sync

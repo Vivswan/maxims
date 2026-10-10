@@ -1,10 +1,10 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
+import type { SymlinkSupport } from "../../engine/types.ts";
 import { type ContentHash, contentHashOf, memoryStem, parseMemory } from "../../memory/contract.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot, isAbsent, isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
-import type { SymlinkSupport } from "../types.ts";
 
 export type BodyFile = {
   localName: string;

@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { notInstalled, STRINGS } from "../console/strings.ts";
+import { actsHere } from "../engine/context.ts";
+import { disabledNames, type SelectedMemory, selectMemories } from "../engine/select.ts";
+import type { CliIo } from "../engine/types.ts";
 import type { Scope } from "../harnesses/contract.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { renderRuleLine } from "../rulefile/block.ts";
@@ -10,7 +13,6 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import { peekIntent } from "./shared/cli-context.ts";
-import { actsHere } from "./shared/context.ts";
 import { isFetchedEntry, readInstalledTree, shortSha } from "./shared/engine.ts";
 import {
   type Args,
@@ -23,7 +25,6 @@ import {
   usage,
 } from "./shared/options.ts";
 import { reportedUnderJson } from "./shared/report.ts";
-import { disabledNames, type SelectedMemory, selectMemories } from "./shared/select.ts";
 import {
   findInstalledSource,
   installedElsewhere,
@@ -31,7 +32,6 @@ import {
   type SourceLookup,
 } from "./shared/sources.ts";
 import { heldLines, sourceFactLines, sourceFacts } from "./show-source.ts";
-import type { CliIo } from "./types.ts";
 
 const SHOW_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.source];
 

@@ -1,5 +1,6 @@
 import { noTargetAtScope, notInstalled } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
+import type { HarnessFilter } from "../engine/types.ts";
 import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -25,7 +26,6 @@ import {
   scopeOf,
   withIntent,
 } from "./shared/sources.ts";
-import type { HarnessFilter } from "./types.ts";
 
 const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent];
 

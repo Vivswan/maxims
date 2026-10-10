@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { ListReport, SyncOptions } from "../../src/commands/types.ts";
+import type { ListReport, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -29,7 +29,7 @@ import {
   stateWith,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { TWO_MEMORIES, world } from "../engine/world.ts";
 import { NOW } from "../shared/sync_support.ts";
 

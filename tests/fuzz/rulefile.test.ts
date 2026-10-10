@@ -18,7 +18,7 @@ import {
 } from "../../src/rulefile/block.ts";
 import { buildNameIndex, compareInstalled, type IndexedSource } from "../../src/rulefile/dedupe.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
-import { memoryName } from "../engine/harness.ts";
+import { memoryName } from "../engine/fakes.ts";
 import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";

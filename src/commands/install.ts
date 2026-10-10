@@ -7,6 +7,12 @@ import {
   renameHint,
   STRINGS,
 } from "../console/strings.ts";
+import {
+  manifestOrUsage,
+  projectLockPath,
+  readProjectLock,
+  sourceFromLock,
+} from "../engine/project-lock-read.ts";
 import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
@@ -33,12 +39,6 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import {
-  manifestOrUsage,
-  projectLockPath,
-  readProjectLock,
-  sourceFromLock,
-} from "./shared/project-lock-read.ts";
 import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./shared/sources.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes, FLAGS.strict];

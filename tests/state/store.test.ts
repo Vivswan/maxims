@@ -29,7 +29,7 @@ import {
 } from "../../src/state/store.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { memoryName } from "../engine/harness.ts";
+import { memoryName } from "../engine/fakes.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempHome } from "../shared/temp_dir.ts";

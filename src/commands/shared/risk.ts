@@ -2,6 +2,14 @@ import { relative, sep } from "node:path";
 import type { Console } from "../../console/contract.ts";
 import { riskWarning } from "../../console/strings.ts";
 import { isLiveLocal } from "../../contracts/source.ts";
+import { actsHere } from "../../engine/context.ts";
+import {
+  readSourceMemories,
+  type SourceMemory,
+  validateMemoryFiles,
+} from "../../engine/memories.ts";
+import { disabledNames, selectMemories } from "../../engine/select.ts";
+import type { CliIo } from "../../engine/types.ts";
 import type { Memory, MemoryName } from "../../memory/contract.ts";
 import { type RiskKind, riskWarnings } from "../../memory/risk.ts";
 import type { TreeFile, TreeScope } from "../../sources/tree.ts";
@@ -10,10 +18,6 @@ import type { Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { CliIo } from "../types.ts";
-import { actsHere } from "./context.ts";
-import { readSourceMemories, type SourceMemory, validateMemoryFiles } from "./memories.ts";
-import { disabledNames, selectMemories } from "./select.ts";
 
 // A risky shape in a description, named for the memory that carries it. The column is 1-based, as
 // the printed line and the hidden-character refusal count it, where the detector's is an offset.

@@ -2,7 +2,7 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { type ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { withTempDir, withTempHome } from "../shared/temp_dir.ts";
-import { fixtureRoot } from "./harness.ts";
+import { fixtureRoot } from "./fakes.ts";
 
 export type World = { home: string; dir: string; userHome: string; project: string };
 

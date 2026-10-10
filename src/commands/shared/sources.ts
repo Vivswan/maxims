@@ -7,6 +7,11 @@ import {
   isLiveLocal,
   type SourceFrom,
 } from "../../contracts/source.ts";
+import { actsHere, harnessContext } from "../../engine/context.ts";
+import { validateMemoryFiles } from "../../engine/memories.ts";
+import { isHiddenInternal } from "../../engine/select.ts";
+import { findSourceKey, storeTree } from "../../engine/source-key.ts";
+import type { CliIo } from "../../engine/types.ts";
 import type { SourceSlug } from "../../harnesses/contract.ts";
 import {
   type HarnessContext,
@@ -40,12 +45,7 @@ import {
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
-import type { CliIo } from "../types.ts";
-import { actsHere, harnessContext } from "./context.ts";
-import { validateMemoryFiles } from "./memories.ts";
-import { isHiddenInternal } from "./select.ts";
 import { parseSourceArgument, storable } from "./source-argument.ts";
-import { findSourceKey, storeTree } from "./source-key.ts";
 
 // The scope a destination's harness files belong to: an `-o` folder is written like a project
 // target (a rules file the harness does not own), so its harness checks read the project shape.

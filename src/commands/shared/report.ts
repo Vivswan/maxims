@@ -1,4 +1,6 @@
 import { count, installedCounts } from "../../console/strings.ts";
+import type { EngineContext } from "../../engine/context.ts";
+import type { CommonOptions, EngineIo, SyncReport } from "../../engine/types.ts";
 import { renderHookStdout } from "../../harnesses/hook-stdin.ts";
 import type { State } from "../../state/schema.ts";
 import { inspectState, type LoadedState } from "../../state/store.ts";
@@ -7,8 +9,6 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { isInside } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
 import { appendRefreshLog } from "../../util/log.ts";
-import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
-import type { EngineContext } from "./context.ts";
 import type { SyncFailure, SyncOutcome } from "./engine.ts";
 import { failedFetches } from "./engine-io.ts";
 import { errorDocument, ReportedMaximsError } from "./errors.ts";

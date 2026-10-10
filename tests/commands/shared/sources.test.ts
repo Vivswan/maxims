@@ -9,7 +9,7 @@ import { realLocal, withIntent } from "../../../src/commands/shared/sources.ts";
 import { parseState, type SourceEntry } from "../../../src/state/schema.ts";
 import { serializeState } from "../../../src/state/store.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
-import { entryFor, githubFrom, localFrom, stateWith } from "../../engine/harness.ts";
+import { entryFor, githubFrom, localFrom, stateWith } from "../../engine/fakes.ts";
 import { WINDOWS } from "../../shared/platform.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 

@@ -13,8 +13,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, parse, relative, resolve, sep } from "node:path";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { commitAll, gitInit } from "../shared/git_fixture.ts";

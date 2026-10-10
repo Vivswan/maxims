@@ -18,9 +18,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { DEFAULT_COOLDOWN_DAYS } from "../../src/commands/shared/context.ts";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
+import { DEFAULT_COOLDOWN_DAYS } from "../../src/engine/context.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
@@ -49,7 +49,7 @@ import {
   treeDigest,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import {
   budgetedReader,

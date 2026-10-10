@@ -9,6 +9,7 @@ import {
   updated,
 } from "../console/strings.ts";
 import { isLiveLocal } from "../contracts/source.ts";
+import type { SyncOptions, SyncPreview } from "../engine/types.ts";
 import { contentHashOf, parseMemoryName } from "../memory/contract.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { UserConfig } from "../state/config.ts";
@@ -45,7 +46,6 @@ import {
   upstreamNames,
   withIntent,
 } from "./shared/sources.ts";
-import type { SyncOptions, SyncPreview } from "./types.ts";
 
 const UPDATE_FLAGS: readonly FlagSpec[] = [
   FLAGS.agent,

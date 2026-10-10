@@ -15,9 +15,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import { type HarnessDefinition, scopeRoot } from "../../src/harnesses/contract.ts";
 import { classifyInvoker, renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
@@ -45,7 +45,7 @@ import {
   stateWith,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";

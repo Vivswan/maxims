@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { overRuleCap } from "../console/strings.ts";
+import { isHiddenInternal } from "../engine/select.ts";
 import {
   hiddenCharacterLabel,
   hiddenCharacters,
@@ -21,7 +22,6 @@ import {
   parseInteger,
 } from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
-import { isHiddenInternal } from "./shared/select.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 

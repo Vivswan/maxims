@@ -23,7 +23,7 @@ import {
   githubFrom,
   memoryName,
   writeSource,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 
 const FROM = githubFrom("acme/rules");

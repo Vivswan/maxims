@@ -14,6 +14,9 @@ import { type CliDeps, main } from "../../src/commands/main.ts";
 import { runRemove } from "../../src/commands/remove.ts";
 import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
 import { runSync } from "../../src/commands/sync.ts";
+import type { InteractiveStreams } from "../../src/console/contract.ts";
+import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import type { SourceFrom } from "../../src/contracts/source.ts";
 import type {
   Engine,
   EngineBundle,
@@ -22,10 +25,7 @@ import type {
   RemoveOptions,
   SyncOptions,
   SyncReport,
-} from "../../src/commands/types.ts";
-import type { InteractiveStreams } from "../../src/console/contract.ts";
-import type { HarnessId } from "../../src/contracts/harness-id.ts";
-import type { SourceFrom } from "../../src/contracts/source.ts";
+} from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { achievedTier, planHookOnly } from "../../src/harnesses/hook-writer.ts";
 import type { FetchOptions, ResolverFor } from "../../src/sources/contract.ts";
