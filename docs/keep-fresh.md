@@ -46,7 +46,7 @@ maxims: rules refreshed (1 file updated)
 
 Tier 2 therefore means fresh as long as some hooked harness gets used on this machine, so a tier 2 harness is stale only on a machine with zero tier 1 harnesses. The [matrix's](harnesses.md#the-matrix) tier column shows which registered harnesses have no hook system and start at tier 2.
 
-Copilot's IDE half has no hook at all, and Codex with hooks switched off or Cline without hooks enabled also land at tier 2; the [per-harness catches](harnesses.md#per-harness-catches) name each prerequisite.
+Copilot's IDE half has no hook at all, and Codex with hooks switched off also lands at tier 2. Cline's hooks are on by default; its off switch sits where maxims cannot read it, so `list` reports tier 1 either way. The [per-harness catches](harnesses.md#per-harness-catches) name each prerequisite.
 
 A shell-rc line, an OS scheduler, an editor folder-open task, and a git hook were each considered as a fallback for that machine and rejected. Each forks per platform or writes into shared territory for a benefit the property above already delivers. The [design decisions](design-decisions.md) page records them.
 

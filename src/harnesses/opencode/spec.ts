@@ -63,8 +63,7 @@ export const spec = {
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/opencode/src/config/paths.ts",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: the claim quotes the source's template literal
-        claims: ["targets: [`${name}.jsonc`, `${name}.json`]"],
+        claims: [`targets: [\`\${name}.jsonc\`, \`\${name}.json\`]`],
         note: "opencode.jsonc and opencode.json as the two project config names",
       },
       {
