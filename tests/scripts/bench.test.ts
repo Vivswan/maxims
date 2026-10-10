@@ -1,11 +1,11 @@
-// Fails if the benchmark harness stops producing the record the CI latency job reads: the field
-// names, the run count, and a real median are what the sticky PR comment is built from, and a
-// mean, a NaN, or a child that ran fewer times than --runs would flow through unnoticed. Also
-// fails if a run leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if
-// measured timings can be written inside the repository, where a commit would publish them,
-// including through a symlink or a /proc alias whose lexical path lies outside the checkout, or
-// into any other checkout of a repository the bench runs from a linked worktree of. Also fails if
-// the bench guesses at that set of checkouts when git cannot list them or is not installed.
+// Fails if the benchmark harness stops producing the record the nightly latency trend reads: the
+// field names and a real median are what the week-over-week comparison is built from, and a mean,
+// or a child that ran fewer times than --runs, would flow through unnoticed. Also fails if a run
+// leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if measured
+// timings can be written inside the repository, where a commit would publish them, including
+// through a symlink or a /proc alias whose lexical path lies outside the checkout, or into any
+// other checkout of a repository the bench runs from a linked worktree of. Also fails if the bench
+// guesses at that set of checkouts when git cannot list them or is not installed.
 import { expect, test } from "bun:test";
 import {
   copyFileSync,
