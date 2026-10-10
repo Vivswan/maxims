@@ -219,21 +219,107 @@ describe("createGitResolver", () => {
       ["fixture", "secret"],
       ["https://host.invalid/o/r.git"],
     ],
+    [
+      "https://fixture-user:fixture%0Asecret@host.invalid/o/r.git",
+      ["fixture%0Asecret", "fixture", "secret"],
+      ["host.invalid"],
+    ],
   ];
+  const passwordRung = async (
+    url: string,
+    env: NodeJS.ProcessEnv,
+    absent: string[],
+    kept: string[],
+  ): Promise<void> => {
+    const rungs: string[] = [];
+    const resolver = createGitResolver({ warn: () => {}, rung: (m) => rungs.push(m), env });
+    const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
+    expect(rungs).toEqual([error.message]);
+    expect(error.message).toMatch(/^git ls-remote: /);
+    for (const piece of absent) expect(error.message).not.toContain(piece);
+    for (const part of kept) expect(error.message).toContain(part);
+  };
   test.each(passwordUrls)(
     "the password in %j reaches neither the rung line nor the recorded failure, and the host does",
-    async (url, absent, kept) => {
-      const rungs: string[] = [];
-      const resolver = createGitResolver({
-        warn: () => {},
-        rung: (m) => rungs.push(m),
-        env: process.env,
+    (url, absent, kept) => passwordRung(url, process.env, absent, kept),
+  );
+
+  // What would drift: git applies the user's `insteadOf` to the bytes they typed, after the runner
+  // has handed them over. A runner that withholds the password first defeats a rule keyed on it,
+  // so the lookup goes to the typed host instead of the mirror; one that lets git expand a rule
+  // whose target carries a password has git decode and print it in pieces. Each row is one
+  // gitconfig rule `url.<to>.insteadOf = <from>` and the URL the user typed.
+  const rewrittenUrls: [string, string, string, string[], string[]][] = [
+    [
+      "https://host.invalid/o/r.git",
+      "https://host.invalid/",
+      "git://fixture-user:fixture%2Fsecret@host.invalid/",
+      ["fixture/secret", "fixture%2Fsecret", "fixture-user:fixture"],
+      ["host.invalid"],
+    ],
+    [
+      "git://fixture-user:fixture-secret@host.invalid/o/r.git",
+      "git://fixture-user:fixture-secret@host.invalid/",
+      "https://mirror.invalid/",
+      ["fixture-secret", "host.invalid"],
+      ["mirror.invalid"],
+    ],
+    [
+      "https://fixture-user:fixture@secret@host.invalid/o/r.git",
+      "https://fixture-user:fixture@secret@host.invalid/",
+      "https://mirror.invalid/",
+      ["fixture@secret", "fixture%40secret", "host.invalid"],
+      ["mirror.invalid"],
+    ],
+  ];
+  test.each(rewrittenUrls)(
+    "typed %j under the rule %j -> %j follows the rule and prints no password",
+    (url, from, to, absent, kept) =>
+      passwordRung(
+        url,
+        {
+          ...process.env,
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: `url.${to}.insteadOf`,
+          GIT_CONFIG_VALUE_0: from,
+        },
+        absent,
+        kept,
+      ),
+  );
+
+  // What would drift: a runner that withholds a typed password from git over http(s) too would
+  // leave nothing to answer a 401 with. Git decodes the userinfo before it builds the Basic
+  // credential, so a `%40` arrives at the server as `@`.
+  const basic = (userinfo: string): string => `Basic ${Buffer.from(userinfo).toString("base64")}`;
+  const typedPasswords: [string, string][] = [
+    ["fixture-secret", basic("example-user:fixture-secret")],
+    ["fixture%40secret", basic("example-user:fixture@secret")],
+  ];
+  test.each(typedPasswords)(
+    "a typed http password %s answers the server's 401 as Basic auth and stays out of the failure",
+    async (password, expected) => {
+      const seen: (string | null)[] = [];
+      const server = Bun.serve({
+        port: 0,
+        fetch: (request) => {
+          seen.push(request.headers.get("authorization"));
+          return new Response("who are you", {
+            status: 401,
+            headers: { "WWW-Authenticate": "Basic" },
+          });
+        },
       });
-      const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
-      expect(rungs).toEqual([error.message]);
-      expect(error.message).toMatch(/^git ls-remote: /);
-      for (const piece of absent) expect(error.message).not.toContain(piece);
-      for (const part of kept) expect(error.message).toContain(part);
+      try {
+        const url = `http://example-user:${password}@127.0.0.1:${server.port ?? 0}/rules.git`;
+        const resolver = createGitResolver({ warn: () => {}, rung: () => {}, env: process.env });
+        const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
+        expect(seen.filter((value) => value !== null)).toEqual([expected]);
+        expect(error.kind).toBe("auth");
+        expect(error.message).not.toContain("secret");
+      } finally {
+        server.stop(true);
+      }
     },
   );
 

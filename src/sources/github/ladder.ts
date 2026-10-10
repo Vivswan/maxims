@@ -722,14 +722,18 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     if (baseDir !== undefined) settings.baseDir = baseDir;
     return simpleGit(settings).env(guarded.env);
   };
-  // An anonymous call hands git the URL it would have reached anyway, minus any `user:password@`
-  // the user's `insteadOf` rule wrote into it: git would send those as Basic auth after a 401.
-  // Only http(s) is stripped: an ssh user is the login the transport needs, and an scp-like remote
-  // is not a URL at all.
+  // An `insteadOf` rule matches the bytes the user typed, so git expands it before anything is
+  // withheld, and credentialConfig pins the result so git does not expand it again. An anonymous
+  // call drops the whole userinfo on http(s), where git would send it as Basic auth after a 401;
+  // transportUrl drops the password on git/ssh for every call. A token's URL is handed over as
+  // typed: its header is scoped to that URL, so a rewrite git applies afterwards leaves it home.
   const target = async (url: string, credentials: GitCredentials): Promise<string> => {
-    if (credentials.kind !== "none") return transportUrl(url);
+    if (credentials.kind === "header") return transportUrl(url);
     const expanded = await effectiveUrl(client([]), url);
-    return /^https?:\/\//i.test(expanded) ? withoutUserinfo(expanded) : transportUrl(expanded);
+    if (credentials.kind === "none" && /^https?:\/\//i.test(expanded)) {
+      return withoutUserinfo(expanded);
+    }
+    return transportUrl(expanded);
   };
   return {
     lsRemote: (url, patterns, call) =>
@@ -768,13 +772,18 @@ export function withoutUserinfo(url: string): string {
   }
 }
 
-// Git decodes a URL before parsing it. A `git://` or `ssh://` lookup failure prints the decoded
-// authority in pieces, cut wherever git's or ssh's parser ended the host, and neither transport
-// can send a password. Over http(s) git sends the password, and anonymizes the URL in its own
-// messages only when the first `@` comes before any `/`. An `insteadOf` rule matches a URL
-// textually. A typed `u:@host` means "no password" to git's credential code, where `u@host`
-// means "ask". The URL parser skips any run of slashes, backslashes and tabs after an http(s)
-// scheme; git does not, so that run is handed over as `//`.
+// A URL whose password git prints in no piece a redaction cannot know, with host, port and path
+// left as typed. Git decodes the URL before parsing it and prints the decoded authority in pieces;
+// its one whole-URL print (a warning for a password holding an encoded newline) keeps the userinfo
+// as a single `//u:p@` run, which gitOutcome's redactUserinfo removes.
+//   git://, ssh://    cannot send a password: it goes, the typed user stays
+//   http(s)           git sends it after a 401 and anonymizes only a URL whose first `@` comes
+//                     before any `/`: the userinfo is re-encoded with one `@` after exactly `//`
+//   `u:@host`         keeps its colon: "no password" to git's credential code, where `u@host`
+//                     means "ask"
+//   `https:/\/\t/h`   the URL parser strips tab, CR and LF anywhere and skips any run of slashes
+//                     and backslashes after an http(s) scheme; git does neither, so the run after
+//                     the scheme is handed over as `//`
 function transportUrl(url: string): string {
   let parsed: URL;
   try {
@@ -796,12 +805,14 @@ function transportUrl(url: string): string {
   return `${url.slice(0, afterScheme)}//${userinfo === "" ? "" : `${userinfo}@`}${rest}`;
 }
 
-// The user's `insteadOf` rules may send a URL somewhere else entirely; an anonymous call resolves
-// that destination itself and resets its credentials too, so what the user configured for the
-// mirror does not leave on a fetch they asked to be anonymous. A token stays with the URL it was
-// given, and the rewrite, if any, is git's to apply.
+// The user's `insteadOf` rules may send a URL somewhere else entirely, and they match the bytes
+// the user typed. Resolving the destination here is what lets the password leave the URL
+// afterwards, and what lets an anonymous call reset the mirror's credentials too, so nothing the
+// user configured for the mirror leaves on a fetch they asked to be anonymous. Only git's line
+// terminator comes off: a quoted destination may end in a space, and that space names the
+// repository.
 async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
-  const expanded = (await git.raw(["ls-remote", "--get-url", url])).trim();
+  const expanded = (await git.raw(["ls-remote", "--get-url", url])).replace(/\r?\n$/, "");
   return expanded === "" ? url : expanded;
 }
 
@@ -810,10 +821,11 @@ async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
 // the longest match git can find, so it outranks any `http.<prefix>.extraheader` or
 // `credential.<prefix>.helper` the user's gitconfig carries; an empty value resets that list. The
 // scope also means a URL rewritten by the user's own `insteadOf` no longer matches, and the
-// header stays home. An anonymous call also pins its destination with an `insteadOf` of the exact
-// URL onto itself: the longest matching rule wins, so a shorter user rule that would write
-// credentials back into the URL is not applied a second time. And it runs in a private HOME,
-// because libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
+// header stays home. A call whose destination target() already resolved (anonymous or inherited)
+// pins it with an `insteadOf` of the exact URL onto itself: the longest matching rule wins, so a
+// shorter user rule that would write credentials back into the URL is not applied a second time.
+// An inherited call carries that pin alone. An anonymous one also runs in a private HOME, because
+// libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
 async function withCredentials<T>(
   url: string,
   remote: string,
@@ -821,7 +833,6 @@ async function withCredentials<T>(
   env: Record<string, string>,
   action: (config: string[], env: Record<string, string>) => Promise<T>,
 ): Promise<T> {
-  if (credentials.kind === "inherited") return action([], env);
   const dir = await mkdtemp(join(tmpdir(), "maxims-git-"));
   try {
     const file = join(dir, "config");
@@ -833,19 +844,18 @@ async function withCredentials<T>(
   }
 }
 
-export function credentialConfig(
-  url: string,
-  remote: string,
-  credentials: Exclude<GitCredentials, { kind: "inherited" }>,
-): string {
-  const lines = [...new Set([url, remote])].flatMap((scope) => [
-    `[http ${gitConfigString(scope)}]`,
-    "\textraheader =",
-    ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
-    `[credential ${gitConfigString(scope)}]`,
-    "\thelper =",
-  ]);
-  if (credentials.kind === "none") {
+export function credentialConfig(url: string, remote: string, credentials: GitCredentials): string {
+  const lines =
+    credentials.kind === "inherited"
+      ? []
+      : [...new Set([url, remote])].flatMap((scope) => [
+          `[http ${gitConfigString(scope)}]`,
+          "\textraheader =",
+          ...(credentials.kind === "header" ? [`\textraheader = ${credentials.header}`] : []),
+          `[credential ${gitConfigString(scope)}]`,
+          "\thelper =",
+        ]);
+  if (credentials.kind !== "header") {
     lines.push(`[url ${gitConfigString(remote)}]`, `\tinsteadOf = ${gitConfigString(remote)}`);
   }
   lines.push("");
