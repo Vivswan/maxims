@@ -16,6 +16,7 @@ import {
   scriptedRunner,
 } from "../../../src/sources/github/fixtures/runner.ts";
 import { simpleGitRunner } from "../../../src/sources/github/ladder.ts";
+import { WINDOWS } from "../../shared/platform.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";
@@ -379,25 +380,29 @@ describe("createGitResolver", () => {
   });
 
   // What would drift: a quoted `insteadOf` destination may end in a space that names the repository;
-  // a runner that trims git's answer sends the lookup to a repository one byte short.
-  test("an insteadOf destination ending in a space reaches git with the space", async () => {
-    await withTempDir(async (dir) => {
-      const repo = await createFixtureRepo(join(dir, "rules.git "));
-      const spaced = `${pathToFileURL(join(dir, "rules.git")).href} `;
-      const typed = pathToFileURL(join(dir, "typed.git")).href;
-      const resolver = createGitResolver({
-        warn: () => {},
-        rung: () => {},
-        env: {
-          ...process.env,
-          GIT_CONFIG_COUNT: "1",
-          GIT_CONFIG_KEY_0: `url.${spaced}.insteadOf`,
-          GIT_CONFIG_VALUE_0: typed,
-        },
+  // a runner that trims git's answer sends the lookup to a repository one byte short. Win32 strips a
+  // trailing space from a directory name, so on Windows no git process can reach the fixture.
+  test.skipIf(WINDOWS)(
+    "an insteadOf destination ending in a space reaches git with the space",
+    async () => {
+      await withTempDir(async (dir) => {
+        const repo = await createFixtureRepo(join(dir, "rules.git "));
+        const spaced = `${pathToFileURL(join(dir, "rules.git")).href} `;
+        const typed = pathToFileURL(join(dir, "typed.git")).href;
+        const resolver = createGitResolver({
+          warn: () => {},
+          rung: () => {},
+          env: {
+            ...process.env,
+            GIT_CONFIG_COUNT: "1",
+            GIT_CONFIG_KEY_0: `url.${spaced}.insteadOf`,
+            GIT_CONFIG_VALUE_0: typed,
+          },
+        });
+        expect(await resolver.resolveRef({ type: "git", url: typed, ref: "HEAD" })).toBe(repo.head);
       });
-      expect(await resolver.resolveRef({ type: "git", url: typed, ref: "HEAD" })).toBe(repo.head);
-    });
-  });
+    },
+  );
 
   test("a memory path naming the repository root checks out the whole tree, nested files included", async () => {
     await withTempDir(async (dir) => {

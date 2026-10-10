@@ -727,7 +727,7 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   //   not a URL, has userinfo  refused: git prints it as typed, password and all
   const target = async (url: string, credentials: GitCredentials): Promise<string> => {
     const expanded = await effectiveUrl(client([]), url);
-    if (hasUnparseableUserinfo(expanded)) {
+    if (hasUnparsableUserinfo(expanded)) {
       throw new Error(
         `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
       );
@@ -777,7 +777,7 @@ export function withoutUserinfo(url: string): string {
 
 // A URL-shaped string the parser rejects (`git://u:p@host:bad-port/`) can only go to git as
 // written, and git prints it that way; one with no userinfo has nothing to print.
-function hasUnparseableUserinfo(url: string): boolean {
+function hasUnparsableUserinfo(url: string): boolean {
   if (!URL_SCHEME.test(url) || URL.canParse(url)) return false;
   const authority = url.slice(url.indexOf("//") + 2).split("/", 1)[0] ?? "";
   return authority.includes("@");
@@ -803,8 +803,9 @@ function transportUrl(url: string): string {
   const start = afterScheme + slashes.length;
   const authority = url.slice(start).split(http ? /[/\\?]/ : /[/?]/, 1)[0] ?? "";
   const typed = authority.slice(0, authority.lastIndexOf("@"));
-  // Git decodes the userinfo before it splits it, so an encoded `:` starts the password too. On
-  // http(s) `u:@host` keeps its colon, "no password" to git's credential code; `u@host` means "ask".
+  // Git decodes and prints the whole authority on git:// and ssh://, so the cut lands on an encoded
+  // `:` too; only http's credential code splits the userinfo, on the literal `:` before decoding,
+  // where `u:@host` keeps its colon ("no password") and `u@host` means "ask".
   const colon = typed.search(/:|%3a/i);
   const userinfo = http
     ? `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`
