@@ -29,13 +29,13 @@ const RULE_FILE_SHOWN = `~/${RULE_FILE}`;
 
 // What a working bundle leaves in the rule file: one rule line between the block markers.
 const INSTALLED = [
-  "<!-- maxims:begin @Vivswan/skills sha=0123456789abcdef0123456789abcdef01234567 -->",
+  "<!-- maxims:begin @Vivswan/skills sha=0123456789abcdef0123456789abcdef01234567 version=1 -->",
   "- Keep a rule file a real file, never a symlink (detail: ~/.agents/memories/real-file.md, 0123456)",
   "<!-- maxims:end @Vivswan/skills -->",
   "",
 ].join("\n");
 const EMPTY_BLOCK = [
-  "<!-- maxims:begin @Vivswan/skills sha=0123456789abcdef0123456789abcdef01234567 -->",
+  "<!-- maxims:begin @Vivswan/skills sha=0123456789abcdef0123456789abcdef01234567 version=1 -->",
   "<!-- maxims:end @Vivswan/skills -->",
   "",
 ].join("\n");

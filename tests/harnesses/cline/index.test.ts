@@ -81,7 +81,7 @@ test.skipIf(WINDOWS)(
 );
 
 const block =
-  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
+  "<!-- maxims:begin @example-user/doctrine sha=1 version=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
 const files: [Scope, string, string, string][] = [
   [

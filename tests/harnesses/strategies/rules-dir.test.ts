@@ -22,7 +22,7 @@ import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext as ctx } from "../context.ts";
 
 const rooted = (path: string) => assertInsideRoot(ctx.home, path);
-const block = "<!-- maxims:begin @a/b sha=1 -->\n- rule\n<!-- maxims:end @a/b -->\n";
+const block = "<!-- maxims:begin @a/b sha=1 version=1 -->\n- rule\n<!-- maxims:end @a/b -->\n";
 
 function definition(overrides: Partial<HarnessDefinition> = {}): HarnessDefinition {
   return {

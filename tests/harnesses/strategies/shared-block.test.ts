@@ -42,7 +42,7 @@ const def: HarnessDefinition = {
 };
 
 const blockFor = (source: string, body: string) =>
-  `<!-- maxims:begin ${source} sha=abc -->\n${body}<!-- maxims:end ${source} -->\n`;
+  `<!-- maxims:begin ${source} sha=abc version=1 -->\n${body}<!-- maxims:end ${source} -->\n`;
 const ours = blockFor("@a/b", "- one\n");
 const theirs = blockFor("@c/d", "- other\n");
 const path = assertInsideRoot(ctx.home, "/home/user/project/AGENTS.md");

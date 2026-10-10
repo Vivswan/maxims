@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import type { MemoryName } from "../../src/memory/contract.ts";
 import {
+  MarkerRefused,
   ownLineMatcher,
   parseBlocks,
   renderBlock,
@@ -48,7 +49,7 @@ function input(overrides: Partial<BlockInput> = {}): BlockInput {
 
 const RUBBER_DUCK_LINE = `- Codex rubber-duck review before EVERY commit, however trivial (detail: ${STORE}/rubber-duck-before-every-commit.md, a1b2c3d)`;
 const GATE_LINE = `- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command (detail: ${STORE}/gate-exit-conditions-the-merge.md, 0f0f0f0)`;
-const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
+const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e version=1 -->";
 const END = "<!-- maxims:end @Vivswan/skills -->";
 const PROVENANCE = [
   "<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->",
@@ -302,6 +303,72 @@ describe("parseBlocks", () => {
   ];
   test.each(notMarkers)("%s is not a block", (_label, text) => {
     expect(parseBlocks(text)).toEqual({ blocks: [], warnings: [] });
+  });
+
+  // A begin marker of another version, or of none, is refused where it is met rather than read
+  // as text: text would leave the block it opens beside the fresh one every later sync appends.
+  // The scanner's own context rules still decide what is a marker line, so one quoted in a fence
+  // or indented is text, and a current marker that fails the grammar past its version is text.
+  const UNVERSIONED = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
+  const NEWER = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e version=2 -->";
+  const refresh =
+    "delete the block from that line through its maxims:end line, then run sync, which writes it afresh";
+  const foreign: [string, string, string, string][] = [
+    ["a marker without a version", UNVERSIONED, "no version", refresh],
+    ["a marker of a newer version", NEWER, "version 2", `upgrade maxims, or ${refresh}`],
+    [
+      "a marker of version 0",
+      "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e version=0 -->",
+      "version 0",
+      refresh,
+    ],
+    [
+      "a marker spelling the current version as 01",
+      "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e version=01 -->",
+      "version 01",
+      refresh,
+    ],
+    ["a bare begin marker", "<!-- maxims:begin x -->", "no version", refresh],
+  ];
+  test.each(foreign)(
+    "%s is refused by the scanner and both writers",
+    (_label, marker, carries, hint) => {
+      const text = `# Mine\n\n${marker}\n- x\n${END}\n\n${BLOCK}`;
+      for (const read of [
+        () => parseBlocks(text),
+        () => replaceBlock(text, SOURCE, BLOCK),
+        () => stripBlock(text, SOURCE),
+      ]) {
+        let caught: unknown;
+        try {
+          read();
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(MarkerRefused);
+        if (!(caught instanceof MarkerRefused)) return;
+        expect({ code: caught.code, message: caught.message, hint: caught.hint }).toEqual({
+          code: ExitCode.DestinationWriteFailed,
+          message: `the marker ${JSON.stringify(marker)} carries ${carries}; this maxims writes version 1 and cannot refresh the block it opens`,
+          hint,
+        });
+      }
+    },
+  );
+
+  const foreignAsText: [string, string][] = [
+    ["quoted in a fence", `\`\`\`md\n${UNVERSIONED}\n- x\n${END}\n\`\`\`\n${BLOCK}`],
+    ["indented", `    ${NEWER}\n${BLOCK}`],
+    ["inside a blockquote", `> ${UNVERSIONED}\n${BLOCK}`],
+    ["swallowed by an open comment", `<!--\n${UNVERSIONED}\n-->\n${BLOCK}`],
+    [
+      "of the current version but without a revision",
+      `<!-- maxims:begin x version=1 -->\n${BLOCK}`,
+    ],
+    ["with text after its closer", `${UNVERSIONED} and more\n${BLOCK}`],
+  ];
+  test.each(foreignAsText)("a marker of another version %s is text", (_label, text) => {
+    expect(parseBlocks(text).blocks.map((block) => block.source)).toEqual([SOURCE]);
   });
 
   // Each prefix is followed by the block at column 0. Whether CommonMark leaves the marker lines
@@ -623,7 +690,7 @@ describe("replaceBlock and stripBlock", () => {
   // them. Closing the slot the removal would otherwise close can put them back to back, and the
   // next sync would read the user's lines between them as a block to remove.
   const STRAY = "@stray/notes";
-  const STRAY_BEGIN = `<!-- maxims:begin ${STRAY} sha=old -->\n`;
+  const STRAY_BEGIN = `<!-- maxims:begin ${STRAY} sha=old version=1 -->\n`;
   const STRAY_END = `<!-- maxims:end ${STRAY} -->\n`;
   const strayPairs: [string, string, string, string][] = [
     [
@@ -685,8 +752,8 @@ describe("replaceBlock and stripBlock", () => {
   // would take the user's lines with the pair it made or the block it lost. The refusal names
   // the pair around the removed block, the one the user has to edit, not whichever pair the
   // closing of another slot happened to expose.
-  const USER_OTHER = `<!-- maxims:begin ${OTHER_SOURCE} sha=user -->\nKEEP USER TEXT\n<!-- maxims:end ${OTHER_SOURCE} -->\n`;
-  const INNER_BEGIN = "<!-- maxims:begin @inner/notes sha=old -->\n";
+  const USER_OTHER = `<!-- maxims:begin ${OTHER_SOURCE} sha=user version=1 -->\nKEEP USER TEXT\n<!-- maxims:end ${OTHER_SOURCE} -->\n`;
+  const INNER_BEGIN = "<!-- maxims:begin @inner/notes sha=old version=1 -->\n";
   const INNER_END = "<!-- maxims:end @inner/notes -->\n";
   const refusals: [string, string, string][] = [
     ["a stray pair around the only block", `${STRAY_BEGIN}KEEP ME\n${BLOCK}\n${STRAY_END}`, STRAY],
@@ -1041,7 +1108,7 @@ describe("replaceBlock and stripBlock", () => {
     blocks
       .map((block, index) =>
         index === blocks.length - 1
-          ? `<!-- maxims:begin @stray/last sha=old -->\nnotes\n${block}<!-- maxims:end @stray/last -->\n`
+          ? `<!-- maxims:begin @stray/last sha=old version=1 -->\nnotes\n${block}<!-- maxims:end @stray/last -->\n`
           : `notes\n${block}<span>\n${opener}\n\n`,
       )
       .join("") + notes;
@@ -1053,7 +1120,7 @@ describe("replaceBlock and stripBlock", () => {
         blocks
           .map(
             (block, index) =>
-              `<!-- maxims:begin @stray/s${index} sha=old -->\nKEEP ${index}\n${block}\n<!-- maxims:end @stray/s${index} -->\n`,
+              `<!-- maxims:begin @stray/s${index} sha=old version=1 -->\nKEEP ${index}\n${block}\n<!-- maxims:end @stray/s${index} -->\n`,
           )
           .join(""),
       "@stray/s0",
@@ -1448,7 +1515,7 @@ describe("properties over arbitrary user files", () => {
     let begin: { source: string; start: number } | null = null;
     for (const line of scanLines(fileText).lines) {
       if (line.kind !== "comment" || !/^<!-- maxims:(begin|end) /.test(line.text)) continue;
-      const opened = /^<!-- maxims:begin (.+) sha=\S+ -->$/s.exec(line.text);
+      const opened = /^<!-- maxims:begin (.+) sha=\S+ version=1 -->$/s.exec(line.text);
       if (opened !== null) {
         begin = { source: opened[1], start: line.start };
         continue;
@@ -1461,7 +1528,7 @@ describe("properties over arbitrary user files", () => {
     return pairs;
   };
   const strayMarkers = ["@stray/notes", "@inner/notes", "@example-user/rules"].flatMap((key) => [
-    `<!-- maxims:begin ${key} sha=old -->\n`,
+    `<!-- maxims:begin ${key} sha=old version=1 -->\n`,
     `<!-- maxims:end ${key} -->\n`,
   ]);
   const gaps = [
@@ -1504,7 +1571,7 @@ describe("properties over arbitrary user files", () => {
         const pairs = pairsOf(before);
         fc.pre(pairs.length > 0);
         const sources = pairs.map(
-          (pair) => /^<!-- maxims:begin (.+) sha=\S+ -->/.exec(pair)?.[1] ?? "",
+          (pair) => /^<!-- maxims:begin (.+) sha=\S+ version=1 -->/.exec(pair)?.[1] ?? "",
         );
         const source = sources[choice % sources.length];
         let stripped: string | null = null;

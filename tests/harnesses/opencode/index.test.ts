@@ -22,7 +22,7 @@ import { exampleContext as ctx } from "../context.ts";
 
 const fixture = readFileSync(srcPath("harnesses", "opencode", "fixtures", "config.jsonc"), "utf8");
 const block =
-  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
+  "<!-- maxims:begin @example-user/doctrine sha=1 version=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 
 // OpenCode reads nothing back from a plugin and the shell call is `.nothrow().quiet()`, so an
 // offline npx can never surface as a plugin error in the session.
