@@ -21,7 +21,7 @@ import {
   runCli,
   type Scenario,
   withScenario,
-} from "../cli/harness.ts";
+} from "../commands/fake-engine.ts";
 
 const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
 const RULES = join(FIXTURES, "rules");
