@@ -38,7 +38,6 @@ export function globalRulesFile(userHome: string, slug: string): string {
   );
 }
 
-// An assertion rather than a throw, so a wrong outcome is reported as a diff against the code.
 export async function expectExit(run: Promise<unknown>, code: ExitCode): Promise<MaximsError> {
   const outcome = await asyncOutcome(() => run);
   const refusal = outcome.kind === "threw" ? outcome.error : null;
