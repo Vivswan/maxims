@@ -7,15 +7,15 @@ import type { HarnessSpec } from "../spec.ts";
 // ~/.cline/rules and ~/Cline/Rules.
 // Cline reads the hook's stdout as one JSON object, so sync's own output is discarded and the
 // script answers for it; stdin carries task metadata sync never needs, and closing it keeps a
-// session start from hanging on a reader. The hook only runs once the user turns on "Enable Hooks"
-// in Cline's feature settings, which live in the editor's own storage: no file on disk reveals the
-// switch, so the tier stays 1.
+// session start from hanging on a reader. The "Enable Hooks" switch that turns hooks off lives in
+// the editor's own storage, not in a file, so there is no tierCheck: a user who switched them off
+// is reported at tier 1 all the same.
 export const spec = {
   id: "cline",
   displayName: "Cline",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-10",
     sources: [
       {
         kind: "file",
@@ -56,8 +56,16 @@ export const spec = {
         repo: "cline/cline",
         ref: "main",
         path: "apps/vscode/src/shared/storage/state-keys.ts",
-        claims: ["hooksEnabled"],
-        note: "the Enable Hooks switch",
+        claims: ["hooksEnabled: { default: true as boolean }"],
+        note: "hooks on by default",
+      },
+      {
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "apps/vscode/src/sdk/hooks-adapter.ts",
+        claims: ['stateManager.getGlobalSettingsKey("hooksEnabled")', "if (!hooksEnabled())"],
+        note: "the Enable Hooks switch, read from the editor's storage and not from a file",
       },
       {
         kind: "file",
