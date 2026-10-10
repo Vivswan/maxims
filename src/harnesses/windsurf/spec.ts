@@ -1,16 +1,12 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// The earlier Cascade agent of Devin Desktop (formerly Windsurf). A rules file needs
-// `trigger: always_on` in its frontmatter or it is not injected on every message; a path-scoped
-// rule is `trigger: glob` with the patterns comma-joined under `globs`, documented for one only.
-// `.devin/rules/` is preferred over `.windsurf/rules/`; a workspace rule is capped at 12,000
-// characters and the global file, which takes no frontmatter, at 6,000 (byte caps below). With
-// no session-start event the hook rides `pre_user_prompt` behind the shared debounce; it has no
-// stdout protocol and no timeout field. A `powershell`-only entry is silently skipped on macOS
-// and Linux, a `command`-only one runs on Windows via `powershell -Command`, so both keys are
-// written and Windows skips the fallback. `.windsurf/hooks.json` is read only while the newer
-// `.devin/hooks.json` is absent or holds no hooks. No `mcp`: its file is outside the global root.
+// The earlier Cascade agent of Devin Desktop (formerly Windsurf); `.devin/rules/` is preferred over
+// `.windsurf/rules/`, and the global file takes no frontmatter. With no session-start event the
+// hook rides `pre_user_prompt` behind the debounce, and `.windsurf/hooks.json` is read only while
+// `.devin/hooks.json` is absent or holds no hooks. A `powershell`-only entry is silently skipped on
+// macOS and Linux and a `command`-only one runs on Windows via `powershell -Command`, so both keys
+// are written; the MCP file sits outside the global root.
 export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",

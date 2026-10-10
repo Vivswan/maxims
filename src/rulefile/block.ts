@@ -117,14 +117,15 @@ function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
   return escapeReferences(commentSafe, expands);
 }
 
-// A reference token is wrapped in a code span, which every documented import parser skips. Every
-// whitespace-split token holding `@` (or `#name:`) anywhere counts: a walker matches a bare `@` at
-// the start of a lexed text token, and parsers differ on which inline constructs (emphasis, a link
-// label, an escape, an autolink, an inline tag) start a fresh one, so the rule models none of them.
-// Entities come first so every parser agrees where each span is: existing backticks, backslashes,
-// `<`, `[` and any `~~~` run could pair with, escape or swallow a fence (a leading `~~~` would turn
-// the whole rule into a fence's info string). The fences are then the only backticks in the line,
-// each glued to its token, so a construct that steals an opener swallows the token with it.
+// A reference token is wrapped in a code span, which every documented import parser skips. The rule
+// models no inline construct, since parsers differ on which (emphasis, a link label, an escape, an
+// autolink, an inline tag) starts a fresh text token: any whitespace-split token holding `@` (or
+// `#name:`) anywhere counts.
+//   entities first   existing backticks, backslashes, `<`, `[` and `~~~` runs could pair with,
+//                    escape or swallow a fence (a leading `~~~` turns the whole rule into an info
+//                    string)
+//   fences last      the only backticks left, each glued to its token, so a construct that steals
+//                    an opener swallows the token with it
 const AT_REFERENCE = /@/;
 const HASH_REFERENCE = /#[A-Za-z]+:/;
 
@@ -149,10 +150,8 @@ function withNewline(text: string): string {
   return text.endsWith("\n") ? text : `${text}\n`;
 }
 
-// "comment" is the line that starts an HTML comment block (a one-line comment is only that line);
-// "comment-continuation" is every later line of one that spans several. "html" is a line of any
-// other raw HTML block, whose content a Markdown parser keeps literal. Only a comment's starting
-// line can be a marker: one swallowed by an earlier open block is not.
+// "comment" is only a comment block's opening line, the one line that can be a marker: one
+// swallowed by an earlier open block is not.
 export type MarkdownLine = {
   text: string;
   start: number;
@@ -169,20 +168,19 @@ type OpenBlock =
   | { kind: "html"; until: RegExp | "blank-line"; closer: string };
 
 // A leaf left open at the end of the file, with the content column of the innermost list item
-// holding it (0 outside any item). A closer written at that column stays inside the item: with no
-// closer the blank line before the appended block would sit inside the user's fence, a closer at
-// column 0 would end the item and open a new fence that swallows the block, and an HTML closer
-// indented past the column would put that indentation inside the user's raw HTML.
+// holding it (0 outside any item). A closer written at that column stays inside the item; inside
+// one, each alternative breaks the user's file or the appended block.
+//   no closer                        the blank line before the appended block sits inside the
+//                                    user's fence
+//   a fence closer at column 0       ends the item and opens a new fence that swallows the block
+//   an HTML closer past the column   puts the indentation inside the user's raw HTML
 export type OpenLeaf = { block: OpenBlock; column: number };
 
-// `items` holds the content column of each open list item, outermost first; a non-blank line
-// indented short of one ends it unless it lazily continues an open paragraph, and a blank line
-// ends an item that was opened with nothing after its marker (`emptyItem`). A leaf lives in the
-// innermost item, and a line that ends that item ends the leaf too. A blockquote's content is
-// scanned by a scanner of its own, held in the innermost item and dropped whenever `items` changes;
-// `paragraph` then mirrors whether the quote ends in one. `definitions` tracks whether the open
-// paragraph holds only link reference definitions so far, which decides whether an `===` line
-// under it is a heading underline or new paragraph text.
+// A leaf lives in the innermost item, and a line that ends that item ends the leaf too.
+//   items         a non-blank line indented short of one ends it, unless it lazily continues an
+//                 open paragraph
+//   quote         dropped whenever `items` changes; `paragraph` then mirrors the quote's
+//   definitions   decides whether an `===` line under the paragraph underlines a heading
 type Scanner = {
   items: number[];
   leaf: OpenBlock | null;
@@ -192,12 +190,10 @@ type Scanner = {
   emptyItem: boolean;
 };
 
-// What the paragraph's link reference definitions still await. "complete" and "title" (a title
-// may still follow) leave a following `===` as text; every other state lets it underline a
-// heading, since CommonMark parses definitions off the front of a paragraph only when it closes
-// and an unfinished one then fails: "destination" (a label with nothing after it), "label" and
-// "label-blank" (a label still open across lines, with or without text so far), the three
-// "quoted-" states (a title still open across lines), and "none" (the paragraph holds prose).
+// CommonMark parses definitions off the front of a paragraph only when it closes, and an unfinished
+// one then fails, so a following `===` underlines a heading in every state but two.
+//   complete   every definition so far is whole
+//   title      a title may still follow the destination
 type Definitions =
   | "none"
   | "complete"
@@ -220,17 +216,16 @@ function newScanner(): Scanner {
   };
 }
 
-// A line's text past some column: the columns of whitespace still leading it, the text from its
-// first non-whitespace character on, and the physical column that character sits at (which fixes
-// the tab stops of whatever follows). Slicing there copies nothing, so a line of thousands of `>`
-// or list markers costs one pass over its whitespace however deep it nests.
+// `column` is the physical column of the first non-whitespace character, which fixes the tab stops
+// of whatever follows. Slicing there copies nothing, so a line of thousands of `>` or list markers
+// costs one pass over its whitespace however deep it nests.
 type Content = { indent: number; body: string; column: number };
 
-// A block may open behind up to three spaces, as CommonMark allows, and a marker inside one is
-// then quoted text. Whitespace in these rules is CommonMark's space and tab, never other Unicode
-// whitespace; an info string may hold any character (dotAll). A declaration starts with any
-// ASCII letter (CommonMark 4.6, start condition 4). Each rule reads a `Content` body, so none
-// carries the leading indentation itself.
+// A block may open behind up to three spaces, as CommonMark allows, and a marker inside one is then
+// quoted text.
+//   whitespace    CommonMark's space and tab, never other Unicode whitespace
+//   info string   any character (dotAll)
+//   declaration   any ASCII letter (CommonMark 4.6, start condition 4)
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/s;
 const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t]*$/;
 const COMMENT_OPEN = /^<!--/;
@@ -246,10 +241,10 @@ const BLOCK_TAGS = [
   "section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul",
 ].join("|");
 const BLOCK_TAG_OPEN = new RegExp(`^</?(?:${BLOCK_TAGS})(?=[ \\t>]|/>|$)`, "i");
-// A complete open or closing tag of any name alone on its line (CommonMark's seventh HTML block
-// kind); unlike the kinds above it cannot interrupt a paragraph. Whitespace inside the tag is `\s`,
-// as commonmark.js and markdown-it read it, wider than the specification's space and tab: the
-// wider reading only ever hides a marker line inside a raw HTML block, never exposes one.
+// A complete tag of any name alone on its line (CommonMark's seventh HTML block kind), which unlike
+// the kinds above cannot interrupt a paragraph. Whitespace inside the tag is `\s`, as commonmark.js
+// and markdown-it read it, wider than the specification's space and tab: the wider reading only
+// ever hides a marker line inside a raw HTML block, never exposes one.
 const TAG_NAME = "[A-Za-z][A-Za-z0-9-]*";
 const ATTRIBUTE = `\\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\\s*=\\s*(?:[^\\s"'=<>\`]+|'[^']*'|"[^"]*"))?`;
 const LONE_TAG_OPEN = new RegExp(
@@ -258,13 +253,12 @@ const LONE_TAG_OPEN = new RegExp(
 const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
 const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/;
 const LIST_MARKER = /^(?:[-+*]|(\d{1,9})[.)])(?=[ \t]|$)/;
-// The pieces of a link reference definition, as commonmark.js and markdown-it read them: a label
-// of up to 999 characters, a destination in angle brackets or bare with parentheses balanced two
-// deep, and a title in one of three quotings. A backslash in a bare destination escapes only
-// ASCII punctuation; a destination refuses ASCII control characters but not the C1 range; a
-// label or title left open may end its line in a backslash, which escapes the line ending. Each
-// piece is matched one way only, so an unterminated label cannot make a rule backtrack across
-// its length.
+// The pieces of a link reference definition as commonmark.js and markdown-it read them, each
+// matched one way only, so an unterminated label cannot make a rule backtrack across its length.
+//   label                 up to 999 characters
+//   bare destination      parentheses balanced two deep; a backslash escapes only ASCII
+//                         punctuation; ASCII control characters are refused, the C1 range is not
+//   open label or title   may end its line in a backslash, which escapes the line ending
 const ESCAPABLE = String.raw`[!-/:-@[-\x60{-~]`;
 const LABEL_CHAR = String.raw`(?:[^[\]\\]|\\.)`;
 const DESTINATION_CHAR = String.raw`(?:\\${ESCAPABLE}|\\(?!${ESCAPABLE})|[^ ()\\\p{Cc}]|[\u0080-\u009f])`;
@@ -341,10 +335,7 @@ function nextLine(fileText: string, scanner: Scanner, start: number): MarkdownLi
 type Step = MarkdownLine["kind"] | { quote: Scanner; content: Content };
 
 // Each `>` hands the rest of the line to the blockquote's own scanner; the chain is walked as a
-// loop rather than by recursion so that a line of thousands of `>` cannot exhaust the stack. On
-// the way down a quote learns whether lazy lines kept its paragraph to definitions; on the way
-// back each level learns whether its quote still ends in a paragraph. A line that enters a
-// blockquote at all is text to the levels above it.
+// loop rather than by recursion so that a line of thousands of `>` cannot exhaust the stack.
 function scanLine(scanner: Scanner, text: string): MarkdownLine["kind"] {
   const tail = breakTail(text);
   const chain = [scanner];
@@ -483,9 +474,9 @@ function openBlocks(scanner: Scanner, content: Content, column: number, tail: nu
 }
 
 // Whether a line's content, read where an item ended, starts a block rather than lazily continuing
-// the paragraph: anything but a lone tag, an indented line and plain text. Read inside the
-// paragraph's own container the rules are stricter (`interruptsParagraph`): CommonMark also keeps
-// an empty item, and an ordered item numbered other than one, as paragraph text there.
+// the paragraph. Read inside the paragraph's own container the rules are stricter
+// (`interruptsParagraph`): CommonMark also keeps an empty item, and an ordered item numbered other
+// than one, as paragraph text there.
 function startsBlock(rest: Content, tail: number): boolean {
   if (rest.indent >= 4) return false;
   if (isThematicBreak(rest, tail) || isAtxHeading(rest) || rest.body.startsWith(">")) return true;
@@ -512,11 +503,11 @@ function onlyDefinitions(state: Definitions): boolean {
   return state === "complete" || state === "title";
 }
 
-// The state after one more paragraph line. A label must hold a non-whitespace character in
-// JavaScript's sense, as the reference parsers trim it, and no more than 999 characters as
-// written. A NUL reads as U+FFFD, as the parsers replace it before reading. A line that fits
-// nowhere turns the paragraph to prose for good, since CommonMark reads definitions only off its
-// front.
+// A line that fits nowhere turns the paragraph to prose for good, since CommonMark reads
+// definitions only off its front. As the reference parsers read them:
+//   label   must hold a non-whitespace character in JavaScript's sense (they trim it), and no more
+//           than 999 characters as written
+//   NUL     reads as U+FFFD (they replace it before reading)
 function advanceDefinitions(state: Definitions, rest: Content): Definitions {
   const body = rest.body.replaceAll("\0", "\uFFFD");
   switch (state) {
@@ -639,11 +630,11 @@ function past(content: Content, columns: number): Content {
   return { ...content, indent: Math.max(0, content.indent - columns) };
 }
 
-// A backtick fence's info string may not contain a backtick; such a line is not a fence at all. A
-// comment or HTML block may end on the line that opens it (`<!-- x -->`, even `<!-->`, `<pre>x</pre>`);
-// a fence never does, since its opening line is not a closing fence however it is spelled. A
-// literal block opened by one of pre, script, style or textarea ends at the end tag of any of them.
-// A lone tag opens a block only where no paragraph is open for it to continue (`interrupting`).
+// A fence never ends on the line that opens it, since that line is not a closing fence however it
+// is spelled; a comment or HTML block may (`<!-- x -->`, even `<!-->`, `<pre>x</pre>`).
+//   backtick fence with a backtick in its info string   not a fence at all
+//   lone tag                                            opens a block only where no paragraph is
+//                                                       open for it to continue (`interrupting`)
 function opens(rest: Content, interrupting: boolean): OpenBlock | null {
   if (rest.indent > 3) return null;
   const text = rest.body;
@@ -722,9 +713,6 @@ function blockSpans(fileText: string): ParsedBlock[] {
   return spans;
 }
 
-// Reads the lines of one text in order and returns the pair each marker line completes. A BEGIN
-// pairs only with the very next marker line, and only when that is its own END (see
-// `parseBlocks`); a BEGIN met while one is pending replaces it, any other END drops it.
 function markerPairing(): (line: MarkdownLine) => ParsedBlock | null {
   let pending: Pick<ParsedBlock, "source" | "sha" | "start"> | null = null;
   return (line) => {
@@ -744,12 +732,10 @@ function markerPairing(): (line: MarkdownLine) => ParsedBlock | null {
   };
 }
 
-// Appending closes a block the file left open at its end: a fence, comment or raw HTML block runs
-// to the end of the document anyway, so closing it there renders identically and keeps the new
-// markers where the parser can find them on the next run. The closer sits at the content column
-// of the list item holding the block, a fence's own indentation past it kept, so that the block is
-// closed inside the item before the blank line; the block-tag HTML kind needs no closer but that
-// blank line.
+// A fence, comment or raw HTML block left open at the end runs to the end of the document anyway,
+// so closing it there renders identically and keeps the new markers where the parser can find them
+// on the next run. The closer sits at the content column of the list item holding the block, a
+// fence's own indentation past it kept; the block-tag HTML kind needs no closer but the blank line.
 function appendBlock(fileText: string, rendered: string): string {
   if (fileText === "") return rendered;
   const { open } = scanLines(fileText);
@@ -779,13 +765,13 @@ export function replaceBlock(fileText: string, source: string, newBlock: string)
   return deal(fileText, spans, dealOrder(contents), null).text;
 }
 
-// A BEGIN and END the user left around the block are text only while a marker stands between
-// them (see `parseBlocks`). Closing a slot joins the text before it to the text after it, and the
-// join can pair them, or open a fence or raw HTML block over a kept block; the next sweep would
-// then take the user's lines. A closing counts only when the result reads back as the kept
-// blocks, and only them, where they were placed. The last slot goes first because an add opened
-// it, so add-then-remove gives the user's bytes back. A refusal names the pair the block's own
-// slot exposes, the one around the removed block, before whatever another slot's closing exposed.
+// Closing a slot joins the text before it to the text after it, and the join can pair a BEGIN and
+// END the user left around the block (text only while a marker stands between them, see
+// `parseBlocks`), or open a fence or raw HTML block over a kept block; the next sweep would then
+// take the user's lines. A closing counts only when the result reads back as the kept blocks, and
+// only them, where they were placed.
+//   the last slot first   an add opened it, so add-then-remove gives the user's bytes back
+//   the refusal names     the pair the block's own slot exposes, before whatever another slot's did
 export function stripBlock(fileText: string, source: string): { text: string; emptied: boolean } {
   const spans = blockSpans(fileText);
   const own = spans.findIndex((span) => span.source === source);
@@ -807,14 +793,13 @@ export function stripBlock(fileText: string, source: string): { text: string; em
   );
 }
 
-// The sources of the pairs a dealt text holds besides its placed blocks, or null when it reads
-// back as exactly those blocks. A marker line is recognized only at column 0 outside any
-// blockquote, where it ends every open item and leaf and closes its own comment, so the scanner
-// leaves it in its starting state; a gap between slots is then read the same whatever block
-// precedes it, and a kept block the same wherever it lands. Only the gap the closing joined can
-// read differently, together with whatever a fence or raw HTML block it opens swallows, so the
-// scan starts at that gap and ends at the kept block behind it: found intact, the rest reads as
-// the file did; passed without being found, it was swallowed and the text is refused.
+// A marker line is recognized only at column 0 outside any blockquote, where it ends every open
+// item and leaf and closes its own comment, so the scanner leaves it in its starting state: a gap
+// between slots reads the same whatever block precedes it, and a kept block the same wherever it
+// lands. Only the gap the closing joined can read differently, with whatever a fence or raw HTML
+// block it opens swallows, so the scan runs from that gap to the kept block behind it.
+//   found intact    the rest reads as the file did
+//   passed unseen   it was swallowed, and the text is refused
 function exposedBy(text: string, placed: readonly Span[], closed: number): string[] | null {
   const from = closed === 0 ? 0 : placed[closed - 1].end;
   const next: Span | undefined = placed[closed];
@@ -842,14 +827,10 @@ function dealOrder(contents: readonly Occupant[]): Occupant[] {
 
 type Span = Pick<ParsedBlock, "start" | "end">;
 
-// The slots are the file's pairs; the contents are dealt into the open ones in source order, so
-// the bytes between slots never move. Every well-formed pair is a slot and the sort is stable: a
-// hand-duplicated pair keeps its text and the first pair for a source is the one replaced. One
-// content more opens a slot after the last block, behind one LF blank line. A closed slot takes
-// the single line ending that joined it to the block before or after it, or else the blank line
-// before it when text stood between or it headed the run. Every block is closed with LF, whatever
-// closed it on disk: a closer kept from disk made the bytes depend on which source the engine
-// refreshed first, and a lone CR before the LF separator would read as one CRLF.
+// Every block is closed with LF, whatever closed it on disk: a closer kept from disk made the bytes
+// depend on which source the engine refreshed first, and a lone CR before the LF separator would
+// read as one CRLF. The sort is stable, so a hand-duplicated pair keeps its text and the first pair
+// for a source is the one replaced.
 function deal(
   fileText: string,
   spans: readonly ParsedBlock[],
@@ -911,8 +892,7 @@ export function closerFor({ block, column }: OpenLeaf, ending: string): string {
   return closer === "" ? "" : `${" ".repeat(column)}${closer}${ending}`;
 }
 
-// The blank line an append wrote is the last of two consecutive line endings before the block;
-// endings are read left to right so a CRLF is one ending, never a CR followed by an LF. The run is
+// Endings are read left to right so a CRLF is one ending, never a CR followed by an LF. The run is
 // found by walking back over code units: a regex anchored at the end backtracks over every way to
 // split a CRLF run when text follows it, and takes time exponential in the run's length.
 function trailingLineEndings(text: string): string[] {

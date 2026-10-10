@@ -4,14 +4,11 @@ import { bridgeReconciler } from "./quirks.ts";
 
 // dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
 // specific file when the total exceeds it, so a block that pushes AGENTS.md over the line would
-// load cut in half. Framing counts against the same budget (a `<system-reminder>` frame, an intro
-// sentence, an `Instructions from: <path>` heading per file); the 1,024-byte allowance covers it
-// for this file with a long path, while the other files dsh loads share the budget unseen by
-// maxims. Documented: "`.claude/rules/`, and `@path` imports are not interpreted".
-//
-// Tier 1 rides the `dsh-hooks-claude-code` bridge in quirks.ts, with its caveats in force: it is
-// mounted machine-wide in `$DSH_HOME/cordis.patch.yml` whatever the install scope, and it reads
-// its hooks file once at process start, so a changed hook needs a dsh restart.
+// load cut in half. Framing (a `<system-reminder>` frame, an intro sentence, an `Instructions
+// from:` heading per file) counts against the same budget; the 1,024-byte allowance covers it for
+// this file, while the other files dsh loads share the budget unseen by maxims. Tier 1 rides the
+// `dsh-hooks-claude-code` bridge in quirks.ts, mounted machine-wide in `$DSH_HOME/cordis.patch.yml`
+// whatever the install scope and read once at process start, so a changed hook needs a dsh restart.
 export const spec = {
   id: "dsh",
   displayName: "DeepSeek Harness",

@@ -121,10 +121,8 @@ export type SourceWork = {
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
-// The failure kinds that make a source stale the run they happen, so `staleNotices` says them out
-// loud at once; a transient kind earns its loud line only once `staleness`'s grace has passed,
-// and until then the engine's own word on it is the one stderr summary (the resolver may have
-// said which rung failed before it).
+// The kinds that make a source stale the run they happen; a transient kind earns its loud line only
+// once `staleness`'s grace has passed, and until then `refreshAll`'s aside is its one stderr line.
 const STALE_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
@@ -310,24 +308,23 @@ async function planInstall(
   };
   const read = await readTrees(refreshed, held, overlay, ctx, notices);
   const { works } = read;
-  // Blocks that must survive in a file even though this run renders none for their source: an
-  // unreadable or refused source keeps its last-good block, but only where its intent still puts
-  // one, so a harness the user dropped from the source loses the block like any other. Files are
-  // identified by real path, as the rule files are, so two spellings of one file agree.
+  // Blocks kept in a file this run renders none for: an unreadable or refused source keeps its
+  // last-good block only where its intent still puts one, so a harness the user dropped loses it
+  // like any other. Keyed by real path, as the rule files are, so two spellings of one file agree.
   const keepAt = new Map<string, Set<string>>();
   const keepBlock = (key: string, realKey: string): void => {
     const kept = keepAt.get(realKey) ?? new Set<string>();
     kept.add(key);
     keepAt.set(realKey, kept);
   };
-  // What a source already holds on disk keeps its names ahead of anything shipped this run: the
-  // names the state as read recorded for it and the ones its blocks name (a live source records
-  // nothing else) enter the index first, dated before every source, so a memory another source
-  // newly ships under an installed name collides instead of taking the installed body over. A
-  // name a source has dropped leaves its block this run and is free from the next run on.
-  // A copy whose bytes several sources hold installed names no owner; the dedupe rule decides
-  // it. Ambiguity and ownership read the same snapshot: every source's installed tree as the
-  // state as read left it, held and unreadable sources included.
+  // What a source holds on disk enters the name index first, dated before every source, so a memory
+  // another source newly ships under an installed name collides instead of taking the body over.
+  // Ambiguity and ownership read one snapshot: every installed tree as the state as read left it.
+  //   its names        what the state as read recorded, plus what its blocks name (a live source
+  //                    records nothing else)
+  //   a dropped name   leaves its block this run and is free from the next run on
+  //   shared bytes     a copy several sources hold installed names no owner; the dedupe rule
+  //                    decides
   const installedTrees = new Map<string, SourceTree | null>();
   const hashOwners = new Map<ContentHash, number>();
   for (const [key, entry] of Object.entries(extras.previousState.sources)) {
@@ -383,9 +380,8 @@ async function planInstall(
   const agents = widenedAgents(options.agents, refreshed);
   const explicit = options.agents ?? [];
   // Targets this run renders no block for although their source is still installed: a readable
-  // source's harness outside the filter, or an unreadable source's. Wherever the file is visited
-  // this run, the block is kept and the harness counted among the readers, since a file is
-  // written whole and judged against every reader's budget.
+  // source's harness outside the filter, or an unreadable source's. Wherever the file is visited,
+  // the block is kept and the harness counted among the readers, since a file is written whole.
   const retained: { key: string; target: HarnessTarget }[] = [];
   let memories = 0;
 
@@ -569,12 +565,11 @@ async function planInstall(
       retained.push({ key: source.key, target });
     }
   }
-  // Another project's entries render at their own root. Where that root's files are ones this
-  // run reaches (a project rooted at the home directory writes the global rules directory), their
-  // rule files stay off the sweep's list and their blocks are kept, as an unreadable source's are;
-  // a path this run never visits is inert on the list. A destination that project cannot resolve
-  // (a config folder that is a symlink out of the checkout, a root without search permission) is
-  // that project's failure, not this run's, and costs the entry that one harness's targets only.
+  // Where another project's root has files this run reaches (a project rooted at the home
+  // directory writes the global rules directory), they are kept as an unreadable source's are. A
+  // destination that project cannot resolve (a config folder that is a symlink out of the checkout,
+  // a root without search permission) is that project's failure, not this run's, and costs the
+  // entry that one harness's targets only.
   for (const [key, entry] of Object.entries(refreshed.sources)) {
     const { intent } = entry;
     if (actsHere(entry, ctx) || intent.destination.scope !== "project" || !intent.rule) continue;
@@ -615,14 +610,13 @@ async function planInstall(
     keepBlock(key, target.realKey);
     addReaders(rendered, [target]);
   }
-  // A harness's byte budget is only known once a file is rendered. Over it, one source is held:
-  // refused whole (bodies, store swap and its blocks in every other file), the same shape as the
-  // rule cap, while its last-good block stays where the file already carries one. Held first is
-  // the source installed last among those whose block this run changes in the file; holding a
-  // source whose block already sits on disk as drawn cannot make the file fit, so it is blamed
-  // only when no changing source is left. The file keeps every reader and is
-  // judged again on the finished text, one hold at a time, until it fits or no source contributes
-  // to it. The lines go out loud: a hook session must hear that rules it expects are not loaded.
+  // A byte budget is only known once a file is rendered, so over it one source is held: refused
+  // whole, as the rule cap refuses, while its last-good block stays where the file already carries
+  // one. The lines go out loud: a hook session must hear that rules it expects are not loaded.
+  //   held first   the source installed last among those whose block this run changes in the file
+  //   then         among all its sources, since a block already on disk as drawn cannot make it fit
+  //   again        the file keeps every reader and is judged on the finished text until it fits or
+  //                no source contributes to it
   let tokens = 0;
   for (;;) {
     const rendered = await renderFiles(files, keepAt);
@@ -643,10 +637,9 @@ async function planInstall(
           notices.notice(`~${token.tokens} tokens in ${token.path}`);
         }
       }
-      // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go
-      // out loud, since the block a session expects gone is still loaded. Only the remove verb
-      // fails on it: the user asked for that removal by name, while a sync that finds the block
-      // still there has done its own job, and a hook run must stay exit 0.
+      // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go out
+      // loud, since the block a session expects gone is still loaded. Only the remove verb fails on
+      // it: the user asked for that removal by name, and a hook run must stay exit 0.
       for (const hold of rendered.held) {
         planned.add(realKeyOf(hold.path));
         heldFiles.push(hold.path);
@@ -822,7 +815,6 @@ function addReaders(file: Extract<RuleFile, { kind: "harness" }>, group: Harness
   }
 }
 
-// The identity a rule file is kept and grouped under: the real path of the target file.
 function fileIdentity(file: RuleFile): string {
   return file.kind === "harness" ? (file.targets[0]?.realKey ?? file.path) : realKeyOf(file.path);
 }
@@ -890,20 +882,17 @@ async function noticeLockOnlySources(
   );
 }
 
-// `storeChanges` are held per source until admission: a fresh fetch that collides or exceeds the
-// cap is refused whole, and `refuse` puts the source's previous entry back so the store and the
-// state keep last-good. `pendingChanges` lay a reviewed source's held revision under the pending
-// root; they answer to no admission, since the store copy the run installs from is unchanged, and
-// what the revision changes stays out of `changeLines`, the lines an applied refresh is reported
-// with, once per source.
+// `storeChanges` wait per source until admission: a fresh fetch that collides or exceeds the cap is
+// refused whole, and `refuse` puts the previous entry back so store and state keep last-good.
+//   pendingChanges   answer to no admission: the store copy the run installs from is unchanged
+//   changeLines      what a held revision changes stays out of them
+//   lines            shown only once the refresh has survived admission
 type Refreshed = {
   sources: State["sources"];
   freshTrees: Map<string, SourceTree>;
   storeChanges: Map<string, Change[]>;
   pendingChanges: Map<string, Change[]>;
   changeLines: Map<string, string[]>;
-  // The lines a fresh refresh earns ("refreshed", new upstream names), shown only once the
-  // refresh has survived admission.
   lines: Map<string, string[]>;
   fetchedKeys: string[];
   failed: SyncReport["failed"];
@@ -1030,9 +1019,8 @@ function widenedAgents(
   return first === undefined ? agents : [first, ...rest];
 }
 
-// A source outside `only` is left alone; a `due` run limited to some harnesses fetches nothing,
-// since a refresh reaches every harness's rule file. A forced one fetches, and the planner then
-// widens the filter to the refreshed sources' harnesses.
+// A `due` run limited to some harnesses fetches nothing, since a refresh reaches every harness's
+// rule file; a forced one fetches, and the planner widens the filter to the refreshed sources'.
 function fetchIntentFor(key: string, options: SyncOptions): FetchIntent {
   if (options.only !== undefined && !options.only.includes(key)) return "none";
   if (options.fetch === "due" && options.agents !== undefined) return "none";
@@ -1045,9 +1033,8 @@ type ReadTrees = {
   failed: SyncReport["failed"];
 };
 
-// The memories every source installs from: a fresh fetch's own files, a live source's directory,
-// or the store copy. A source with nothing readable keeps whatever blocks it has on disk; a live
-// source's read is its refresh, so one that fails is reported like a failed fetch.
+// A source with nothing readable keeps whatever blocks it has on disk; a live source's read is its
+// refresh, so one that fails is reported like a failed fetch.
 async function readTrees(
   refreshed: Refreshed,
   held: ReadonlySet<string>,
@@ -1131,7 +1118,6 @@ async function treeFor(
   return readInstalledTree(entry, storeEntry, warn);
 }
 
-// What a source installs from right now: a live source's own directory, else the store copy.
 export async function readInstalledTree(
   entry: SourceEntry,
   storeEntry: string,
@@ -1169,10 +1155,9 @@ export async function readInstalledTree(
   }
 }
 
-// A store entry as a dry run's caller would have written it, keyed by the entry path: the files
-// its planned writes carry are read in place of the copy that is not on disk. Only writes under
-// the store count; a state, config or manifest write in the same preview says nothing about
-// memories.
+// A store entry as a dry run's caller would have written it, keyed by the entry path and read in
+// place of the copy that is not on disk. Only writes under the store count; a state, config or
+// manifest write in the same preview says nothing about memories.
 type StoreOverlay = ReadonlyMap<string, SourceTree>;
 
 function previewStoreTrees(preview: SyncPreview | undefined, ctx: EngineContext): StoreOverlay {
@@ -1200,10 +1185,8 @@ function currentLinkTarget(path: string): string | null {
   return resolve(readlinkSync(path));
 }
 
-// Stale means fetching has been failing: immediately for a gone repository or content nothing
-// can be installed from, and for a transient kind once the last success is a week old, or a
-// cooldown old where the cooldown is longer, since a source is not stale before its refresh was
-// due. A source merely past its cooldown that fetches fine is not stale.
+// Stale means fetching has been failing. A transient kind waits the longer of a week and the
+// cooldown, since a source is not stale before its refresh was due.
 const STALE_GRACE_MS = 7 * DAY_MS;
 
 export function staleness(
@@ -1273,10 +1256,9 @@ function bodiesDirsFor(
 }
 
 // Every bodies directory this run can reach, whatever `-a` limited it to, so a source that left
-// intent has its links and copies swept even when no surviving source shares the directory; a
-// removed `-o` source contributes its own memories folder. Nothing here writes to these, so one
-// that cannot be looked at (a link that loops, a folder without search permission) is warned
-// about and left out of the sweep; a source's own directory refuses the run in `bodiesDirsFor`.
+// intent is swept even when no surviving source shares the directory. Nothing here writes to
+// these, so one that cannot be looked at (a link that loops, a folder without search permission)
+// is warned about and left out; a source's own directory refuses the run in `bodiesDirsFor`.
 function allBodiesDirs(
   ctx: EngineContext,
   io: EngineIo,
@@ -1326,16 +1308,12 @@ function bodiesDir(dir: string, root: string): BodiesDir {
   return { id: realpathOfExistingPrefix(dir), dir, root };
 }
 
-// The local names a source holds installed right now, read from what the last run left behind:
-// the store copy on disk (the tree that run installed from, through the selection, so a hidden
-// internal memory is not counted) or, with no copy, the recorded fetch through selection and
-// renames; the memory each rule line's detail path names in its blocks; and in its bodies
-// directories the links that point into its store entry and the copies whose bytes are one of
-// its own memories and nobody else's (`ambiguous` holds the hashes several sources ship). A copy
-// carries no owner of its own: one whose bytes match no current memory, because the memory has
-// since changed, names no owner either, and the dedupe rule decides the name. At user scope a
-// detail path names the store file, so it carries the upstream name and goes through the rename
-// map too; at project scope it names the body, already local.
+// The local names a source holds installed right now, read from what the last run left behind. A
+// copy carries no owner of its own: one whose bytes match no current memory, because the memory
+// has since changed, names no owner either, and the dedupe rule decides the name.
+//   store copy read through the selection       so a hidden internal memory is left out
+//   user-scope detail paths through the renames  they name the store file under the upstream name
+//   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
 export async function retainedNames(
   key: string,
   entry: SourceEntry,
@@ -1392,8 +1370,6 @@ export async function retainedNames(
   return [...names];
 }
 
-// Where a source's installed memories are read from: a live source's own directory, else its
-// store copy.
 function installedRoot(entry: SourceEntry, ctx: EngineContext): string {
   const { from } = entry.intent;
   return isLiveLocal(from) ? from.path : storePathFor(ctx.home, from);
@@ -1408,8 +1384,6 @@ async function installedTree(root: string, intent: SourceIntent): Promise<Source
   }
 }
 
-// The memory names in a bodies directory that belong to one source: links resolving into its
-// store entry, and copies whose bytes are one of its memories (`own` holds their content hashes).
 // A directory that exists but cannot be listed stops the run: read as empty, it would hand every
 // installed name to whichever source is older and let a write repoint another source's body.
 function installedBodies(
@@ -1464,10 +1438,9 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
   }).targets.map((target) => target.path);
 }
 
-// The `-o` rule files of sources that left intent or switched rules off, taken only when the file
-// carries maxims markers: the name is derived, and a user's own file at it stays theirs. A file
-// this run plans (an `-o` folder that is also a harness's rules directory) is kept: it is the
-// current destination's, written moments before.
+// Taken only when the file carries maxims markers: the name is derived, and a user's own file at it
+// stays theirs. A file this run plans (an `-o` folder that is also a harness's rules directory) is
+// the current destination's, written moments before, so it is kept.
 function removedOutRuleFiles(
   removed: readonly SourceEntry[],
   planned: ReadonlySet<string>,
