@@ -123,9 +123,10 @@ const PARITY_PAGE = readFileSync(join(import.meta.dir, "..", "docs", "parity.md"
 type ParityRow = { upstream: string[]; maxims: string[]; parity: string };
 
 // The page's own probe reads the cells, so an escaped pipe or a code span reads as the rendered
-// page shows it. A row is one source line and an empty cell renders nothing, so a row's first
-// three cells are its flag columns and verdict. Only the lines under `## Flags` count: a verb cell
-// may quote a flag, and the header row names none. With the heading gone, no row is found.
+// page shows it. A row is one source line and the probe records no empty cell, so a flag column
+// with nothing to list says `none` and a row's first three cells are its flag columns and verdict.
+// Only the lines under `## Flags` count: a verb cell may quote a flag, and the header row names
+// none. With the heading gone, no row is found.
 function flagTable(page: string): ParityRow[] {
   const lines = page.split("\n");
   const heading = lines.indexOf("## Flags") + 1;
@@ -138,7 +139,7 @@ function flagTable(page: string): ParityRow[] {
     byLine.set(unit.line, [...(byLine.get(unit.line) ?? []), unit.text]);
   }
   const longs = (cell: string): string[] =>
-    [...cell.matchAll(/--([a-z][a-z-]*)/g)].map((match) => match[1] ?? "");
+    [...cell.matchAll(/--([a-z][a-z-]*)(?![\w-])/g)].map((match) => match[1] ?? "");
   return [...byLine.values()]
     .map(([upstream = "", maxims = "", parity = ""]) => ({
       upstream: longs(upstream),
@@ -150,32 +151,35 @@ function flagTable(page: string): ParityRow[] {
 
 const sorted = (names: readonly string[]): string[] => [...names].sort();
 
+type Claim = { parity: string; maxims: string[] };
+
 // The decisions above and the flag registry both exist outside the page, so neither can stop a
-// row from going missing or a verdict from flipping; `--help` and `--version` have no row because
-// the page documents decisions, and those two are standard. Nothing is deduplicated, so a flag
-// documented twice shows as a doubled entry or a joined verdict.
+// row from going missing, a verdict from flipping, or two rows from trading their maxims cells;
+// `--help` and `--version` have no row because the page documents decisions, and those two are
+// standard.
 test("docs/parity.md's flag table carries every parity decision and every maxims flag", () => {
   const rows = flagTable(PARITY_PAGE);
-  const verdicts: Record<string, string> = {};
+  const claims: Record<string, Claim[]> = {};
   for (const row of rows) {
     for (const long of row.upstream) {
-      const seen = verdicts[long];
-      verdicts[long] = seen === undefined ? row.parity : `${seen}, ${row.parity}`;
+      claims[long] = [...(claims[long] ?? []), { parity: row.parity, maxims: row.maxims }];
     }
   }
-  const expected: Record<string, string> = {};
-  for (const long of SAME_FLAGS) expected[long] = "same";
-  for (const long of Object.keys(ANALOG_FLAGS)) expected[long] = "analog";
-  for (const long of DIVERGE_FLAGS) expected[long] = "diverge";
+  const expected: Record<string, Claim[]> = {};
+  for (const long of SAME_FLAGS) expected[long] = [{ parity: "same", maxims: [long] }];
+  for (const [long, flag] of Object.entries(ANALOG_FLAGS)) {
+    expected[long] = [{ parity: "analog", maxims: [flag.name] }];
+  }
+  for (const long of DIVERGE_FLAGS) expected[long] = [{ parity: "diverge", maxims: [] }];
   const ours = MAXIMS_FLAGS.map((flag) => flag.name);
   const analogs = Object.values(ANALOG_FLAGS).map((flag) => flag.name);
   const maximsOnly = (row: ParityRow): string[] => (row.parity === "maxims-only" ? row.maxims : []);
   expect({
-    verdicts,
+    claims,
     documented: sorted(rows.flatMap((row) => row.maxims)),
     maximsOnly: sorted(rows.flatMap(maximsOnly)),
   }).toEqual({
-    verdicts: expected,
+    claims: expected,
     documented: sorted(ours),
     maximsOnly: sorted(ours.filter((n) => !SAME_FLAGS.includes(n) && !analogs.includes(n))),
   });

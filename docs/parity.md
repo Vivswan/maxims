@@ -35,7 +35,7 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | none | `--cooldown`, `--cap` | maxims-only | the refresh window and the rule budget have no skills concept |
 | none | `--auth`, `--rename`, `--allow-hidden` | maxims-only | anonymous fetch, scripted collision resolution, and the hidden-character gate have no skills concept |
 | none | `--share` | maxims-only | which sources a project commits is a choice per source; skills have no analog |
-| none | `--verbose` | maxims-only | fetch detail on request; the sync frame it extends has no skills concept |
+| none | `--verbose` | maxims-only | unfolds the `add` and `install` plan to every one-liner; `skills` never folds its summary |
 | none | `--from <path>` | maxims-only | names the memories folder; `skills` searches for `SKILL.md`, maxims never autodetects |
 | none | `--pin <sha or tag>` | maxims-only | tracks one ref; the captured `skills` page documents none |
 | none | `--paths <glob>` | maxims-only | narrows an always-on rule to matching files; a skill already loads [on demand](why.md#the-npx-skills-analogy) |
