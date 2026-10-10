@@ -3,10 +3,11 @@ import type { HarnessSpec } from "../spec.ts";
 import { configEdit, RULE_FILE_NAME, RULES_DIR } from "./quirks.ts";
 
 // OpenCode reads no rules directory on its own, so the configEdit quirk lists the project target in
-// `opencode.json`; the global scope is a block in the one file OpenCode always reads and needs no
-// entry. `session.created` fires once per session, and the plugin swallows the sync's exit and
-// output, so an offline npx can never surface as a plugin error and there is no stdout channel for
-// the staleness notice.
+// the project's `opencode.jsonc` or `opencode.json`; the global scope is a block in the one file
+// OpenCode always reads and needs no entry.
+//   session.created      fires once per session
+//   .nothrow().quiet()   the plugin swallows the sync's exit and output, so an offline npx never
+//                        surfaces as a plugin error and the staleness notice has no stdout channel
 export const spec = {
   id: "opencode",
   displayName: "OpenCode",

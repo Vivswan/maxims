@@ -245,8 +245,6 @@ export async function planSync(
   }
 }
 
-// What one source's refusal said, on the channel it said it, kept with its key so a retry
-// carries exactly it.
 type Refusal = { key: string; said: Notices; failure: SyncFailure };
 
 type Attempt = {
@@ -320,11 +318,10 @@ async function planInstall(
   // What a source holds on disk enters the name index first, dated before every source, so a memory
   // another source newly ships under an installed name collides instead of taking the body over.
   // Ambiguity and ownership read one snapshot: every installed tree as the state as read left it.
-  //   its names        what the state as read recorded, plus what its blocks name (a live source
-  //                    records nothing else)
+  //   its names        the installed copy read through the selection, else the state's fetch
+  //                    record; plus what its blocks and its bodies directories name
   //   a dropped name   leaves its block this run and is free from the next run on
-  //   shared bytes     a copy several sources hold installed names no owner; the dedupe rule
-  //                    decides
+  //   shared bytes     a copy several sources hold installed has no owner; the dedupe rule decides
   const installedTrees = new Map<string, SourceTree | null>();
   const hashOwners = new Map<ContentHash, number>();
   for (const [key, entry] of Object.entries(extras.previousState.sources)) {
@@ -1020,7 +1017,8 @@ function widenedAgents(
 }
 
 // A `due` run limited to some harnesses fetches nothing, since a refresh reaches every harness's
-// rule file; a forced one fetches, and the planner widens the filter to the refreshed sources'.
+// rule file; a forced one fetches, and the planner widens the filter to the refreshed sources'
+// harnesses.
 function fetchIntentFor(key: string, options: SyncOptions): FetchIntent {
   if (options.only !== undefined && !options.only.includes(key)) return "none";
   if (options.fetch === "due" && options.agents !== undefined) return "none";
@@ -1440,7 +1438,7 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
 
 // Taken only when the file carries maxims markers: the name is derived, and a user's own file at it
 // stays theirs. A file this run plans (an `-o` folder that is also a harness's rules directory) is
-// the current destination's, written moments before, so it is kept.
+// the current destination's and is kept.
 function removedOutRuleFiles(
   removed: readonly SourceEntry[],
   planned: ReadonlySet<string>,

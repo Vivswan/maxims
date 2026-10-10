@@ -1,12 +1,13 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Cline's own Rules panel creates new workspace rules in `.clinerules`, though it also reads
-// `.cline/rules`, `~/.cline/rules` and `~/Cline/Rules`, and a rule without frontmatter is always
-// active. The hook's stdout must be one JSON object, so the script discards sync's output and
-// answers for it, and its stdin carries task metadata sync never needs, so sync reads /dev/null and
-// a session start never hangs on a reader. The "Enable Hooks" switch lives in the editor's own
-// storage, not in a file, so there is no tierCheck.
+// Cline reads `.clinerules`, `.cline/rules`, `~/.cline/rules` and `~/Cline/Rules`, and its own
+// Rules panel creates new workspace rules in `.clinerules`. A rule without frontmatter is always
+// active.
+//   stdout   must be one JSON object, so the script discards sync's output and answers for it
+//   stdin    task metadata sync never needs, so sync reads /dev/null and never hangs on a reader
+//   hooks    the "Enable Hooks" switch lives in the editor's own storage, not in a file, so there
+//            is no tierCheck
 export const spec = {
   id: "cline",
   displayName: "Cline",

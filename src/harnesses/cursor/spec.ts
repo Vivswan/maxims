@@ -1,11 +1,12 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Cursor ignores a plain `.md` in `.cursor/rules`, and an `.mdc` without the always-apply flag is
-// offered to the agent by description instead of being injected every session; user rules live in
-// its settings UI, not in a file, so there is no global target. `sessionStart` is fire-and-forget
-// on Cursor's side, so the debounce is what keeps a burst of new conversations from paying the npx
-// cost each time.
+// Cursor ignores a plain `.md` in `.cursor/rules`, and an `.mdc` is injected every session only
+// under `alwaysApply: true`; a scoped one is attached by its `globs` instead.
+//   global target   none: user rules live in Cursor's settings UI, not in a file
+//   debounceMs      `sessionStart` fires for every new conversation and is fire-and-forget on
+//                   Cursor's side, so a burst of them each pays the npx start and only the first
+//                   does the sync's work
 export const spec = {
   id: "cursor",
   displayName: "Cursor",
