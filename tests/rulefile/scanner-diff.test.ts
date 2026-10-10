@@ -8,9 +8,9 @@ import { describe, expect, test } from "bun:test";
 import { closerFor, scanLines } from "../../src/rulefile/block.ts";
 import { scanDocument } from "./scanner-oracle.ts";
 
-const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
-const END = "<!-- maxims:end @Vivswan/skills -->";
-const RULE = "- Codex rubber-duck review before EVERY commit (detail: /home/user/x.md, a1b2c3d)";
+const BEGIN = "<!-- maxims:begin @Octocat/rules sha=3f2a9c1e -->";
+const END = "<!-- maxims:end @Octocat/rules -->";
+const RULE = "- A timeout on EVERY call that leaves the process (detail: /home/user/x.md, a1b2c3d)";
 const BLOCK = `${BEGIN}\n${RULE}\n${END}\n`;
 
 type Line = { text: string; start: number; end: number; kind: string };
@@ -437,7 +437,7 @@ const PIECES = [
   ")",
   END,
   BEGIN,
-  "<!-- maxims:end @Vivswan/skills",
+  "<!-- maxims:end @Octocat/rules",
 ];
 
 // Block-structure pieces: every container and leaf opener the scanner classifies, in two lists.

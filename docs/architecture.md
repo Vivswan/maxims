@@ -173,12 +173,12 @@ flowchart LR
 The block `renderBlock()` produces for two rule lines under stripped markers, in the shape [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts) pins, with an illustrative revision:
 
 ```text
-<!-- maxims:begin @Vivswan/skills sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
-<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->
-<!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->
-- Codex rubber-duck review before EVERY commit, however trivial (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
-- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command (detail: /home/user/.agents/maxims/store/vivswan/skills/memories/gate-exit-conditions-the-merge.md, 0f0f0f0)
-<!-- maxims:end @Vivswan/skills -->
+<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- managed by maxims: @Octocat/rules - edits will be overwritten -->
+<!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->
+- A timeout on EVERY call that leaves the process, however short (detail: /home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
+- One change per commit: a reviewer reads a small diff in one pass, a revert takes back one thing (detail: /home/user/.agents/maxims/store/octocat/rules/memories/commit-small-and-often.md, 0f0f0f0)
+<!-- maxims:end @Octocat/rules -->
 ```
 
 - **A BEGIN pairs only with the very next marker line,** and only when that line is its own END; an orphaned BEGIN is plain text, never a span that swallows the user's lines and a later valid block.

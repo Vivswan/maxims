@@ -9,22 +9,22 @@ An agent can hold a rule in its memory and still not act on it, because memory b
 
 ## The rule the agent held but did not act on
 
-The failure that started this tool was a "review before every commit" rule that existed as a memory file while commits went out unreviewed. The memory system had the rule. The session did not.
+The failure this tool exists for is a rule that sits in a memory file while the sessions it was written for keep breaking it. Take a "give every call a timeout" rule: the calls still went out bare. The memory system had the rule. The session did not.
 
 Before, the rule lived in a memory directory the agent searched only when it judged the memory relevant:
 
 ```text
-~/.claude/projects/<project>/memory/rubber-duck-before-every-commit.md
+~/.claude/projects/<project>/memory/prefer-timeouts-to-hangs.md
    loaded:  when the agent decides to look        (recall, probabilistic)
-   result:  a session that never looked committed unreviewed
+   result:  a session that never looked sent the call bare
 ```
 
 After, the same rule's one-liner sits in the rules layer the harness reads at launch, and the body lives in the store, the hash illustrative:
 
 ```text
-~/.claude/rules/maxims-vivswan-skills.md
-   - Codex rubber-duck review before EVERY commit, however trivial.
-     (detail: ~/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md, a1b2c3d)
+~/.claude/rules/maxims-octocat-rules.md
+   - A timeout on EVERY call that leaves the process, however short.
+     (detail: ~/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
    loaded:  at every session start                 (guaranteed)
    result:  every session opens already holding the rule
 ```

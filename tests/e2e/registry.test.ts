@@ -280,7 +280,7 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
         const ctx = contextFor(home);
         prepareRoots(def, scope, ctx);
         const seeded = seedFixture(def, scope, ctx);
-        const source = fixtureRepo(dir, "skills");
+        const source = fixtureRepo(dir, "rules");
         const slug = sourceSlug({ type: "local", path: source });
         const destination: Destination =
           scope === "project"
@@ -298,7 +298,7 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
         const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
         expect(text.startsWith(preamble)).toBe(true);
         expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
-        expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("skills").sort());
+        expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("rules").sort());
         await expectHookInstalled(def, scope, ctx, seeded);
         // A fixture that is no hook's registry and no quirk's file (an MCP config) is never touched.
         const hookArtifact =
@@ -322,7 +322,7 @@ describe.each(missingScope)("%s has no %s target", (_id, scope, def) => {
       const home = makeHome(dir);
       const ctx = contextFor(home);
       prepareRoots(def, scope, ctx);
-      const source = fixtureRepo(dir, "skills");
+      const source = fixtureRepo(dir, "rules");
       const scopeFlag = scope === "global" ? "-g" : "-p";
       const run = await runMaxims(
         bundle,

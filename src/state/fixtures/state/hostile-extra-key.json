@@ -10,9 +10,9 @@
           "repo": "example-user/rules",
           "ref": "main"
         },
-        "select": ["rubber-duck-before-every-commit"],
+        "select": ["prefer-timeouts-to-hangs"],
         "rename": {
-          "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles"
+          "commit-small-and-often": "commit-small-and-often-dotfiles"
         },
         "rule": true,
         "destination": {
@@ -23,14 +23,14 @@
         "harnesses": ["claude-code", "codex"],
         "memoryPath": "memories",
         "fullDepth": false,
-        "installedPath": "/home/user/.claude/rules/rubber-duck-before-every-commit.md"
+        "installedPath": "/home/user/.claude/rules/prefer-timeouts-to-hangs.md"
       },
       "fetched": {
         "at": "2026-08-27T04:12:09.113Z",
         "sha": "fc675572711b0a1c9e00000000000000000000aa",
         "memoryPath": "memories",
         "memories": {
-          "rubber-duck-before-every-commit": {
+          "prefer-timeouts-to-hangs": {
             "content": "sha256:9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a",
             "description": "sha256:11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd"
           }

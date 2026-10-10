@@ -1065,7 +1065,7 @@ function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): st
   return [...new Set(lines)].join("\n");
 }
 
-// `Vivswan/skills` reads as `Vivswan Skills` on the plan screen, as `skills` titles a source.
+// `Octocat/rules` reads as `Octocat Rules` on the plan screen, as `skills` titles a source.
 export function sourceTitle(from: SourceFrom): string {
   const raw =
     from.type === "github"

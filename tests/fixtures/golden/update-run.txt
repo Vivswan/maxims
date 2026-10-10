@@ -2,4 +2,4 @@
 o  Checking for memory updates...
 o  Found 1 update(s)
 o  Updated @a/b (+1 -1 rule)
-!  maxims: @a/b has new memories not in your selection: gate-exit-conditions-the-merge, no-sleep-waiting-on-subagents, rubber-duck-before-every-commit
+!  maxims: @a/b has new memories not in your selection: commit-small-and-often, never-retry-without-a-cap, prefer-timeouts-to-hangs
