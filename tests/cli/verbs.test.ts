@@ -23,6 +23,7 @@ import type { SyncOptions, SyncReport } from "../../src/engine/types.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/spec.ts";
+import { MCP_SERVER_COMMAND } from "../../src/harnesses/mcp-stub/register.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/spec.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
@@ -33,7 +34,7 @@ import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { fakeResolvers, memoryName, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
-import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
+import { CURSOR_FRONTMATTER, FIXTURE_HARNESSES, fixtureZed } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
   lastSyncCall,
@@ -1758,6 +1759,35 @@ test("a live manifest source registers no hook even when config asks for one", a
     expect(run.stdout).not.toContain("Hook registered");
     expect(readState(scenario).hooks).toBeUndefined();
   });
+});
+
+// What would drift silently: `install` reporting a SessionStart hook for a harness that has none.
+test("install reports the MCP server, not a hook, for a lock that selects a hookless harness", async () => {
+  await withScenario(
+    { project: true, github: { "a/b": SKILLS }, harnesses: [...FIXTURE_HARNESSES, fixtureZed] },
+    async (scenario) => {
+      mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
+      const lock = {
+        version: 1,
+        sources: {
+          "@a/b": {
+            from: { type: "github", repo: "a/b" },
+            select: "*",
+            rule: true,
+            harnesses: ["zed"],
+          },
+        },
+      };
+      writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
+      writeConfig(scenario, { addHook: true });
+      const run = await runCli(scenario, ["install"]);
+      expect(run.stderr).toBe("");
+      expect(run.code).toBe(0);
+      expect(run.stdout).toContain(`o  MCP server registered: maxims -> ${MCP_SERVER_COMMAND}\n`);
+      expect(run.stdout).not.toContain("Hook registered");
+      expect(readState(scenario).hooks).toEqual({ project: { [scenario.cwd]: ["zed"] } });
+    },
+  );
 });
 
 test("two manifest spellings of one source are refused, and an undefined harness id is kept", async () => {

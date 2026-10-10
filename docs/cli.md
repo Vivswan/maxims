@@ -84,7 +84,7 @@ The rest belong to the verbs the second column names. A value flag takes `--flag
 | `-y, --yes` | add, remove, install | auto | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior) |
 | `--all` | add, remove, accept | off | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed) |
 | `--rule` | add | off | publish one-liners into the rule file; [two separate choices](install.md#two-separate-choices) |
-| `--add-hook` | add | off | register the harness's sync hook; [two separate choices](install.md#two-separate-choices) |
+| `--add-hook` | add | off | register the harness's sync hook and MCP server where declared; [two separate choices](install.md#two-separate-choices) |
 | `--share` | add | off | record the source in the [project lock](share.md#the-project-manifest) as well as in state |
 | `--copy` | add | off | copy bodies instead of linking them; [bodies](install.md#bodies) |
 | `--link` | add | off, on for `.` | local sources: link the store to the directory; [bodies](install.md#bodies) |

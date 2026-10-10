@@ -10,6 +10,7 @@ import {
   hookRegistered,
   installed,
   linksTo,
+  mcpStubRegistered,
   memories,
   noTargetAtScope,
   notAMemory,
@@ -39,6 +40,7 @@ import { sourceSlug } from "../engine/slug.ts";
 import { findSourceKey, sourceIdentity, storeTree } from "../engine/source-key.ts";
 import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "../engine/types.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
+import { MCP_SERVER_COMMAND } from "../harnesses/mcp-stub/register.ts";
 import {
   contentHashOf,
   hiddenCharacterLabel,
@@ -63,6 +65,7 @@ import {
   type SourceEntry,
   type State,
 } from "../state/schema.ts";
+import type { ScopeAt } from "../state/scoped.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
@@ -209,7 +212,7 @@ export const add: Command = {
     const report = await syncCommitted(ctx, commit, commit.harnesses);
     const planned = ctx.global.dryRun;
     const lines = [installed(prepared.names.length, report.rules, report.tokens, planned)];
-    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND, planned));
+    lines.push(...registeredLines(commit.hooked, planned));
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],
@@ -563,10 +566,38 @@ function repinRefusal(from: SourceFrom, owners: string[], state: State): MaximsE
   return installedAtOtherRef(canonicalSourceKey(base), repinned.key, repinned.ref, from.ref);
 }
 
-// A harness that declares no hook shape has nothing to register; asking for one is not an error,
-// it is a no-op that must not be reported as a registration.
-function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
-  return ids.filter((id) => io.harnesses.some((def) => def.id === id && def.hook.kind !== "none"));
+// What `sync` registers for a harness under the hook intent at one scope: its session-start hook,
+// the stub MCP server where its servers file lives at that scope, or both (amp, devin and pi
+// declare a hook and a servers file). A harness with neither has nothing to register there:
+// asking is not an error, it is a no-op that is never reported as a registration.
+type Registration = "hook" | "mcp" | "hook-and-mcp";
+export type HookedHarness = { id: HarnessId; registration: Registration };
+
+function registrable(ids: readonly HarnessId[], io: CliIo, at: ScopeAt): HookedHarness[] {
+  const ctx = harnessContext(io);
+  const hooked: HookedHarness[] = [];
+  for (const id of ids) {
+    const def = io.harnesses.find((candidate) => candidate.id === id);
+    if (def === undefined) continue;
+    const hook = def.hook.kind !== "none";
+    const mcp = def.mcp !== undefined && def.mcp.path(at.scope, ctx) !== null;
+    if (hook && mcp) hooked.push({ id, registration: "hook-and-mcp" });
+    else if (hook) hooked.push({ id, registration: "hook" });
+    else if (mcp) hooked.push({ id, registration: "mcp" });
+  }
+  return hooked;
+}
+
+// The frame line per registration, printed by `add` and `install` from here alone.
+export function registeredLines(hooked: readonly HookedHarness[], planned: boolean): string[] {
+  const hook = hookRegistered(HOOK_COMMAND, planned);
+  const mcp = mcpStubRegistered(MCP_SERVER_COMMAND, planned);
+  const lines: Record<Registration, string[]> = {
+    hook: [hook],
+    mcp: [mcp],
+    "hook-and-mcp": [hook, mcp],
+  };
+  return hooked.flatMap(({ registration }) => lines[registration]);
 }
 
 // GitHub names are case-insensitive and the state file refuses two spellings of one repository,
@@ -599,7 +630,7 @@ function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequ
 // destination, whose old folders the sync sweeps.
 export type CommitOutcome = SyncPreview & {
   notices: string[];
-  hooked: HarnessId[];
+  hooked: HookedHarness[];
   harnesses: HarnessId[];
   retired: SourceEntry[];
 };
@@ -622,7 +653,7 @@ export async function commitAdd(
 ): Promise<CommitOutcome> {
   const { io } = ctx;
   const now = io.now().toISOString();
-  const hooked = new Set<HarnessId>();
+  const hooked = new Map<HarnessId, HookedHarness>();
   const reached = new Set<HarnessId>();
   const retired: SourceEntry[] = [];
   let everyHarness = false;
@@ -656,7 +687,13 @@ export async function commitAdd(
         );
         state = { ...state, sources: { ...state.sources, [request.key]: entry } };
         if (request.addHook && request.destination.scope !== "out") {
-          state = withHooks(state, request.destination, hookable(harnesses.ids, io));
+          const registrations = registrable(harnesses.ids, io, request.destination);
+          state = withHooks(
+            state,
+            request.destination,
+            registrations.map((entry) => entry.id),
+          );
+          for (const entry of registrations) hooked.set(entry.id, entry);
         }
         changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
         if (
@@ -673,7 +710,6 @@ export async function commitAdd(
           config.lastAgents = harnesses.ids;
           configChanged = true;
         }
-        if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);
       }
       state = prunedHooks(state);
       if (io.projectRoot !== null) {
@@ -699,7 +735,7 @@ export async function commitAdd(
     config,
     changes: update.changes,
     notices: update.notices,
-    hooked: [...hooked],
+    hooked: [...hooked.values()],
     harnesses: everyHarness ? [] : [...reached],
     retired,
   };

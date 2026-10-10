@@ -67,7 +67,7 @@ o  Run without --list to install
 | flag | records | every later sync |
 | --- | --- | --- |
 | `--rule` | this source's one-liners go to the rule file | regenerates the rule lines; `remove` always removes them |
-| `--add-hook` | the harness's single sync hook is wanted at this install's scope | keeps the hook registered there |
+| `--add-hook` | the harness's sync hook (and MCP server, where declared) is wanted at this install's scope | keeps the hook and the server registered there |
 
 The hook carries no source and no filter, so the tenth source adds nothing to it. An install from `.` registers no hook, so an unpushed edit is never clobbered by a refresh.
 

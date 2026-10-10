@@ -1,6 +1,5 @@
 import {
   foundInManifest,
-  hookRegistered,
   installed,
   linksTo,
   ownedBy,
@@ -13,7 +12,6 @@ import {
   readProjectLock,
   sourceFromLock,
 } from "../engine/project-lock-read.ts";
-import { HOOK_COMMAND } from "../harnesses/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { LockSource } from "../state/project-lock.ts";
@@ -25,6 +23,7 @@ import {
   hookWanted,
   type PreparedAdd,
   planAdd,
+  registeredLines,
   type StagedAdd,
   stageAdd,
   syncCommitted,
@@ -116,7 +115,7 @@ export const install: Command = {
     const report = await syncCommitted(ctx, commit, commit.harnesses);
     const planned = ctx.global.dryRun;
     const lines = [installed(names.length, report.rules, report.tokens, planned)];
-    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND, planned));
+    lines.push(...registeredLines(commit.hooked, planned));
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],

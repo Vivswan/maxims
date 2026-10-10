@@ -421,3 +421,19 @@ export function fetchedEntry(
     ...(pending === undefined ? {} : { pending }),
   };
 }
+
+export const FIXTURE_MCP_FILE = join(FIXTURE_DIR, "mcp.json");
+
+// The shared-block fixture with no hook shape and an MCP registry under `.fixture/` in either
+// root: the shape of a harness that starts its MCP servers eagerly and keeps fresh through the stub.
+export const mcpHarness: HarnessDefinition = {
+  ...sharedBlockHarness,
+  id: "zed",
+  displayName: "Fixture MCP",
+  tier: 2,
+  hook: { kind: "none" },
+  mcp: {
+    path: (scope, ctx) => join(scopeRoot({}, scope, ctx), FIXTURE_MCP_FILE),
+    serversPath: ["mcpServers"],
+  },
+};

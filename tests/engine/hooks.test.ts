@@ -20,9 +20,16 @@ import { runSync } from "../../src/commands/sync.ts";
 import { loadContext } from "../../src/engine/context.ts";
 import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
-import { HOOK_COMMAND, type Scope } from "../../src/harnesses/contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  HOOK_COMMAND,
+  type Scope,
+  scopeRoot,
+} from "../../src/harnesses/contract.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
-import { readIfPresent } from "../../src/util/fs.ts";
+import { planMcpRegistration } from "../../src/harnesses/mcp-stub/register.ts";
+import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
   configEditHarness,
@@ -31,6 +38,7 @@ import {
   FIXTURE_DIR,
   fakeIo,
   localFrom,
+  rulesDirHarness,
   stateWith,
   writeSource,
   writeState,
@@ -92,6 +100,130 @@ describe("planHooks", () => {
       });
     });
   }
+});
+
+// The stub server entry is the session-start sync of a harness whose event is the MCP handshake,
+// so it follows the hook intent: wanted, it is written beside the hook; unwanted, it leaves as a
+// removal. A user-defined harness may keep its hooks and its servers in one file, where two
+// writes in one plan would leave whichever landed last.
+describe("the MCP server entry follows the hook intent", () => {
+  const serversIn = (file: string): HarnessDefinition => ({
+    ...rulesDirHarness,
+    mcp: {
+      path: (scope: Scope, ctx: HarnessContext) =>
+        join(scopeRoot({}, scope, ctx), FIXTURE_DIR, file),
+      serversPath: ["mcpServers"],
+    },
+  });
+  const apart = serversIn("mcp.json");
+  const together = serversIn("settings.json");
+  const plan = async (
+    def: HarnessDefinition,
+    dir: string,
+    home: string,
+    userHome: string,
+    hook: boolean,
+  ) => {
+    const io = fakeIo({ home, userHome, cwd: dir, harnesses: [def] });
+    const ctx = await loadContext(io, { readHookStdin: false });
+    return planHooks({
+      ctx,
+      harnesses: [def],
+      agents: undefined,
+      wants: (_id, scope: Scope) => ({ hook, rules: false, unreachable: scope !== "global" }),
+      elsewhere: () => [],
+    });
+  };
+
+  test("in its own file it is written when the hook is wanted and removed when not", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(apart, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes).toEqual([
+        registryWrite(registry),
+        { kind: "write", path: mcp, content: expect.stringContaining('"mcp-serve"') },
+      ]);
+      expect(wanted.notices).toEqual([
+        `registered the maxims hook in ${registry}`,
+        `registered the maxims MCP server in ${mcp}`,
+      ]);
+      const [, written] = wanted.changes;
+      if (written?.kind !== "write") throw new Error("expected the servers write");
+      writeFileSync(mcp, written.content);
+      const unwanted = await plan(apart, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: mcp, content: '{\n  "mcpServers": {}\n}\n' },
+      ]);
+      expect(unwanted.notices).toEqual([`removed the maxims MCP server from ${mcp}`]);
+    });
+  });
+
+  test("in the hook's own registry it rides in the hook's write, so the file is written once", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(together, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      expect(write.content).toContain(HOOK_COMMAND);
+      expect(write.content).toContain('"mcp-serve"');
+      writeFileSync(registry, write.content);
+      const settled = await plan(together, dir, home, userHome, true);
+      expect(settled.changes).toEqual([]);
+      const unwanted = await plan(together, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: registry, content: '{\n  "mcpServers": {}\n}\n' },
+      ]);
+    });
+  });
+
+  // A user-defined harness may name the one file by two spellings: the hook by its path, the
+  // servers through a directory link. Compared by name they would be two writes of one file.
+  test("in the hook's registry reached through a directory link it still rides in the hook's write", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const alias = join(userHome, "fixture-alias");
+      symlinkSync(join(userHome, FIXTURE_DIR), alias);
+      const linked: HarnessDefinition = {
+        ...rulesDirHarness,
+        mcp: {
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), "fixture-alias", "settings.json"),
+          serversPath: ["mcpServers"],
+        },
+      };
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(linked, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      expect(write.content).toContain(HOOK_COMMAND);
+      expect(write.content).toContain('"mcp-serve"');
+    });
+  });
+
+  // Each artifact is planned on its own: a servers file that cannot be read costs this run that
+  // one registration, reported when it was wanted, and never the hook's own edit or removal.
+  test("a servers file that cannot be read is reported when wanted and leaves the hook's plan standing", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      writeFileSync(mcp, "{ not json");
+      const wanted = await plan(apart, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes).toEqual([registryWrite(registry)]);
+      expect(wanted.failures.map((failure) => failure.message)).toEqual([
+        expect.stringContaining(mcp),
+      ]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      writeFileSync(registry, write.content);
+      const unwanted = await plan(apart, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: registry, content: "{}\n" },
+      ]);
+      expect(unwanted.failures).toEqual([]);
+    });
+  });
 });
 
 describe("a hook that lives in one place for both scopes", () => {
@@ -280,4 +412,75 @@ describe("both scopes resolving to one registry", () => {
       expect(readFileSync(settings, "utf8")).not.toContain(HOOK_COMMAND);
     });
   });
+
+  // The writer replaces a link at the leaf with a real file, so a project servers file linked to
+  // the global one becomes its own file on the project write and the global file keeps whatever
+  // it held: compared by the resolved leaf the two are one file and the global removal is dropped.
+  // Settled, nothing writes the leaf, the link stays, and the file behind it is the project's
+  // registration: compared by the leaf alone the global removal stands and takes it away, and so
+  // does a removal at a link partway along the chain, which the resolved leaf does not name.
+  const behindTheLink: [string, (current: string) => string, boolean, object[], object[]][] = [
+    [
+      "a stale entry behind the link is written apart, and the global entry still leaves",
+      () => '{\n  "mcpServers": {\n    "maxims": {\n      "command": "old"\n    }\n  }\n}\n',
+      false,
+      [{ kind: "write", content: expect.stringContaining('"mcp-serve"') }],
+      [{ kind: "write", content: '{\n  "mcpServers": {}\n}\n' }],
+    ],
+    ["the current entry behind the link is settled and stays", (current) => current, false, [], []],
+    [
+      "the current entry behind a chain of links, the global file a link itself, stays",
+      (current) => current,
+      true,
+      [],
+      [],
+    ],
+  ];
+  for (const [label, textBehind, chained, changes, removals] of behindTheLink) {
+    test(`a project servers file linked to the global one: ${label}`, async () => {
+      await world(async ({ home, userHome, project }) => {
+        const hookless: HarnessDefinition = {
+          ...rulesDirHarness,
+          hook: { kind: "none" },
+          mcp: {
+            path: (scope: Scope, ctx: HarnessContext) =>
+              join(scopeRoot({}, scope, ctx), FIXTURE_DIR, "mcp.json"),
+            serversPath: ["mcpServers"],
+          },
+        };
+        const global = join(userHome, FIXTURE_DIR, "mcp.json");
+        const linked = join(project, FIXTURE_DIR, "mcp.json");
+        const [current] = planMcpRegistration({
+          registration: { path: assertInsideRoot(userHome, global), serversPath: ["mcpServers"] },
+          wanted: true,
+          currentText: null,
+        }).changes;
+        if (current?.kind !== "write") throw new Error("expected the servers write");
+        if (chained) {
+          const backing = join(userHome, "dotfiles", "mcp.json");
+          mkdirSync(join(userHome, "dotfiles"));
+          writeFileSync(backing, textBehind(current.content));
+          symlinkSync(backing, global);
+        } else {
+          writeFileSync(global, textBehind(current.content));
+        }
+        symlinkSync(global, linked);
+        const io = fakeIo({ home, userHome, cwd: project, harnesses: [hookless] });
+        const ctx = await loadContext(io, { readHookStdin: false });
+        const plan = await planHooks({
+          ctx,
+          harnesses: [hookless],
+          agents: undefined,
+          wants: (_id, scope: Scope) => ({
+            hook: scope === "project",
+            rules: false,
+            unreachable: false,
+          }),
+          elsewhere: () => [],
+        });
+        expect<unknown[]>(plan.changes).toEqual(changes.map((c) => ({ ...c, path: linked })));
+        expect<unknown[]>(plan.removals).toEqual(removals.map((c) => ({ ...c, path: global })));
+      });
+    });
+  }
 });
