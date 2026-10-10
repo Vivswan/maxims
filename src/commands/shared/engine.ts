@@ -1231,8 +1231,8 @@ function staleNotices(work: SourceWork, notices: Notices): void {
   notices.loud(`maxims: ${staleSentence(`the rules from ${work.key}`, work.stale)}`);
 }
 
-// The `-o` folder's layout: the rule file at its root, every body in one `memories` folder beside
-// it, and each rule line's detail path pointing there relative to the rule file.
+// A harness reads a rule line's detail path relative to the rule file, so the bodies folder sits
+// beside the rule file at the `-o` root.
 const OUT_BODIES_DIR = "memories";
 
 function outRuleFile(root: string, slug: SourceSlug): string {

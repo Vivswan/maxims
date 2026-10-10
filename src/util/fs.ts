@@ -20,9 +20,7 @@ export type WriteFileAtomicOptions = {
   mode?: number;
 };
 
-// Windows has no POSIX mode bits: it reports every writable file as 0666 and cannot hold a
-// requested mode, so a chmod there is a no-op and a mode comparison would count a change on
-// every run. Every mode judgment branches on this one reading.
+// Windows cannot hold a requested mode, so a mode compare there counts a change on every run.
 export const POSIX_MODES = process.platform !== "win32";
 
 declare const rootedPathBrand: unique symbol;

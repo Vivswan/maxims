@@ -225,8 +225,7 @@ async function quarantine(paths: StatePaths, issues: string[]): Promise<LoadedSt
   return { kind: "quarantined", movedTo, issues };
 }
 
-// The exact bytes the store writes, so a caller that folds the state write into its own
-// `applyChanges` plan produces a file byte-identical to one the store wrote itself.
+// The plans in commands/shared that write the state file themselves must spell it as the store does.
 export function serializeState(state: State): string {
   return jsonDocument(state);
 }

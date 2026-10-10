@@ -66,8 +66,8 @@ function isReservedFile(name: string): boolean {
   return name === "MEMORY.md" || name.toLowerCase() === "readme.md";
 }
 
-// A memory's local name is its file name without `.md`; a file with any other suffix is not a
-// memory, so every walk over a memories folder passes it over by this one judgment.
+// commands/shared/engine.ts walks installed bodies with this too, so a sweep and the parser share
+// one suffix rule.
 export function memoryStem(fileName: string): string | null {
   return fileName.endsWith(".md") ? fileName.slice(0, -".md".length) : null;
 }
