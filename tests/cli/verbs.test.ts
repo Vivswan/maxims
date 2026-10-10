@@ -26,7 +26,7 @@ import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/index.ts";
 import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
 import { renderBlock } from "../../src/rulefile/block.ts";
-import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { fakeResolvers, writeSource } from "../engine/harness.ts";
@@ -317,7 +317,7 @@ test("config set/get/unset round-trips through the schema and refuses bad values
       ruleCap: 30,
     });
     expect(readFileSync(homePaths(scenario.home).config, "utf8")).toBe(
-      '{\n  "agents": [\n    "codex",\n    "claude-code"\n  ],\n  "rule": true,\n  "ruleCap": 30\n}\n',
+      '{\n  "version": 1,\n  "agents": [\n    "codex",\n    "claude-code"\n  ],\n  "rule": true,\n  "ruleCap": 30\n}\n',
     );
     const bad = await runCli(scenario, ["config", "set", "ruleCap", "0"]);
     expect(bad.code).toBe(1);

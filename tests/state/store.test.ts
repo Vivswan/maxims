@@ -16,11 +16,8 @@ import {
 import { basename, dirname, join } from "node:path";
 import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import { type ContentHash, parseContentHash } from "../../src/memory/contract.ts";
-import {
-  CURRENT_STATE_VERSION,
-  FIRST_VERSION,
-  type Ladder,
-} from "../../src/state/migrations/ladder.ts";
+import type { Ladder } from "../../src/state/migrations/runner.ts";
+import { CURRENT_STATE_VERSION, FIRST_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { emptyState, parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
 import {
   inspectState,
@@ -137,7 +134,11 @@ function stampCurrent(json: unknown): unknown {
 }
 
 function oneStepLadder(up: (json: unknown) => unknown): Ladder {
-  return { firstVersion: BELOW_CURRENT, steps: [{ description: "stamp the current version", up }] };
+  return {
+    kind: "state",
+    firstVersion: BELOW_CURRENT,
+    steps: [{ description: "stamp the current version", up }],
+  };
 }
 
 const STAMP_LADDER = oneStepLadder(stampCurrent);

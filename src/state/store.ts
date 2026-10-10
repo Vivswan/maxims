@@ -5,12 +5,8 @@ import { assertInsideRoot, ensureDir0700, type RootedPath } from "../util/fs.ts"
 import { homePaths } from "../util/home.ts";
 import { type StolenLock, withLock } from "../util/lock.ts";
 import { VERSION } from "../version.ts";
-import {
-  CURRENT_STATE_VERSION,
-  type Ladder,
-  migrateState,
-  versionOf,
-} from "./migrations/ladder.ts";
+import { type Ladder, migrate, versionOf } from "./migrations/runner.ts";
+import { CURRENT_STATE_VERSION, STATE_LADDER } from "./migrations/state-ladder.ts";
 import { parseState, type State } from "./schema.ts";
 
 export const WRITTEN_BY = `maxims@${VERSION}`;
@@ -151,7 +147,7 @@ async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): P
   }
   const version = versionOf(json);
   if (version !== null && version < CURRENT_STATE_VERSION) {
-    return migrateDocument(json, version, options.ladder);
+    return migrateDocument(json, version, options.ladder ?? STATE_LADDER);
   }
   const parsed = parseState(json);
   if (parsed.ok === "parsed") return { kind: "current", state: parsed.state };
@@ -161,8 +157,8 @@ async function inspectStateFile(paths: StatePaths, options: ReadStateOptions): P
 
 // The migrated document passes the same strict parse a fresh file gets before it is written back,
 // so a step that produces a bad shape quarantines the ORIGINAL bytes rather than persisting its output.
-function migrateDocument(json: unknown, version: number, ladder: Ladder | undefined): Inspection {
-  const migration = migrateState(json, version, ladder);
+function migrateDocument(json: unknown, version: number, ladder: Ladder): Inspection {
+  const migration = migrate(json, version, ladder);
   if (migration.kind === "unreachable") {
     return {
       kind: "corrupt",

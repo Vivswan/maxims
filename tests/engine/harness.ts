@@ -23,7 +23,7 @@ import type { FetchResult, ResolverFor, SourceResolver } from "../../src/sources
 import { FetchFailure, type FetchFailureKind } from "../../src/sources/github/ladder.ts";
 import { createLocalResolver } from "../../src/sources/local.ts";
 import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
-import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
+import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import {
   canonicalSourceKey,
   type Fetched,

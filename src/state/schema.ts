@@ -17,7 +17,8 @@ import {
   parseMemoryName,
 } from "../memory/contract.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import { CURRENT_STATE_VERSION, versionOf } from "./migrations/ladder.ts";
+import { versionOf } from "./migrations/runner.ts";
+import { CURRENT_STATE_VERSION } from "./migrations/state-ladder.ts";
 
 export const MemoryNameSchema = z.custom<MemoryName>(
   (value) => typeof value === "string" && parseMemoryName(value) !== null,

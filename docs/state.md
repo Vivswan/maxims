@@ -121,7 +121,9 @@ State migrates forward only.
 - **A version below the current one** runs the ordered steps, each a pure function over the JSON, then the file is written back atomically and the command continues.
 - **A version above the current one** is a clean stop: in quiet mode exit 0 with "state written by a newer maxims, skipping", otherwise a request to upgrade, because a rewrite would destroy fields the older binary cannot see.
 
-The ladder is `src/state/migrations/ladder.ts`. Its registry order is the version order: a step's position is the version it migrates away from, and the current version is the first version plus the number of steps, never typed by hand. Each step is named for what it changes and ships with the document it migrates away from.
+The ladder is `src/state/migrations/state-ladder.ts`, run by the mechanism in `src/state/migrations/runner.ts` that every versioned file shares. Its registry order is the version order: a step's position is the version it migrates away from, and the current version is the first version plus the number of steps, never typed by hand. Each step is named for what it changes and ships with the document it migrates away from.
+
+`config.json` has its own ladder, `src/state/migrations/config-ladder.ts`, with the same shape and the same two outcomes: an older file climbs it before the strict parse, and a newer one is refused until maxims is upgraded. The [user defaults section](files.md#user-defaults-in-configjson) owns the file.
 
 Compatibility with an older file lives in the ladder and nowhere else. A step may run twice on a retried update, so each is idempotent; a step is deleted once a hard break makes it unreachable, and downgrading past one is quarantine and re-add.
 
