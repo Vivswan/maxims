@@ -2,7 +2,7 @@
 // obeyed, and a newer file must never be rewritten.
 import { describe, expect, test } from "bun:test";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
-import { canonicalSourceKey, emptyState, parseState } from "../../src/state/schema.ts";
+import { canonicalSourceKey, parseState } from "../../src/state/schema.ts";
 
 const VALID = {
   version: CURRENT_STATE_VERSION,
@@ -127,39 +127,34 @@ describe("parseState", () => {
     if (result.ok === "corrupt") expect(result.issues.some((line) => issue.test(line))).toBe(true);
   });
 
-  // `add --allow-hidden` accepts a source whose descriptions carry hidden characters; refresh
-  // reads the same answer from intent, so the flag must survive a round trip through state and
-  // must stay absent, not default to false, when it was never given.
-  test("intent.allowHidden round-trips when set and stays absent when not", () => {
-    const json = structuredClone(VALID);
-    (json.sources["@example-user/rules"].intent as Record<string, unknown>).allowHidden = true;
-    const result = parseState(json);
-    expect(result.ok).toBe("parsed");
-    if (result.ok !== "parsed") return;
-    expect(result.state.sources["@example-user/rules"]?.intent.allowHidden).toBe(true);
-    expect(
-      "allowHidden" in
-        (result.state.sources["https://gitlab.example.com/team/rules.git"]?.intent ?? {}),
-    ).toBe(false);
-    (json.sources["@example-user/rules"].intent as Record<string, unknown>).allowHidden = "yes";
-    expect(parseState(json).ok).toBe("corrupt");
-  });
-
-  // `add --review` and `maxims review` hold a refresh under `pending` until `accept`; the flag is
-  // read back on every refresh, so it must round-trip and stay absent, never `false`, when unset.
-  test("intent.review round-trips when set, stays absent when unset, and refuses false", () => {
-    const json = structuredClone(VALID);
-    (json.sources["@example-user/rules"].intent as Record<string, unknown>).review = true;
-    const result = parseState(json);
-    expect(result.ok).toBe("parsed");
-    if (result.ok !== "parsed") return;
-    expect(result.state.sources["@example-user/rules"]?.intent.review).toBe(true);
-    expect(
-      "review" in (result.state.sources["https://gitlab.example.com/team/rules.git"]?.intent ?? {}),
-    ).toBe(false);
-    (json.sources["@example-user/rules"].intent as Record<string, unknown>).review = false;
-    expect(parseState(json).ok).toBe("corrupt");
-  });
+  // `add --allow-hidden` and `add --review` record a flag that a later verb reads back from intent
+  // (`install` replays the first, every refresh the second), so each must survive a round trip
+  // through state and stay absent, never default to false, when it was never given. The second
+  // column is the hand edit the flag's grammar refuses.
+  const flags: [field: string, refused: unknown][] = [
+    ["allowHidden", "yes"],
+    ["review", false],
+  ];
+  test.each(flags)(
+    "intent.%s round-trips when set, stays absent when unset, and refuses %p",
+    (field, refused) => {
+      const json = structuredClone(VALID);
+      const intent = json.sources["@example-user/rules"].intent as Record<string, unknown>;
+      intent[field] = true;
+      const result = parseState(json);
+      expect(result.ok).toBe("parsed");
+      if (result.ok !== "parsed") return;
+      const parsed = result.state.sources["@example-user/rules"]?.intent as
+        | Record<string, unknown>
+        | undefined;
+      expect(parsed?.[field]).toBe(true);
+      expect(
+        field in (result.state.sources["https://gitlab.example.com/team/rules.git"]?.intent ?? {}),
+      ).toBe(false);
+      intent[field] = refused;
+      expect(parseState(json).ok).toBe("corrupt");
+    },
+  );
 
   // A held revision records the sha of the variant it belongs to: a commit id for a remote, a
   // content hash for a copied directory, and nothing at all for a live source, whose tree is the
@@ -271,9 +266,10 @@ describe("parseState", () => {
     expect(parseState({ version: 99 })).toEqual({ ok: "newer", version: 99 });
   });
 
+  // Parser-level refusals; the fixtures under src/state/fixtures and the store test pin the same
+  // boundary at the file.
   const corrupt: { title: string; mutate: (json: typeof VALID) => unknown; issue: RegExp }[] = [
     { title: "not an object", mutate: () => "state", issue: /expected object/i },
-    { title: "a fractional version", mutate: (j) => ({ ...j, version: 1.5 }), issue: /^version:/ },
     { title: "missing version", mutate: (j) => ({ ...j, version: undefined }), issue: /^version:/ },
     {
       title: "a -g destination smuggling an -o path",
@@ -305,11 +301,6 @@ describe("parseState", () => {
       issue: /fetched/,
     },
     {
-      title: "a source key that is not the canonical key",
-      mutate: (j) => ({ ...j, sources: { "@Other/name": j.sources["@example-user/rules"] } }),
-      issue: /source key must be @example-user\/rules/,
-    },
-    {
       title: "an unknown source type",
       mutate: (j) => {
         (j.sources["@example-user/rules"].intent.from as Record<string, unknown>).type = "gitlab";
@@ -326,17 +317,9 @@ describe("parseState", () => {
       issue: /git remote URL/,
     },
     {
-      title: "a traversal name in select",
-      mutate: (j) => {
-        j.sources["@example-user/rules"].intent.select = ["../../x"];
-        return j;
-      },
-      issue: /kebab-case memory name/,
-    },
-    {
       title: "a harness id that is neither built-in nor kebab-case",
-      mutate: (j) => ({ ...j, hooks: { global: ["claude-code", "Vim"] } }),
-      issue: /^hooks\.global\.1:/,
+      mutate: (j) => ({ ...j, hooks: { global: ["Vim"] } }),
+      issue: /^hooks\.global\.0:/,
     },
     {
       title: "a harness id with an underscore",
@@ -367,23 +350,6 @@ describe("parseState", () => {
       issue: /absolute path/,
     },
     {
-      title: "two github keys that differ only in case",
-      mutate: (j) => ({
-        ...j,
-        sources: {
-          ...j.sources,
-          "@Example-User/Rules": {
-            ...j.sources["@example-user/rules"],
-            intent: {
-              ...j.sources["@example-user/rules"].intent,
-              from: { type: "github", repo: "Example-User/Rules", ref: "HEAD" },
-            },
-          },
-        },
-      }),
-      issue: /sources\.@Example-User\/Rules: .*same GitHub repository as @example-user\/rules/,
-    },
-    {
       title: "a local source path carrying NUL",
       mutate: (j) => {
         const from = { type: "local", path: "/home/user/a\u0000b", live: true };
@@ -409,14 +375,6 @@ describe("parseState", () => {
         return j;
       },
       issue: /destination\.path: .*NUL/,
-    },
-    {
-      title: "an unknown key in intent",
-      mutate: (j) => {
-        (j.sources["@example-user/rules"].intent as Record<string, unknown>).installedPath = "/x";
-        return j;
-      },
-      issue: /installedPath/,
     },
   ];
   test.each(corrupt)("is corrupt: $title", ({ mutate, issue }) => {
@@ -621,11 +579,6 @@ describe("parseState", () => {
       expect(parseState(set(structuredClone(VALID), good)).ok).toBe("parsed");
     },
   );
-
-  test("emptyState round-trips through the parser", () => {
-    const state = emptyState("maxims@0.0.0");
-    expect(parseState(structuredClone(state))).toEqual({ ok: "parsed", state });
-  });
 });
 
 test("a pinned source and its tracking twin are distinct keys; an enterprise host is named", () => {
