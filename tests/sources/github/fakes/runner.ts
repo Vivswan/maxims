@@ -5,7 +5,7 @@ import type {
   GitOutcome,
   GitRunner,
   Runner,
-} from "../ladder.ts";
+} from "../../../../src/sources/github/ladder.ts";
 
 export type ScriptedRunnerOptions = {
   exec?: (binary: string, args: string[]) => ExecResult | Promise<ExecResult>;

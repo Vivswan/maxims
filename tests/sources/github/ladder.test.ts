@@ -7,19 +7,6 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, sep } from "node:path";
 import { simpleGit } from "simple-git";
 import { FetchFailure, type FetchFailureKind } from "../../../src/sources/contract.ts";
-import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
-import {
-  brokenBodyResponse,
-  exited,
-  ghScript,
-  httpResponse,
-  scriptedGit,
-  scriptedRunner,
-} from "../../../src/sources/github/fixtures/runner.ts";
-import {
-  cleanTarball,
-  corruptAfterOneFileTarball,
-} from "../../../src/sources/github/fixtures/tarballs.ts";
 import {
   childEnvironment,
   classifyGh,
@@ -40,6 +27,16 @@ import {
 import { git } from "../../shared/git_fixture.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { tmpdirEnv, withTempDir } from "../../shared/temp_dir.ts";
+import { createFixtureRepo } from "./fakes/repo.ts";
+import {
+  brokenBodyResponse,
+  exited,
+  ghScript,
+  httpResponse,
+  scriptedGit,
+  scriptedRunner,
+} from "./fakes/runner.ts";
+import { cleanTarball, corruptAfterOneFileTarball } from "./fakes/tarballs.ts";
 
 const REPO = { owner: "example-user", repo: "rules" };
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";

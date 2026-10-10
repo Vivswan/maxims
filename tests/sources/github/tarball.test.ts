@@ -3,6 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { extractTarball } from "../../../src/sources/github/tarball.ts";
+import { withTempDir } from "../../shared/temp_dir.ts";
 import {
   absolutePathTarball,
   cleanTarball,
@@ -11,9 +13,7 @@ import {
   truncatedTarball,
   unsupportedTypeTarball,
   zipSlipTarball,
-} from "../../../src/sources/github/fixtures/tarballs.ts";
-import { extractTarball } from "../../../src/sources/github/tarball.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
+} from "./fakes/tarballs.ts";
 
 // Entries are listed with forward slashes on every platform: the cases spell tar paths, which
 // carry no other separator.
