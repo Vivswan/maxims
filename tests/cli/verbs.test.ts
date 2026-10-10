@@ -1765,7 +1765,7 @@ test("a live manifest source registers no hook even when config asks for one", a
 // What would drift silently: `install` reporting a SessionStart hook for a harness that has none.
 test("install reports the MCP server, not a hook, for a lock that selects a hookless harness", async () => {
   await withScenario(
-    { project: true, github: { "a/b": SKILLS }, harnesses: [...FIXTURE_HARNESSES, fixtureZed] },
+    { project: true, github: { "a/b": RULES }, harnesses: [...FIXTURE_HARNESSES, fixtureZed] },
     async (scenario) => {
       mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
       const lock = {
