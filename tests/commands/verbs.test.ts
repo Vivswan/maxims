@@ -33,7 +33,6 @@ import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { fakeResolvers, memoryName, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
-import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
   lastSyncCall,
@@ -47,7 +46,8 @@ import {
   withScenario,
   writeConfig,
   writeState,
-} from "./harness.ts";
+} from "./fake-engine.ts";
+import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 const DOTFILES = join(FIXTURES, "dotfiles");

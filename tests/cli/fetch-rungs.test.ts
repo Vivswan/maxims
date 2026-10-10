@@ -17,6 +17,7 @@ import {
   scriptedRunner,
 } from "../../src/sources/github/fixtures/runner.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { type RunResult, runCli, type Scenario, withScenario } from "../commands/fake-engine.ts";
 import {
   ADDED_AT,
   fetchedEntry,
@@ -28,7 +29,6 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
-import { type RunResult, runCli, type Scenario, withScenario } from "./harness.ts";
 
 const FROM = githubFrom("a/b");
 const KEY = "@a/b";

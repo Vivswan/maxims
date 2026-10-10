@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERSION } from "../../../src/version.ts";
-import { FIXTURES, runCli, snapshot, withScenario } from "../../cli/harness.ts";
+import { FIXTURES, runCli, snapshot, withScenario } from "../fake-engine.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 

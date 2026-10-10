@@ -9,15 +9,6 @@ import { join } from "node:path";
 import type { SourceFacts } from "../../src/commands/show-source.ts";
 import { pendingPathFor } from "../../src/util/home.ts";
 import {
-  readState,
-  realEngineBundle,
-  runCli,
-  type Scenario,
-  snapshot,
-  withScenario,
-  writeState,
-} from "../cli/harness.ts";
-import {
   type FakeResolvers,
   fakeResolvers,
   githubFrom,
@@ -25,6 +16,15 @@ import {
   writeSource,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
+import {
+  readState,
+  realEngineBundle,
+  runCli,
+  type Scenario,
+  snapshot,
+  withScenario,
+  writeState,
+} from "./fake-engine.ts";
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";

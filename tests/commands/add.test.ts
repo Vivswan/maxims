@@ -33,7 +33,7 @@ import {
   withScenario,
   writeConfig,
   writeState,
-} from "./harness.ts";
+} from "./fake-engine.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 const DOTFILES = join(FIXTURES, "dotfiles");

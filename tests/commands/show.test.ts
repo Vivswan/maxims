@@ -9,15 +9,6 @@ import { join } from "node:path";
 import type { ShownMemory } from "../../src/commands/show.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
-  FIXTURES,
-  runCli,
-  type Scenario,
-  type ScenarioOptions,
-  snapshot,
-  withScenario,
-  writeState,
-} from "../cli/harness.ts";
-import {
   daysAgo,
   fetchedEntry,
   fetchedFacts,
@@ -27,6 +18,15 @@ import {
   seedStore,
   stateWith,
 } from "../engine/fakes.ts";
+import {
+  FIXTURES,
+  runCli,
+  type Scenario,
+  type ScenarioOptions,
+  snapshot,
+  withScenario,
+  writeState,
+} from "./fake-engine.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 const NOW = new Date("2026-09-20T12:00:00.000Z");
