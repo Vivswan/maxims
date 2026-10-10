@@ -20,7 +20,8 @@ import { dirname, join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
+import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
@@ -34,6 +35,7 @@ import {
   githubFrom,
   gitSha,
   localFrom,
+  type MemorySpec,
   memoryFile,
   memoryName,
   readStateFile,
@@ -98,21 +100,50 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("a symlink where a rule file belongs is replaced by a real file even when its bytes match", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
-      const aside = join(dir, "elsewhere.md");
-      writeFileSync(aside, readFileSync(rules, "utf8"));
-      rmSync(rules);
-      symlinkSync(aside, rules);
-      await runSync(SYNC, io);
-      expect(lstatSync(rules).isFile()).toBe(true);
-    });
-  });
+  // A symlink where the rule file belongs is replaced whatever it points at: the file maxims owns
+  // is always real. Reading through the link to learn the retained names would refuse a link to a
+  // directory before the planner reached it.
+  const linkTargets: [string, (scratch: string, rulesText: string) => [string, () => void]][] = [
+    [
+      "a file holding the same bytes",
+      (scratch, rulesText) => {
+        const aside = join(scratch, "elsewhere.md");
+        writeFileSync(aside, rulesText);
+        return [aside, () => expect(readFileSync(aside, "utf8")).toBe(rulesText)];
+      },
+    ],
+    [
+      "a directory",
+      (scratch) => {
+        const folder = join(scratch, "folder");
+        mkdirSync(folder);
+        writeFileSync(join(folder, "keep.md"), "the user's own file\n");
+        return [
+          folder,
+          () => expect(readFileSync(join(folder, "keep.md"), "utf8")).toBe("the user's own file\n"),
+        ];
+      },
+    ],
+  ];
+  test.each(linkTargets)(
+    "a symlink to %s where a rule file belongs is replaced by a real file",
+    async (_label, plant) => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
+        const io = fakeIo({ home, userHome, cwd: dir });
+        await runSync(SYNC, io);
+        const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+        const [target, untouched] = plant(dir, readFileSync(rules, "utf8"));
+        rmSync(rules);
+        symlinkSync(target, rules);
+        await expect(runSync(SYNC, io)).resolves.toMatchObject({ failed: [] });
+        expect(lstatSync(rules).isFile()).toBe(true);
+        expect(readFileSync(rules, "utf8")).toContain("Never merge red.");
+        untouched();
+      });
+    },
+  );
 
   // A directory where the rule file belongs read as "absent" to the planner, which then planned a
   // write over it; the refusal names the path before anything is applied.
@@ -131,28 +162,6 @@ describe("what a refused or departed source leaves behind", () => {
         `cannot inspect ${rules}: EISDIR: illegal operation on a directory, read`,
       );
       expect(readFileSync(join(rules, "keep.md"), "utf8")).toBe("the user's own file\n");
-    });
-  });
-
-  // A symlink where the rule file belongs is replaced whatever it points at: the file maxims owns
-  // is always real. Reading through the link to learn the retained names would refuse a link to a
-  // directory before the planner reached it.
-  test("a symlink to a directory where a rule file belongs is replaced by a real file", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(home, stateWith({ [source]: entryFor(localFrom(source)) }));
-      const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const rules = globalRulesFile(userHome, sourceSlug(localFrom(source)));
-      const folder = join(dir, "folder");
-      mkdirSync(folder);
-      writeFileSync(join(folder, "keep.md"), "the user's own file\n");
-      rmSync(rules);
-      symlinkSync(folder, rules);
-      await runSync(SYNC, io);
-      expect(lstatSync(rules).isFile()).toBe(true);
-      expect(readFileSync(rules, "utf8")).toContain("Never merge red.");
-      expect(readFileSync(join(folder, "keep.md"), "utf8")).toBe("the user's own file\n");
     });
   });
 
@@ -271,7 +280,7 @@ describe("what a refused or departed source leaves behind", () => {
       expect(lstatSync(body).isSymbolicLink()).toBe(true);
       writeFileSync(homePaths(home).config, JSON.stringify({ ruleCap: 1 }));
       await expectExit(runSync({ ...SYNC, fetch: "none" }, io), ExitCode.RuleCapExceeded);
-      expect(lstatSync(body).isSymbolicLink()).toBe(true);
+      expect(lstatSync(body, { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true);
       rmSync(join(project, ".agents"), { recursive: true });
       rmSync(join(project, ".fixture", "rules"), { recursive: true });
       writeFileSync(homePaths(home).config, "{}");
@@ -314,37 +323,6 @@ describe("what a refused or departed source leaves behind", () => {
       symlinkSync(project, alias);
       const viaAlias = fakeIo({ home, userHome, cwd: alias, resolvers: fake.resolvers });
       expect((await runSync({ ...SYNC, fetch: "none" }, viaAlias)).sources).toBe(1);
-    });
-  });
-
-  test("a refused refresh keeps the bodies its preserved rules point at", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const upstream = writeSource(join(dir, "upstream"), { alpha: { description: "Alpha." } });
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const entry = fetchedEntry(from, facts, { destination: { scope: "project", root: project } });
-      writeState(home, stateWith({ "@acme/rules": entry }));
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
-      const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
-      await runSync(SYNC, io);
-      const body = join(project, ".agents", "memories", "alpha.md");
-      expect(lstatSync(body).isSymbolicLink()).toBe(true);
-      const many = Object.fromEntries(
-        Array.from({ length: 26 }, (_, index) => [
-          `rule-${index}`,
-          { description: `Rule ${index}.` },
-        ]),
-      );
-      fake.set(from, {
-        kind: "dir",
-        dir: writeSource(join(dir, "grown"), many),
-        sha: "b".repeat(40),
-      });
-      io.clock.now = new Date(NOW.getTime() + 10 * DAY_MS);
-      await expectExit(runSync(SYNC, io), ExitCode.RuleCapExceeded);
-      expect(lstatSync(body).isSymbolicLink()).toBe(true);
     });
   });
 
@@ -479,9 +457,8 @@ describe("what a refused or departed source leaves behind", () => {
       writeFileSync(join(ruleFile, "keep.md"), "the user's own file\n");
       writeState(home, stateWith({ [source]: rulesOff }));
       const io = fakeIo({ home, userHome, cwd: dir });
-      await runSync(SYNC, io);
-      const report = await runSync(SYNC, io);
-      expect(report.notices).toEqual([]);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ failed: [] });
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ notices: [] });
       expect(readFileSync(join(ruleFile, "keep.md"), "utf8")).toBe("the user's own file\n");
       expect(lstatSync(join(out, "memories", "always-review.md")).isSymbolicLink()).toBe(true);
     });
@@ -509,76 +486,83 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("a refused refresh does not make an unrelated collision report twice", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const upstream = writeSource(join(dir, "upstream"), { alpha: { description: "Alpha." } });
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const first = writeSource(join(dir, "first"), { shared: { description: "First." } });
-      const second = writeSource(join(dir, "second"), { shared: { description: "Second." } });
-      writeState(
-        home,
-        stateWith({
-          "@acme/rules": fetchedEntry(from, facts),
-          [first]: entryFor(localFrom(first)),
-          [second]: { ...entryFor(localFrom(second)), addedAt: "2026-08-02T00:00:00.000Z" },
-        }),
-      );
-      const many = Object.fromEntries(
-        Array.from({ length: 26 }, (_, index) => [
-          `rule-${index}`,
-          { description: `Rule ${index}.` },
-        ]),
-      );
-      const fake = fakeResolvers();
-      fake.set(from, {
-        kind: "dir",
-        dir: writeSource(join(dir, "grown"), many),
-        sha: "b".repeat(40),
+  // A refused refresh is planned again from last-good, so a collision found in both plans is
+  // reported once: whether the name's owner is an unrelated installed source or the refused
+  // source itself, holding the name through its retained block.
+  type Rival = [name: string, memories: Record<string, MemorySpec>];
+  const collisionsAfterRetry: [
+    string,
+    { rivals: [Rival, ...Rival[]]; alphaUpstream: boolean; owned: (firstRival: string) => string },
+  ][] = [
+    [
+      "owned by an unrelated installed source",
+      {
+        rivals: [
+          ["first", { shared: { description: "First." } }],
+          ["second", { shared: { description: "Second." } }],
+        ],
+        alphaUpstream: false,
+        owned: (firstRival) => `shared is owned by ${firstRival}`,
+      },
+    ],
+    [
+      "owned by the refused source",
+      {
+        rivals: [["rival", { alpha: { description: "Rival." } }]],
+        alphaUpstream: true,
+        owned: () => "alpha is owned by @acme/rules",
+      },
+    ],
+  ];
+  test.each(collisionsAfterRetry)(
+    "a collision %s is reported once after a refused refresh's retry",
+    async (_label, row) => {
+      await world(async ({ home, dir, userHome }) => {
+        const upstream = writeSource(join(dir, "upstream"), { alpha: { description: "Alpha." } });
+        const from = githubFrom("acme/rules");
+        seedStore(home, from, upstream);
+        const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
+        const [[firstName, firstMemories], ...others] = row.rivals;
+        const firstRival = writeSource(join(dir, firstName), firstMemories);
+        const otherRivals = others.map(([name, memories]) =>
+          writeSource(join(dir, name), memories),
+        );
+        writeState(
+          home,
+          stateWith({
+            "@acme/rules": fetchedEntry(from, facts),
+            ...Object.fromEntries(
+              [firstRival, ...otherRivals].map((path, index) => [
+                path,
+                { ...entryFor(localFrom(path)), addedAt: `2026-08-0${index + 2}T00:00:00.000Z` },
+              ]),
+            ),
+          }),
+        );
+        const grownNames = Object.fromEntries(
+          Array.from({ length: 25 }, (_, index) => [
+            `rule-${index}`,
+            { description: `Rule ${index}.` },
+          ]),
+        );
+        const grown = writeSource(join(dir, "grown"), {
+          ...grownNames,
+          ...(row.alphaUpstream
+            ? { alpha: { description: "Alpha." } }
+            : { "rule-25": { description: "Rule 25." } }),
+        });
+        const fake = fakeResolvers();
+        fake.set(from, { kind: "dir", dir: grown, sha: "b".repeat(40) });
+        const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
+        await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(firstRival));
+        const notices: string[] = JSON.parse(io.out.join("")).report.notices;
+        expect(notices.filter((line) => line.includes("is owned by"))).toEqual([
+          expect.stringContaining(row.owned(firstRival)),
+        ]);
+        expect(notices.filter((line) => line.includes("exceed the cap"))).toHaveLength(1);
       });
-      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(first));
-      const document = JSON.parse(io.out.join(""));
-      const collisions = document.report.notices.filter((line: string) =>
-        line.includes("is owned by"),
-      );
-      expect(collisions).toHaveLength(1);
-      const caps = document.report.notices.filter((line: string) =>
-        line.includes("exceed the cap"),
-      );
-      expect(caps).toHaveLength(1);
-    });
-  });
-
-  test("an unreadable live source keeps owning the names its retained block points at", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const live = writeSource(join(dir, "live"), { alpha: { description: "Alpha." } });
-      const liveEntry = entryFor(localFrom(live, true), {
-        destination: { scope: "project", root: project },
-      });
-      writeState(home, stateWith({ [live]: liveEntry }));
-      const io = fakeIo({ home, userHome, cwd: project });
-      await runSync(SYNC, io);
-      const body = join(project, ".agents", "memories", "alpha.md");
-      const target = readlinkSync(body);
-      rmSync(live, { recursive: true });
-      const rival = writeSource(join(dir, "rival"), { alpha: { description: "Rival alpha." } });
-      writeState(
-        home,
-        stateWith({
-          [live]: liveEntry,
-          [rival]: {
-            ...entryFor(localFrom(rival), { destination: { scope: "project", root: project } }),
-            addedAt: "2026-08-02T00:00:00.000Z",
-          },
-        }),
-      );
-      const error = await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
-      expect(error.message).toBe(`${rival}: name collision on alpha`);
-      expect(readlinkSync(body)).toBe(target);
-    });
-  });
+    },
+  );
 
   // The names a shared file's block still holds are read through a link: a dotfiles checkout keeps
   // the file as a symlink, and a reader that skipped links let a rival take a name the block
@@ -669,43 +653,6 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("a collision naming the refused source as owner is reported once after the retry", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const upstream = writeSource(join(dir, "upstream"), { alpha: { description: "Alpha." } });
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const rival = writeSource(join(dir, "rival"), { alpha: { description: "Rival." } });
-      writeState(
-        home,
-        stateWith({
-          "@acme/rules": fetchedEntry(from, facts),
-          [rival]: { ...entryFor(localFrom(rival)), addedAt: "2026-08-02T00:00:00.000Z" },
-        }),
-      );
-      const grownNames = Object.fromEntries(
-        Array.from({ length: 25 }, (_, index) => [
-          `rule-${index}`,
-          { description: `Rule ${index}.` },
-        ]),
-      );
-      const grown = writeSource(join(dir, "grown"), {
-        ...grownNames,
-        alpha: { description: "Alpha." },
-      });
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: grown, sha: "b".repeat(40) });
-      const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
-      await expectExit(runSync({ ...SYNC, json: true }, io), firstRefusal(rival));
-      const document = JSON.parse(io.out.join(""));
-      const notices: string[] = document.report.notices;
-      expect(notices.filter((line) => line.includes("alpha is owned by @acme/rules"))).toHaveLength(
-        1,
-      );
-      expect(notices.filter((line) => line.includes("exceed the cap"))).toHaveLength(1);
-    });
-  });
-
   test("a copy retired by a hook run is swept by the next interactive sync", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const upstream = writeSource(join(dir, "upstream"), {
@@ -765,8 +712,7 @@ describe("what a refused or departed source leaves behind", () => {
       const fake = fakeResolvers();
       fake.set(from, { kind: "fail", failure: "network" });
       const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
-      const report = await runSync(SYNC, io);
-      expect(report.rules).toBe(1);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ rules: 1 });
       expect(lstatSync(join(project, ".agents", "memories", "beta.md")).isSymbolicLink()).toBe(
         true,
       );
@@ -863,37 +809,61 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("a renamed copy is still ours after a hook refresh replaced the hash it was written from", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const upstream = writeSource(join(dir, "upstream"), { alpha: { description: "Alpha." } });
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const rename = { [memoryName("alpha")]: memoryName("beta") };
-      const entry = fetchedEntry(from, facts, {
-        destination: { scope: "project", root: project },
-        rename,
+  // A copy installed under a renamed local name keeps its upstream `name` in the frontmatter, read
+  // the way the contract reads it, quoting and comments included.
+  const renamedCopies: [string, string][] = [
+    ["a plain name", memoryFile("alpha", { description: "Alpha." })],
+    [
+      "a quoted and commented name",
+      `---\nname: "alpha" # upstream name\ndescription: Alpha.\n---\n\nBody.\n`,
+    ],
+  ];
+  test.each(renamedCopies)(
+    "a renamed copy with %s is still ours after a hook refresh replaced the hash it was written from",
+    async (_label, upstreamText) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const upstream = join(dir, "upstream");
+        mkdirSync(join(upstream, "memories"), { recursive: true });
+        writeFileSync(join(upstream, "memories", "alpha.md"), upstreamText);
+        const from = githubFrom("acme/rules");
+        seedStore(home, from, upstream);
+        const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
+        const rename = { [memoryName("alpha")]: memoryName("beta") };
+        const entry = fetchedEntry(from, facts, {
+          destination: { scope: "project", root: project },
+          rename,
+        });
+        writeState(home, stateWith({ "@acme/rules": entry }));
+        const fake = fakeResolvers();
+        fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
+        const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
+        io.symlink = { ok: false, reason: "EPERM" };
+        await runSync(SYNC, io);
+        const beta = join(project, ".agents", "memories", "beta.md");
+        expect([lstatSync(beta).isFile(), readFileSync(beta, "utf8")]).toEqual([
+          true,
+          upstreamText,
+        ]);
+        const changed = join(dir, "changed");
+        mkdirSync(join(changed, "memories"), { recursive: true });
+        const revisedText = upstreamText.replace("Alpha.", "Alpha, revised.");
+        writeFileSync(join(changed, "memories", "alpha.md"), revisedText);
+        fake.set(from, { kind: "dir", dir: changed, sha: "b".repeat(40) });
+        io.symlink = { ok: true };
+        io.clock.now = new Date(NOW.getTime() + 10 * DAY_MS);
+        await runSync(QUIET, io);
+        expect([lstatSync(beta).isFile(), readFileSync(beta, "utf8")]).toEqual([
+          true,
+          upstreamText,
+        ]);
+        await runSync(SYNC, io);
+        expect([lstatSync(beta).isSymbolicLink(), readFileSync(beta, "utf8")]).toEqual([
+          true,
+          revisedText,
+        ]);
       });
-      writeState(home, stateWith({ "@acme/rules": entry }));
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
-      const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
-      io.symlink = { ok: false, reason: "EPERM" };
-      await runSync(SYNC, io);
-      const beta = join(project, ".agents", "memories", "beta.md");
-      expect(lstatSync(beta).isFile()).toBe(true);
-      const changed = writeSource(join(dir, "changed"), {
-        alpha: { description: "Alpha, revised." },
-      });
-      fake.set(from, { kind: "dir", dir: changed, sha: "b".repeat(40) });
-      io.symlink = { ok: true };
-      io.clock.now = new Date(NOW.getTime() + 10 * DAY_MS);
-      await runSync(QUIET, io);
-      expect(lstatSync(beta).isFile()).toBe(true);
-      await runSync(SYNC, io);
-      expect(lstatSync(beta).isSymbolicLink()).toBe(true);
-    });
-  });
+    },
+  );
 
   test("an unreadable live source under a path with an at sign still reserves its name", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -911,40 +881,6 @@ describe("what a refused or departed source leaves behind", () => {
         }),
       );
       await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
-    });
-  });
-
-  test("a renamed copy whose frontmatter quotes its name is still recognised as ours", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const upstream = join(dir, "upstream");
-      mkdirSync(join(upstream, "memories"), { recursive: true });
-      const quoted = `---\nname: "alpha" # upstream name\ndescription: Alpha.\n---\n\nBody.\n`;
-      writeFileSync(join(upstream, "memories", "alpha.md"), quoted);
-      const from = githubFrom("acme/rules");
-      seedStore(home, from, upstream);
-      const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), null, "a".repeat(40));
-      const rename = { [memoryName("alpha")]: memoryName("beta") };
-      const entry = fetchedEntry(from, facts, {
-        destination: { scope: "project", root: project },
-        rename,
-      });
-      writeState(home, stateWith({ "@acme/rules": entry }));
-      const fake = fakeResolvers();
-      fake.set(from, { kind: "dir", dir: upstream, sha: "a".repeat(40) });
-      const io = fakeIo({ home, userHome, cwd: project, resolvers: fake.resolvers });
-      io.symlink = { ok: false, reason: "EPERM" };
-      await runSync(SYNC, io);
-      const beta = join(project, ".agents", "memories", "beta.md");
-      const changed = join(dir, "changed");
-      mkdirSync(join(changed, "memories"), { recursive: true });
-      writeFileSync(join(changed, "memories", "alpha.md"), quoted.replace("Body.", "Revised."));
-      fake.set(from, { kind: "dir", dir: changed, sha: "b".repeat(40) });
-      io.symlink = { ok: true };
-      io.clock.now = new Date(NOW.getTime() + 10 * DAY_MS);
-      await runSync(QUIET, io);
-      expect(lstatSync(beta).isFile()).toBe(true);
-      await runSync(SYNC, io);
-      expect(lstatSync(beta).isSymbolicLink()).toBe(true);
     });
   });
 
@@ -1262,13 +1198,14 @@ describe("what a refused or departed source leaves behind", () => {
       );
       const io = fakeIo({ home, userHome, cwd: project });
       await runSync(SYNC, io);
-      const second_ = await runSync(SYNC, io);
-      expect(second_.plan.changes).toEqual([]);
-      expect(second_.memories).toBe(2);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({
+        plan: { changes: [] },
+        memories: 2,
+      });
     });
   });
 
-  test("a refusal retry judges copy ownership from the same installed snapshot", async () => {
+  test("a refusal retry counts only the admitted memories and finds no collision between the copies", async () => {
     await world(async ({ home, dir, userHome, project }) => {
       const first = writeSource(join(dir, "first"), { shared: { description: "Same." } });
       const second = writeSource(join(dir, "second"), { shared: { description: "Same." } });
@@ -1302,10 +1239,8 @@ describe("what a refused or departed source leaves behind", () => {
       );
       expect(error.message).toContain("2 rule lines exceed the cap of 1");
       const document = JSON.parse(io.out.join(""));
-      expect(document.report.memories).toBe(1);
-      expect(document.report.notices.some((line: string) => line.includes("collision"))).toBe(
-        false,
-      );
+      const owned = (line: string) => line.includes(" is owned by ");
+      expect([document.report.memories, document.report.notices.filter(owned)]).toEqual([1, []]);
     });
   });
 
@@ -1326,11 +1261,8 @@ describe("what a refused or departed source leaves behind", () => {
         }),
       );
       const io = fakeIo({ home, userHome, cwd: dir });
-      const first = await runSync(SYNC, io);
-      expect(first.rules).toBe(2);
-      const second = await runSync(SYNC, io);
-      expect(second.plan.changes).toEqual([]);
-      expect(second.rules).toBe(2);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ rules: 2 });
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ plan: { changes: [] }, rules: 2 });
     });
   });
 
@@ -1411,58 +1343,68 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  test("a shared file the user keeps as a symlink is skipped with a notice, never replaced", async () => {
-    await world(async ({ home, dir, userHome }) => {
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      writeState(
-        home,
-        stateWith({ [source]: entryFor(localFrom(source), { harnesses: ["codex"] }) }),
-      );
-      const real = join(dir, "dotfiles-AGENTS.md");
-      writeFileSync(real, "# From dotfiles\n");
-      const shared = join(userHome, ".fixture", "FIXTURE.md");
-      symlinkSync(real, shared);
-      const io = fakeIo({ home, userHome, cwd: dir });
-      const report = await runSync(SYNC, io);
-      expect(lstatSync(shared).isSymbolicLink()).toBe(true);
-      expect(readFileSync(real, "utf8")).toBe("# From dotfiles\n");
-      expect(report.notices).toContain(
-        `maxims: ${shared} is a symlink; managed blocks are not written through links`,
-      );
-    });
-  });
-
-  // The sweep visits every shared file a harness reads here; a link it finds is only worth a
-  // line when the run has something to do in the file. The rows are the linked file's content.
-  const linkedVisits: [string, string, boolean][] = [
-    ["a linked file with no managed block, wanted by no source here", "# From dotfiles\n", false],
+  // A shared file the user keeps as a symlink (a dotfiles checkout) is never written through, at
+  // either scope. The sweep visits every shared file a harness reads here, and a link is only
+  // worth a line when the run has something to do in the file: a block a source here wants, or a
+  // departed source's block to strip.
+  const linkedVisits: [string, string, HarnessId, Scope, boolean][] = [
+    [
+      "a linked file with no managed block, wanted by no source here",
+      "# From dotfiles\n",
+      "claude-code",
+      "project",
+      false,
+    ],
     [
       "a linked file holding a departed source's block",
       "# From dotfiles\n<!-- maxims:begin @acme/gone sha=abc1234 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n",
+      "claude-code",
+      "project",
+      true,
+    ],
+    [
+      "a linked project file a source here wants a block in",
+      "# From dotfiles\n",
+      "codex",
+      "project",
+      true,
+    ],
+    [
+      "a linked global file a source here wants a block in",
+      "# From dotfiles\n",
+      "codex",
+      "global",
       true,
     ],
   ];
-  test.each(linkedVisits)("the sweep on %s", async (_label, content, noticed) => {
-    await world(async ({ home, dir, userHome }) => {
-      const project = join(dir, "project");
-      mkdirSync(project, { recursive: true });
-      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
-      const entry = entryFor(localFrom(source), {
-        harnesses: ["claude-code"],
-        destination: { scope: "project", root: project },
+  test.each(linkedVisits)(
+    "a linked shared file is left as it is: %s",
+    async (_label, content, harness, scope, noticed) => {
+      await world(async ({ home, dir, userHome }) => {
+        const project = join(dir, "project");
+        mkdirSync(project, { recursive: true });
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        const entry = entryFor(localFrom(source), {
+          harnesses: [harness],
+          ...(scope === "project" ? { destination: { scope, root: project } } : {}),
+        });
+        writeState(home, stateWith({ [source]: entry }));
+        const real = join(dir, "dotfiles-FIXTURE.md");
+        writeFileSync(real, content);
+        const shared =
+          scope === "project"
+            ? join(project, "FIXTURE.md")
+            : join(userHome, ".fixture", "FIXTURE.md");
+        symlinkSync(real, shared);
+        const io = fakeIo({ home, userHome, cwd: project });
+        const report = await runSync(SYNC, io);
+        expect(lstatSync(shared).isSymbolicLink()).toBe(true);
+        expect(readFileSync(real, "utf8")).toBe(content);
+        const line = `maxims: ${shared} is a symlink; managed blocks are not written through links`;
+        expect(report.notices.includes(line)).toBe(noticed);
       });
-      writeState(home, stateWith({ [source]: entry }));
-      const real = join(dir, "dotfiles-FIXTURE.md");
-      writeFileSync(real, content);
-      const shared = join(project, "FIXTURE.md");
-      symlinkSync(real, shared);
-      const io = fakeIo({ home, userHome, cwd: project });
-      const report = await runSync(SYNC, io);
-      expect(readFileSync(real, "utf8")).toBe(content);
-      const line = `maxims: ${shared} is a symlink; managed blocks are not written through links`;
-      expect(report.notices.includes(line)).toBe(noticed);
-    });
-  });
+    },
+  );
 
   test("a hook run leaves a departed source's block in a shared file; an interactive run strips it", async () => {
     await world(async ({ home, dir, userHome }) => {
@@ -1512,8 +1454,7 @@ describe("a vanished source's destination", () => {
         const path = join(userHome, parent);
         rmSync(path, { recursive: true });
         writeFileSync(path, "not a directory\n");
-        const report = await runSync(SYNC, io);
-        expect(report.failed.map((failure) => failure.key)).toEqual([live]);
+        await expect(runSync(SYNC, io)).resolves.toMatchObject({ failed: [{ key: live }] });
         expect(readFileSync(path, "utf8")).toBe("not a directory\n");
       });
     });

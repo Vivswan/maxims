@@ -19,10 +19,10 @@ import { basename, join, sep } from "node:path";
 import { loadContext } from "../../../src/commands/shared/context.ts";
 import { type HarnessWants, planHooks } from "../../../src/commands/shared/hooks.ts";
 import { runSync } from "../../../src/commands/sync.ts";
-import type { SyncOptions } from "../../../src/commands/types.ts";
 import { claudeCode } from "../../../src/harnesses/claude-code/spec.ts";
 import { HOOK_COMMAND, type Scope } from "../../../src/harnesses/contract.ts";
 import { dsh } from "../../../src/harnesses/dsh/spec.ts";
+import { readIfPresent } from "../../../src/util/fs.ts";
 import {
   configEditHarness,
   entryFor,
@@ -35,13 +35,7 @@ import {
   writeState,
 } from "../../engine/harness.ts";
 import { TWO_MEMORIES, world } from "../../engine/world.ts";
-
-const SYNC: SyncOptions = {
-  quiet: false,
-  dryRun: false,
-  json: false,
-  fetch: "due",
-};
+import { SYNC } from "../../shared/sync_support.ts";
 
 // The registry write's content is the hook writer's; this test pins only which changes appear.
 const configWrite = (config: string): unknown => ({
@@ -114,21 +108,18 @@ describe("a hook that lives in one place for both scopes", () => {
       const patch = join(userHome, ".dsh", "cordis.patch.yml");
       for (const run of ["first", "second"]) {
         await runSync(SYNC, io);
-        expect([run, readFileSync(hooks, "utf8")]).toEqual([
-          run,
-          expect.stringContaining(HOOK_COMMAND),
-        ]);
+        expect([run, readIfPresent(hooks)]).toEqual([run, expect.stringContaining(HOOK_COMMAND)]);
         expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
       }
       // Half a mount (the row without its file) is still the bridge: the scope that does not want
       // it takes the pair back as one artifact, so the scope that wants it keeps the row.
       rmSync(hooks);
       await runSync(SYNC, io);
-      expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+      expect(readIfPresent(hooks)).toEqual(expect.stringContaining(HOOK_COMMAND));
       expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
       writeState(home, stateWith({ [source]: entry }));
       await runSync(SYNC, io);
-      expect(existsSync(hooks)).toBe(false);
+      expect(readIfPresent(hooks)).toBeNull();
       expect(readFileSync(patch, "utf8")).not.toContain("maxims-hooks");
     });
   });
@@ -168,16 +159,17 @@ describe("a hook that lives in one place for both scopes", () => {
         }
         await run(root);
         expect(readFileSync(registry(root), "utf8")).toContain(HOOK_COMMAND);
-        expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+        expect(readIfPresent(hooks)).toEqual(expect.stringContaining(HOOK_COMMAND));
         expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
+        // The run reaches the home through its alias, so a planned path is matched by its name.
+        const hookFiles = new Set([hooks, patch, registry(root)].map((file) => basename(file)));
         for (const cwd of [project, dir]) {
           const report = await run(cwd);
-          const hookFiles = new Set([hooks, patch, registry(root)]);
           const deleted = report.plan.changes.filter(
-            (change) => change.kind === "delete" && hookFiles.has(change.path),
+            (change) => change.kind === "delete" && hookFiles.has(basename(change.path)),
           );
           expect([root, cwd, deleted]).toEqual([root, cwd, []]);
-          expect(readFileSync(hooks, "utf8")).toContain(HOOK_COMMAND);
+          expect(readIfPresent(hooks)).toEqual(expect.stringContaining(HOOK_COMMAND));
           expect(readFileSync(patch, "utf8")).toContain("maxims-hooks");
           expect(readFileSync(registry(root), "utf8")).toContain(HOOK_COMMAND);
           expect(existsSync(registry(project))).toBe(false);

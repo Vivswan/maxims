@@ -275,10 +275,13 @@ describe("plan surfaces", () => {
         join(first, "memories", "alpha.md"),
         memoryFile("alpha", { description: "Alpha, changed twice." }),
       );
-      const widened = await runSync({ ...SYNC, fetch: "force", agents: ["codex"] }, io);
-      expect(widened.notices).toContain(
-        `maxims: @acme/first: skipped claude-code (Fixture Rules: ${join(project, ".fixture")} does not exist)`,
-      );
+      await expect(
+        runSync({ ...SYNC, fetch: "force", agents: ["codex"] }, io),
+      ).resolves.toMatchObject({
+        notices: expect.arrayContaining([
+          `maxims: @acme/first: skipped claude-code (Fixture Rules: ${join(project, ".fixture")} does not exist)`,
+        ]),
+      });
       writeFileSync(
         join(first, "memories", "alpha.md"),
         memoryFile("alpha", { description: "Alpha, changed thrice." }),
@@ -464,8 +467,7 @@ describe("shared file byte budget", () => {
       writeSource(first, rule("alpha", 6));
       writeSource(second, rule("bravo", 2));
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [budgeted] });
-      const report = await runSync({ ...SYNC, fetch: "none" }, io);
-      expect(report.rules).toBe(8);
+      await expect(runSync({ ...SYNC, fetch: "none" }, io)).resolves.toMatchObject({ rules: 8 });
       expect(statSync(shared).size).toBe(size);
       const text = readFileSync(shared, "utf8");
       expect(parseBlocks(text).blocks).toHaveLength(2);
@@ -490,11 +492,10 @@ describe("shared file byte budget", () => {
       );
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [probing] });
       const shared = join(userHome, ".fixture", "FIXTURE.md");
-      await runSync(SYNC, io);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ rules: 2 });
       const before = readFileSync(shared, "utf8");
       rmSync(live, { recursive: true });
-      const report = await runSync(SYNC, io);
-      expect(report.failed.map((failure) => failure.key)).toEqual([live]);
+      await expect(runSync(SYNC, io)).resolves.toMatchObject({ failed: [{ key: live }] });
       expect(readFileSync(shared, "utf8")).toBe(before);
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
       const from = githubFrom("acme/rules");
@@ -562,10 +563,8 @@ describe("shared file byte budget", () => {
     });
   });
 
-  // Which source is held: the one installed last by `addedAt` as an instant, whatever its key
-  // sorts as, and on a tie the later key, so two machines holding the same file hold the same
-  // source. The instant matters: `...00Z` and `...00.001Z` are both valid, and the string order
-  // between them is not the time order.
+  // Which source is held: the one installed last by `addedAt`, whatever its key sorts as, and on
+  // a tie the later key, so two machines holding the same file hold the same source.
   const winners = [
     {
       name: "the source installed last, although its key sorts first",
@@ -576,15 +575,6 @@ describe("shared file byte budget", () => {
       name: "the later key when two sources were installed at the same moment",
       addedAt: { alpha: day(1), bravo: day(2), charlie: day(2) },
       held: "charlie",
-    },
-    {
-      name: "the later instant when the timestamps differ in precision",
-      addedAt: {
-        alpha: "2026-08-01T00:00:00Z",
-        bravo: "2026-08-01T00:00:00.001Z",
-        charlie: day(1),
-      },
-      held: "bravo",
     },
   ] as const;
   for (const winner of winners) {

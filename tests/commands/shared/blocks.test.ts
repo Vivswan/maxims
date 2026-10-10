@@ -27,19 +27,19 @@ function blockUnder(store: string): string {
 }
 
 const block = blockUnder("/home/user/.agents/maxims/store/acme/rules");
+const savedWith = (ending: string): string =>
+  `# Mine${ending}${ending}${block.replaceAll("\n", ending)}`;
 
-const endings: [string, string][] = [
-  ["LF", "\n"],
-  ["CRLF", "\r\n"],
-  ["CR", "\r"],
+const texts: [string, string][] = [
+  ["LF endings", savedWith("\n")],
+  ["CRLF endings", savedWith("\r\n")],
+  ["CR endings", savedWith("\r")],
+  [
+    "a Unicode line separator in a detail path",
+    blockUnder("/home/user/notes\u2028more/.agents/maxims/store/acme/rules"),
+  ],
 ];
 
-test.each(endings)("a block saved with %s endings yields every rule name", (_label, ending) => {
-  const text = `# Mine${ending}${ending}${block.replaceAll("\n", ending)}`;
-  expect(parseRuleBlocks(text)).toEqual([{ source: "@acme/rules", names: NAMES }]);
-});
-
-test("a detail path carrying a Unicode line separator still yields its name", () => {
-  const text = blockUnder("/home/user/notes\u2028more/.agents/maxims/store/acme/rules");
+test.each(texts)("a block saved with %s yields every rule name", (_label, text) => {
   expect(parseRuleBlocks(text)).toEqual([{ source: "@acme/rules", names: NAMES }]);
 });

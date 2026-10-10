@@ -3,7 +3,7 @@
 // after the collision it resolved is gone, a lock entry this machine never installed), and a
 // `--json` document that hides any of those behind pre-rendered strings.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
@@ -20,6 +20,7 @@ import {
   fetchedFacts,
   githubFrom,
   gitSha,
+  type IntentOverrides,
   localFrom,
   memoryName,
   rulesDirHarness,
@@ -30,9 +31,9 @@ import {
   writeState,
 } from "../engine/harness.ts";
 import { TWO_MEMORIES, world } from "../engine/world.ts";
+import { NOW } from "../shared/sync_support.ts";
 
 const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "none" };
-const NOW = new Date("2026-09-20T12:00:00.000Z");
 
 describe("list", () => {
   test("re-derives tier, hook presence, staleness, renames and the lock-only sources", async () => {
@@ -259,100 +260,75 @@ describe("list", () => {
     });
   });
 
-  test("a rename against an unreadable older source still reports the collision it resolves", async () => {
-    await world(async (w) => {
-      const older = writeSource(join(w.dir, "older"), { alpha: { description: "Older." } });
-      const from = githubFrom("acme/older");
-      const facts = await fetchedFacts(older, daysAgo(NOW, 1));
-      const renamer = writeSource(join(w.dir, "renamer"), { alpha: { description: "Mine." } });
-      const rename = { [memoryName("alpha")]: memoryName("alpha-local") };
-      writeState(
-        w.home,
-        stateWith({
-          "@acme/older": fetchedEntry(from, facts),
-          [renamer]: {
-            ...entryFor(localFrom(renamer), { rename }),
-            addedAt: "2026-08-02T00:00:00.000Z",
-          },
-        }),
-      );
-      seedStore(w.home, localFrom(renamer), renamer);
-      const io = fakeIo({ ...w, cwd: w.dir });
-      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
-      expect(report.sources.find((source) => source.key === renamer)?.renames).toEqual([
-        {
-          upstreamName: "alpha",
-          localName: "alpha-local",
-          verdict: "resolves",
-          against: "@acme/older",
+  // An unreadable older source owns the local names it installed: the recorded fetch through its
+  // selection and renames, or for a live source the block its last run left behind.
+  const unreadableOlder: [
+    string,
+    { kind: "fetched" | "live"; shipped: "alpha" | "beta"; overrides?: IntentOverrides },
+  ][] = [
+    ["a fetched source with no store copy", { kind: "fetched", shipped: "alpha" }],
+    ["a live source whose directory is gone", { kind: "live", shipped: "alpha" }],
+    [
+      "a fetched source whose recorded names pass through its selection and renames",
+      {
+        kind: "fetched",
+        shipped: "beta",
+        overrides: {
+          select: [memoryName("alpha")],
+          rename: { [memoryName("alpha")]: memoryName("beta") },
         },
-      ]);
-    });
-  });
-
-  test("a rename against an unreadable older live source still reads as resolving", async () => {
-    await world(async (w) => {
-      const older = writeSource(join(w.dir, "older"), { alpha: { description: "Older." } });
-      const renamer = writeSource(join(w.dir, "renamer"), { alpha: { description: "Mine." } });
-      const rename = { [memoryName("alpha")]: memoryName("alpha-local") };
-      writeState(
-        w.home,
-        stateWith({
-          [older]: entryFor(localFrom(older, true)),
-          [renamer]: {
-            ...entryFor(localFrom(renamer), { rename }),
-            addedAt: "2026-08-02T00:00:00.000Z",
+      },
+    ],
+  ];
+  test.each(unreadableOlder)(
+    "a rename against %s still reports the collision it resolves",
+    async (_label, older) => {
+      await world(async (w) => {
+        const olderDir = writeSource(join(w.dir, "older"), {
+          alpha: { description: "Older alpha." },
+          gamma: { description: "Older gamma." },
+        });
+        const olderKey = older.kind === "fetched" ? "@acme/older" : olderDir;
+        const olderEntry =
+          older.kind === "fetched"
+            ? fetchedEntry(
+                githubFrom("acme/older"),
+                await fetchedFacts(olderDir, daysAgo(NOW, 1)),
+                older.overrides,
+              )
+            : entryFor(localFrom(olderDir, true));
+        const renamer = writeSource(join(w.dir, "renamer"), {
+          [older.shipped]: { description: "Mine." },
+        });
+        const rename = { [memoryName(older.shipped)]: memoryName(`${older.shipped}-local`) };
+        writeState(
+          w.home,
+          stateWith({
+            [olderKey]: olderEntry,
+            [renamer]: {
+              ...entryFor(localFrom(renamer), { rename }),
+              addedAt: "2026-08-02T00:00:00.000Z",
+            },
+          }),
+        );
+        seedStore(w.home, localFrom(renamer), renamer);
+        const io = fakeIo({ ...w, cwd: w.dir });
+        if (older.kind === "live") {
+          await runSync({ ...SYNC, fetch: "due" }, io);
+          rmSync(olderDir, { recursive: true });
+        }
+        const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+        expect(report.sources.find((source) => source.key === renamer)?.renames).toEqual([
+          {
+            upstreamName: older.shipped,
+            localName: `${older.shipped}-local`,
+            verdict: "resolves",
+            against: olderKey,
           },
-        }),
-      );
-      const io = fakeIo({ ...w, cwd: w.dir });
-      await runSync({ ...SYNC, fetch: "due" }, io);
-      const { rmSync } = await import("node:fs");
-      rmSync(older, { recursive: true });
-      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
-      expect(report.sources.find((source) => source.key === renamer)?.renames).toEqual([
-        { upstreamName: "alpha", localName: "alpha-local", verdict: "resolves", against: older },
-      ]);
-    });
-  });
-
-  test("an unreadable source's selection and renames count once, as the local names it holds", async () => {
-    await world(async (w) => {
-      const older = writeSource(join(w.dir, "older"), {
-        alpha: { description: "Older alpha." },
-        gamma: { description: "Older gamma." },
+        ]);
       });
-      const from = githubFrom("acme/older");
-      const facts = await fetchedFacts(older, daysAgo(NOW, 1));
-      const olderEntry = fetchedEntry(from, facts, {
-        select: [memoryName("alpha")],
-        rename: { [memoryName("alpha")]: memoryName("beta") },
-      });
-      const renamer = writeSource(join(w.dir, "renamer"), { beta: { description: "Mine." } });
-      const rename = { [memoryName("beta")]: memoryName("beta-local") };
-      writeState(
-        w.home,
-        stateWith({
-          "@acme/older": olderEntry,
-          [renamer]: {
-            ...entryFor(localFrom(renamer), { rename }),
-            addedAt: "2026-08-02T00:00:00.000Z",
-          },
-        }),
-      );
-      seedStore(w.home, localFrom(renamer), renamer);
-      const io = fakeIo({ ...w, cwd: w.dir });
-      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
-      expect(report.sources.find((source) => source.key === renamer)?.renames).toEqual([
-        {
-          upstreamName: "beta",
-          localName: "beta-local",
-          verdict: "resolves",
-          against: "@acme/older",
-        },
-      ]);
-    });
-  });
+    },
+  );
 
   test("a fresh clone with a lock and no state still lists the lock's sources", async () => {
     await world(async (w) => {
@@ -402,9 +378,13 @@ describe("list", () => {
       expect(byKey["@acme/lost"]?.harnesses.map((harness) => harness.skipped)).toEqual([
         "another project",
       ]);
+      // A remote never fetched is not live: live is the entry's kind, not the absence of fetch facts.
+      expect(byKey["@acme/lost"]?.live).toBe(false);
       const text = io.out.join("");
       expect(text).toContain(`${shared}  -  not fetched yet  shared\n`);
-      expect(text).toContain(`  installed for ${gone} (project folder missing)\n`);
+      expect(text).toContain(
+        `@acme/lost  -  not fetched yet\n  installed for ${gone} (project folder missing)\n`,
+      );
       // A project entry's switched-off names are its own project's, and a lock entry state holds
       // only for another project is still not installed here.
       const otherProject = join(w.dir, "other-project");
@@ -486,20 +466,8 @@ describe("list", () => {
     });
   });
 
-  test("a remote source never fetched is not called live", async () => {
-    await world(async (w) => {
-      const from = githubFrom("acme/rules");
-      writeState(w.home, stateWith({ "@acme/rules": entryFor(from) }));
-      const io = fakeIo({ ...w, cwd: w.dir });
-      const report = await runList({ quiet: false, dryRun: false, json: false }, io);
-      expect(report.sources[0]?.live).toBe(false);
-      expect(io.out.join("")).toContain("@acme/rules  -  not fetched yet\n");
-    });
-  });
-
   test("a harness whose project folder is a file is listed as skipped, hook unprobed", async () => {
     await world(async (w) => {
-      const { rmSync } = await import("node:fs");
       rmSync(join(w.project, ".fixture"), { recursive: true });
       writeFileSync(join(w.project, ".fixture"), "legacy single file");
       const source = writeSource(join(w.dir, "src"), TWO_MEMORIES);

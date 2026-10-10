@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { SyncOptions } from "../../src/commands/types.ts";
 import { heldForReview } from "../../src/console/strings.ts";
 import type { SourceEntry } from "../../src/state/schema.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../src/util/home.ts";
@@ -29,10 +28,8 @@ import {
   writeState,
 } from "../engine/harness.ts";
 import { globalRulesFile, TWO_MEMORIES, type World, world } from "../engine/world.ts";
+import { DAY_MS, fetchedOf, NOW, SYNC } from "../shared/sync_support.ts";
 
-const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "due" };
-const NOW = new Date("2026-09-20T12:00:00.000Z");
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
 const SLUG = "acme-rules";
@@ -47,11 +44,6 @@ const REVISION_B = {
 function pendingOf(home: string): Extract<SourceEntry, { pending?: unknown }>["pending"] {
   const entry = readStateFile(home).sources[KEY];
   return entry !== undefined && "pending" in entry ? entry.pending : undefined;
-}
-
-function fetchedAt(home: string): string | undefined {
-  const entry = readStateFile(home).sources[KEY];
-  return entry !== undefined && "fetched" in entry ? entry.fetched?.at : undefined;
 }
 
 // Directory A installed from a fetch one day old, recorded as reviewed or not; the first sync
@@ -104,7 +96,7 @@ describe("a reviewed source", () => {
         expect.stringMatching(/^~ always-review \([0-9a-f]{7} -> [0-9a-f]{7}\)$/),
         "+ new-rule",
       ]);
-      expect(fetchedAt(w.home)).toBe(now);
+      expect(fetchedOf(w.home, KEY)?.at).toBe(now);
       expect(io.out.join("")).toBe(`!  ${heldForReview(KEY, 2)}\n`);
       const log = readFileSync(homePaths(w.home).log, "utf8");
       expect(log).toContain(`${KEY}: held + new-rule\n`);
@@ -179,6 +171,8 @@ describe("a reviewed source", () => {
     });
   });
 
+  // The pending sweep runs for every verb: a removal that only swept the store would leave the
+  // held revision behind with no entry to say whose it is.
   test("loses its held revision with its store entry when it is removed", async () => {
     await world(async (w) => {
       const { io } = await installed(w, true);
@@ -188,8 +182,10 @@ describe("a reviewed source", () => {
         { quiet: false, dryRun: false, json: false, targets: [KEY], all: false, confirmed: true },
         io,
       );
-      expect(existsSync(pendingPathFor(w.home, FROM))).toBe(false);
-      expect(existsSync(storePathFor(w.home, FROM))).toBe(false);
+      expect([
+        existsSync(pendingPathFor(w.home, FROM)),
+        existsSync(storePathFor(w.home, FROM)),
+      ]).toEqual([false, false]);
     });
   });
 });
