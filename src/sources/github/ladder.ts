@@ -8,27 +8,13 @@ import { isGitEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
-import type { LastError } from "../../contracts/last-error.ts";
 import { DEFAULT_GIT_REF } from "../../contracts/source.ts";
+import { FetchFailure, type FetchFailureKind } from "../contract.ts";
 import type { WarnSink } from "../tree.ts";
 import { DEFAULT_GH_HOST, isDotcomClass } from "./host.ts";
 import { extractTarball } from "./tarball.ts";
 
 export type RepoCoordinate = { owner: string; repo: string };
-
-export type FetchFailureKind = LastError["kind"];
-
-export class FetchFailure extends Error {
-  readonly kind: FetchFailureKind;
-  readonly retryAfterSeconds: number | undefined;
-
-  constructor(kind: FetchFailureKind, message: string, retryAfterSeconds?: number) {
-    super(message);
-    this.name = "FetchFailure";
-    this.kind = kind;
-    this.retryAfterSeconds = retryAfterSeconds;
-  }
-}
 
 export type ExecResult =
   | { kind: "exited"; code: number; stdout: Uint8Array; stderr: string }

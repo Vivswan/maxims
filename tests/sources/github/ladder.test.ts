@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { simpleGit } from "simple-git";
+import { FetchFailure, type FetchFailureKind } from "../../../src/sources/contract.ts";
 import { createFixtureRepo } from "../../../src/sources/github/fixtures/repo.ts";
 import {
   brokenBodyResponse,
@@ -28,8 +29,6 @@ import {
   credentialConfig,
   type Endpoints,
   endpointsFor,
-  FetchFailure,
-  type FetchFailureKind,
   type GitCredentials,
   gitEnvironment,
   isAbsentBinary,
