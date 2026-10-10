@@ -12,21 +12,11 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-09",
+    date: "2026-10-10",
     sources: [
       {
         kind: "schema",
-        url: "https://www.schemastore.org/codex-hooks.json",
-        paths: [
-          "/properties/hooks/properties/SessionStart",
-          "/definitions/commandHandler/properties/timeout",
-          "/definitions/commandHandler/properties/statusMessage",
-        ],
-        note: "the SessionStart handler fields of hooks.json, in the community-maintained schema on SchemaStore",
-      },
-      {
-        kind: "schema",
-        url: "https://learn.chatgpt.com/docs/config-schema.json",
+        url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/config.schema.json",
         paths: ["/properties/features/properties/hooks"],
         note: "features.hooks in config.toml",
       },
@@ -35,8 +25,14 @@ export const spec = {
         repo: "openai/codex",
         ref: "main",
         path: "codex-rs/config/src/hook_config.rs",
-        claims: ['rename = "SessionStart"', 'rename = "statusMessage"', "timeout_sec", "r#async"],
-        note: "the handler fields, async included",
+        claims: [
+          'rename = "SessionStart"',
+          'rename = "timeout"',
+          'rename = "statusMessage"',
+          "timeout_sec",
+          "r#async",
+        ],
+        note: "the SessionStart event and the handler fields as hooks.json spells them, async included",
       },
       {
         kind: "file",
