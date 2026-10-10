@@ -1,6 +1,7 @@
 // Fails if the published artifact stops being a self-contained node executable: a lost or doubled
-// shebang, a dropped exec bit, a stray node_modules reference, or a size line that lies would all
-// ship silently, since nothing in the repo runs dist/cli.js under plain node except this test.
+// shebang, a dropped exec bit, a stray node_modules reference, a build machine's path inlined from
+// a CommonJS module's `__filename`, or a size line that lies would all ship silently, since nothing
+// in the repo runs dist/cli.js under plain node except this test.
 // Also fails if relative --entry, --outfile, and --size-json paths stop landing where the caller
 // stands, which the repo-root chdir inside the build would otherwise move without a word, if one
 // path given for both, in one spelling or two, through a symlinked directory or not, lets the
@@ -151,6 +152,31 @@ test("a bundle whose entry imports jsonc-parser runs under node", async () => {
     expect(run.stdout.toString()).toBe('jsonc: {"a": 1, "b": 2}\n');
   });
 });
+
+// Bun inlines a CommonJS module's `__filename` as the absolute path it was bundled from, so one
+// such dependency would ship the builder's home directory inside dist/cli.js. The scratch build
+// is the control: it proves the leak shows up through the same read the shipped bundle passes.
+test("the bundle carries no path of the build machine", async () => {
+  await withTempDir((dir) => {
+    writeFileSync(join(dir, "leaf.cjs"), "module.exports = __filename;\n");
+    writeFileSync(join(dir, "entry.ts"), 'import leaf from "./leaf.cjs";\nconsole.log(leaf);\n');
+    const leaking = runBuild(
+      ["--entry", join(dir, "entry.ts"), "--outfile", join(dir, "leaking.js")],
+      repoRoot,
+    );
+    expect(leaking.exitCode).toBe(0);
+    expect(readFileSync(join(dir, "leaking.js"), "utf8")).toContain(inlined(dir));
+
+    const shipped = runBuild(["--outfile", join(dir, "cli.js")], repoRoot);
+    expect(shipped.exitCode).toBe(0);
+    expect(readFileSync(join(dir, "cli.js"), "utf8")).not.toContain(inlined(repoRoot));
+  });
+});
+
+// A path as it sits inside the bundle's string literal: real, and with Windows separators escaped.
+function inlined(path: string): string {
+  return JSON.stringify(realpathSync(path)).slice(1, -1);
+}
 
 const usageErrors: [string, (dir: string) => string[], (dir: string) => string[]][] = [
   ["an unknown flag", () => ["--minify"], () => ["Unknown option '--minify'"]],
