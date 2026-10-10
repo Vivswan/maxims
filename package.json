@@ -43,6 +43,7 @@
     "test:arch": "bun scripts/check_architecture_page.mts --page docs/architecture.md --repo-url https://github.com/Vivswan/maxims/blob/main/ --expect-diagrams 14"
   },
   "devDependencies": {
+    "@actions/expressions": "0.3.61",
     "@biomejs/biome": "2.5.11",
     "@clack/prompts": "1.8.1",
     "@hyperjump/json-pointer": "1.1.3",

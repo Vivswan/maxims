@@ -1,12 +1,12 @@
 # Nightly CI: seeded before the fleet sync, never overwritten by it. One job per category and one
 # tracking issue per category (repo-platform's docs/nightly.md and docs/fuzzer.md): a red category
-# writes its evidence to a failure report, uploads it, and its report job files or refreshes the
+# writes its evidence to a failure report, uploads it, and its report leg files or refreshes the
 # issue carrying that category's label; a green category closes it. Every category job is
-# unconditional, so no report job ever sees a sibling as skipped.
+# unconditional, so no report leg ever sees its category as skipped.
 #
 #   scripts/nightly.ts <category>      -> runs the category, writes the step summary and the report
 #   $RUNNER_TEMP/nightly-report/       -> <category>/report.md, the failure-report contract v1
-#   report-<category>                  -> fuzz-issue report on failure or cancellation, resolve on success
+#   report (<category>)                -> fuzz-issue report on failure or cancellation, resolve on success
 #
 # A CANCELLED job counts as red: hitting the timeout cancels rather than fails, and a hang is
 # exactly what a nightly exists to catch.
@@ -45,38 +45,6 @@ jobs:
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
 
-  report-property-deep:
-    needs: [property-deep]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - if: needs.property-deep.result == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nightly-property-deep
-          path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.property-deep.result)
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: report
-          label: nightly-property-deep
-          title: The deep property run failed
-          label-color: D93F0B
-          label-description: The deep property run failed
-          stream: generic
-          artifacts-dir: nightly-report
-          artifact-name: nightly-property-deep
-      - if: needs.property-deep.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: resolve
-          label: nightly-property-deep
-          stream: generic
-
   # `npx skills@latest --help` re-captured and diffed against the committed parity fixture.
   parity-drift:
     runs-on: ubuntu-latest
@@ -98,38 +66,6 @@ jobs:
           name: nightly-parity-drift
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
-
-  report-parity-drift:
-    needs: [parity-drift]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - if: needs.parity-drift.result == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nightly-parity-drift
-          path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.parity-drift.result)
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: report
-          label: nightly-parity-drift
-          title: npx skills --help drifted from the parity fixture
-          label-color: D93F0B
-          label-description: npx skills --help drifted from the parity fixture
-          stream: generic
-          artifacts-dir: nightly-report
-          artifact-name: nightly-parity-drift
-      - if: needs.parity-drift.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: resolve
-          label: nightly-parity-drift
-          stream: generic
 
   # Every harness definition's verified source re-fetched and its claims re-matched.
   harness-drift:
@@ -153,38 +89,6 @@ jobs:
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
 
-  report-harness-drift:
-    needs: [harness-drift]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - if: needs.harness-drift.result == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nightly-harness-drift
-          path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.harness-drift.result)
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: report
-          label: nightly-harness-drift
-          title: A harness definition's verified source drifted or was unreachable
-          label-color: D93F0B
-          label-description: A harness definition's verified source drifted or was unreachable
-          stream: generic
-          artifacts-dir: nightly-report
-          artifact-name: nightly-harness-drift
-      - if: needs.harness-drift.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: resolve
-          label: nightly-harness-drift
-          stream: generic
-
   # The built bundle driven through the fetch ladder against Vivswan/skills on the public network.
   live-network:
     runs-on: ubuntu-latest
@@ -207,38 +111,6 @@ jobs:
           name: nightly-live-network
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
-
-  report-live-network:
-    needs: [live-network]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - if: needs.live-network.result == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nightly-live-network
-          path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.live-network.result)
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: report
-          label: nightly-live-network
-          title: The live fetch ladder against Vivswan/skills failed
-          label-color: D93F0B
-          label-description: The live fetch ladder against Vivswan/skills failed
-          stream: generic
-          artifacts-dir: nightly-report
-          artifact-name: nightly-live-network
-      - if: needs.live-network.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: resolve
-          label: nightly-live-network
-          stream: generic
 
   # HEAD built and timed, then compared against the entry recorded a week ago. The trend lives in
   # trend.json on the orphan `benchmarks` branch, checked out into a scratch clone under
@@ -307,38 +179,6 @@ jobs:
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
 
-  report-latency-trend:
-    needs: [latency-trend]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - if: needs.latency-trend.result == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nightly-latency-trend
-          path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.latency-trend.result)
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: report
-          label: nightly-latency-trend
-          title: Hook-path latency or bundle size regressed against 7 days ago
-          label-color: D93F0B
-          label-description: Hook-path latency or bundle size regressed against 7 days ago
-          stream: generic
-          artifacts-dir: nightly-report
-          artifact-name: nightly-latency-trend
-      - if: needs.latency-trend.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@stable
-        with:
-          mode: resolve
-          label: nightly-latency-trend
-          stream: generic
-
   # The published `next` package fetched from the registry by `npx` and driven through one install
   # round trip under a throwaway HOME: the npm artifact itself, not the bundle this checkout builds.
   published-smoke:
@@ -362,36 +202,56 @@ jobs:
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
 
-  report-published-smoke:
-    needs: [published-smoke]
+  # The category jobs stay apart because `needs` reports a matrix job as one result for all its
+  # legs, so a matrix of categories could never tell a report leg which one went red. Fail-fast is
+  # off so a leg's own failure cannot cancel its siblings' filings. The legs and their wording are
+  # pinned by tests/nightly/workflow_census.test.ts to scripts/nightly.ts and the settings' labels.
+  report:
+    needs: [property-deep, parity-drift, harness-drift, live-network, latency-trend, published-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - category: property-deep
+            description: The deep property run failed
+          - category: parity-drift
+            description: npx skills --help drifted from the parity fixture
+          - category: harness-drift
+            description: A harness definition's verified source drifted or was unreachable
+          - category: live-network
+            description: The live fetch ladder against Vivswan/skills failed
+          - category: latency-trend
+            description: Hook-path latency or bundle size regressed against 7 days ago
+          - category: published-smoke
+            description: The published next package failed its smoke run
     steps:
-      - if: needs.published-smoke.result == 'failure'
+      - if: needs[matrix.category].result == 'failure'
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: nightly-published-smoke
+          name: nightly-${{ matrix.category }}
           path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.published-smoke.result)
+      - if: contains(fromJSON('["failure", "cancelled"]'), needs[matrix.category].result)
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
-          label: nightly-published-smoke
-          title: The published next package failed its smoke run
+          label: nightly-${{ matrix.category }}
+          title: ${{ matrix.description }}
           label-color: D93F0B
-          label-description: The published next package failed its smoke run
+          label-description: ${{ matrix.description }}
           stream: generic
           artifacts-dir: nightly-report
-          artifact-name: nightly-published-smoke
-      - if: needs.published-smoke.result == 'success'
+          artifact-name: nightly-${{ matrix.category }}
+      - if: needs[matrix.category].result == 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
-          label: nightly-published-smoke
+          label: nightly-${{ matrix.category }}
           stream: generic
 
   # The hermetic container tier: the script builds the image, runs the suite inside it, probes the

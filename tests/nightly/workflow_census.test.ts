@@ -1,35 +1,129 @@
-// Fails if the dispatcher's categories, the workflow's jobs, and the settings' labels stop naming
-// the same set, or if a report job files its issue under a label worded unlike the one created.
+// Fails if the dispatcher's categories, the workflow's report legs, and the settings' labels stop
+// naming the same set, or if a report leg stops deciding on its own category's result.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { data, Evaluator, Lexer, Parser } from "@actions/expressions";
+import type { FunctionDefinition } from "@actions/expressions/funcs/info";
+import { TokenType } from "@actions/expressions/lexer";
+import { truthy } from "@actions/expressions/result";
 import { parse } from "yaml";
 import { CATEGORIES } from "../../scripts/nightly.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const read = (path: string): unknown => parse(readFileSync(resolve(repoRoot, path), "utf8"));
 
-type Step = { if?: string; run?: string; uses?: string; with?: Record<string, string> };
-type Job = { steps: Step[] };
+// YAML reads a bare `if: true` as a boolean; GitHub reads every condition as its text.
+type Condition = string | boolean;
+type Step = { if?: Condition; run?: string; uses?: string; with?: Record<string, string> };
+type Leg = { category: string; description: string };
+type Job = {
+  needs?: string[];
+  if?: Condition | null;
+  steps: Step[];
+  strategy?: { matrix: { include: Leg[] } };
+};
 type Workflow = { jobs: Record<string, Job> };
 type Settings = { labels: { name: string; color: string; description: string }[] };
 
 const workflow = read(".github/workflows/nightly.yml") as Workflow;
 const settings = read(".github/settings.local.yml") as Settings;
 
-// The container tier runs through its own script rather than the dispatcher, so it is the one
-// tracked category the dispatcher does not list.
+// The container tier runs through its own script rather than the dispatcher and writes no
+// failure report, so it is the one tracked category with a report job of its own.
 const TRACKED = [...CATEGORIES, "container"].sort();
+const report = workflow.jobs.report;
+const legs = report?.strategy?.matrix.include ?? [];
 
-const reportJobs = Object.keys(workflow.jobs)
-  .filter((name) => name.startsWith("report-"))
-  .map((name) => name.slice("report-".length))
-  .sort();
+type Result = "success" | "failure" | "cancelled";
+type Context = Record<string, unknown>;
 
-test("every tracked category has one job and one report job, and nothing else does", () => {
-  expect(reportJobs).toEqual(TRACKED);
+function evaluate(
+  expression: string,
+  context: Context,
+  functions: FunctionDefinition[] = [],
+): data.ExpressionData {
+  const tokens = new Lexer(expression).lex().tokens;
+  const tree = new Parser(tokens, Object.keys(context), functions).parse();
+  const dictionary = JSON.parse(JSON.stringify(context), data.reviver) as data.Dictionary;
+  const table = new Map(functions.map((definition) => [definition.name, definition]));
+  return new Evaluator(tree, dictionary, table).evaluate();
+}
+
+// The status functions a job-level `if` reads off its needed jobs' results. cancelled() asks
+// whether the workflow run was cancelled, which a timed-out category never is, so a simulated
+// night keeps it false.
+const statusFunctions = (results: Result[]): FunctionDefinition[] =>
+  Object.entries({
+    always: true,
+    success: results.every((result) => result === "success"),
+    failure: results.includes("failure"),
+    cancelled: false,
+  }).map(([name, value]) => ({
+    name,
+    minArgs: 0,
+    maxArgs: 0,
+    call: () => new data.BooleanData(value),
+  }));
+
+// GitHub guards a job condition that names no status function with an implicit `success()`, so
+// `if: true` skips the job on a red night as surely as an empty `if` or none at all.
+function jobCondition(condition: Condition | null | undefined): string {
+  const expression = String(condition ?? "").trim();
+  if (expression === "") return "success()";
+  const tokens = new Lexer(expression).lex().tokens;
+  const named = tokens.some(
+    (token, index) =>
+      token.type === TokenType.IDENTIFIER &&
+      ["always", "success", "failure", "cancelled"].includes(token.lexeme.toLowerCase()) &&
+      tokens[index + 1]?.type === TokenType.LEFT_PAREN,
+  );
+  return named ? expression : `success() && (${expression})`;
+}
+
+const fill = (template: string, context: Context): string =>
+  template.replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) =>
+    evaluate(expression, context).coerceString(),
+  );
+
+function night(category: string, own: Result, siblings: Result): Step[] {
+  const leg = legs.find((entry) => entry.category === category);
+  const job = leg === undefined ? workflow.jobs[`report-${category}`] : report;
+  const needs = Object.fromEntries(
+    (job?.needs ?? []).map((name) => [name, { result: name === category ? own : siblings }]),
+  );
+  const context: Context = { needs, matrix: leg ?? {} };
+  const results = Object.values(needs).map((need) => need.result);
+  // A job-level `if` sees `needs` but not `matrix`; GitHub rejects the workflow otherwise.
+  if (!truthy(evaluate(jobCondition(job?.if), { needs }, statusFunctions(results)))) return [];
+  return (job?.steps ?? [])
+    .filter((step) => step.if === undefined || truthy(evaluate(String(step.if), context)))
+    .map((step) => ({
+      ...step,
+      with:
+        step.with &&
+        Object.fromEntries(
+          Object.entries(step.with).map(([key, value]) => [key, fill(value, context)]),
+        ),
+    }));
+}
+
+const kind = (step: Step): string | undefined => {
+  if (step.uses?.startsWith("actions/download-artifact@")) return "download";
+  if (step.uses?.startsWith("Vivswan/repo-platform/actions/fuzz-issue@")) return step.with?.mode;
+  return undefined;
+};
+
+const DECISIONS: Record<Result, string[]> = {
+  failure: ["download", "report"],
+  cancelled: ["report"],
+  success: ["resolve"],
+};
+
+test("the report legs are the dispatcher's categories, and nothing else has a job", () => {
+  expect(legs.map((leg) => leg.category).sort()).toEqual([...CATEGORIES].sort());
   expect(Object.keys(workflow.jobs).sort()).toEqual(
-    [...TRACKED, ...TRACKED.map((category) => `report-${category}`)].sort(),
+    [...TRACKED, "report", "report-container"].sort(),
   );
 });
 
@@ -38,25 +132,42 @@ test.each([...CATEGORIES])("the %s job runs its category through the dispatcher"
   expect(runs.some((line) => line.startsWith(`bun run nightly ${category} `))).toBe(true);
 });
 
-test.each(TRACKED)("the report-%s job files and resolves under its own label", (category) => {
-  const issueSteps = (workflow.jobs[`report-${category}`]?.steps ?? []).filter((step) =>
-    step.uses?.startsWith("Vivswan/repo-platform/actions/fuzz-issue@"),
-  );
-  expect(issueSteps.map((step) => step.with?.mode).sort()).toEqual(["report", "resolve"]);
-  for (const step of issueSteps) expect(step.with?.label).toBe(`nightly-${category}`);
-});
+const nights = TRACKED.flatMap((category) =>
+  (["failure", "cancelled", "success"] as const).flatMap((own) =>
+    (["success", "failure"] as const).map((siblings) => [category, own, siblings] as const),
+  ),
+);
 
-test("the settings create exactly one nightly label per tracked category, worded as the report job words it", () => {
+test.each(nights)(
+  "a night where %s is %s and its siblings %s decides on its own result, under its own label and artifact",
+  (category, own, siblings) => {
+    const steps = night(category, own, siblings);
+    const uploaded = workflow.jobs[category]?.steps.find((step) =>
+      step.uses?.startsWith("actions/upload-artifact@"),
+    )?.with?.name;
+    // The container tier uploads no report, so its red night has nothing to download.
+    const decided = DECISIONS[own].filter(
+      (step) => step !== "download" || category !== "container",
+    );
+    if (category !== "container") expect(uploaded).toBeString();
+    expect(steps.map(kind)).toEqual(decided);
+    for (const step of steps) {
+      if (kind(step) === "download") expect(step.with?.name).toBe(uploaded);
+      else expect(step.with?.label).toBe(`nightly-${category}`);
+      if (kind(step) === "report") expect(step.with?.["artifact-name"]).toBe(uploaded);
+    }
+  },
+);
+
+test("the settings create exactly one nightly label per tracked category, worded as the report words it", () => {
   const labels = settings.labels.filter((label) => label.name.startsWith("nightly-"));
   expect(labels.map((label) => label.name).sort()).toEqual(
     TRACKED.map((category) => `nightly-${category}`),
   );
   for (const label of labels) {
     const category = label.name.slice("nightly-".length);
-    const report = workflow.jobs[`report-${category}`]?.steps.find(
-      (step) => step.with?.mode === "report",
-    );
-    expect(report?.with).toMatchObject({
+    const filing = night(category, "failure", "success").find((step) => kind(step) === "report");
+    expect(filing?.with).toMatchObject({
       title: label.description,
       "label-description": label.description,
       "label-color": label.color,
