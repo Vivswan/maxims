@@ -195,7 +195,7 @@ const refusals: [string, Mutation, string][] = [
     "a TOML tier check walking into the project registry file the writer edits as JSON",
     at(["hook", "tierCheck"], {
       layers: {
-        project: [{ kind: "root-to-cwd", file: "./hooks.json" }],
+        project: [{ kind: "root-to-cwd", file: "hooks.json" }],
         global: ["config.toml"],
       },
       format: "toml",
@@ -215,6 +215,38 @@ const refusals: [string, Mutation, string][] = [
       unreadable: "refuses-to-start",
     }),
     "hook.tierCheck.layers.global.0: a TOML tier check cannot read hook.path.global (hooks.json), the registry the writer edits as json; name the vendor's TOML config instead",
+  ],
+  [
+    "a registry path with a trailing separator, a second spelling of the file a TOML layer names",
+    (spec) =>
+      at(["hook", "tierCheck"], {
+        layers: { project: [".example/hooks.json"], global: ["config.toml"] },
+        format: "toml",
+        key: "hooks.enabled",
+        demotesWhen: false,
+        unreadable: "refuses-to-start",
+      })(at(["hook", "path", "project"], ".example/hooks.json/")(spec)),
+    "hook.path.project: a path has no leading, trailing or doubled / and no . segment; write .example/hooks.json",
+  ],
+  [
+    "a global registry path with a trailing separator",
+    at(["hook", "path", "global"], "hooks.json/"),
+    "hook.path.global: a path has no leading, trailing or doubled / and no . segment; write hooks.json",
+  ],
+  [
+    "a registry path with a trailing backslash",
+    at(["hook", "path", "project"], ".example/hooks.json\\"),
+    "hook.path.project: a path is spelled with / separators, never \\",
+  ],
+  [
+    "a registry path spelled from ./",
+    at(["hook", "path", "global"], "./hooks.json"),
+    "hook.path.global: a path has no leading, trailing or doubled / and no . segment; write hooks.json",
+  ],
+  [
+    "a rules directory with a doubled separator",
+    at(["targets", "project", "dir"], ".example//rules"),
+    "targets.project.dir: a path has no leading, trailing or doubled / and no . segment; write .example/rules",
   ],
   [
     "a per-scope budget that names no scope",
@@ -342,7 +374,18 @@ const refusals: [string, Mutation, string][] = [
       path: "docs/./hooks.md",
       claims: ["SessionStart"],
     }),
-    "verifiedAgainst.sources.0.path: a repository path has no empty or . segment",
+    "verifiedAgainst.sources.0.path: a path has no leading, trailing or doubled / and no . segment; write docs/hooks.md",
+  ],
+  [
+    "a repository file whose path collapses to the root",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "./",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.path: a repository path names a file, not the root",
   ],
   [
     "a repository file whose path climbs out",

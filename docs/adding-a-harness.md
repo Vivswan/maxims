@@ -148,7 +148,7 @@ The file is `$MAXIMS_HOME/harnesses.json`, so `~/.agents/maxims/harnesses.json` 
 { "harnesses": [ { "id": "acme", "displayName": "Acme Agent", "tier": 2, "...": "..." } ] }
 ```
 
-Every spec is parsed strictly. An unknown key, a path that is absolute or climbs out with `..`, a template with an unknown placeholder, an id that is a built-in, or an id declared twice stops the load with exit 4 and a message naming the file, the entry and the field:
+Every spec is parsed strictly. An unknown key, a path that is absolute, climbs out with `..`, or is not spelled as plain segments joined by `/` (a trailing `/`, a leading `./`, a backslash), a template with an unknown placeholder, an id that is a built-in, or an id declared twice stops the load with exit 4 and a message naming the file, the entry and the field:
 
 ```text
 /home/user/.agents/maxims/harnesses.json: harnesses[0] (id "acme"): targets.project.file: expected a path relative to the scope root

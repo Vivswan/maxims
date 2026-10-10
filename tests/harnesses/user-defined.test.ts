@@ -140,7 +140,9 @@ test.each(refusals)(
 // loader that read it as one layer per scope would silently probe the wrong files. A tier check
 // without `unreadable` never said what its harness does with a broken layer; a default would
 // decide that for it. A JSON `format` of its own let a tier check read the registry file in a
-// dialect the hook writer did not, so the writer kept a construct the probe called unreadable.
+// dialect the hook writer did not, so the writer kept a construct the probe called unreadable. A
+// path with a trailing separator was a second spelling of the registry file, which the check that
+// keeps a TOML layer off that file compared as text and missed.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
@@ -164,6 +166,11 @@ const oldShapes: [string, string, string][] = [
     "tierCheck with a JSON format",
     "corrupt-tier-check-json-format.json",
     "hook.tierCheck.format: a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
+  ],
+  [
+    "hook.path with a trailing separator",
+    "corrupt-hook-path-trailing-separator.json",
+    "hook.path.project: a path has no leading, trailing or doubled / and no . segment; write .acme/settings.json",
   ],
 ];
 
