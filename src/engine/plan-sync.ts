@@ -320,9 +320,9 @@ async function planInstall(
   // Ambiguity and ownership read one snapshot: every installed tree as the state as read left it.
   //   its names        the installed copy read through the selection, else the state's fetch
   //                    record; plus what its blocks and its bodies directories name
-  //   a dropped name   leaves its block this run, and a hook run defers deletions: a linked body
-  //                    reserves it until an interactive run sweeps it, a copy only while the store
-  //                    copy still holds its bytes
+  //   a dropped name   leaves a block this run rewrites, and a hook run defers deletions: a
+  //                    linked body reserves it until an interactive run sweeps it, a copy only
+  //                    while the store copy still holds its bytes
   //   shared bytes     a copy several sources hold installed has no owner; the dedupe rule decides
   const installedTrees = new Map<string, SourceTree | null>();
   const hashOwners = new Map<ContentHash, number>();
