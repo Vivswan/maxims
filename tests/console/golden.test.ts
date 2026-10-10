@@ -160,6 +160,51 @@ test.each(goldens)("golden %s matches byte for byte", async (name, options, prod
   });
 });
 
+// Where a description breaks is what the terminal shows, so the rendered rows are pinned per
+// terminal width. The call site chooses the soft wrap: a word wider than the text column stays
+// whole on its own row, since a URL cut in two is worse than an overlong row.
+const itemRows: [string, number, string, string[]][] = [
+  [
+    "a line filled to the last column",
+    30,
+    "aaaa bbbb cccc dddd eee ff",
+    ["|      aaaa bbbb cccc dddd eee", "|      ff"],
+  ],
+  [
+    "a word one column over moves whole",
+    30,
+    "aaaa bbbb cccc dddd eeee",
+    ["|      aaaa bbbb cccc dddd", "|      eeee"],
+  ],
+  [
+    "a word wider than the column stays whole",
+    30,
+    "see https://example.com/a/very/long/path then",
+    ["|      see", "|      https://example.com/a/very/long/path", "|      then"],
+  ],
+  [
+    "a terminal under 27 columns still gets 20 for the text",
+    10,
+    "aaaa bbbb cccc dddd eeee ffff",
+    ["|      aaaa bbbb cccc dddd", "|      eeee ffff"],
+  ],
+];
+
+test.each(itemRows)("item description wraps: %s", (_name, width, description, lines) => {
+  const mode: ConsoleMode = {
+    tty: false,
+    stdinTty: false,
+    agent: null,
+    yes: true,
+    quiet: false,
+    json: false,
+    width,
+  };
+  let out = "";
+  createPlainConsole(mode, { write: (chunk: string) => (out += chunk) }).item("name", description);
+  expect(out).toBe(["|    name", "|", ...lines, "|", ""].join("\n"));
+});
+
 // Clack decides its glyph set once from the terminal, so the comparison folds every glyph it may
 // pick to the ASCII the plain console prints, and drops ANSI sequences and spinner frames.
 const GLYPHS: [RegExp, string][] = [

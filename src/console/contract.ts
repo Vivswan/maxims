@@ -82,7 +82,7 @@ export function promptsAllowed(mode: ConsoleMode): boolean {
 }
 
 // The clack renderer loads only for a TTY that shows full output: a hook run, a CI run and a
-// --json run all take the plain renderer, which has no dependency beyond this folder.
+// --json run all take the plain renderer, which loads no prompt library.
 export async function createConsole(input: CreateConsoleInput): Promise<Console> {
   const { mode } = input;
   const silent = mode.quiet || mode.json;
