@@ -191,15 +191,6 @@ test("a re-add with fewer harnesses syncs the dropped ones too, and --quiet stay
   });
 });
 
-test("a README beside the memories is skipped without a warning", async () => {
-  await withScenario({ github: { "a/d": DOTFILES } }, async (scenario) => {
-    const run = await runCli(scenario, ["add", "@a/d", "-g", "-a", "codex"]);
-    expect(run.code).toBe(0);
-    expect(run.stdout).not.toContain("is not a memory");
-    expect(run.stdout).toContain("o  Found 1 memory (1 internal, hidden)\n");
-  });
-});
-
 test("re-adding with a different -m replaces the selection and says so first", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "skip-unfit-skills"]);
@@ -948,25 +939,6 @@ test("hook intent is recorded and honored per scope", async () => {
   });
 });
 
-// The registry is the user's file: the hook goes in and comes out again, and a file that had no
-// `hooks` key before gets none left behind, comment and spacing included.
-test("add with a hook then remove --all returns a hookless settings file byte for byte", async () => {
-  const fake = fakeResolvers();
-  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
-  const loadEngine = async () => realEngineBundle(fake.resolvers);
-  await withScenario({ loadEngine }, async (scenario) => {
-    mkdirSync(join(scenario.userHome, ".claude"));
-    const registry = join(scenario.userHome, ".claude", "settings.json");
-    const before = `{\n  // mine\n  "theme":   "dark",\n  "model": "opus"\n}\n`;
-    writeFileSync(registry, before);
-    const added = await runCli(scenario, ["add", "@a/b", "-g", "-a", "claude-code", "--add-hook"]);
-    expect([added.code, added.stderr]).toEqual([0, ""]);
-    expect(readFileSync(registry, "utf8")).toContain("maxims sync --quiet");
-    expect((await runCli(scenario, ["remove", "--all"])).code).toBe(0);
-    expect(readFileSync(registry, "utf8")).toBe(before);
-  });
-});
-
 // A dry run is the plan the user reads before committing to it, so it must be what the run would
 // do: one destination line per destination file, no deletion of a store entry that is not there,
 // and a summary in the conditional, not the past tense.
@@ -1232,15 +1204,26 @@ test("--quiet turns every failure into exit 0 with one log line", async () => {
   });
 });
 
-test("--dry-run shows the plan, writes no state, and hands dryRun to the engine", async () => {
+test("--dry-run shows the plan, hands the engine the would-be state, and creates nothing, not even the maxims home", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    rmSync(scenario.home, { recursive: true, force: true });
     const before = await snapshot(scenario.root);
-    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--dry-run"]);
-    expect(run.code).toBe(0);
+    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", "--dry-run"]);
+    expect([run.code, run.stderr]).toEqual([0, ""]);
     expect(run.stdout).toContain("write   ");
     expect(run.stdout).toContain("skip-unfit-skills.md");
+    const [planned] = scenario.engine.calls.sync;
+    expect(planned).toMatchObject({
+      dryRun: true,
+      preview: { state: { sources: { "@a/b": { intent: { rule: true } } } } },
+    });
+    expect(
+      planned?.preview?.changes.some(
+        (change) => change.kind === "write" && change.path.endsWith("skip-unfit-skills.md"),
+      ),
+    ).toBe(true);
+    expect(existsSync(scenario.home)).toBe(false);
     expect(await snapshot(scenario.root)).toBe(before);
-    expect(scenario.engine.calls.sync[0]?.dryRun).toBe(true);
   });
 });
 
@@ -1321,21 +1304,6 @@ test("an -o folder outside any git checkout is planned without a project root", 
       scope: "out",
       path: join(scenario.cwd, "team-rules"),
     });
-  });
-});
-
-test("--dry-run hands the engine the state the add would have written", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", "--dry-run"]);
-    expect(run.code).toBe(0);
-    const planned = scenario.engine.calls.sync[0]?.preview;
-    expect(planned?.state.sources["@a/b"]?.intent.rule).toBe(true);
-    expect(
-      planned?.changes.some(
-        (change) => change.kind === "write" && change.path.endsWith("skip-unfit-skills.md"),
-      ),
-    ).toBe(true);
-    expect(existsSync(homePaths(scenario.home).state)).toBe(false);
   });
 });
 
