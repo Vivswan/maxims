@@ -223,7 +223,7 @@ const TOML_PIECES = [
 const tomlText = fc.oneof(anyText({ maxLength: 300 }), fragments(TOML_PIECES, { maxLength: 30 }));
 
 function contextAt(home: string): HarnessContext {
-  return { home, projectRoot: null, env: {} };
+  return { home, projectRoot: null, cwd: home, env: {} };
 }
 
 // A config.toml a user mistyped, or one with `hooks = "true"`, is a user-owned config maxims only

@@ -396,7 +396,12 @@ test.each(installRows)(
         ]),
       );
       expect(
-        definitionOf(id).detect({ home: join(dir, "home"), projectRoot: null, env: under }),
+        definitionOf(id).detect({
+          home: join(dir, "home"),
+          projectRoot: null,
+          cwd: join(dir, "home"),
+          env: under,
+        }),
       ).toBe(installed);
     });
   },

@@ -210,7 +210,12 @@ test.each(declared)(
     if (def.mcp === undefined) throw new Error(`${def.id} declares no MCP registry`);
     const mcp = def.mcp;
     await withTempDir(async (dir) => {
-      const ctx = { home: join(dir, "home"), projectRoot: join(dir, "project"), env: {} };
+      const ctx = {
+        home: join(dir, "home"),
+        projectRoot: join(dir, "project"),
+        cwd: join(dir, "project"),
+        env: {},
+      };
       const gained: Partial<Record<Scope, unknown>> = {};
       for (const scope of ["project", "global"] as const) {
         const file = mcp.path(scope, ctx);

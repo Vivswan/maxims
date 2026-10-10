@@ -161,7 +161,7 @@ describe("claude-code", () => {
 
   test("disableAllHooks in settings.json demotes the achieved tier to 2", async () => {
     await withTempDir(async (home) => {
-      const local: HarnessContext = { home, projectRoot: null, env: {} };
+      const local: HarnessContext = { home, projectRoot: null, cwd: home, env: {} };
       mkdirSync(join(home, ".claude"));
       expect(await achievedTier(claudeCode, "global", local)).toEqual({
         tier: 1,
@@ -211,7 +211,7 @@ describe("claude-code", () => {
         write(join(project, ".claude", "settings.local.json"), localJson);
         write(join(project, ".claude", "settings.json"), projectJson);
         write(join(home, ".claude", "settings.json"), userJson);
-        const layered: HarnessContext = { home, projectRoot: project, env: {} };
+        const layered: HarnessContext = { home, projectRoot: project, cwd: project, env: {} };
         for (const scope of ["project", "global"] as const) {
           expect(await achievedTier(claudeCode, scope, layered)).toEqual({
             tier: expected,
@@ -310,7 +310,7 @@ describe("claude-code", () => {
         write(join(project, ".claude", "settings.local.json"), localJson);
         write(join(project, ".claude", "settings.json"), projectJson);
         write(join(home, ".claude", "settings.json"), userJson);
-        const layered: HarnessContext = { home, projectRoot: project, env: {} };
+        const layered: HarnessContext = { home, projectRoot: project, cwd: project, env: {} };
         for (const scope of ["project", "global"] as const) {
           const reading = expected[scope];
           expect(await achievedTier(claudeCode, scope, layered)).toEqual(

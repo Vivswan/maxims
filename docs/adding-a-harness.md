@@ -59,7 +59,7 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 
 The writer finds and prunes its own entries by the `commandKey` prefix.
 
-A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives:
+A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
 
 - **An unreadable layer** is a file that does not parse (`json` is strict: no comments, no trailing commas), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
 - **Otherwise the first layer that sets the key decides:** tier 2 when it holds `demotesWhen`, the declared tier when it does not.
@@ -126,7 +126,7 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
     "stdout": "plain",
     "async": true,
     "tierCheck": {
-      "layers": { "project": [".codex/config.toml"], "global": ["config.toml"] },
+      "layers": { "project": [{ "kind": "root-to-cwd", "file": ".codex/config.toml" }], "global": ["config.toml"] },
       "format": "toml",
       "key": "features.hooks",
       "demotesWhen": false,

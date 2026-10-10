@@ -214,11 +214,17 @@ const Detect = z
   });
 
 // `layers` lists, per scope and in the harness's own precedence order, the config files it reads
-// the key from; the walk takes the project list, then the global one. `unreadable` is the
-// vendor's own behavior on a broken layer, which no file states. zod drops a `__proto__` key from
-// what it parses, so a check on that segment could never read it and is refused here.
+// the key from; the walk takes the project list, then the global one. A project entry may instead
+// name a file the harness reads in every directory from the project root down to the one the
+// session runs in, the nearest first. `unreadable` is the vendor's own behavior on a broken
+// layer, which no file states. zod drops a `__proto__` key from what it parses, so a check on
+// that segment could never read it and is refused here.
+const WalkLayer = z.strictObject({ kind: z.literal("root-to-cwd"), file: RelPath });
 const TierCheck = z.strictObject({
-  layers: perScope(z.array(RelPath).min(1)),
+  layers: z.strictObject({
+    project: z.array(z.union([RelPath, WalkLayer])).min(1),
+    global: z.array(RelPath).min(1),
+  }),
   format: ConfigFormatEnum,
   key: z
     .string()

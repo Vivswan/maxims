@@ -8,5 +8,6 @@ export const exampleProjectRoot = resolve("/home/user/project");
 export const exampleContext: HarnessContext = {
   home: exampleHome,
   projectRoot: exampleProjectRoot,
+  cwd: exampleProjectRoot,
   env: {},
 };

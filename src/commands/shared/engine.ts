@@ -583,7 +583,10 @@ async function planInstall(
   for (const [key, entry] of Object.entries(refreshed.sources)) {
     const { intent } = entry;
     if (actsHere(entry, ctx) || intent.destination.scope !== "project" || !intent.rule) continue;
-    const there: EngineContext = { ...ctx, projectRoot: intent.destination.root };
+    // Where that project's sessions run is not known here, so its per-directory config layers are
+    // its root's alone.
+    const root = intent.destination.root;
+    const there: EngineContext = { ...ctx, projectRoot: root, cwd: root };
     for (const id of intent.harnesses) {
       let resolved: ReturnType<typeof resolveTargets>;
       try {

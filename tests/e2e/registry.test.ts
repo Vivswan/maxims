@@ -70,7 +70,7 @@ function ok(run: Run): Run {
 }
 
 function contextFor(home: Home): HarnessContext {
-  return { home: home.root, projectRoot: home.project, env: childEnv(home) };
+  return { home: home.root, projectRoot: home.project, cwd: home.project, env: childEnv(home) };
 }
 
 // Where a definition's hand-formatted fixture lives on a machine: its hook registry, else its
@@ -261,6 +261,7 @@ test("every declared config fixture has a place on disk where a row seeds it", (
           fixtureHome(def, scope, {
             home: "/home/user",
             projectRoot: "/home/user/project",
+            cwd: "/home/user/project",
             env: {},
           }) === null,
       ),

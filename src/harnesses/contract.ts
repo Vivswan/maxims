@@ -12,6 +12,9 @@ export type Scope = "project" | "global";
 export type HarnessContext = {
   home: string;
   projectRoot: string | null;
+  // The directory the session runs in: a hook's start directory, else the process cwd. A harness
+  // that layers its config per directory reads from `projectRoot` down to it.
+  cwd: string;
   env: Record<string, string | undefined>;
 };
 

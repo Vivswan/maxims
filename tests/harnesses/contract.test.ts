@@ -14,6 +14,7 @@ import { withTempDir } from "../shared/temp_dir.ts";
 const ctx: HarnessContext = {
   home: "/home/user/.agents/maxims",
   projectRoot: "/home/user/project",
+  cwd: "/home/user/project",
   env: { CODEX_HOME: "/home/user/.config/codex" },
 };
 

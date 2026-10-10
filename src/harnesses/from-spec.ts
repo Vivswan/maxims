@@ -1,6 +1,7 @@
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { realpathOfExistingPrefix } from "../util/fs.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -38,6 +39,7 @@ export type QuirksInput = HarnessQuirks | ((declared: HarnessDefinition) => Harn
 
 type ScopedPath = (scope: Scope, ctx: HarnessContext) => string;
 type PathsPerScope = Record<Scope, string>;
+type LayersSpec = NonNullable<Extract<HookSpecData, { kind: "registry" }>["tierCheck"]>["layers"];
 
 export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): HarnessDefinition {
   const declared = compileData(spec);
@@ -63,12 +65,17 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
   const layered =
-    (paths: Record<Scope, string[]>) =>
+    (layers: LayersSpec) =>
     (ctx: HarnessContext): string[] => {
-      const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["project", "global"];
-      return scopes.flatMap((scope) =>
-        paths[scope].map((path) => join(scopeRoot(roots, scope, ctx), path)),
+      const user = layers.global.map((path) => join(scopeRoot(roots, "global", ctx), path));
+      if (ctx.projectRoot === null) return user;
+      const root = scopeRoot(roots, "project", ctx);
+      const project = layers.project.flatMap((layer) =>
+        typeof layer === "string"
+          ? [join(root, layer)]
+          : directoriesDownTo(root, ctx.cwd).map((dir) => join(dir, layer.file)),
       );
+      return [...project, ...user];
     };
   const scopeFrontmatter = compileScopeFrontmatter(spec.scopeFrontmatter);
   const [first, ...rest] = spec.verifiedAgainst.sources;
@@ -117,6 +124,35 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
           },
         }),
   };
+}
+
+// The directories a per-directory config is read from, the session's own first and the project
+// root last, since the nearest layer outranks the ones above it. The root is recorded by its real
+// path while the session directory is spelled as the harness gave it, so the climb starts from
+// its real path, a missing tail kept as typed so the layers of the ancestors that do exist are
+// still read; a session directory the root does not contain leaves the root alone.
+function directoriesDownTo(root: string, cwd: string): string[] {
+  const dirs: string[] = [];
+  let dir = sessionDirectory(cwd);
+  for (;;) {
+    dirs.push(dir);
+    if (dir === root) return dirs;
+    const parent = dirname(dir);
+    if (parent === dir) return [root];
+    dir = parent;
+  }
+}
+
+// A prefix nobody may inspect is climbed as typed: the probe then reads the layers under it and
+// reports what stopped it, where a throw here would abort a verb over files maxims never writes.
+function sessionDirectory(cwd: string): string {
+  const typed = resolve(cwd);
+  try {
+    return realpathOfExistingPrefix(typed);
+  } catch (error) {
+    if (!(error instanceof MaximsError)) throw error;
+    return typed;
+  }
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
@@ -195,7 +231,7 @@ function fenced(fields: Record<string, unknown>): string {
 function compileHook(
   hook: HookSpecData,
   under: (paths: PathsPerScope) => ScopedPath,
-  layered: (paths: Record<Scope, string[]>) => (ctx: HarnessContext) => string[],
+  layered: (layers: LayersSpec) => (ctx: HarnessContext) => string[],
 ): HookShape {
   switch (hook.kind) {
     case "none":

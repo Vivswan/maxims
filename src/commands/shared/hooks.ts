@@ -159,7 +159,8 @@ export async function planHooks(input: {
     }
     for (const root of input.elsewhere(def.id)) {
       try {
-        const shared = await sharedHookOf(def, { ...harnessCtx, projectRoot: root }, reach);
+        const there = { ...harnessCtx, projectRoot: root, cwd: root };
+        const shared = await sharedHookOf(def, there, reach);
         if (shared !== null) answers.push(shared);
       } catch (error) {
         if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {

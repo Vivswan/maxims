@@ -6,7 +6,7 @@
 // the probe reads the config.toml under $CODEX_HOME, and the bytes a fresh hooks.json receives,
 // which Codex reads without checking them for us.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
@@ -21,6 +21,7 @@ import {
   achievedTier as probe,
 } from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext } from "../context.ts";
@@ -56,7 +57,7 @@ test.each(layers)(
       mkdirSync(join(project, ".codex"), { recursive: true });
       if (projectToml !== null) writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       if (userToml !== null) writeFileSync(join(home, ".codex", "config.toml"), userToml);
-      expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+      expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
         tier: expected,
         unreadable: null,
       });
@@ -73,7 +74,7 @@ test("achievedTier reads a config.toml it cannot open as hooks off, and says so"
   await withTempDir(async (dir) => {
     const path = join(dir, ".codex", "config.toml");
     mkdirSync(path, { recursive: true });
-    const reading = await achievedTier({ home: dir, projectRoot: null, env: {} });
+    const reading = await achievedTier({ home: dir, projectRoot: null, cwd: dir, env: {} });
     expect(reading.tier).toBe(2);
     expect(reading.unreadable).toMatch(
       new RegExp(
@@ -104,6 +105,63 @@ const malformed: [string, string, string][] = [
   ],
 ];
 
+// Codex reads a `.codex/config.toml` in every directory from the project root down to the one it
+// runs in, the nearest deciding, so a subdirectory switches hooks off under a root that leaves
+// them on. Layers that named the root alone would promise a refresh that never fires there.
+const walked: [string, string, string, 1 | 2, 1 | 2][] = [
+  ["the subdirectory disables under an enabling root", enabled, disabled, 2, 1],
+  ["the subdirectory enables under a disabling root", disabled, enabled, 1, 2],
+];
+
+test.each(walked)(
+  "achievedTier walks .codex/config.toml from the project root to the session's directory (%s)",
+  async (_, rootToml, subToml, fromSub, fromRoot) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      const sub = join(project, "packages", "app");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      mkdirSync(join(sub, ".codex"), { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), rootToml);
+      writeFileSync(join(sub, ".codex", "config.toml"), subToml);
+      const at = (cwd: string) => achievedTier({ home, projectRoot: project, cwd, env: {} });
+      expect(await at(sub)).toEqual({ tier: fromSub, unreadable: null });
+      expect(await at(project)).toEqual({ tier: fromRoot, unreadable: null });
+    });
+  },
+);
+
+// The walk starts from the real path of the session directory, and a folder above it that nobody
+// may search stops that lookup. The probe still answers: the walk climbs the typed path, and the
+// layer under the sealed folder is the reading, with the error that stopped the read. A throw
+// here would abort list, doctor and sync over files maxims never writes.
+test.skipIf(!CHMOD_DENIES)(
+  "a session directory under a folder nobody may search is a reading, never a throw",
+  async () => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      const locked = join(project, "locked");
+      const sub = join(locked, "app");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      mkdirSync(sub, { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), enabled);
+      chmodSync(locked, 0o000);
+      try {
+        const probed = await achievedTier({ home, projectRoot: project, cwd: sub, env: {} });
+        expect(probed.tier).toBe(2);
+        expect(probed.unreadable).toMatch(
+          /^config\.toml could not be read \(.*locked.*config\.toml: EACCES.*\); assuming hooks off$/,
+        );
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+    });
+  },
+);
+
 test.each(malformed)(
   "achievedTier reads a config.toml that does not parse, or sets hooks to a non-boolean, as hooks off with the reason (%s)",
   async (_, toml, reason) => {
@@ -111,7 +169,7 @@ test.each(malformed)(
       mkdirSync(join(dir, ".codex"), { recursive: true });
       const path = join(dir, ".codex", "config.toml");
       writeFileSync(path, toml);
-      expect(await achievedTier({ home: dir, projectRoot: null, env: {} })).toEqual(
+      expect(await achievedTier({ home: dir, projectRoot: null, cwd: dir, env: {} })).toEqual(
         unreadable(path, reason),
       );
     });
@@ -138,7 +196,9 @@ test.each(brokenLayers)(
       writeFileSync(join(project, ".codex", "config.toml"), projectToml);
       const broken = join(dir, brokenIn, ".codex", "config.toml");
       for (const scope of ["project", "global"] as const) {
-        expect(await probe(codex, scope, { home, projectRoot: project, env: {} })).toEqual(
+        expect(
+          await probe(codex, scope, { home, projectRoot: project, cwd: project, env: {} }),
+        ).toEqual(
           unreadable(broken, "Invalid TOML document: illegal character in key (line 1, column 6)"),
         );
       }
@@ -154,7 +214,7 @@ test("achievedTier skips a project whose .codex is a regular file and lets the u
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, ".codex"), "not a directory\n");
     writeFileSync(join(home, ".codex", "config.toml"), disabled);
-    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual({
+    expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
       tier: 2,
       unreadable: null,
     });
@@ -166,7 +226,12 @@ test("achievedTier reads the config.toml under $CODEX_HOME", async () => {
     const codexHome = join(dir, "elsewhere");
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(join(codexHome, "config.toml"), disabled);
-    const ctx = { home: join(dir, "home"), projectRoot: null, env: { CODEX_HOME: codexHome } };
+    const ctx = {
+      home: join(dir, "home"),
+      projectRoot: null,
+      cwd: join(dir, "home"),
+      env: { CODEX_HOME: codexHome },
+    };
     expect(await achievedTier(ctx)).toEqual({ tier: 2, unreadable: null });
   });
 });

@@ -191,7 +191,7 @@ test("a precedence target resolves to the file the harness reads first", async (
       def,
       target: preferring,
       scope: "project" as const,
-      ctx: { ...ctx, projectRoot: root },
+      ctx: { ...ctx, projectRoot: root, cwd: root },
     };
     expect(String(sharedBlockPath(at))).toBe(join(root, "AGENTS.md"));
     writeFileSync(join(root, ".rules"), "house rules\n");

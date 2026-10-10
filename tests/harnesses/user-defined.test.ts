@@ -80,6 +80,7 @@ test("a declared harness compiles under its own global root and is labelled user
     const ctx = {
       home: resolve("/home/user"),
       projectRoot: resolve("/home/user/project"),
+      cwd: resolve("/home/user/project"),
       env: {},
     };
     expect(def.hook.path("global", ctx)).toBe(resolve("/home/user/.acme/hooks.json"));
