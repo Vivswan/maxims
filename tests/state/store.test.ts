@@ -34,7 +34,7 @@ import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempHome } from "../shared/temp_dir.ts";
 
-const FIXTURES = srcPath("state", "fixtures");
+const FIXTURES = srcPath("state", "fixtures", "state");
 const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
 const RENAME_FROM = memoryName("gate-exit-conditions-the-merge");
 const RENAME_TO = memoryName("gate-exit-conditions-the-merge-dotfiles");
