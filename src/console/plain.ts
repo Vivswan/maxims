@@ -1,4 +1,5 @@
-import { stripVTControlCharacters } from "node:util";
+import stringWidth from "fast-string-width";
+import { wrapAnsi } from "fast-wrap-ansi";
 import type {
   Console,
   ConsoleMode,
@@ -47,7 +48,7 @@ export function createFrameConsole(
     output?.write(`${line}\n`);
   };
   const { bar, step } = symbols;
-  const textWidth = Math.max(20, mode.width - (visibleWidth(bar) + ITEM_DESCRIPTION_INDENT));
+  const textWidth = Math.max(20, mode.width - (stringWidth(bar) + ITEM_DESCRIPTION_INDENT));
   const descriptionPrefix = `${bar}${" ".repeat(ITEM_DESCRIPTION_INDENT)}`;
   return {
     mode,
@@ -70,7 +71,9 @@ export function createFrameConsole(
     item(name, description) {
       write(`${bar}    ${name}`);
       write(bar);
-      for (const line of wrap(description, textWidth)) write(`${descriptionPrefix}${line}`);
+      for (const line of wrapAnsi(description, textWidth).split("\n")) {
+        write(`${descriptionPrefix}${line}`);
+      }
       write(bar);
     },
     name(name) {
@@ -99,26 +102,4 @@ export function createFrameConsole(
       write("");
     },
   };
-}
-
-// A colored glyph is one terminal column however many code units its escapes take.
-function visibleWidth(text: string): number {
-  return stripVTControlCharacters(text).length;
-}
-
-// Greedy word wrap; a word longer than the width stays whole on its own line rather than being
-// split, because a URL or a path cut in two is worse than an overlong line.
-function wrap(text: string, width: number): string[] {
-  const lines: string[] = [];
-  let current = "";
-  for (const word of text.split(/\s+/).filter((part) => part !== "")) {
-    if (current === "") current = word;
-    else if (current.length + 1 + word.length <= width) current = `${current} ${word}`;
-    else {
-      lines.push(current);
-      current = word;
-    }
-  }
-  if (current !== "") lines.push(current);
-  return lines;
 }
