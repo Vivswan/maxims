@@ -165,11 +165,11 @@ const STATE_BULLETS: readonly { lead: string; fields: readonly string[]; text: s
     lead: code("hooks"),
     fields: [],
     text:
-      "lists the harnesses where the user wants a sync hook kept, per scope: `global` is one " +
-      "sorted list for the user scope, `project` one sorted list per project root, so " +
-      "`add --add-hook` in one project says nothing about the user scope or another project. " +
-      "A harness leaves a list with its last source at that scope. Lists, not records: whether " +
-      "the hook is registered is read from the harness.",
+      "lists the harnesses where the user wants a sync hook kept, and the MCP server where " +
+      "declared, per scope: `global` is one sorted list for the user scope, `project` one " +
+      "sorted list per project root, so `add --add-hook` in one project says nothing about " +
+      "the user scope or another project. A harness leaves the list with its last source " +
+      "there. Lists, not records: registration is read from the harness.",
   },
   {
     lead: code("overrides"),
