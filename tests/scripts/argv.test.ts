@@ -5,9 +5,9 @@
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { tmpdirEnv, withTempDir } from "./shared/temp_dir.ts";
+import { tmpdirEnv, withTempDir } from "../shared/temp_dir.ts";
 
-const repoRoot = resolve(import.meta.dir, "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 
 function run(script: string, args: string[], dir: string) {
   return Bun.spawnSync(["bun", join(repoRoot, script), ...args], {

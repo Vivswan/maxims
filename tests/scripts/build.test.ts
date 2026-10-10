@@ -19,12 +19,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { VERSION } from "../src/version.ts";
-import { WINDOWS } from "./shared/platform.ts";
-import { removerOfCreated } from "./shared/strays.ts";
-import { withTempDir } from "./shared/temp_dir.ts";
+import { VERSION } from "../../src/version.ts";
+import { WINDOWS } from "../shared/platform.ts";
+import { removerOfCreated } from "../shared/strays.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
-const repoRoot = resolve(import.meta.dir, "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const buildScript = join(repoRoot, "scripts", "build.ts");
 const SHEBANG = "#!/usr/bin/env node\n";
 const USAGE = "usage: bun scripts/build.ts [--entry path] [--outfile path] [--size-json path]\n";

@@ -9,10 +9,10 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join, parse, relative, resolve } from "node:path";
-import { outsideCheckouts, whereBytesLand } from "../scripts/lib/paths.ts";
-import { isInside } from "../src/util/fs.ts";
-import { gitInit } from "./shared/git_fixture.ts";
-import { withTempDir } from "./shared/temp_dir.ts";
+import { outsideCheckouts, whereBytesLand } from "../../scripts/lib/paths.ts";
+import { isInside } from "../../src/util/fs.ts";
+import { gitInit } from "../shared/git_fixture.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
 const refuse = (message: string): never => {
   throw new Error(message);

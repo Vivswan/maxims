@@ -20,10 +20,10 @@ import {
   type Side,
   type Signal,
   verdict,
-} from "../scripts/bench_ci.ts";
-import { withTempDir } from "./shared/temp_dir.ts";
+} from "../../scripts/bench_ci.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
-const repoRoot = resolve(import.meta.dir, "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const realRepoRoot = realpathSync.native(repoRoot);
 
 const shape = (gate: Signal["gate"], base: number, head: number): Signal => ({
