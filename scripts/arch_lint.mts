@@ -13,19 +13,21 @@
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { Node, parseSync as ParseSync, TemplateElement } from "oxc-parser";
+import type { Node, TemplateElement } from "oxc-parser";
 import { parseArgv, usageRefuser } from "./lib/argv.ts";
 
 // The adopting repository adds the parser (bun add -d oxc-parser); a copied
 // script without it says so once instead of failing on a missing module path.
-export const parseSync: typeof ParseSync = await (async () => {
+const oxc = await (async () => {
   try {
-    return (await import("oxc-parser")).parseSync;
+    return await import("oxc-parser");
   } catch {
     console.error("docs-discipline scripts need oxc-parser: bun add -d oxc-parser");
     process.exit(2);
   }
 })();
+export const { parseSync } = oxc;
+const { Visitor } = oxc;
 
 export const DEFAULT_CONFIG = "architecture.yml";
 
@@ -121,19 +123,6 @@ export function layerOf(arch: Architecture, path: string): string | undefined {
 
 // --- source scanning ---------------------------------------------------------
 
-/** Every AST node under `value`, in source order. */
-export function* nodesOf(value: unknown): Generator<Node> {
-  if (Array.isArray(value)) {
-    for (const item of value) yield* nodesOf(item);
-    return;
-  }
-  if (typeof value !== "object" || value === null) return;
-  if ("type" in value && typeof value.type === "string") yield value as Node;
-  for (const [key, child] of Object.entries(value)) {
-    if (key !== "parent") yield* nodesOf(child);
-  }
-}
-
 /** `node` without its parentheses and `!` wrappers: `(require)("./m")` and `require!("./m")` load like `require("./m")`. */
 function unwrapped(node: Node): Node {
   let current = node;
@@ -160,7 +149,7 @@ function literalSpecifier(node: Node | null | undefined): string | undefined {
  * edge is the one failure this lint exists to catch, so the file is rewritten, not skipped.
  */
 export function importSpecifiers(text: string, file: string): string[] {
-  const { program, module, errors } = parseSync(file, text);
+  const { program, errors } = parseSync(file, text);
   const lineOf = (offset: number): number => text.slice(0, offset).split("\n").length;
   const [error] = errors;
   if (error) {
@@ -169,31 +158,30 @@ export function importSpecifiers(text: string, file: string): string[] {
     );
   }
   const found = new Set<string>();
-  for (const entry of module.staticImports) found.add(entry.moduleRequest.value);
-  for (const statement of module.staticExports) {
-    for (const entry of statement.entries) {
-      if (entry.moduleRequest) found.add(entry.moduleRequest.value);
-    }
-  }
   const computed = (offset: number): never => {
     throw new Error(
       `${file}:${lineOf(offset)} loads a module through a computed specifier, which the import graph cannot follow; use a string literal`,
     );
   };
-  for (const node of nodesOf(program)) {
-    if (node.type === "ImportExpression") {
+  // The statements come off the tree, not the parser's module record: that record has no entry
+  // for `export {} from "./x"`, which still loads the module.
+  new Visitor({
+    ImportDeclaration: (node) => void found.add(node.source.value),
+    ExportAllDeclaration: (node) => void found.add(node.source.value),
+    ExportNamedDeclaration: (node) => {
+      if (node.source) found.add(node.source.value);
+    },
+    ImportExpression: (node) => {
       found.add(literalSpecifier(node.source) ?? computed(node.start));
-    } else if (node.type === "CallExpression") {
-      const callee = unwrapped(node.callee);
-      if (isRequireCallee(callee)) {
+    },
+    CallExpression: (node) => {
+      if (isRequireCallee(unwrapped(node.callee))) {
         found.add(literalSpecifier(node.arguments[0]) ?? computed(node.start));
       }
-    } else if (node.type === "TSImportType") {
-      found.add(node.source.value);
-    } else if (node.type === "TSExternalModuleReference") {
-      found.add(node.expression.value);
-    }
-  }
+    },
+    TSImportType: (node) => void found.add(node.source.value),
+    TSExternalModuleReference: (node) => void found.add(node.expression.value),
+  }).visit(program);
   return [...found].filter((specifier) => /^\.\.?\//.test(specifier));
 }
 
