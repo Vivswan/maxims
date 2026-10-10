@@ -1,5 +1,6 @@
-import { existsSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { dirname } from "node:path";
+import { findUpSync } from "find-up";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { HarnessContext } from "../harnesses/contract.ts";
 import {
@@ -82,13 +83,8 @@ export async function loadContext(
 // by its real path: state records a project by that path, and a session started through an
 // alias symlink must find the same entries.
 export function findProjectRoot(startDir: string): string | null {
-  let dir = resolve(startDir);
-  for (;;) {
-    if (existsSync(join(dir, ".git"))) return realpathSync(dir);
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
+  const marker = findUpSync(".git", { cwd: startDir, type: "both" });
+  return marker === undefined ? null : realpathSync(dirname(marker));
 }
 
 // A project-scope entry belongs to the project whose root it recorded; a run acts on it only from
