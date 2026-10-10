@@ -63,7 +63,6 @@ export type RuleFilePlan = {
 };
 
 export type RuleFileOptions = {
-  ctx: EngineContext;
   // Sources whose block must survive in this file even though this run renders none for them: a
   // collision or a cap failure keeps the last-good block rather than dropping the rules.
   keep: ReadonlySet<string>;
@@ -97,7 +96,7 @@ export async function planRuleFile(
 ): Promise<RuleFilePlan> {
   const notices: string[] = [];
   const tokens: RuleFilePlan["tokens"] = [];
-  const drawn = await renderRuleFile(file, options);
+  const drawn = await renderRuleFile(file);
   if (drawn === null) {
     // The sweep visits every shared file a harness reads here, wanted or not; a link is only
     // worth a line when the run has a block to write, keep or strip in it.
@@ -125,9 +124,7 @@ export async function planRuleFile(
       throw new Error(`${file.path} is one file for several sources (${keys})`);
     }
     const content =
-      file.kind === "out"
-        ? entry.text
-        : rulesDirContent(file, options.ctx, entry.text, entry.block);
+      file.kind === "out" ? entry.text : rulesDirContent(file, entry.text, entry.block);
     if (content !== current) {
       writes.push({ kind: "write", path: file.path, content });
       tokens.push({ path: file.path, tokens: estimateTokens(content, rendering.markers) });
@@ -150,7 +147,7 @@ export async function planRuleFile(
         def: primary.def,
         target: sharedTarget,
         scope: primary.scope,
-        ctx: harnessContext(options.ctx),
+        ctx: primary.ctx,
         source,
         currentText: from,
       })[0];
@@ -208,10 +205,7 @@ type RenderedFile = {
 // file holding only the blocks. A rule file maxims owns whole is always a real file, so a symlink
 // at its path reads as absent and the write that replaces it is planned even when the linked
 // content matches.
-async function renderRuleFile(
-  file: RuleFile,
-  options: RuleFileOptions,
-): Promise<RenderedFile | null> {
+async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
   const linked = isSymlink(file.path);
   if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
     return null;
@@ -224,7 +218,7 @@ async function renderRuleFile(
   // The tier decides only which stale block carries the self-refresh line, so the harness configs
   // behind it are read only when a block is stale: a file this run renders no block for (a kept
   // block, an orphan strip) must plan on a machine whose config a probe cannot read.
-  const probed = staleKeys.length === 0 ? null : await fileTier(file, options.ctx);
+  const probed = staleKeys.length === 0 ? null : await fileTier(file);
   const selfRefresh =
     probed === null ? null : chooseSelfRefreshSource({ tier: probed.tier }, staleKeys);
   const rendered = live.map((block) => ({
@@ -252,8 +246,8 @@ function hasWork(file: RuleFile, options: RuleFileOptions): boolean {
 
 // The sources whose block this run changes in the file: absent from it, or drawn differently
 // from the span it holds. Holding any other source cannot make the file smaller.
-export async function changingBlocks(file: RuleFile, options: RuleFileOptions): Promise<string[]> {
-  const drawn = await renderRuleFile(file, options);
+export async function changingBlocks(file: RuleFile): Promise<string[]> {
+  const drawn = await renderRuleFile(file);
   if (drawn === null) return [];
   const current = drawn.current ?? "";
   const spans = parseBlocks(current).blocks;
@@ -281,16 +275,12 @@ function renderingFor(file: RuleFile): Rendering {
 
 // One hooked (tier 1) reader is enough to make the self-refresh line redundant. Every reader is
 // probed, so a config one of them could not read is said even when another reader hooks.
-async function fileTier(
-  file: RuleFile,
-  ctx: EngineContext,
-): Promise<{ tier: 1 | 2; unreadable: string[] }> {
+async function fileTier(file: RuleFile): Promise<{ tier: 1 | 2; unreadable: string[] }> {
   if (file.kind === "out") return { tier: 1, unreadable: [] };
-  const harnessCtx = harnessContext(ctx);
   let tier: 1 | 2 = 2;
   const unreadable: string[] = [];
   for (const target of file.targets) {
-    const probed = await achievedTier(target.def, target.scope, harnessCtx);
+    const probed = await achievedTier(target.def, target.scope, target.ctx);
     if (probed.tier === 1) tier = 1;
     if (probed.unreadable !== null) unreadable.push(`${target.def.id} ${probed.unreadable}`);
   }
@@ -300,7 +290,6 @@ async function fileTier(
 // The strategy owns the frontmatter and the byte budget; the file it names is `file.path`.
 function rulesDirContent(
   file: Extract<RuleFile, { kind: "harness" }>,
-  ctx: EngineContext,
   block: string,
   request: BlockRequest,
 ): string {
@@ -312,7 +301,7 @@ function rulesDirContent(
     def: primary.def,
     target: primary.target,
     scope: primary.scope,
-    ctx: harnessContext(ctx),
+    ctx: primary.ctx,
     sourceSlug: file.sourceSlug,
     block,
     paths: request.paths,

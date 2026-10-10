@@ -20,7 +20,7 @@ import { classifyInvoker, renderHookStdout } from "../../src/commands/shared/std
 import { runSync } from "../../src/commands/sync.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
-import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
+import { type HarnessDefinition, scopeRoot } from "../../src/harnesses/contract.ts";
 import { achievedTier } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
@@ -32,6 +32,7 @@ import { PACKAGE_COMMAND } from "../../src/util/package.ts";
 import {
   daysAgo,
   entryFor,
+  FIXTURE_DIR,
   fakeIo,
   fakeResolvers,
   fetchedEntry,
@@ -932,5 +933,70 @@ test("a codex config.toml the probe cannot read demotes to tier 2 with a notice,
     const healthy = await runSync({ ...SYNC, fetch: "none" }, io);
     expect(healthy.notices.some((line) => line.includes("could not be read"))).toBe(false);
     expect(readFileSync(shared, "utf8")).not.toContain(SELF_REFRESH);
+  });
+});
+
+// A project rooted at the home directory shares its rule file and its settings file with the user
+// scope, so a run from anywhere keeps that project's reader on the file and probes it with the
+// root it was resolved under. A run outside any project has no root of its own to give, and the
+// harness that asks which file its hook sits in is the one that skips a broken layer.
+test("a retained reader from a project rooted at the home directory is probed with its own root, not the run's", async () => {
+  await world(async ({ home, dir, userHome }) => {
+    mkdirSync(join(userHome, ".git"));
+    const settingsLike: HarnessDefinition = {
+      ...sharedBlockHarness,
+      targets: {
+        project: { kind: "shared-block", file: join(FIXTURE_DIR, "FIXTURE.md") },
+        global: { kind: "shared-block", file: join(FIXTURE_DIR, "FIXTURE.md") },
+      },
+      hook: {
+        kind: "registry",
+        path: (scope, ctx) => join(scopeRoot({}, scope, ctx), FIXTURE_DIR, "settings.json"),
+        format: "json",
+        eventPath: ["hooks", "SessionStart"],
+        grouped: true,
+        handler: (spec) => ({ type: "command", command: [spec.command, ...spec.args].join(" ") }),
+        commandKey: "command",
+        stdout: "plain",
+        async: true,
+        tierCheck: {
+          layers: (ctx) =>
+            [ctx.projectRoot, ctx.home]
+              .filter((root): root is string => root !== null)
+              .map((root) => join(root, FIXTURE_DIR, "settings.json")),
+          format: "json",
+          key: "disableAllHooks",
+          demotesWhen: true,
+          unreadable: "skips-the-file",
+        },
+      },
+    };
+    const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
+    seedStore(home, FROM, upstream);
+    const facts = await fetchedFacts(upstream, daysAgo(NOW, 9), {
+      kind: "ratelimit",
+      message: "429",
+      at: NOW.toISOString(),
+    });
+    const atHome = writeSource(join(userHome, "memories"), TWO_MEMORIES);
+    writeState(
+      home,
+      stateWith({
+        [KEY]: fetchedEntry(FROM, facts, { harnesses: ["codex"] }),
+        [atHome]: entryFor(localFrom(atHome, true), {
+          destination: { scope: "project", root: userHome },
+          harnesses: ["codex"],
+        }),
+      }),
+    );
+    const settings = join(userHome, FIXTURE_DIR, "settings.json");
+    writeFileSync(settings, "{ broken\n");
+    const io = fakeIo({ home, userHome, cwd: dir, harnesses: [settingsLike] });
+    // The hook run's mode: a broken registry is a reported failure there, never an exit.
+    const report = await runSync({ ...SYNC, fetch: "none", quiet: true }, io);
+    expect(report.notices).toContain(
+      `maxims: codex settings.json could not be read (${settings}: InvalidSymbol at offset 2); assuming hooks off`,
+    );
+    expect(readFileSync(join(userHome, FIXTURE_DIR, "FIXTURE.md"), "utf8")).toContain(SELF_REFRESH);
   });
 });
