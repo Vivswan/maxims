@@ -84,7 +84,8 @@ async function withScratchUnderHome<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const mustFail = (outcome: Awaited<ReturnType<typeof runPublishedSmoke>>) => {
-  if (outcome.status !== "fail") throw new Error(`expected a fail outcome, got ${outcome.status}`);
+  expect(outcome.status).toBe("fail");
+  if (outcome.status !== "fail") throw new Error("unreachable: the matcher above failed first");
   return outcome;
 };
 
@@ -184,7 +185,7 @@ describe("runPublishedSmoke", () => {
     string,
   ][] = [
     [
-      "add that writes no rule line for a memory",
+      "an add that writes no rule line for a memory",
       {
         add: (command) => {
           const home = command.env.HOME ?? "";
@@ -195,7 +196,7 @@ describe("runPublishedSmoke", () => {
       "- no rule line for beta-rule in ~/.codex/AGENTS.md",
     ],
     [
-      "add that drops the seeded lines",
+      "an add that drops the seeded lines",
       {
         add: (command) => {
           const home = command.env.HOME ?? "";
@@ -206,7 +207,7 @@ describe("runPublishedSmoke", () => {
       "- the seeded lines above the block changed",
     ],
     [
-      "add that leaves a directory where the rule file was",
+      "an add that leaves a directory where the rule file was",
       {
         add: (command) => {
           const path = ruleFile(command.env.HOME ?? "");
@@ -218,19 +219,19 @@ describe("runPublishedSmoke", () => {
       "- ~/.codex/AGENTS.md could not be read: EISDIR",
     ],
     [
-      "sync --quiet that speaks",
+      "a sync --quiet that speaks",
       { sync: () => ({ exitCode: 0, stdout: "", stderr: "warn: something\n" }) },
       "- wrote to stderr",
     ],
     [
-      "remove that leaves the block behind",
+      "a remove that leaves the block behind",
       { remove: () => ok() },
       "- ~/.codex/AGENTS.md is not the seeded file again",
     ],
   ];
 
   // The EISDIR row ends in the OS's own wording, so it is matched without the closing newline.
-  test.each(silentDefects)("an %s fails", async (_name, overrides, problem) => {
+  test.each(silentDefects)("%s fails", async (_name, overrides, problem) => {
     const { run } = scripted(overrides);
     const outcome = mustFail(await withScratchUnderHome(() => runPublishedSmoke(run)));
     expect(outcome.report.body).toContain(problem);

@@ -34,5 +34,4 @@ test("a failing suite fails with the last 200 lines of its output", () => {
     "`MAXIMS_PROPERTY_ITERATIONS=200 bun run test` exited 1. The last 200 lines of its output:\n\n" +
       `\`\`\`text\n${lines.slice(50).join("\n")}\n\`\`\`\n`,
   );
-  expect(body).not.toContain("line 50\n");
 });

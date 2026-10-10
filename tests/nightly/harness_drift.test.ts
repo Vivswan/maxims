@@ -47,10 +47,10 @@ test("normalizeText pins the text a claim is matched against for a fixed page", 
   expect(normalizeText(PAGE)).toBe(NORMALIZED);
 });
 
-// The boundary rule is what keeps a claim honest: `hooks` must not hold on `webhooks`, `hook` not
-// on `hooks`, and `rules` not on `.clinerules`, while a claim that ends in punctuation needs no
-// boundary there. `axb` is the negative control for the escaping: an unescaped `a.b` would hold
-// on it. The impossible token is the negative control for the matcher itself.
+// The boundary rule is what keeps a claim honest: `hooks` must not hold on `webhooks` and `hook`
+// not on `hooks`, while a claim that ends in punctuation needs no boundary there. `axb` is the
+// negative control for the escaping: an unescaped `a.b` would hold on it, as an unescaped `rules.`
+// would on `rules `. The impossible token is the negative control for the matcher itself.
 const WORDS =
   "Put rules in .claude/rules/ and set alwaysApply: true; webhooks and pre-hooks differ from hooks. " +
   "Keep $DSH_HOME/cordis.patch.yml under 65,536-byte budgets, axb.";
@@ -64,7 +64,7 @@ describe("claimPresent", () => {
     ["a literal dollar and dots", "$DSH_HOME/cordis.patch.yml", true],
     ["a limit with a comma", "65,536-byte", true],
     ["a word inside a longer word", "ebhooks", false],
-    ["a word that ends a longer word", "rules.", false],
+    ["a trailing dot read literally", "rules.", false],
     ["a shorter word than the text's", "hook", false],
     ["a word the text joins with a hyphen", "hooks differ", false],
     ["a word before a hyphen", "pre", false],
