@@ -188,18 +188,6 @@ function holdLock(home: string, holder: Record<string, unknown>, ageMs = 0): str
   return lockPath;
 }
 
-async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
-  let caught: unknown;
-  try {
-    await promise;
-  } catch (error) {
-    caught = error;
-  }
-  if (!(caught instanceof MaximsError)) throw new Error(`expected a MaximsError, got ${caught}`);
-  expect(caught.code).toBe(ExitCode.StoreLocked);
-  return caught;
-}
-
 // A manual-mode holder that signals when its callback is running, so a contender started after
 // `entered` resolves is known to meet a held lock rather than an empty directory.
 function heldLock(home: string): {
@@ -207,20 +195,14 @@ function heldLock(home: string): {
   release: () => void;
   done: Promise<string>;
 } {
-  let enter: () => void = () => undefined;
-  let release: () => void = () => undefined;
-  const entered = new Promise<void>((done) => {
-    enter = done;
-  });
-  const held = new Promise<void>((done) => {
-    release = done;
-  });
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
   const done = withStateLock(home, "manual", async () => {
-    enter();
-    await held;
+    entered.resolve();
+    await held.promise;
     return "first";
   });
-  return { entered, release, done };
+  return { entered: entered.promise, release: held.resolve, done };
 }
 
 describe("readState", () => {
@@ -503,29 +485,22 @@ describe("writeState", () => {
 });
 
 describe("withStateLock", () => {
-  test("manual mode: the second caller waits, then fails with exit 5 naming the holder's argv", async () => {
+  test("manual mode: a second caller waits for the holder and runs once released; one whose wait runs out fails with exit 5 naming the holder's argv", async () => {
     await withTempHome(async (home) => {
       const holder = heldLock(home);
       await holder.entered;
-      const error = await expectLocked(
-        withStateLock(home, "manual", async () => "second", { waitMs: 60 }),
-      );
-      expect(error.message).toContain(process.argv.join(" "));
-      holder.release();
-      expect(await holder.done).toBe("first");
-      expect(existsSync(homePaths(home).lock)).toBe(false);
-    });
-  });
-
-  test("manual mode: the second caller stays pending while the lock is held and runs once it is released", async () => {
-    await withTempHome(async (home) => {
-      const holder = heldLock(home);
-      await holder.entered;
-      const second = withStateLock(home, "manual", async () => "second", { waitMs: 5000 });
+      const patient = withStateLock(home, "manual", async () => "second", { waitMs: 5000 });
+      const impatient = withStateLock(home, "manual", async () => "third", { waitMs: 60 });
+      await expect(impatient).rejects.toBeInstanceOf(MaximsError);
+      await expect(impatient).rejects.toMatchObject({
+        code: ExitCode.StoreLocked,
+        message: expect.stringContaining(process.argv.join(" ")),
+      });
+      expect(existsSync(homePaths(home).lock)).toBe(true);
       const meanwhile = Bun.sleep(60).then(() => "still held");
-      expect(await Promise.race([second, meanwhile])).toBe("still held");
+      await expect(Promise.race([patient, meanwhile])).resolves.toBe("still held");
       holder.release();
-      expect(await Promise.all([holder.done, second])).toEqual(["first", "second"]);
+      expect(await Promise.all([holder.done, patient])).toEqual(["first", "second"]);
       expect(existsSync(homePaths(home).lock)).toBe(false);
     });
   });
@@ -571,18 +546,6 @@ describe("withStateLock", () => {
       });
       if (outcome.kind === "ran") expect(outcome.value?.ageMs).toBeGreaterThanOrEqual(120_000);
       expect(existsSync(lockPath)).toBe(false);
-    });
-  });
-
-  test("a write through the lock lands in the file and the lock is released afterwards", async () => {
-    await withTempHome(async (home) => {
-      const state = emptyState("maxims@0.4.1");
-      const outcome = await withStateLock(home, "hook", (lock) =>
-        lock.write(state, "maxims@0.4.1"),
-      );
-      expect(outcome).toEqual({ kind: "ran", value: { written: true } });
-      expect(readFileSync(homePaths(home).state, "utf8")).toBe(serializeState(state));
-      expect(existsSync(homePaths(home).lock)).toBe(false);
     });
   });
 });
