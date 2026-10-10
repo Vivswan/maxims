@@ -25,7 +25,7 @@ import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { inSelect, isHiddenInternal } from "./select.ts";
-import { storeTree } from "./sources.ts";
+import { storeTree } from "./source-key.ts";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 // A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last

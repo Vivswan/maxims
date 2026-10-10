@@ -89,7 +89,8 @@ import {
   usage,
 } from "./shared/options.ts";
 import { finish, mergePlans } from "./shared/output.ts";
-import { insideProject, listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
+import { listedInLock, projectLockChange } from "./shared/project-lock-io.ts";
+import { insideProject } from "./shared/project-lock-read.ts";
 import {
   type MemoryRiskWarning,
   refuseRisky,
@@ -99,10 +100,10 @@ import {
 import { disabledNames, isHiddenInternal } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { parseSourceSelector, storable } from "./shared/source-argument.ts";
+import { findSourceKey, sourceIdentity, storeTree } from "./shared/source-key.ts";
 import {
   detectedHarnesses,
   effectiveNames,
-  findSourceKey,
   installedAtOtherRef,
   installedAtOtherScope,
   installedElsewhere,
@@ -112,9 +113,7 @@ import {
   resolveIncoming,
   ruleCapRefusal,
   scopeOf,
-  sourceIdentity,
   sourcesHere,
-  storeTree,
   targetPath,
   tildify,
 } from "./shared/sources.ts";

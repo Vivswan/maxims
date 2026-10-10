@@ -5,10 +5,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SourceMemory } from "../../../src/commands/shared/memories.ts";
-import {
-  projectLockChange,
-  readProjectLock,
-} from "../../../src/commands/shared/project-lock-io.ts";
+import { projectLockChange } from "../../../src/commands/shared/project-lock-io.ts";
+import { readProjectLock } from "../../../src/commands/shared/project-lock-read.ts";
 import { disabledNames, selectMemories } from "../../../src/commands/shared/select.ts";
 import { withShared } from "../../../src/commands/shared/sources.ts";
 import { parseMemory } from "../../../src/memory/contract.ts";

@@ -38,7 +38,7 @@ import {
   projectLockPath,
   readProjectLock,
   sourceFromLock,
-} from "./shared/project-lock-io.ts";
+} from "./shared/project-lock-read.ts";
 import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./shared/sources.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes, FLAGS.strict];

@@ -457,7 +457,7 @@ flowchart LR
   trees["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
   derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
   blocks["src/rulefile/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
-  manifest["src/commands/shared/project-lock-io.ts<br>readProjectLock()"]
+  manifest["src/commands/shared/project-lock-read.ts<br>readProjectLock()"]
   disk[("the store, the rule files, the registries, the manifest, the stamp")]
   stdout[["stdout: the listing, or the ok, warn and x lines; one document under --json"]]
   listverb --> runlist
@@ -490,9 +490,9 @@ flowchart LR
   options["src/commands/shared/options.ts<br>parseDestination()"]
   find["src/commands/shared/sources.ts<br>findInstalledSource() installedElsewhere() withShared()"]
   intent["src/commands/shared/cli-context.ts<br>loadIntentFor() updateIntent()"]
-  shareable["src/commands/add.ts<br>assertShareable()<br>src/commands/shared/project-lock-io.ts<br>insideProject()"]
+  shareable["src/commands/add.ts<br>assertShareable()<br>src/commands/shared/project-lock-read.ts<br>insideProject()"]
   schema["src/state/schema.ts<br>SourceIntent"]
-  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange() readProjectLock()"]
+  lockio["src/commands/shared/project-lock-io.ts<br>lockChanges() projectLockChange()<br>src/commands/shared/project-lock-read.ts<br>readProjectLock()"]
   plock["src/state/project-lock.ts<br>serializeProjectLock() parseProjectLock() lockSourceKey() PROJECT_LOCK_RELATIVE_PATH"]
   manifest[("the committed manifest: maxims.lock under the agents folder")]
   statefile[("intent: state.json")]
@@ -523,7 +523,7 @@ Demonstrated by: [tests/cli/add.test.ts](../tests/cli/add.test.ts), [tests/comma
 ```mermaid
 flowchart LR
   manifest[("the committed manifest: maxims.lock under the agents folder")]
-  lockio["src/commands/shared/project-lock-io.ts<br>readProjectLock() projectLockPath() sourceFromLock()"]
+  lockio["src/commands/shared/project-lock-read.ts<br>readProjectLock() projectLockPath() sourceFromLock()"]
   plock["src/state/project-lock.ts<br>ProjectLockSchema parseProjectLock()"]
   install["src/commands/install.ts<br>install"]
   stage["src/commands/add.ts<br>stageAdd() hookWanted()"]

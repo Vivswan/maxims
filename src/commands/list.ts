@@ -27,7 +27,7 @@ import {
 import { DAY_MS } from "./shared/fetch.ts";
 import { pathAbsent } from "./shared/fs-probe.ts";
 import { hookStatus, hookStatusText } from "./shared/hooks.ts";
-import { readProjectLock } from "./shared/project-lock-io.ts";
+import { readProjectLock } from "./shared/project-lock-read.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, selectMemories } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
