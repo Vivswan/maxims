@@ -75,7 +75,6 @@ describe("list", () => {
       const demoted: HarnessDefinition = {
         ...sharedBlockHarness,
         tier: 2,
-        achievedTier: async () => ({ tier: 2, unreadable: null }),
       };
       const io = fakeIo({ ...w, cwd: w.project, harnesses: [rulesDirHarness, demoted] });
       await runSync({ ...SYNC, fetch: "due" }, io);

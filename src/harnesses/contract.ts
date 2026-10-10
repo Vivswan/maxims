@@ -243,7 +243,6 @@ export interface HarnessDefinition {
   expands: ExpansionSyntax[];
   byteBudget?: ByteBudget;
   detect: (ctx: HarnessContext) => boolean;
-  achievedTier?: (ctx: HarnessContext) => Promise<AchievedTier>;
   scopeFrontmatter?: (globs: string[]) => string | null;
   verifiedAgainst: VerifiedAgainst;
   fixtures?: HarnessFixtures;

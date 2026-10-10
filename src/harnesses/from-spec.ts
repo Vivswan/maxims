@@ -27,11 +27,10 @@ import {
 } from "./spec.ts";
 
 // The members a spec cannot carry because they are code: a config edit a rules directory needs,
-// a hook the shared writers cannot express, or a probe for a tier no config file states. A quirk
-// that needs the compiled paths (a bridge row pointing at a file under the resolved global root)
-// is given as a function of the data-only definition.
+// or a hook the shared writers cannot express. A quirk that needs the compiled paths (a bridge row
+// pointing at a file under the resolved global root) is given as a function of the data-only
+// definition.
 export type HarnessQuirks = {
-  achievedTier?: HarnessDefinition["achievedTier"];
   configEdit?: HarnessDefinition["configEdit"];
   reconcile?: Extract<HookShape, { kind: "custom" }>["reconcile"];
 };
@@ -44,14 +43,13 @@ type LayersSpec = NonNullable<Extract<HookSpecData, { kind: "registry" }>["tierC
 export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): HarnessDefinition {
   const declared = compileData(spec);
   const resolved = typeof quirks === "function" ? quirks(declared) : quirks;
-  const { reconcile, achievedTier, configEdit } = resolved;
+  const { reconcile, configEdit } = resolved;
   if (reconcile !== undefined && declared.hook.kind !== "none") {
     throw new Error(`${spec.id}: a custom reconcile quirk needs hook kind "none" in the spec`);
   }
   return {
     ...declared,
     ...(reconcile === undefined ? {} : { hook: { kind: "custom", reconcile } }),
-    ...(achievedTier === undefined ? {} : { achievedTier }),
     ...(configEdit === undefined ? {} : { configEdit }),
   };
 }

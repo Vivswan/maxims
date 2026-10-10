@@ -388,7 +388,6 @@ export async function achievedTier(
   scope: Scope,
   ctx: HarnessContext,
 ): Promise<AchievedTier> {
-  if (def.achievedTier !== undefined) return def.achievedTier(ctx);
   const declared: AchievedTier = { tier: def.tier, unreadable: null };
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return declared;
   const check = def.hook.tierCheck;

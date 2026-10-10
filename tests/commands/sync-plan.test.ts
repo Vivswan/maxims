@@ -18,6 +18,7 @@ import { renderHookStdout } from "../../src/commands/shared/stdin.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { SyncOptions } from "../../src/commands/types.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { type LocalSourceFrom, materializeLocal } from "../../src/sources/local.ts";
@@ -476,15 +477,17 @@ describe("shared file byte budget", () => {
     });
   });
 
-  // A harness may refuse to read its own config when probed for the tier it reaches (Codex on a
-  // config.toml that does not parse). The probe decides only the self-refresh line, so a run that
-  // renders no stale block never asks: a kept block of a vanished source plans without it.
+  // The tier probe reads a config maxims never writes (Codex's config.toml) and says so when it
+  // cannot. The probe decides only the self-refresh line, so a run that renders no stale block
+  // never asks: a kept block of a vanished source plans without a word about the broken config.
   test("the tier probe runs only for a file with a stale block", async () => {
     await world(async ({ home, dir, userHome }) => {
-      const probing: HarnessDefinition = {
-        ...sharedBlockHarness,
-        achievedTier: () => Promise.reject(new Error("probed the config")),
-      };
+      const probing: HarnessDefinition = { ...sharedBlockHarness, hook: codex.hook };
+      const configToml = join(userHome, ".codex", "config.toml");
+      mkdirSync(join(userHome, ".codex"), { recursive: true });
+      writeFileSync(configToml, "hooks\n");
+      const unread = (notices: string[]) =>
+        notices.filter((line) => line.includes("could not be read"));
       const live = writeSource(join(dir, "live"), TWO_MEMORIES);
       writeState(
         home,
@@ -492,10 +495,14 @@ describe("shared file byte budget", () => {
       );
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: [probing] });
       const shared = join(userHome, ".fixture", "FIXTURE.md");
-      await expect(runSync(SYNC, io)).resolves.toMatchObject({ rules: 2 });
+      const installed = await runSync(SYNC, io);
+      expect(installed).toMatchObject({ rules: 2 });
+      expect(unread(installed.notices)).toEqual([]);
       const before = readFileSync(shared, "utf8");
       rmSync(live, { recursive: true });
-      await expect(runSync(SYNC, io)).resolves.toMatchObject({ failed: [{ key: live }] });
+      const vanished = await runSync(SYNC, io);
+      expect(vanished).toMatchObject({ failed: [{ key: live }] });
+      expect(unread(vanished.notices)).toEqual([]);
       expect(readFileSync(shared, "utf8")).toBe(before);
       const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
       const from = githubFrom("acme/rules");
@@ -514,7 +521,9 @@ describe("shared file byte budget", () => {
         harnesses: [probing],
         resolvers: fake.resolvers,
       });
-      await expect(runSync(SYNC, stale)).rejects.toThrow("probed the config");
+      expect(unread((await runSync(SYNC, stale)).notices)).toEqual([
+        `maxims: codex config.toml could not be read (${configToml}: Invalid TOML document: illegal character in key (line 1, column 6)); assuming hooks off`,
+      ]);
     });
   });
 

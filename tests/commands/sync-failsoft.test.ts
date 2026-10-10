@@ -21,7 +21,6 @@ import { runSync } from "../../src/commands/sync.ts";
 import type { LastError } from "../../src/contracts/last-error.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import { type HarnessDefinition, scopeRoot } from "../../src/harnesses/contract.ts";
-import { achievedTier } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { withStateLock } from "../../src/state/store.ts";
@@ -913,10 +912,7 @@ test("a codex config.toml the probe cannot read demotes to tier 2 with a notice,
       at: NOW.toISOString(),
     });
     writeState(home, stateWith({ [KEY]: fetchedEntry(FROM, facts, { harnesses: ["codex"] }) }));
-    const probed: HarnessDefinition = {
-      ...sharedBlockHarness,
-      achievedTier: (ctx) => achievedTier(codex, "global", ctx),
-    };
+    const probed: HarnessDefinition = { ...sharedBlockHarness, hook: codex.hook };
     const io = fakeIo({ home, userHome, cwd: dir, harnesses: [probed] });
     const configToml = join(userHome, ".codex", "config.toml");
     mkdirSync(join(userHome, ".codex"), { recursive: true });
