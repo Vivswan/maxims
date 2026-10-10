@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
@@ -13,26 +12,38 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://docs.github.com/en/copilot/reference/hooks-configuration",
-        contentHash: contentHashLiteral(
-          "sha256:147566a678bfa7e7cf4dd897b10bb24aa264396c0562de2cc68581a4f0f92911",
-        ),
+        kind: "file",
+        repo: "github/docs",
+        ref: "main",
+        path: "content/copilot/reference/hooks-reference.md",
+        claims: [
+          ".github/hooks/*.json",
+          "COPILOT_HOME",
+          "sessionStart",
+          "timeoutSec",
+          "Only `additionalContext` is consumed for `sessionStart`",
+          '"bash"',
+          '"powershell"',
+        ],
+        note: "the hooks files, the sessionStart event and its fields",
       },
       {
-        url: "https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions",
-        contentHash: contentHashLiteral(
-          "sha256:0aaf0909ed8cf0740eedb39fed49711d8e0bc1b31f899bb7e5fe87551d10dd31",
-        ),
-        note: ".github/instructions and the applyTo frontmatter",
-      },
-      {
-        url: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference",
-        contentHash: contentHashLiteral(
-          "sha256:c85b14ef8144d6b229f877079f0d3dedac692cc8d506838675d3bd6abbbe9713",
-        ),
+        kind: "file",
+        repo: "github/docs",
+        ref: "main",
+        path: "content/copilot/reference/copilot-cli-reference/cli-config-dir-reference.md",
+        claims: ["`~/.copilot`", "instructions/", "hooks/", "COPILOT_HOME"],
         note: "COPILOT_HOME and the hooks and instructions directories under it",
+      },
+      {
+        kind: "file",
+        repo: "github/docs",
+        ref: "main",
+        path: "data/reusables/copilot/custom-instructions-path.md",
+        claims: [".github/instructions", ".instructions.md", "applyTo"],
+        note: ".github/instructions and the applyTo frontmatter",
       },
     ],
   },

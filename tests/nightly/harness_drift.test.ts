@@ -1,195 +1,100 @@
-// Each drift below would be silent without this file, since nothing else reads a page's hash.
+// Each drift below would be silent without this file, since nothing else reads a source's claims.
 //
-//   a definition lands without a page's hash     -> the nightly never sees that page move
-//   the one normalization behind the hashes moves -> all fourteen definitions read as drift at once
-//   markup is misread                             -> a page's words go missing, or script text counts
-//   a build stamp or sidebar leaks into the hash  -> a redeploy with no word changed reads as drift
-//   a page the run never read passes              -> a vendor block on the user agent turns the run green
-//   a run with nothing to verify passes           -> an empty registry reads as every page matching
-//   one page of several moves                     -> its definition still counts as a match
-//   the fill instruction changes                  -> the fetched hash an author pastes in disappears
+//   a claim holds inside a longer word          -> `hooks` holds on `webhooks` after the hooks section is gone
+//   a line break splits a claim                 -> a fact wrapped across two lines reads as absent
+//   a pointer resolves through a missing key    -> a schema that dropped a setting still reads as match
+//   a pointer resolves through the prototype    -> an empty schema answers `/toString` as match
+//   a pointer resolves through an array's own   -> `{"items":[]}` answers `/items/length` as match
+//   a non-canonical index resolves              -> `/a/01` reads as `/a/1`
+//   a duplicate key reads as one of its values  -> `/type` answers whichever duplicate the parser kept
+//   a source the run never read passes          -> a vendor block on the user agent turns the run green
+//   a moved source passes                       -> a landing page at the new URL holds a claim by accident
+//   a run with nothing to verify passes         -> an empty registry reads as every source matching
+//   one source of several drifts                -> its definition still counts as a match
+//   a repository file is fetched elsewhere      -> a claim is read off a page that is not the named file
+//   a rendered page answers for a text source   -> nav text holds a claim the raw file or markdown never carried
+//   a missing claim breaks the table            -> a backtick in the claim ends the cell's fence early
+//   the fix instruction changes                 -> the remedy a reader follows disappears
 import { describe, expect, test } from "bun:test";
 import {
-  mediaOf,
-  normalizeDocument,
+  claimPresent,
+  normalizeText,
   runHarnessDrift,
+  sourceUrl,
   type VerifiedDefinition,
 } from "../../scripts/nightly/harness_drift.ts";
 import type { Outcome } from "../../scripts/nightly/report.ts";
-import { HARNESSES } from "../../src/harnesses/registry.ts";
-import { type ContentHash, contentHashOf } from "../../src/memory/contract.ts";
+import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 
+// A markdown rendition as a vendor serves it: a fact wrapped across lines, a code fence quoting
+// markup, so the text is read as it is and only its whitespace runs collapse.
 const PAGE = [
-  "<!DOCTYPE html>",
-  "<html><head><title>Hooks &amp; rules</title>",
-  '<script>window.__BUILD_ID__ = "build-1234";</script>',
-  "<style>.x { color: red; }</style></head>",
-  "<body>",
-  "  <h1>Session   hooks</h1>",
-  "  <p>Run <code>maxims sync</code> on <b>SessionStart</b>&nbsp;&amp; write",
-  "  <code>&lt;slug&gt;.md</code>; it&#39;s fast.</p>",
-  '  <script type="module">console.log("nonce-abc")</script>',
-  "</body></html>",
+  "# Hooks",
+  "",
+  "Run `maxims sync` on SessionStart",
+  "  and write `<slug>.md`; it's fast.",
+  "",
+  "```html",
+  "<main>Example</main>",
+  "```",
   "",
 ].join("\n");
 
 const NORMALIZED =
-  "Hooks & rules Session hooks Run maxims sync on SessionStart & write <slug>.md; it's fast.";
-const PAGE_HASH = contentHashOf(NORMALIZED);
+  "# Hooks Run `maxims sync` on SessionStart and write `<slug>.md`; it's fast. ```html <main>Example</main> ```";
 
-describe("normalizeDocument", () => {
-  test("pins the normalized text and its hash for a fixed page", () => {
-    expect(normalizeDocument(PAGE, "html")).toBe(NORMALIZED);
-    expect<string>(PAGE_HASH).toBe(
-      "sha256:250b9c5827a7d9789921817c234d05933e4a4b1561c1cdd05bda81565741d4e2",
-    );
-    expect(contentHashOf(normalizeDocument(PAGE, "html"))).toBe(PAGE_HASH);
-  });
+test("normalizeText pins the text a claim is matched against for a fixed page", () => {
+  expect(normalizeText(PAGE)).toBe(NORMALIZED);
+});
 
-  test("one changed word changes the hash", () => {
-    const changed = PAGE.replace("SessionStart", "SessionEnd");
-    expect(contentHashOf(normalizeDocument(changed, "html"))).not.toBe(PAGE_HASH);
-  });
+// The boundary rule is what keeps a claim honest: `hooks` must not hold on `webhooks`, `hook` not
+// on `hooks`, and `rules` not on `.clinerules`, while a claim that ends in punctuation needs no
+// boundary there. `axb` is the negative control for the escaping: an unescaped `a.b` would hold
+// on it. The impossible token is the negative control for the matcher itself.
+const WORDS =
+  "Put rules in .claude/rules/ and set alwaysApply: true; webhooks and pre-hooks differ from hooks. " +
+  "Keep $DSH_HOME/cordis.patch.yml under 65,536-byte budgets, axb.";
 
-  // Documentation sites stamp a build id or a nonce into their scripts on every deploy; a hash
-  // that followed them would report drift nightly with no word of the page changed.
-  test("a new build id in a script body leaves the hash unchanged", () => {
-    const redeployed = PAGE.replace("build-1234", "build-5678").replace("nonce-abc", "nonce-xyz");
-    expect(normalizeDocument(redeployed, "html")).toBe(NORMALIZED);
-    expect(contentHashOf(normalizeDocument(redeployed, "html"))).toBe(PAGE_HASH);
-  });
-
-  // Markup a tag-stripping regex misreads: a ">" inside an attribute value ends the tag early and
-  // leaks the rest as words, a bare "<" in prose swallows the words after it as a tag, and the
-  // text browsers show only without scripts is kept although no reader with scripts sees it.
-  // Then markup node-html-parser misreads with its defaults: a pre block's inner tags count as
-  // text, a doctype rides along as text or takes the words next to it, and a raw-text element
-  // whose end tag differs in case or carries a space before ">" swallows the rest of the page.
+describe("claimPresent", () => {
   test.each([
-    ['<p>See <a title="a > b">the link</a> here.</p>', "See the link here."],
-    ["<p>if a < b then c</p>", "if a < b then c"],
-    ["<p>a </p><noscript>enable js</noscript><p> b</p>", "a b"],
-    ['<pre><code class="language-sh">maxims sync</code></pre>', "maxims sync"],
-    ["<!DOCTYPE html>Hello <b>world</b>", "Hello world"],
-    ["\n<!DOCTYPE html><p>hello</p>", "hello"],
-    ["<SCRIPT>1</script><p>hello</p>", "hello"],
-    ["<script>1</script ><p>hello</p>", "hello"],
-  ])("reads %s as the words a reader sees", (html, words) => {
-    expect(normalizeDocument(html, "html")).toBe(words);
+    ["a phrase", "set alwaysApply: true", true],
+    ["a path ending in a word character", ".claude/rules", true],
+    ["a key ending in punctuation", "alwaysApply:", true],
+    ["a whitespace run in the claim", "set\n  alwaysApply:", true],
+    ["a literal dollar and dots", "$DSH_HOME/cordis.patch.yml", true],
+    ["a limit with a comma", "65,536-byte", true],
+    ["a word inside a longer word", "ebhooks", false],
+    ["a word that ends a longer word", "rules.", false],
+    ["a shorter word than the text's", "hook", false],
+    ["a word the text joins with a hyphen", "hooks differ", false],
+    ["a word before a hyphen", "pre", false],
+    ["a word the text ends with", "differ from hooks", true],
+    ["a regex metacharacter read literally", "a.b", false],
+    ["the same letters without the metacharacter", "axb", true],
+    ["an impossible token", "zzImpossibleToken414", false],
+  ])("%s: %j reads %p", (_case, claim, present) => {
+    expect(claimPresent(WORDS, claim)).toBe(present);
   });
 
-  // Documentation sites print the build date in a footer and restamp it on every deploy; the
-  // stamp carries no fact about the harness, so it leaves the words. Every shape a site prints is
-  // listed here; a date without that prefix, or a stamp-shaped line quoted in a code sample, is a
-  // fact of the page and stays. The Starlight row ends with no whitespace before the stamp, as the
-  // OpenCode footer prints it after the copyright.
-  test.each([
-    ["Starlight", "<footer>Last updated: Sep 21, 2026</footer>", "Rules"],
-    ["Starlight, iso", "<footer>Last updated: 2026-09-21</footer>", "Rules"],
-    [
-      "Starlight, after the copyright",
-      "<footer><span>(c) Vendor</span>Last updated: Sep 21, 2026</footer>",
-      "Rules (c) Vendor",
-    ],
-    ["Starlight 0.41 (Warp)", "<footer>Last updated Sep 16, 2026</footer>", "Rules"],
-    ["Docusaurus", "<footer>Last updated on September 21, 2026</footer>", "Rules"],
-    ["Docusaurus, modified", "<footer>Last modified: Sep 21, 2026</footer>", "Rules"],
-    ["a dated fact", "<p>Released Sep 21, 2026</p>", "Rules Released Sep 21, 2026"],
-    ["a bare update word", "<p>Updated hooks</p>", "Rules Updated hooks"],
-    [
-      "a stamp shape quoted in a code sample",
-      '<pre>echo "Last updated: Sep 20, 2026"</pre>',
-      'Rules echo "Last updated: Sep 20, 2026"',
-    ],
-  ])("a %s footer stamp leaves the words", (_site, footer, words) => {
-    expect(normalizeDocument(`<p>Rules</p>\n${footer}`, "html")).toBe(words);
-  });
-
-  test.each([
-    [
-      "the whole document",
-      (date: string, word: string): string =>
-        PAGE.replace("</body>", `<footer>Last updated: ${date}</footer></body>`).replace(
-          "SessionStart",
-          word,
-        ),
-    ],
-    [
-      "the selected main element",
-      (date: string, word: string): string =>
-        `<nav>Docs</nav><main>${word}<footer>(c) AnomalyLast updated: ${date}</footer></main>`,
-    ],
-  ])(
-    "a redeployed build date in %s leaves the hash unchanged while one changed word does not",
-    (_path, stamped) => {
-      const before = contentHashOf(
-        normalizeDocument(stamped("Sep 20, 2026", "SessionStart"), "html"),
-      );
-      expect(
-        contentHashOf(normalizeDocument(stamped("Sep 21, 2026", "SessionStart"), "html")),
-      ).toBe(before);
-      expect(
-        contentHashOf(normalizeDocument(stamped("Sep 20, 2026", "SessionEnd"), "html")),
-      ).not.toBe(before);
-    },
-  );
-
-  // A site's sidebar lists every page, so a new page anywhere on the site changes the words
-  // outside the content element. The two-main row is the Cursor page, which prints a second copy
-  // of its content for the print layout; the footer-inside-main row is the OpenCode page, which
-  // prints its build stamp glued to the copyright inside the content element.
-  test.each([
-    ["<nav>Docs Rules Hooks</nav><main><p>Rules</p></main><footer>(c) 2026</footer>", "Rules"],
-    [
-      "<main>Rules<footer>(c) AnomalyLast updated: Sep 21, 2026</footer></main>",
-      "Rules(c) Anomaly",
-    ],
-    ["<nav>Docs</nav><main><article><p>Rules</p></article></main>", "Rules"],
-    ["<aside>Docs</aside><main><p>Rules</p></main><main><p>Rules</p></main>", "Rules"],
-    ["<nav>Docs</nav><article><p>Rules</p></article>", "Rules"],
-    ['<nav>Docs</nav><div role="main"><p>Rules</p></div>', "Rules"],
-    ["<nav>Docs</nav>\n<p>Rules</p>", "Docs Rules"],
-  ])("hashes only the content element of %s", (html, words) => {
-    expect(normalizeDocument(html, "html")).toBe(words);
-  });
-
-  test("a new sidebar entry outside the content element leaves the hash unchanged", () => {
-    const site = (sidebar: string): string =>
-      `<nav>${sidebar}</nav><main><p>Rules</p></main><footer>(c) 2026</footer>`;
-    expect(contentHashOf(normalizeDocument(site("Docs Rules Hooks Plugins"), "html"))).toBe(
-      contentHashOf(normalizeDocument(site("Docs Rules Hooks"), "html")),
-    );
-  });
-
-  // A raw markdown file served as text is never parsed, so a `main` tag quoted in one of its code
-  // fences cannot become the content element and hide the rest of the page.
-  test("a markdown file is hashed as the text it is", () => {
-    const markdown = "# Hooks\n\nRun on SessionStart.\n\n```html\n<main>Example</main>\n```\n";
-    expect(normalizeDocument(markdown, "text")).toBe(
-      "# Hooks Run on SessionStart. ```html <main>Example</main> ```",
-    );
+  test("a claim holds across a line break the normalization collapsed", () => {
+    expect(claimPresent(normalizeText(PAGE), "SessionStart and write")).toBe(true);
   });
 });
 
-// What each vendor serves: the HTML sites with and without a charset, and GitHub's raw files as
-// plain text. An unknown or missing type is hashed as text because parsing it could hide words.
-test.each([
-  ["text/html; charset=utf-8", "html"],
-  ["text/html", "html"],
-  ["application/xhtml+xml", "html"],
-  ["text/plain; charset=utf-8", "text"],
-  ["text/markdown", "text"],
-  [null, "text"],
-])("mediaOf(%s) is %s", (contentType, media) => {
-  expect<string>(mediaOf(contentType)).toBe(media);
-});
+// A published schema as the pointers must read it: a dotted key such as `amp.mcpServers` is one
+// token, a slash inside a key is escaped as `~1`, and a value check compares what the key holds.
+const SCHEMA = {
+  properties: {
+    "amp.mcpServers": { type: "object" },
+    "a/b": { type: "string" },
+    hooks: { items: [{ const: "SessionStart" }, { const: "SessionEnd" }] },
+  },
+};
 
-const STORED = contentHashOf("stored page");
-const OTHER = contentHashOf("moved page");
-const RAW = "# Hooks\n\n<main>quoted</main>\n";
-const RAW_HASH = contentHashOf("# Hooks <main>quoted</main>");
-const HTML = { headers: { "content-type": "text/html; charset=utf-8" } };
+const RAW = "# Hooks\n\nThe `TaskStart` file runs on each task.\n\n<main>quoted</main>\n";
 const TEXT = { headers: { "content-type": "text/plain; charset=utf-8" } };
+const HTML = { headers: { "content-type": "text/html; charset=utf-8" } };
+const JSON_TYPE = { headers: { "content-type": "application/json" } };
 
 function fakeFetch(answers: Record<string, () => Response | Promise<Response>>): typeof fetch {
   const impl = async (input: string | URL | Request): Promise<Response> => {
@@ -208,44 +113,84 @@ const timeoutError = (): never => {
 };
 
 describe("runHarnessDrift", () => {
-  type Page = [name: string, contentHash?: ContentHash, note?: string];
   const url = (name: string): string => `https://example.com/${name}`;
-  const def = (id: string, ...pages: Page[]): VerifiedDefinition => ({
-    id,
-    verifiedAgainst: {
-      pages: pages.map(([name, contentHash, note]) => ({ url: url(name), contentHash, note })),
-    },
+  const rawUrl = (path: string): string =>
+    `https://raw.githubusercontent.com/example/agent/main/${path}`;
+  const RAW_URL = rawUrl("docs/hooks.md");
+  const page = (name: string, claims: [string, ...string[]], note?: string): VerifiedSource => ({
+    kind: "page",
+    url: url(name),
+    claims,
+    why: "a fixture",
+    ...(note === undefined ? {} : { note }),
   });
+  const file = (
+    claims: [string, ...string[]],
+    note?: string,
+    path = "docs/hooks.md",
+  ): VerifiedSource => ({
+    kind: "file",
+    repo: "example/agent",
+    ref: "main",
+    path,
+    claims,
+    ...(note === undefined ? {} : { note }),
+  });
+  const schema = (
+    name: string,
+    paths: [PointerCheck, ...PointerCheck[]],
+    note?: string,
+  ): VerifiedSource => ({
+    kind: "schema",
+    url: url(name),
+    paths,
+    ...(note === undefined ? {} : { note }),
+  });
+  const def = (
+    id: string,
+    first: VerifiedSource,
+    ...rest: VerifiedSource[]
+  ): VerifiedDefinition => ({ id, verifiedAgainst: { sources: [first, ...rest] } });
   const answers = {
-    [url("stable")]: () => new Response(PAGE, HTML),
-    [url("raw")]: () => new Response(RAW, TEXT),
-    [url("moved")]: () => new Response("<p>moved page</p>", HTML),
+    [url("stable")]: () => new Response(PAGE, TEXT),
+    [RAW_URL]: () => new Response(RAW, TEXT),
+    [url("settings.json")]: () => new Response(JSON.stringify(SCHEMA), JSON_TYPE),
+    [url("moved")]: () => new Response("# Moved\n\nThis page moved; see the hooks page.\n", TEXT),
     [url("gone")]: () => new Response("", { status: 503 }),
     [url("slow")]: timeoutError,
-    [url("unrecorded")]: () => new Response("<p>moved page</p>", HTML),
+    [url("relocated")]: () =>
+      new Response(null, { status: 301, headers: { location: "/docs/new-hooks" } }),
+    [url("stale")]: () => new Response(null, { status: 304 }),
+    [url("rendered")]: () => new Response("<nav>SessionStart</nav>", HTML),
+    [rawUrl("docs/rendered.md")]: () => new Response("<nav>TaskStart</nav>", HTML),
+    [url("schema-moved")]: () => new Response("<p>moved</p>", TEXT),
+    [url("schema-null")]: () => new Response("null", JSON_TYPE),
+    [url("schema-array")]: () => new Response("[]", JSON_TYPE),
+    [url("schema-empty")]: () => new Response("{}", JSON_TYPE),
+    [url("schema-items")]: () => new Response('{"items":[]}', JSON_TYPE),
+    [url("schema-indexed")]: () => new Response('{"a":[1,2]}', JSON_TYPE),
+    [url("schema-duplicate")]: () => new Response('{"type":"object","type":"string"}', JSON_TYPE),
   };
   const table = (rows: string[]): string =>
-    ["| id | url | note | verdict | stored | fetched |", "|---|---|---|---|---|---|", ...rows].join(
+    ["| id | kind | source | note | verdict | result |", "|---|---|---|---|---|---|", ...rows].join(
       "\n",
     );
   const row = (
     id: string,
-    name: string,
+    kind: string,
+    source: string,
     verdict: string,
-    stored: string,
-    fetched: string,
+    result: string,
     note = "-",
-  ) => `| ${id} | ${url(name)} | ${note} | ${verdict} | ${stored} | ${fetched} |`;
-  const stableRow = row("stable", "stable", "match", PAGE_HASH, PAGE_HASH);
-  const rawRow = row("raw", "raw", "match", RAW_HASH, RAW_HASH);
+  ) => `| ${id} | ${kind} | ${source} | ${note} | ${verdict} | ${result} |`;
   const heading = "## Harness documentation drift";
   const fix =
-    "To clear a DRIFT row: open the page, re-verify the definition's facts it justifies, then set " +
-    "that definition's `verifiedAgainst.date` to today and the page's `contentHash` to the fetched " +
-    "value above. An UNREACHABLE row shows the answer the page gave in place of its words: the run " +
-    "read nothing of that page, so it fails until the page reads again or the definition points at " +
-    "one that does. An unverifiable row records no hash yet, and the fetched value is the one to " +
-    "record. The run passes only when every page of every definition matches.";
+    "To clear a DRIFT row: open the source, re-verify the definition's facts it justifies, fix the " +
+    "definition or its claims and pointers to what the source states now, and set that definition's " +
+    "`verifiedAgainst.date` to today. An UNREACHABLE row shows the answer the source gave in place " +
+    "of its content: the run read nothing of that source, so it fails until the source reads again " +
+    "or the definition points at one that does. The run passes only when every claim and pointer of " +
+    "every source of every definition holds.";
   const failed = (headline: string, rows: string): Outcome => ({
     status: "fail",
     summary: `${heading}\n\n${headline}\n\n${rows}\n`,
@@ -255,9 +200,24 @@ describe("runHarnessDrift", () => {
     },
   });
 
-  test("a run where every page matches passes with the table in the summary", async () => {
+  // One source of each kind, every claim holding: the page's claims against its text, the file's
+  // against the raw text fetched from the named repo, ref and path, the schema's pointers against
+  // the parsed JSON.
+  test("a run where every claim of every kind holds passes with the table in the summary", async () => {
     const outcome = await runHarnessDrift(
-      [def("stable", ["stable", PAGE_HASH]), def("raw", ["raw", RAW_HASH])],
+      [
+        def("stable", page("stable", ["SessionStart", "`<slug>.md`", "maxims sync"])),
+        def("raw", file(["TaskStart", "<main>quoted</main>"], "the hook file")),
+        def(
+          "schema",
+          schema("settings.json", [
+            "/properties/amp.mcpServers",
+            "/properties/a~1b",
+            { pointer: "/properties/amp.mcpServers/type", equals: "object" },
+            { pointer: "/properties/hooks/items/1/const", equals: "SessionEnd" },
+          ]),
+        ),
+      ],
       fakeFetch(answers),
     );
     expect(outcome).toEqual({
@@ -265,101 +225,139 @@ describe("runHarnessDrift", () => {
       summary: [
         heading,
         "",
-        "2 definitions: 2 match, 0 drift, 0 unreachable, 0 unverifiable",
-        "2 pages: 2 match, 0 drift, 0 unreachable, 0 unverifiable",
+        "3 definitions: 3 match, 0 drift, 0 unreachable",
+        "3 sources: 3 match, 0 drift, 0 unreachable",
         "",
-        table([stableRow, rawRow]),
+        table([
+          row("stable", "page", url("stable"), "match", "3 claims hold"),
+          row("raw", "file", RAW_URL, "match", "2 claims hold", "the hook file"),
+          row("schema", "schema", url("settings.json"), "match", "4 pointers resolve"),
+        ]),
         "",
       ].join("\n"),
     });
   });
 
-  // Every way a run can fail to read a page, each as the one page of its run, so none hides
-  // behind another's failure. Without this the run stays green on pages it never read, and a
+  // Every way a run can fail to read a source, each as the one source of its run, so none hides
+  // behind another's failure. Without this the run stays green on sources it never read, and a
   // vendor that starts answering 403 to the nightly's user agent turns the whole category green
-  // for good. The unrecorded page's row carries the hash an author pastes into the definition.
+  // for good. A redirect is a move the row must show, since the landing page at the new URL could
+  // hold a claim by accident; so is a page or a file that answers rendered HTML, whose nav text
+  // would hold a claim written against the markdown rendition or the raw file. A schema URL that
+  // answers markup, or a JSON document with no keys to point into (null, an array), read nothing
+  // of the schema either, and neither does one that spells a key twice, which has no single
+  // reading.
   test.each([
-    ["gone", STORED, "UNREACHABLE", "HTTP 503"],
-    ["slow", STORED, "UNREACHABLE", "timeout after 20 s"],
-    ["offline", STORED, "UNREACHABLE", "network error: getaddrinfo ENOTFOUND example.com"],
-    ["unrecorded", undefined, "unverifiable", OTHER],
+    ["gone", page("gone", ["SessionStart"]), "page", "HTTP 503"],
+    ["slow", page("slow", ["SessionStart"]), "page", "timeout after 20 s"],
+    [
+      "offline",
+      page("offline", ["SessionStart"]),
+      "page",
+      "network error: getaddrinfo ENOTFOUND example.com",
+    ],
+    [
+      "relocated",
+      page("relocated", ["SessionStart"]),
+      "page",
+      "moved to https://example.com/docs/new-hooks",
+    ],
+    ["stale", page("stale", ["SessionStart"]), "page", "HTTP 304"],
+    ["rendered", page("rendered", ["SessionStart"]), "page", "answered text/html"],
+    [
+      "rendered-file",
+      file(["TaskStart"], undefined, "docs/rendered.md"),
+      "file",
+      "answered text/html",
+    ],
+    [
+      "schema-moved",
+      schema("schema-moved", ["/properties"]),
+      "schema",
+      "not JSON: InvalidSymbol at offset 0",
+    ],
+    ["schema-null", schema("schema-null", ["/properties"]), "schema", "not a JSON object: null"],
+    ["schema-array", schema("schema-array", [""]), "schema", "not a JSON object: []"],
+    [
+      "schema-duplicate",
+      schema("schema-duplicate", [{ pointer: "/type", equals: "object" }]),
+      "schema",
+      'duplicate key "type" at offset 17',
+    ],
   ] as const)(
-    "the %s page, which the run could not verify, fails the run with its answer in its row",
-    async (name, contentHash, verdict, fetched) => {
-      const outcome = await runHarnessDrift([def(name, [name, contentHash])], fakeFetch(answers));
-      const counts =
-        verdict === "UNREACHABLE"
-          ? "0 match, 0 drift, 1 unreachable, 0 unverifiable"
-          : "0 match, 0 drift, 0 unreachable, 1 unverifiable";
-      const headline = `1 definitions: ${counts}\n1 pages: ${counts}`;
-      const rows = table([row(name, name, verdict, contentHash ?? "(none)", fetched)]);
+    "the %s source, which the run could not read, fails the run with its answer in its row",
+    async (name, source, kind, result) => {
+      const outcome = await runHarnessDrift([def(name, source)], fakeFetch(answers));
+      const counts = "0 match, 0 drift, 1 unreachable";
+      const headline = `1 definitions: ${counts}\n1 sources: ${counts}`;
+      const rows = table([row(name, kind, sourceUrl(source), "UNREACHABLE", result)]);
       expect(outcome).toEqual(failed(headline, rows));
     },
   );
 
-  test("every page answering 404 fails the run", async () => {
-    const notFound = fakeFetch({
-      [url("alpha")]: () => new Response("", { status: 404 }),
-      [url("beta")]: () => new Response("", { status: 404 }),
-    });
-    const outcome = await runHarnessDrift(
-      [def("alpha", ["alpha", STORED]), def("beta", ["beta", STORED])],
-      notFound,
-    );
+  // A run that judged nothing has no row to go red, so without this it is the one run that can
+  // never fail: an emptied registry reads as all matching.
+  test("a run with no definitions fails", async () => {
+    const outcome = await runHarnessDrift([], fakeFetch({}));
     const headline = [
-      "2 definitions: 0 match, 0 drift, 2 unreachable, 0 unverifiable",
-      "2 pages: 0 match, 0 drift, 2 unreachable, 0 unverifiable",
-    ].join("\n");
-    const rows = table([
-      row("alpha", "alpha", "UNREACHABLE", STORED, "HTTP 404"),
-      row("beta", "beta", "UNREACHABLE", STORED, "HTTP 404"),
-    ]);
-    expect(outcome).toEqual(failed(headline, rows));
-  });
-
-  // A run that verified nothing has no row to go red, so without this it is the one run that can
-  // never fail: an emptied registry or a definition with its pages removed reads as all matching.
-  test.each([
-    ["no definitions", [], "0 definitions: 0 match, 0 drift, 0 unreachable, 0 unverifiable"],
-    [
-      "a definition with no pages",
-      [def("pageless")],
-      "1 definitions: 0 match, 0 drift, 0 unreachable, 1 unverifiable",
-    ],
-  ])("a run with %s fails", async (_case, definitions, definitionsLine) => {
-    const outcome = await runHarnessDrift(definitions, fakeFetch({}));
-    const headline = [definitionsLine, "0 pages: 0 match, 0 drift, 0 unreachable, 0 unverifiable"];
+      "0 definitions: 0 match, 0 drift, 0 unreachable",
+      "0 sources: 0 match, 0 drift, 0 unreachable",
+    ];
     expect(outcome).toEqual(failed(headline.join("\n"), table([])));
   });
 
-  test("one drifted page fails the definition and its row carries the note to re-check", async () => {
+  // Each row names what is missing as a JSON string, so a claim's own backticks cannot end the
+  // cell's fence, and the definition that also has a matching source still fails.
+  test("a missing claim fails the definition and its row names the claims and pointers that are gone", async () => {
     const outcome = await runHarnessDrift(
       [
-        def("multi", ["stable", PAGE_HASH], ["moved", STORED, "context-file order"]),
-        def("partial", ["raw", RAW_HASH], ["gone", STORED]),
+        def(
+          "multi",
+          page("stable", ["SessionStart"]),
+          page("moved", ["SessionStart", "moved", "`hooks.json`"], "the hook event"),
+        ),
+        def(
+          "schema",
+          schema("settings.json", [
+            "/properties/hooks",
+            "/properties/webhooks",
+            { pointer: "/properties/a~1b/type", equals: "object" },
+          ]),
+        ),
+        def("partial", file(["TaskStart", "Task Start", "SessionStart"]), page("gone", ["x"])),
+        def("inherited", schema("schema-empty", ["/toString"])),
+        def("length", schema("schema-items", ["/items/length"])),
+        def("indexed", schema("schema-indexed", ["/a/1", "/a/01"])),
       ],
       fakeFetch(answers),
     );
     const headline = [
-      "2 definitions: 0 match, 1 drift, 1 unreachable, 0 unverifiable",
-      "4 pages: 2 match, 1 drift, 1 unreachable, 0 unverifiable",
+      "6 definitions: 0 match, 6 drift, 0 unreachable",
+      "8 sources: 1 match, 6 drift, 1 unreachable",
     ].join("\n");
     const rows = table([
-      row("multi", "stable", "match", PAGE_HASH, PAGE_HASH),
-      row("multi", "moved", "DRIFT", STORED, OTHER, "context-file order"),
-      row("partial", "raw", "match", RAW_HASH, RAW_HASH),
-      row("partial", "gone", "UNREACHABLE", STORED, "HTTP 503"),
+      row("multi", "page", url("stable"), "match", "1 claim holds"),
+      row(
+        "multi",
+        "page",
+        url("moved"),
+        "DRIFT",
+        'missing: "SessionStart", "`hooks.json`"',
+        "the hook event",
+      ),
+      row(
+        "schema",
+        "schema",
+        url("settings.json"),
+        "DRIFT",
+        'missing: "/properties/webhooks"; "/properties/a~1b/type" is "string", not "object"',
+      ),
+      row("partial", "file", RAW_URL, "DRIFT", 'missing: "Task Start", "SessionStart"'),
+      row("partial", "page", url("gone"), "UNREACHABLE", "HTTP 503"),
+      row("inherited", "schema", url("schema-empty"), "DRIFT", 'missing: "/toString"'),
+      row("length", "schema", url("schema-items"), "DRIFT", 'missing: "/items/length"'),
+      row("indexed", "schema", url("schema-indexed"), "DRIFT", 'missing: "/a/01"'),
     ]);
     expect(outcome).toEqual(failed(headline, rows));
   });
-});
-
-// Every page resolved when the hashes were recorded, so no definition is excused here.
-test("every registered definition records the hash of each verified page", () => {
-  const missing = HARNESSES.flatMap((def) =>
-    def.verifiedAgainst.pages
-      .filter((page) => page.contentHash === undefined)
-      .map((page) => `${def.id}: ${page.url}`),
-  );
-  expect(missing).toEqual([]);
 });

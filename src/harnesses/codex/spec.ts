@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
@@ -13,41 +12,106 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-09",
-    pages: [
+    date: "2026-10-10",
+    sources: [
       {
-        url: "https://learn.chatgpt.com/docs/hooks",
-        contentHash: contentHashLiteral(
-          "sha256:8792941bf07d4ec1a2926d69c837394c15540cc4abd84231cb5c17063bd8a71c",
-        ),
+        kind: "schema",
+        url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/config.schema.json",
+        paths: ["/properties/features/properties/hooks"],
+        note: "features.hooks in config.toml",
       },
       {
-        url: "https://developers.openai.com/codex/config-reference",
-        contentHash: contentHashLiteral(
-          "sha256:cfb5fca42d598180ffff565eb51ba38b96762276cee76df31973ec3661309268",
-        ),
-        note: "CODEX_HOME and features.hooks",
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/hook_config.rs",
+        claims: [
+          'rename = "SessionStart"',
+          'rename = "timeout"',
+          'rename = "statusMessage"',
+          "timeout_sec",
+          "r#async",
+        ],
+        note: "the SessionStart event and the handler fields as hooks.json spells them, async included",
       },
       {
-        url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
-        contentHash: contentHashLiteral(
-          "sha256:56f3a42c7ae3db785332e0e76680c6132f816551a962c3532e21b3e8b40a609c",
-        ),
-        note: "AGENTS.override.md over AGENTS.md in each project directory and in the Codex home, blank files skipped",
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/features/src/lib.rs",
+        claims: [
+          'id: Feature::CodexHooks, key: "hooks", stage: Stage::Stable, default_enabled: true',
+        ],
+        note: "hooks on by default under [features]",
       },
       {
-        url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/codex-home/src/instructions/mod.rs",
-        contentHash: contentHashLiteral(
-          "sha256:a99376754b06f6aba8c14280a02c67074ef8a5502994e9c29cb95ca6f53766ee",
-        ),
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/hooks/src/engine/discovery.rs",
+        claims: ['join("hooks.json")'],
+        note: "hooks.json discovery",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/utils/home-dir/src/lib.rs",
+        claims: ["CODEX_HOME", 'push(".codex")'],
+        note: "CODEX_HOME and ~/.codex",
+      },
+      {
+        kind: "schema",
+        url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+        paths: [{ pointer: "/properties/hook_event_name/const", equals: "SessionStart" }],
+        note: "the SessionStart hook's stdin",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/codex-home/src/instructions/mod.rs",
+        claims: [
+          "for candidate in [LOCAL_AGENTS_MD_FILENAME, DEFAULT_AGENTS_MD_FILENAME]",
+          'LOCAL_AGENTS_MD_FILENAME: &str = "AGENTS.override.md"',
+          'DEFAULT_AGENTS_MD_FILENAME: &str = "AGENTS.md"',
+          "contents.trim()",
+          "!trimmed.is_empty()",
+        ],
         note: "home loader: first of the two whose trimmed content is not empty",
       },
       {
-        url: "https://raw.githubusercontent.com/openai/codex/main/codex-rs/core/src/agents_md.rs",
-        contentHash: contentHashLiteral(
-          "sha256:aeaaa10c1c07f04b1f9b93fa1941ae2ff5994d90b04ca2be606d0693378c8685",
-        ),
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/core/src/agents_md.rs",
+        claims: [
+          'LOCAL_AGENTS_MD_FILENAME: &str = "AGENTS.override.md"',
+          "names.push(LOCAL_AGENTS_MD_FILENAME); names.push(DEFAULT_AGENTS_MD_FILENAME);",
+          'DEFAULT_AGENTS_MD_FILENAME: &str = "AGENTS.md"',
+          "if metadata.is_file => return Ok(Some(candidate))",
+          "(!loaded.is_empty()).then_some(loaded)",
+        ],
         note: "project loader: first that exists per directory, a blank one dropped with no fallback",
+      },
+      {
+        kind: "file",
+        repo: "openai/codex",
+        ref: "main",
+        path: "codex-rs/config/src/config_toml.rs",
+        claims: ["DEFAULT_PROJECT_DOC_MAX_BYTES: usize = 32 * 1024;"],
+        note: "the 32 KiB project-doc default",
+      },
+      {
+        kind: "page",
+        url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
+        claims: [
+          "it checks for `AGENTS.override.md`, then `AGENTS.md`",
+          "only the first non-empty file",
+          "project_doc_max_bytes",
+        ],
+        why: "the AGENTS.md precedence is prose with no single source constant beyond the two loaders; this is the page's markdown rendition",
+        note: "AGENTS.override.md over AGENTS.md in each project directory and in the Codex home, blank files skipped",
       },
     ],
   },

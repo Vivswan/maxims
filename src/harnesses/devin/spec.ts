@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Devin Local is the agent new Devin Desktop (formerly Windsurf) tabs start with, and it shares
@@ -12,26 +11,42 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://docs.devin.ai/cli/extensibility/hooks/overview",
-        contentHash: contentHashLiteral(
-          "sha256:f21bc782be661f4a167d3c193ce9e4bfdc8b470df2875766113ec40f06d64da8",
-        ),
+        kind: "page",
+        url: "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
+        claims: [
+          "for `UserPromptSubmit`, `SessionStart`, `PostToolUse`",
+          '"timeout"',
+          "hookSpecificOutput.additionalContext",
+          ".devin/config.json",
+          "~/.config/devin/config.json",
+        ],
+        why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
+        note: "SessionStart hook fields",
       },
       {
-        url: "https://docs.devin.ai/cli/extensibility/rules",
-        contentHash: contentHashLiteral(
-          "sha256:757858529c25c01a178b57794a2baeb38c50d419027fac51e2424e851e5d8226",
-        ),
+        kind: "page",
+        url: "https://docs.devin.ai/cli/extensibility/rules.md",
+        claims: [
+          "`AGENTS.md` file at your project root",
+          "~/.config/devin/AGENTS.md",
+          "AGENTS.local.md",
+        ],
+        why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
         note: "AGENTS.md in the project and under ~/.config/devin",
       },
       {
-        url: "https://docs.devin.ai/cli/reference/configuration/global-vs-local",
-        contentHash: contentHashLiteral(
-          "sha256:6f412dc6f129072e8c26d01aa22c48e1338f7acb3bd922265757332b849e447f",
-        ),
-        note: "config.json and mcp_config.json per scope",
+        kind: "page",
+        url: "https://docs.devin.ai/cli/reference/configuration/global-vs-local.md",
+        claims: [
+          ".devin/config.json",
+          "~/.config/devin/mcp_config.json",
+          ".devin/mcp_config.json",
+          '"mcpServers"',
+        ],
+        why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
+        note: "the project config.json and mcp_config.json per scope",
       },
     ],
   },

@@ -7,10 +7,9 @@ import {
   parseUserHarnessId,
   type UserHarnessId,
 } from "../contracts/harness-id.ts";
-import { type ContentHash, parseContentHash } from "../memory/contract.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ByteBudget, ConfigFormat, HookStdout, VerifiedPage } from "./contract.ts";
+import type { ByteBudget, ConfigFormat, HookStdout } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -316,15 +315,79 @@ const Mcp = z.strictObject({
   serversPath: z.array(z.string().min(1)).min(1),
 });
 
-const VerifiedPageField = z.strictObject({
-  url: z.url(),
-  contentHash: z
-    .custom<ContentHash>((value) => typeof value === "string" && parseContentHash(value) !== null, {
-      error: "expected a sha256:<64 hex digits> digest",
-    })
-    .optional(),
-  note: z.string().min(1).optional(),
+// A tuple with a rest element is non-empty by type, so a definition carries a first source, claim
+// or pointer with no cast. An empty list is refused as a missing first element at index 0.
+function nonEmpty<T extends z.ZodType>(inner: T) {
+  return z.tuple([inner], inner);
+}
+
+// What the nightly drift check re-reads, so each entry is tested the way it is matched: a claim
+// is matched after its whitespace runs collapse on both sides, so an edge space on a claim is
+// noise an author would never see fail; a pointer without its leading slash would name nothing.
+const Claim = z
+  .string()
+  .min(1, { error: "a claim is a non-empty phrase" })
+  .refine((value) => value.trim() === value, {
+    error: "a claim has no leading or trailing whitespace",
+  });
+const Claims = nonEmpty(Claim);
+// RFC 6901: empty for the root, else `/`-led tokens whose only escapes are `~0` and `~1`. The
+// token class excludes `/` so the two repetitions never overlap and the match stays linear.
+const JsonPointer = z.string().regex(/^(?:\/(?:[^~/]|~[01])*)*$/, {
+  error: "expected an RFC 6901 JSON pointer",
 });
+// A bare pointer must resolve; one paired with `equals` must resolve to that value. The value is
+// a JSON primitive, compared with `!==`: jsonc-parser builds the document's objects with a null
+// prototype, so a structural comparison against an object literal would never hold.
+const JsonPrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const PointerCheck = z.union([
+  JsonPointer,
+  z.strictObject({ pointer: JsonPointer, equals: JsonPrimitive }),
+]);
+// The repo, ref and path are spliced into a raw.githubusercontent.com URL, so a `#`, `?` or `%`
+// in any of them would fetch a different file than the one named, and a `.` or `..` segment
+// would be normalized away into another file's URL.
+const URL_SAFE = /^[A-Za-z0-9._/-]+$/;
+const plainSegments = (value: string): boolean =>
+  value.split("/").every((segment) => !["", ".", ".."].includes(segment));
+const Repo = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, { error: "expected a GitHub owner/name" })
+  .refine(plainSegments, { error: "a repo has no . or .. segment" });
+const Ref = z
+  .string()
+  .regex(URL_SAFE, { error: "expected a branch, tag, or commit" })
+  .refine(plainSegments, { error: "a ref has no empty, . or .. segment" });
+const FilePath = RelPath.refine((value) => URL_SAFE.test(value), {
+  error: "a repository path carries only letters, digits, and ._/-",
+}).refine(plainSegments, { error: "a repository path has no empty or . segment" });
+const Note = z.string().min(1).optional();
+
+const VerifiedSourceField = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("schema"),
+    url: z.url(),
+    paths: nonEmpty(PointerCheck),
+    note: Note,
+  }),
+  z.strictObject({
+    kind: z.literal("file"),
+    repo: Repo,
+    ref: Ref,
+    path: FilePath,
+    claims: Claims,
+    note: Note,
+  }),
+  z.strictObject({
+    kind: z.literal("page"),
+    url: z.url(),
+    claims: Claims,
+    why: z.string().refine((value) => value.trim() !== "", {
+      error: "a page is the last resort: say what programmatic source was looked for",
+    }),
+    note: Note,
+  }),
+]);
 
 const SPEC_SHAPE = {
   id: HarnessIdField,
@@ -332,11 +395,7 @@ const SPEC_SHAPE = {
   tier: z.literal([1, 2]),
   verifiedAgainst: z.strictObject({
     date: z.iso.date(),
-    // `min(1)` is what makes the tuple cast true; the definition then carries a first page by type.
-    pages: z
-      .array(VerifiedPageField)
-      .min(1, { error: "at least one page justifies the definition" })
-      .transform((pages) => pages as [VerifiedPage, ...VerifiedPage[]]),
+    sources: nonEmpty(VerifiedSourceField),
   }),
   globalRoot: GlobalRoot.optional(),
   targets: perScope(Target.nullable()),

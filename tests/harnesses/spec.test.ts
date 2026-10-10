@@ -5,7 +5,6 @@
 // to the wrong place or writes nothing, and the refusal must name the field so the author can find
 // it.
 import { expect, test } from "bun:test";
-import { util } from "zod";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
 
 function base(): Record<string, unknown> {
@@ -13,7 +12,17 @@ function base(): Record<string, unknown> {
     id: "example",
     displayName: "Example",
     tier: 1,
-    verifiedAgainst: { date: "2026-09-20", pages: [{ url: "https://example.com/docs/hooks" }] },
+    verifiedAgainst: {
+      date: "2026-09-20",
+      sources: [
+        {
+          kind: "page",
+          url: "https://example.com/docs/hooks",
+          claims: ["SessionStart"],
+          why: "no schema or repository file names the event",
+        },
+      ],
+    },
     globalRoot: { default: "~/.example", env: { name: "EXAMPLE_HOME" } },
     targets: {
       project: {
@@ -45,18 +54,27 @@ function base(): Record<string, unknown> {
 
 type Mutation = (spec: Record<string, unknown>) => Record<string, unknown>;
 
+type Container = Record<string, unknown> | unknown[];
+
+function isContainer(value: unknown): value is Container {
+  return typeof value === "object" && value !== null;
+}
+
+// A path step through an array is its index as a string, so `["sources", "0", "claims"]` reaches
+// the first source's claims.
 function at(path: string[], value: unknown): Mutation {
   return (spec) => {
     const copy = structuredClone(spec);
-    let cursor: Record<string, unknown> = copy;
+    let cursor: Container = copy;
     for (const key of path.slice(0, -1)) {
-      const next = cursor[key];
-      if (!util.isObject(next)) throw new Error(`no object at ${key}`);
+      const next: unknown = Array.isArray(cursor) ? cursor[Number(key)] : cursor[key];
+      if (!isContainer(next)) throw new Error(`no object at ${key}`);
       cursor = next;
     }
     const last = path[path.length - 1];
     if (last === undefined) throw new Error("a path needs a key");
-    if (value === undefined) delete cursor[last];
+    if (Array.isArray(cursor)) cursor[Number(last)] = value;
+    else if (value === undefined) delete cursor[last];
     else cursor[last] = value;
     return copy;
   };
@@ -171,17 +189,143 @@ const refusals: [string, Mutation, string][] = [
     "byteBudget: a per-scope budget names at least one scope",
   ],
   [
-    "a content hash that is not a sha256 digest",
-    at(
-      ["verifiedAgainst", "pages"],
-      [{ url: "https://example.com/docs/hooks", contentHash: "abc123" }],
-    ),
-    "verifiedAgainst.pages.0.contentHash: expected a sha256:<64 hex digits> digest",
+    "a definition verified against no source",
+    at(["verifiedAgainst", "sources"], []),
+    "verifiedAgainst.sources.0: Invalid input: expected object, received undefined",
   ],
   [
-    "a definition verified against no page",
-    at(["verifiedAgainst", "pages"], []),
-    "verifiedAgainst.pages: at least one page justifies the definition",
+    "a page without claims",
+    at(["verifiedAgainst", "sources", "0", "claims"], undefined),
+    "verifiedAgainst.sources.0.claims: Invalid input: expected tuple, received undefined",
+  ],
+  [
+    "a page with an empty claims list",
+    at(["verifiedAgainst", "sources", "0", "claims"], []),
+    "verifiedAgainst.sources.0.claims.0: Invalid input: expected string, received undefined",
+  ],
+  [
+    "a claim with an edge space",
+    at(["verifiedAgainst", "sources", "0", "claims"], ["SessionStart "]),
+    "verifiedAgainst.sources.0.claims.0: a claim has no leading or trailing whitespace",
+  ],
+  [
+    "a page without a why",
+    at(["verifiedAgainst", "sources", "0", "why"], undefined),
+    "verifiedAgainst.sources.0.why: Invalid input: expected string, received undefined",
+  ],
+  [
+    "a page whose why is only whitespace",
+    at(["verifiedAgainst", "sources", "0", "why"], "  "),
+    "verifiedAgainst.sources.0.why: a page is the last resort: say what programmatic source was looked for",
+  ],
+  [
+    "a schema pointer without its leading slash",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "schema",
+      url: "https://example.com/schema.json",
+      paths: ["properties/hooks"],
+    }),
+    "verifiedAgainst.sources.0.paths.0: expected an RFC 6901 JSON pointer",
+  ],
+  [
+    "a schema pointer with an escape RFC 6901 does not define",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "schema",
+      url: "https://example.com/schema.json",
+      paths: ["/properties/a~2b"],
+    }),
+    "verifiedAgainst.sources.0.paths.0: expected an RFC 6901 JSON pointer",
+  ],
+  [
+    "a schema pointer whose value is an object the drift check cannot compare",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "schema",
+      url: "https://example.com/schema.json",
+      paths: [{ pointer: "/properties/hooks", equals: { type: "object" } }],
+    }),
+    "verifiedAgainst.sources.0.paths.0.equals: Invalid input: expected string, received object",
+  ],
+  [
+    "a repository file whose repo is a URL",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "https://github.com/example/agent",
+      ref: "main",
+      path: "docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.repo: expected a GitHub owner/name",
+  ],
+  [
+    "a repository file whose repo would normalize into another path",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "../example",
+      ref: "main",
+      path: "docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.repo: a repo has no . or .. segment",
+  ],
+  [
+    "a repository file whose ref would end the URL path early",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "release#1",
+      path: "docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.ref: expected a branch, tag, or commit",
+  ],
+  [
+    "a repository file whose ref would normalize into another ref's URL",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main/../other",
+      path: "docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.ref: a ref has no empty, . or .. segment",
+  ],
+  [
+    "a repository file whose path carries a query character",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "docs/a?b.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.path: a repository path carries only letters, digits, and ._/-",
+  ],
+  [
+    "a repository file whose path has a dot segment",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "docs/./hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.path: a repository path has no empty or . segment",
+  ],
+  [
+    "a repository file whose path climbs out",
+    at(["verifiedAgainst", "sources", "0"], {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "../docs/hooks.md",
+      claims: ["SessionStart"],
+    }),
+    "verifiedAgainst.sources.0.path: a path cannot contain ..",
+  ],
+  [
+    "a source of an unknown kind",
+    at(["verifiedAgainst", "sources", "0"], { kind: "hash", url: "https://example.com/docs" }),
+    "verifiedAgainst.sources.0.kind: Invalid discriminator value. Expected 'schema' | 'file' | 'page'",
   ],
   [
     "a fixture name with a path",
@@ -192,6 +336,37 @@ const refusals: [string, Mutation, string][] = [
 
 test("the base spec parses", () => {
   expect(parseHarnessSpec(base())).toMatchObject({ ok: true });
+});
+
+// The positive control for the refusal table: one source of each kind, including the root pointer
+// and a pointer with a value, parses whole. Without it a schema that refused every `file` or
+// `schema` source would leave the refusals above passing for the wrong reason.
+test("a definition verified against a schema, a repository file and a page parses whole", () => {
+  const sources = [
+    {
+      kind: "schema",
+      url: "https://example.com/settings.schema.json",
+      paths: ["", "/properties/hooks", { pointer: "/properties/hooks/type", equals: "object" }],
+      note: "the hook event",
+    },
+    {
+      kind: "file",
+      repo: "example/agent",
+      ref: "main",
+      path: "docs/rules.md",
+      claims: [".example/rules", "alwaysApply: true"],
+    },
+    {
+      kind: "page",
+      url: "https://example.com/docs/limits",
+      claims: ["32 KiB"],
+      why: "the limit is stated only on the docs page",
+      note: "the byte budget",
+    },
+  ];
+  const result = parseHarnessSpec(at(["verifiedAgainst", "sources"], sources)(base()));
+  if (!result.ok) throw new Error(result.issues.join("; "));
+  expect<unknown>(result.spec.verifiedAgainst).toEqual({ date: "2026-09-20", sources });
 });
 
 test.each(refusals)("refuses %s and names the field", (_, mutate, expected) => {

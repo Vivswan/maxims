@@ -67,7 +67,7 @@ labels:
       description: Automated nightly CI failure
     - name: nightly-harness-drift
       color: D93F0B
-      description: A harness definition's verified documentation page changed
+      description: A harness definition's verified source drifted or was unreachable
     - name: nightly-latency-trend
       color: D93F0B
       description: Hook-path latency or bundle size regressed against 7 days ago

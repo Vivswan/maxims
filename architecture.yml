@@ -20,7 +20,7 @@ edges:
   cli: [commands, console, util]
   commands: [console, contracts, harnesses, memory, rulefile, sources, state, util, version]
   console: [memory]
-  harnesses: [contracts, memory, rulefile, util, version]
+  harnesses: [contracts, rulefile, util, version]
   rulefile: [contracts, memory, state, util]
   sources: [contracts, memory, util]
   state: [contracts, memory, util, version]

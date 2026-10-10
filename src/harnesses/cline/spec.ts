@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cline rules without frontmatter are always active, so the file is the block and nothing more.
@@ -16,18 +15,69 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://raw.githubusercontent.com/cline/cline/main/.clinerules/hooks/README.md",
-        contentHash: contentHashLiteral(
-          "sha256:ceca51cf190a98eb0dcfd693691283a0139b0c2e1b8010942f75289d5b6e692d",
-        ),
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "sdk/packages/shared/src/storage/paths.ts",
+        claims: [
+          'DEPRECATED_CONFIG_DIR = ".clinerules"',
+          'CLINE_CONFIG_DIR = ".cline"',
+          'RULES_CONFIG_DIRECTORY_NAME = "rules"',
+          '"Cline", "Rules"',
+        ],
+        note: ".clinerules, .cline/rules and Documents/Cline/Rules",
       },
       {
-        url: "https://docs.cline.bot/customization/cline-rules",
-        contentHash: contentHashLiteral(
-          "sha256:f66892aa3b18a7e8e4e1481e850a1d2f5335dc514d5dc653f5de9c32d5d5e56d",
-        ),
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "apps/vscode/src/core/storage/disk.ts",
+        claims: [
+          'clineRules: ".clinerules"',
+          'hooksDir: ".clinerules/hooks"',
+          '"Documents", "Cline", "Rules"',
+          '"Documents", "Cline", "Hooks"',
+        ],
+        note: ".clinerules/hooks and Documents/Cline/Hooks",
+      },
+      {
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "apps/vscode/src/core/hooks/hook-factory.ts",
+        claims: ["TaskStart", "JSON.parse(stdout)", "output.cancel !== undefined"],
+        note: "the TaskStart hook and its JSON stdout",
+      },
+      {
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "apps/vscode/src/shared/storage/state-keys.ts",
+        claims: ["hooksEnabled"],
+        note: "the Enable Hooks switch",
+      },
+      {
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: ".clinerules/hooks/README.md",
+        claims: ["TaskStart", "chmod +x"],
+        note: "an executable file named for the event",
+      },
+      {
+        kind: "file",
+        repo: "cline/cline",
+        ref: "main",
+        path: "docs/customization/cline-rules.mdx",
+        claims: [
+          ".clinerules/",
+          ".cline/rules/",
+          "~/Documents/Cline/Rules",
+          "~/.cline/rules",
+          "~/Cline/Rules",
+        ],
         note: ".clinerules as where new workspace rules go and Documents/Cline/Rules as the global default; .cline/rules, ~/.cline/rules and ~/Cline/Rules also searched",
       },
     ],

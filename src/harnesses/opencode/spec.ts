@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // OpenCode resolves its global directory through the XDG base directories, so an override of
@@ -16,26 +15,90 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-09-21",
-    pages: [
+    sources: [
       {
-        url: "https://opencode.ai/docs/plugins/",
-        contentHash: contentHashLiteral(
-          "sha256:ad7473a4c99a5766f38791ae721c41a6399a3c8d43e05b8a87b260fb87e553f3",
-        ),
+        kind: "schema",
+        url: "https://opencode.ai/config.json",
+        paths: [
+          { pointer: "/$defs/Config/properties/instructions/type", equals: "array" },
+          "/$defs/Config/properties/plugin",
+        ],
+        note: "the instructions and plugin keys of opencode.json",
       },
       {
-        url: "https://opencode.ai/docs/rules/",
-        contentHash: contentHashLiteral(
-          "sha256:5eca74acad327e5330556a1ec4cd68c6b3362348e1a47cbe7845215cb1263b82",
-        ),
-        note: "AGENTS.md, ~/.config/opencode/AGENTS.md, and unparsed file references",
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/core/src/global.ts",
+        claims: ["path.join(xdgConfig!, app)", 'const app = "opencode"', "OPENCODE_CONFIG_DIR"],
+        note: "~/.config/opencode as the global root",
       },
       {
-        url: "https://opencode.ai/docs/config/",
-        contentHash: contentHashLiteral(
-          "sha256:9b87da847cacec2da757cb7cf3411be4a1cbac8e2a11d72cff50efad1a53b483",
-        ),
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/opencode/src/session/instruction.ts",
+        claims: [
+          'const instructionFiles = [ "AGENTS.md",',
+          'path.join(global.config, "AGENTS.md")',
+        ],
+        note: "AGENTS.md and ~/.config/opencode/AGENTS.md",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/opencode/src/config/config.ts",
+        claims: ['"opencode.json", "opencode.jsonc"', "merged.instructions"],
         note: "opencode.json locations and the instructions key",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/opencode/src/config/plugin.ts",
+        claims: ["{plugin,plugins}/*.{ts,js}"],
+        note: "the plugins directory",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/sdk/js/src/gen/types.gen.ts",
+        claims: ['"session.created"'],
+        note: "the session.created event",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/plugin/src/index.ts",
+        claims: ["event?:", "$: BunShell"],
+        note: "the plugin's event hook and shell",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/web/src/content/docs/rules.mdx",
+        claims: ["doesn't automatically parse file references in `AGENTS.md`"],
+        note: "unparsed file references",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/web/src/content/docs/config.mdx",
+        claims: ["~/.config/opencode/opencode.json"],
+        note: "the global opencode.json",
+      },
+      {
+        kind: "file",
+        repo: "anomalyco/opencode",
+        ref: "dev",
+        path: "packages/web/src/content/docs/plugins.mdx",
+        claims: [".opencode/plugins/", "~/.config/opencode/plugins/"],
+        note: "the plugin directories",
       },
     ],
   },

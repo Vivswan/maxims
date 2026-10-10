@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
@@ -16,27 +15,90 @@ export const spec = {
   displayName: "DeepSeek Harness",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
-    pages: [
+    date: "2026-10-09",
+    sources: [
       {
-        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/packages/context/agent-instructions/README.md",
-        contentHash: contentHashLiteral(
-          "sha256:de0e367c272f5e03405660f57345c137221e6b93d1cda4ac468535aba21902de",
-        ),
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/util/home-paths/src/index.ts",
+        claims: ["DSH_HOME_ENV = 'DSH_HOME'", "'.dsh'"],
+        note: "DSH_HOME and ~/.dsh",
       },
       {
-        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/config-catalog.md",
-        contentHash: contentHashLiteral(
-          "sha256:220e84a26db4565c5f920d0f316b3e13ef6610dd78a147cb020e73d38e36af1e",
-        ),
-        note: "DSH_HOME and the dsh-hooks-claude-code plugin",
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/context/agent-instructions/src/render.ts",
+        claims: ["USER_GLOBAL_FILE = 'AGENTS.md'", "truncateUtf8", "Instructions from:"],
+        note: "the rendered block and its truncation",
       },
       {
-        url: "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/apps/cli/reference/README.md",
-        contentHash: contentHashLiteral(
-          "sha256:90425b20f567a72be0568384f2b8e8b0f18f4e0a8a0b478db9e6ff8844ce68bf",
-        ),
-        note: "the 65,536-byte render budget and $DSH_HOME/cordis.patch.yml",
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/context/agent-instructions/src/config.ts",
+        claims: ["'AGENTS.md', 'CLAUDE.md'", "maxBytes"],
+        note: "the instruction file names and the byte cap",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/bundle/base/cordis.patch.yml",
+        claims: ["id: agent-instructions", "maxBytes: 65536"],
+        note: "the 65,536-byte render budget",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "apps/cli/src/profile-boot.ts",
+        claims: ["join(resolveDshHome(), PROFILE_PATCH_FILENAME)"],
+        note: "$DSH_HOME/cordis.patch.yml",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/boot/app-boot/src/profile.ts",
+        claims: ["PROFILE_PATCH_FILENAME = 'cordis.patch.yml'"],
+        note: "the patch file's name",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/experimental/hooks-claude-code/src/index.ts",
+        claims: [
+          "JSON.parse(readFileSync(config.configPath, 'utf8'))",
+          "runPoint('SessionStart', source, sessionStartPayload(agent, source)",
+        ],
+        note: "the bridge reads its config file and registers SessionStart",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/experimental/hook-protocol/src/runner.ts",
+        claims: ["hook.timeoutSec * 1000"],
+        note: "the hook timeout is in seconds",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/experimental/hooks-claude-code/package.json",
+        claims: ['"@deepseek-ai/dsh-hooks-claude-code"'],
+        note: "the dsh-hooks-claude-code plugin",
+      },
+      {
+        kind: "file",
+        repo: "deepseek-ai/deepseek-harness",
+        ref: "master",
+        path: "packages/context/agent-instructions/README.md",
+        claims: ["`.claude/rules/`, and `@path` imports are not interpreted"],
+        note: "no rules directory and no @path expansion",
       },
     ],
   },

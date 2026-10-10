@@ -1,4 +1,3 @@
-import { contentHashLiteral } from "../../memory/contract.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Amp always includes AGENTS.md from the working directory upward and `~/.config/amp/AGENTS.md`;
@@ -14,26 +13,43 @@ export const spec = {
   tier: 1,
   verifiedAgainst: {
     date: "2026-10-07",
-    pages: [
+    sources: [
       {
-        url: "https://ampcode.com/docs/customize/plugins",
-        contentHash: contentHashLiteral(
-          "sha256:27f4cb76b33e710137b64f8a28cfa6ed8cfa6a1ce956a5e155ddd1ea4dc8a3ab",
-        ),
-      },
-      {
-        url: "https://ampcode.com/docs/customize/agents-md",
-        contentHash: contentHashLiteral(
-          "sha256:a5626c14781916436761493ea1ae299b2dd83916a140ad1f9e9c84d92e63d457",
-        ),
-        note: "AGENTS.md discovery, the AGENT.md and CLAUDE.md fallback, @-mentions",
-      },
-      {
-        url: "https://ampcode.com/docs/customize/mcp",
-        contentHash: contentHashLiteral(
-          "sha256:d3c8a74540c18afcef0f514c0f7b7256c33bb08a5a20a3e9bdcb85e126ce1379",
-        ),
+        kind: "schema",
+        url: "https://ampcode.com/cli-settings.schema.json",
+        paths: [{ pointer: "/properties/amp.mcpServers/type", equals: "object" }, "/$id"],
         note: "amp.mcpServers in settings.json",
+      },
+      {
+        kind: "page",
+        url: "https://ampcode.com/docs/markdown/customize/agents-md",
+        claims: [
+          "`AGENTS.md` files in the current working directory",
+          "$HOME/.config/amp/AGENTS.md",
+          "If no `AGENTS.md` exists in a directory, but a file named `AGENT.md` (without an `S`) or `CLAUDE.md` does exist, that file will be included.",
+          "AMP_IGNORE_GUIDANCE_FILES",
+        ],
+        why: "Amp is closed source and its settings schema covers settings keys only, not file discovery; this is the page's markdown rendition",
+        note: "AGENTS.md discovery and the AGENT.md and CLAUDE.md fallback",
+      },
+      {
+        kind: "page",
+        url: "https://ampcode.com/docs/markdown/customize/plugins",
+        claims: [
+          ".amp/plugins/",
+          "$XDG_CONFIG_HOME/amp/plugins/",
+          "~/.config/amp/plugins/",
+          "session.start",
+        ],
+        why: "Amp is closed source and its settings schema covers settings keys only, not the plugin directories; this is the page's markdown rendition",
+        note: "the plugin directories and the session.start event",
+      },
+      {
+        kind: "page",
+        url: "https://ampcode.com/docs/markdown/cli/settings",
+        claims: ["~/.config/amp/settings.json", ".amp/settings.json"],
+        why: "Amp is closed source and its settings schema names no file location; this is the page's markdown rendition",
+        note: "settings.json per scope",
       },
     ],
   },

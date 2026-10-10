@@ -4,7 +4,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ContentHash,
-  contentHashLiteral,
   type HiddenCharacter,
   hiddenCharacters,
   type Memory,
@@ -67,15 +66,9 @@ describe("parseContentHash", () => {
     [` sha256:${hex}`, false],
     ["", false],
   ];
-  // The parser answers null for a malformed digest; a definition's hash is a literal in source, so
-  // the same digest minted as a literal must fail at load, naming itself.
+  // The parser answers null for a malformed digest rather than throwing or passing it through.
   test.each(cases)("%j is a content hash: %p", (candidate, ok) => {
     expect(parseContentHash(candidate)).toBe(ok ? (candidate as ContentHash) : null);
-    if (ok) expect(contentHashLiteral(candidate)).toBe(candidate as ContentHash);
-    else
-      expect(() => contentHashLiteral(candidate)).toThrow(
-        `not a sha256:<64 hex digits> digest: ${candidate}`,
-      );
   });
 });
 
