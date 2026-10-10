@@ -5,13 +5,18 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { amp } from "../../../src/harnesses/amp/spec.ts";
-import { type HarnessDefinition, type Scope, scopeRoot } from "../../../src/harnesses/contract.ts";
+import type { HarnessDefinition, Scope } from "../../../src/harnesses/contract.ts";
 import { devin } from "../../../src/harnesses/devin/spec.ts";
-import { reconcileMcpServer } from "../../../src/harnesses/mcp-stub/register.ts";
+import {
+  type McpRegistration,
+  mcpRegistrationAt,
+  planMcpOnly,
+} from "../../../src/harnesses/mcp-stub/register.ts";
 import { pi } from "../../../src/harnesses/pi/spec.ts";
 import { HARNESSES } from "../../../src/harnesses/registry.ts";
 import { warp } from "../../../src/harnesses/warp/spec.ts";
 import { zed } from "../../../src/harnesses/zed/spec.ts";
+import type { Change } from "../../../src/util/change.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
@@ -22,20 +27,28 @@ const fixture = readFileSync(srcPath("harnesses", "mcp-stub", "fixtures", "confi
 const ENTRY =
   '"maxims": {\n      "command": "npx",\n      "args": [\n        "-y",\n        "@vivswan/maxims",\n        "mcp-serve"\n      ]\n    }';
 
+function registration(dir: string, file: string, serversPath: string[]): McpRegistration {
+  return { path: assertInsideRoot(dir, join(dir, file)), serversPath };
+}
+
+async function plan(registry: McpRegistration, wanted: boolean): Promise<Change[]> {
+  return (await planMcpOnly(registry, wanted)).changes;
+}
+
 async function roundTrip(
   dir: string,
   initial: string,
 ): Promise<{ added: string; removed: string }> {
-  const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcpServers"] };
+  const registry = registration(dir, "mcp.json", ["mcpServers"]);
   writeFileSync(registry.path, initial);
-  const added = await reconcileMcpServer(registry, true);
+  const added = await plan(registry, true);
   const addedText = added[0]?.kind === "write" ? added[0].content : initial;
   writeFileSync(registry.path, addedText);
-  expect(await reconcileMcpServer(registry, true)).toEqual([]);
-  const removed = await reconcileMcpServer(registry, false);
+  expect(await plan(registry, true)).toEqual([]);
+  const removed = await plan(registry, false);
   const removedText = removed[0]?.kind === "write" ? removed[0].content : addedText;
   writeFileSync(registry.path, removedText);
-  expect(await reconcileMcpServer(registry, false)).toEqual([]);
+  expect(await plan(registry, false)).toEqual([]);
   return { added: addedText, removed: removedText };
 }
 
@@ -62,16 +75,29 @@ test("a stale entry is rewritten in place in the file's indent and an emptied ma
   });
 });
 
+// jsonc-parser hands back null-prototype objects in file order; an entry a user spelled with the
+// keys the other way round is the same server and is left as written.
+test("an entry spelled in another key order is current", async () => {
+  await withTempDir(async (dir) => {
+    const registry = registration(dir, "mcp.json", ["mcpServers"]);
+    writeFileSync(
+      registry.path,
+      '{"mcpServers":{"maxims":{"args":["-y","@vivswan/maxims","mcp-serve"],"command":"npx"}}}\n',
+    );
+    expect(await plan(registry, true)).toEqual([]);
+  });
+});
+
 // The separator is found by the tokenizer: a comma inside a comment beside our entry is the
 // comment's, and searching for the character would cut the comment instead of the separator.
 test("a comma inside a comment beside our entry is not taken for the separator", async () => {
   await withTempDir(async (dir) => {
-    const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcpServers"] };
+    const registry = registration(dir, "mcp.json", ["mcpServers"]);
     writeFileSync(registry.path, '{"mcpServers":{"maxims":{} /* keep, note */,"other":{}}}\n');
-    expect(await reconcileMcpServer(registry, false)).toEqual([
+    expect(await plan(registry, false)).toEqual([
       {
         kind: "write",
-        path: assertInsideRoot(dir, registry.path),
+        path: registry.path,
         content: '{"mcpServers":{ /* keep, note */"other":{}}}\n',
       },
     ]);
@@ -98,12 +124,12 @@ const creations: [string, string | null, string][] = [
 
 test.each(creations)("%s gains exactly one nested entry", async (_, existing, expected) => {
   await withTempDir(async (dir) => {
-    const registry = { root: dir, path: join(dir, "new.json"), serversPath: ["mcp", "servers"] };
+    const registry = registration(dir, "new.json", ["mcp", "servers"]);
     if (existing !== null) writeFileSync(registry.path, existing);
-    expect(await reconcileMcpServer(registry, true)).toEqual([
-      { kind: "write", path: assertInsideRoot(dir, registry.path), content: expected },
+    expect(await plan(registry, true)).toEqual([
+      { kind: "write", path: registry.path, content: expected },
     ]);
-    expect(await reconcileMcpServer(registry, false)).toEqual([]);
+    expect(await plan(registry, false)).toEqual([]);
   });
 });
 
@@ -132,12 +158,13 @@ async function expectRefused(
   reason: string,
 ): Promise<void> {
   arrange(dir);
-  const registry = { root: dir, path: join(dir, "mcp.json"), serversPath: ["mcp", "servers"] };
-  await expect(reconcileMcpServer(registry, true)).rejects.toMatchObject({
-    name: "MaximsError",
-    code: ExitCode.DestinationWriteFailed,
-    message: expect.stringContaining(reason),
-  });
+  await expect(plan(registration(dir, "mcp.json", ["mcp", "servers"]), true)).rejects.toMatchObject(
+    {
+      name: "MaximsError",
+      code: ExitCode.DestinationWriteFailed,
+      message: expect.stringContaining(reason),
+    },
+  );
 }
 
 test.each(refusals)("%s is refused with exit 4 and no plan", async (_, arrange, reason) => {
@@ -207,8 +234,6 @@ test("every harness that declares an MCP registry has a row in the table", () =>
 test.each(declared)(
   "$def.id: an empty config in each scope that has one gains the entry under the key the harness reads",
   async ({ def, written }) => {
-    if (def.mcp === undefined) throw new Error(`${def.id} declares no MCP registry`);
-    const mcp = def.mcp;
     await withTempDir(async (dir) => {
       const ctx = {
         home: join(dir, "home"),
@@ -218,16 +243,11 @@ test.each(declared)(
       };
       const gained: Partial<Record<Scope, unknown>> = {};
       for (const scope of ["project", "global"] as const) {
-        const file = mcp.path(scope, ctx);
-        if (file === null) continue;
-        mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, "{}\n");
-        const registry = {
-          root: scopeRoot(def, scope, ctx),
-          path: file,
-          serversPath: mcp.serversPath,
-        };
-        const changes = await reconcileMcpServer(registry, true);
+        const registry = mcpRegistrationAt(def, scope, ctx);
+        if (registry === null) continue;
+        mkdirSync(dirname(registry.path), { recursive: true });
+        writeFileSync(registry.path, "{}\n");
+        const changes = await plan(registry, true);
         const [change] = changes;
         gained[scope] =
           change?.kind === "write" && changes.length === 1 ? JSON.parse(change.content) : changes;

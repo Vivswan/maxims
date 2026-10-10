@@ -20,7 +20,13 @@ import { runSync } from "../../src/commands/sync.ts";
 import { loadContext } from "../../src/engine/context.ts";
 import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
-import { HOOK_COMMAND, type Scope } from "../../src/harnesses/contract.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  HOOK_COMMAND,
+  type Scope,
+  scopeRoot,
+} from "../../src/harnesses/contract.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import { readIfPresent } from "../../src/util/fs.ts";
 import { SYNC } from "../shared/sync_support.ts";
@@ -31,6 +37,7 @@ import {
   FIXTURE_DIR,
   fakeIo,
   localFrom,
+  rulesDirHarness,
   stateWith,
   writeSource,
   writeState,
@@ -92,6 +99,106 @@ describe("planHooks", () => {
       });
     });
   }
+});
+
+// The stub server entry is the session-start sync of a harness whose event is the MCP handshake,
+// so it follows the hook intent: wanted, it is written beside the hook; unwanted, it leaves as a
+// removal. A user-defined harness may keep its hooks and its servers in one file, where two
+// writes in one plan would leave whichever landed last.
+describe("the MCP server entry follows the hook intent", () => {
+  const serversIn = (file: string): HarnessDefinition => ({
+    ...rulesDirHarness,
+    mcp: {
+      path: (scope: Scope, ctx: HarnessContext) =>
+        join(scopeRoot({}, scope, ctx), FIXTURE_DIR, file),
+      serversPath: ["mcpServers"],
+    },
+  });
+  const apart = serversIn("mcp.json");
+  const together = serversIn("settings.json");
+  const plan = async (
+    def: HarnessDefinition,
+    dir: string,
+    home: string,
+    userHome: string,
+    hook: boolean,
+  ) => {
+    const io = fakeIo({ home, userHome, cwd: dir, harnesses: [def] });
+    const ctx = await loadContext(io, { readHookStdin: false });
+    return planHooks({
+      ctx,
+      harnesses: [def],
+      agents: undefined,
+      wants: (_id, scope: Scope) => ({ hook, rules: false, unreachable: scope !== "global" }),
+      elsewhere: () => [],
+    });
+  };
+
+  test("in its own file it is written when the hook is wanted and removed when not", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(apart, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes).toEqual([
+        registryWrite(registry),
+        { kind: "write", path: mcp, content: expect.stringContaining('"mcp-serve"') },
+      ]);
+      expect(wanted.notices).toEqual([
+        `registered the maxims hook in ${registry}`,
+        `registered the maxims MCP server in ${mcp}`,
+      ]);
+      const [, written] = wanted.changes;
+      if (written?.kind !== "write") throw new Error("expected the servers write");
+      writeFileSync(mcp, written.content);
+      const unwanted = await plan(apart, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: mcp, content: '{\n  "mcpServers": {}\n}\n' },
+      ]);
+      expect(unwanted.notices).toEqual([`removed the maxims MCP server from ${mcp}`]);
+    });
+  });
+
+  test("in the hook's own registry it rides in the hook's write, so the file is written once", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const wanted = await plan(together, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      expect(write.content).toContain(HOOK_COMMAND);
+      expect(write.content).toContain('"mcp-serve"');
+      writeFileSync(registry, write.content);
+      const settled = await plan(together, dir, home, userHome, true);
+      expect(settled.changes).toEqual([]);
+      const unwanted = await plan(together, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: registry, content: '{\n  "mcpServers": {}\n}\n' },
+      ]);
+    });
+  });
+
+  // Each artifact is planned on its own: a servers file that cannot be read costs this run that
+  // one registration, reported when it was wanted, and never the hook's own edit or removal.
+  test("a servers file that cannot be read is reported when wanted and leaves the hook's plan standing", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      writeFileSync(mcp, "{ not json");
+      const wanted = await plan(apart, dir, home, userHome, true);
+      expect<unknown[]>(wanted.changes).toEqual([registryWrite(registry)]);
+      expect(wanted.failures.map((failure) => failure.message)).toEqual([
+        expect.stringContaining(mcp),
+      ]);
+      const [write] = wanted.changes;
+      if (write?.kind !== "write") throw new Error("expected the registry write");
+      writeFileSync(registry, write.content);
+      const unwanted = await plan(apart, dir, home, userHome, false);
+      expect<unknown[]>(unwanted.removals).toEqual([
+        { kind: "write", path: registry, content: "{}\n" },
+      ]);
+      expect(unwanted.failures).toEqual([]);
+    });
+  });
 });
 
 describe("a hook that lives in one place for both scopes", () => {

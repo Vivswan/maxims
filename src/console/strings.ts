@@ -84,6 +84,11 @@ export function hookRegistered(command: string, planned = false): string {
   return `${lead}: SessionStart -> ${command}`;
 }
 
+export function mcpStubRegistered(command: string, planned = false): string {
+  const lead = planned ? "Would register MCP server" : "MCP server registered";
+  return `${lead}: maxims -> ${command}`;
+}
+
 export function unknownCommand(verb: string): string {
   return `Unknown command: ${verb}`;
 }

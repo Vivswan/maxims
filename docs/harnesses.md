@@ -37,7 +37,7 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 - **`strategy`** A writes one whole file per source into a rules directory, so removal is a file delete. B writes a managed block into a shared instructions file the user also owns, so removal cuts the block and keeps the rest.
 - **`hook`** is the registry entry, hook file, or custom reconcile that runs the sync command, with its path for each scope the harness installs into. A maxims-owned file is written whole and deleted on removal, so nothing else belongs in it; `custom` means the definition writes its own files, named in the catches below.
 - **`stdout`** is how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, and `-` means no declared stdout variant, a custom hook or no hook.
-- **`mcp stub`** is the MCP servers file, per scope, where the definition registers the bundled stub server whose start runs one sync; `-` when the definition names none.
+- **`mcp stub`** is the MCP servers file, per scope, where sync registers the bundled stub server whose start runs one sync; it follows the same `--add-hook` intent as the hook, and `remove` takes it back with the last source. `-` when the definition names none.
 - **`markers`** is `stripped` when the harness drops HTML comments before injection, so the marker pair is free, and `counted` when they ride into context.
 - **`byte budget`** is the largest rule file the writer will produce for the harness; past it the newest source whose block the run changes is held, one at a time, until it fits. `-` when the definition declares no budget, so the writer enforces none.
 
@@ -94,7 +94,7 @@ Generated on every sync, compared to what is on disk, and written only on a diff
 - **DeepSeek Harness hook.** dsh has no per-project config discovery, so the hook is one `@deepseek-ai/dsh-hooks-claude-code` bridge row in `$DSH_HOME/cordis.patch.yml` whatever the install scope, pointing by absolute path at a maxims-owned `$DSH_HOME/maxims-hooks.json`. The bridge reads that file once at process start, so a new or changed row needs a dsh restart.
 - **Codex, Gemini CLI, DeepSeek Harness.** The block lands in a file inside the repo, so it is a committed artifact that appears in every diff and PR review; this is the strongest argument for `-g` on these harnesses.
 - **Every hook.** A repeated invocation within 60 seconds of the last quiet-mode sync exits as soon as it reads the stamp, so a harness that fires more than once per session does the sync work once.
-- **MCP-eager harnesses.** maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. It is registered in the file the `mcp stub` column names, so a harness that starts its MCP servers eagerly syncs at launch even with no hook.
+- **MCP-eager harnesses.** maxims bundles an MCP stub server, registered via the hidden `maxims mcp-serve` command, that exposes zero tools and runs one sync at process start. `sync` registers it in the file the `mcp stub` column names wherever the hook is wanted, in the same plan as the hook, so a harness that starts its MCP servers eagerly syncs at launch even with no hook.
 
 Editing a hook registry is surgical everywhere: the writer parses the file, finds the maxims entry by its command prefix `npx -y @vivswan/maxims sync`, and updates it in place or appends it.
 

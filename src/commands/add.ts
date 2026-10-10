@@ -10,6 +10,7 @@ import {
   hookRegistered,
   installed,
   linksTo,
+  mcpStubRegistered,
   memories,
   noTargetAtScope,
   notAMemory,
@@ -39,6 +40,7 @@ import { sourceSlug } from "../engine/slug.ts";
 import { findSourceKey, sourceIdentity, storeTree } from "../engine/source-key.ts";
 import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "../engine/types.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
+import { MCP_SERVER_COMMAND } from "../harnesses/mcp-stub/register.ts";
 import {
   contentHashOf,
   hiddenCharacterLabel,
@@ -209,7 +211,14 @@ export const add: Command = {
     const report = await syncCommitted(ctx, commit, commit.harnesses);
     const planned = ctx.global.dryRun;
     const lines = [installed(prepared.names.length, report.rules, report.tokens, planned)];
-    for (const _ of commit.hooked) lines.push(hookRegistered(HOOK_COMMAND, planned));
+    for (const id of commit.hooked) {
+      const def = ctx.io.harnesses.find((candidate) => candidate.id === id);
+      lines.push(
+        def?.hook.kind === "none"
+          ? mcpStubRegistered(MCP_SERVER_COMMAND, planned)
+          : hookRegistered(HOOK_COMMAND, planned),
+      );
+    }
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],
@@ -563,10 +572,20 @@ function repinRefusal(from: SourceFrom, owners: string[], state: State): MaximsE
   return installedAtOtherRef(canonicalSourceKey(base), repinned.key, repinned.ref, from.ref);
 }
 
-// A harness that declares no hook shape has nothing to register; asking for one is not an error,
-// it is a no-op that must not be reported as a registration.
-function hookable(ids: readonly HarnessId[], io: CliIo): HarnessId[] {
-  return ids.filter((id) => io.harnesses.some((def) => def.id === id && def.hook.kind !== "none"));
+// A harness whose session start is neither a hook shape nor an MCP servers file at this scope has
+// nothing to register there; asking for one is not an error, it is a no-op that must not be
+// reported as a registration.
+function hookable(ids: readonly HarnessId[], io: CliIo, destination: Destination): HarnessId[] {
+  if (destination.scope === "out") return [];
+  const ctx = harnessContext(io);
+  return ids.filter((id) =>
+    io.harnesses.some(
+      (def) =>
+        def.id === id &&
+        (def.hook.kind !== "none" ||
+          (def.mcp !== undefined && def.mcp.path(destination.scope, ctx) !== null)),
+    ),
+  );
 }
 
 // GitHub names are case-insensitive and the state file refuses two spellings of one repository,
@@ -656,7 +675,11 @@ export async function commitAdd(
         );
         state = { ...state, sources: { ...state.sources, [request.key]: entry } };
         if (request.addHook && request.destination.scope !== "out") {
-          state = withHooks(state, request.destination, hookable(harnesses.ids, io));
+          state = withHooks(
+            state,
+            request.destination,
+            hookable(harnesses.ids, io, request.destination),
+          );
         }
         changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
         if (
@@ -673,7 +696,9 @@ export async function commitAdd(
           config.lastAgents = harnesses.ids;
           configChanged = true;
         }
-        if (request.addHook) for (const id of hookable(harnesses.ids, io)) hooked.add(id);
+        if (request.addHook) {
+          for (const id of hookable(harnesses.ids, io, request.destination)) hooked.add(id);
+        }
       }
       state = prunedHooks(state);
       if (io.projectRoot !== null) {

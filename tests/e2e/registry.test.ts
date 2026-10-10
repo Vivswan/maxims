@@ -241,6 +241,13 @@ async function expectHookGone(
   if (def.configEdit !== undefined) expect(await def.configEdit(scope, ctx, false)).toEqual([]);
 }
 
+// The servers map as the file spells it, in file order, so the stub entry shows as the one
+// addition to what the user had.
+function serverEntries(def: HarnessDefinition, text: string): [string, unknown][] {
+  const servers = util.getElementAtPath(JSON.parse(text), [...(def.mcp?.serversPath ?? [])]);
+  return util.isObject(servers) ? Object.entries(servers) : [];
+}
+
 type Row = [id: string, scope: Scope, def: HarnessDefinition];
 
 const rows: Row[] = HARNESSES.flatMap((def) =>
@@ -300,10 +307,19 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
         expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
         expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("skills").sort());
         await expectHookInstalled(def, scope, ctx, seeded);
-        // A fixture that is no hook's registry and no quirk's file (an MCP config) is never touched.
+        // A seeded MCP registry gains exactly the stub server entry; a fixture that is no hook's
+        // registry, no quirk's file and no MCP registry is never touched.
+        const servers = def.mcp?.path(scope, ctx) ?? null;
+        if (seeded !== null && seeded.path === servers) {
+          expect(readFileSync(seeded.path, "utf8")).not.toBe(seeded.text);
+          expect(serverEntries(def, readFileSync(seeded.path, "utf8"))).toEqual([
+            ...serverEntries(def, seeded.text),
+            ["maxims", { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] }],
+          ]);
+        }
         const hookArtifact =
           hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;
-        if (seeded !== null && !hookArtifact)
+        if (seeded !== null && !hookArtifact && seeded.path !== servers)
           expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
 
         ok(await runMaxims(bundle, home, ["remove", source, "-y"], { cwd: home.project }));

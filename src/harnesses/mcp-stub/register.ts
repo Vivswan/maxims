@@ -1,7 +1,7 @@
+import { isDeepStrictEqual } from "node:util";
 import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
-import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot } from "../../util/fs.ts";
+import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
 import {
   appendChild,
@@ -11,46 +11,77 @@ import {
   replaceValue,
 } from "../../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../../util/package.ts";
+import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
+import type { HookPlan } from "../hook-writer.ts";
 
-export const MCP_SERVER_KEY = "maxims";
+const MCP_SERVER_KEY = "maxims";
 const [command, ...packageArgs] = PACKAGE_ARGV;
-export const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
+const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
+export const MCP_SERVER_COMMAND = [command, ...packageArgs, "mcp-serve"].join(" ");
 
-// Where a harness keeps its MCP servers: the config file and the key path of the servers map
-// inside it (`["mcpServers"]` for the Claude Code family). `root` is the scope directory the
-// file must stay inside.
-export type McpRegistry = {
-  root: string;
-  path: string;
-  serversPath: string[];
-};
+// A definition's servers file at one scope, resolved once: the file inside the scope's root and
+// the key path of the servers map inside it.
+export type McpRegistration = { path: RootedPath; serversPath: readonly string[] };
 
-export async function reconcileMcpServer(
-  registry: McpRegistry,
-  wanted: boolean,
-): Promise<Change[]> {
-  const path = assertInsideRoot(registry.root, registry.path);
-  const text = await readConfigText(path);
-  const next = editServers(text, path, registry.serversPath, wanted);
-  if (next === null || next === text) return [];
-  assertParses(next, path);
-  return [{ kind: "write", path, content: next }];
+// `null` where the definition declares no registry, or starts no servers from this scope.
+export function mcpRegistrationAt(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+): McpRegistration | null {
+  if (def.mcp === undefined) return null;
+  const path = def.mcp.path(scope, ctx);
+  if (path === null) return null;
+  return {
+    path: assertInsideRoot(scopeRoot(def, scope, ctx), path),
+    serversPath: def.mcp.serversPath,
+  };
 }
 
+// Reads the servers file and hands the text to the pure planner, the way `planHookOnly` does for a
+// hook registry.
+export async function planMcpOnly(
+  registration: McpRegistration,
+  wanted: boolean,
+): Promise<HookPlan> {
+  const currentText = await readConfigText(registration.path);
+  return planMcpRegistration({ registration, wanted, currentText });
+}
+
+export type McpRegistrationInput = {
+  registration: McpRegistration;
+  wanted: boolean;
+  currentText: string | null;
+};
+
+export function planMcpRegistration(input: McpRegistrationInput): HookPlan {
+  const { path, serversPath } = input.registration;
+  const edit = editServers(input.currentText, path, serversPath, input.wanted);
+  if (edit === null) return { changes: [] };
+  assertParses(edit.text, path);
+  return {
+    changes: [{ kind: "write", path, content: edit.text }],
+    notice: `${edit.verb} the maxims MCP server ${edit.verb === "removed" ? "from" : "in"} ${path}`,
+  };
+}
+
+type Edit = { text: string; verb: "registered" | "updated" | "removed" };
+
+// `null` when the file already says what the intent wants.
 function editServers(
   text: string | null,
   path: string,
-  serversPath: string[],
+  serversPath: readonly string[],
   wanted: boolean,
-): string | null {
+): Edit | null {
   const entryPath = [...serversPath, MCP_SERVER_KEY];
   if (text === null) {
-    if (!wanted) return text;
+    if (!wanted) return null;
     const nested = entryPath.reduceRight<unknown>(
       (inner, key) => ({ [key]: inner }),
       MCP_SERVER_ENTRY,
     );
-    return jsonDocument(nested);
+    return { text: jsonDocument(nested), verb: "registered" };
   }
   const root = assertParses(text, path);
   // A missing level of the servers path is created with the rest nested inside it, so a file
@@ -59,10 +90,10 @@ function editServers(
   for (const [depth, key] of serversPath.entries()) {
     const child = findNodeAtLocation(container, [key]);
     if (child === undefined) {
-      if (!wanted) return text;
+      if (!wanted) return null;
       const rest = entryPath.slice(depth + 1);
       const value = rest.reduceRight<unknown>((inner, k) => ({ [k]: inner }), MCP_SERVER_ENTRY);
-      return appendChild(text, container, key, value);
+      return { text: appendChild(text, container, key, value), verb: "registered" };
     }
     if (child.type !== "object") {
       throw new MaximsError(
@@ -75,9 +106,17 @@ function editServers(
   const current = findNodeAtLocation(container, [MCP_SERVER_KEY]);
   const property = current?.parent;
   if (!wanted) {
-    return property === undefined ? text : removeChild(text, container, property);
+    if (property === undefined) return null;
+    return { text: removeChild(text, container, property), verb: "removed" };
   }
-  if (current === undefined) return appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY);
-  if (JSON.stringify(getNodeValue(current)) === JSON.stringify(MCP_SERVER_ENTRY)) return text;
-  return replaceValue(text, current, MCP_SERVER_ENTRY);
+  if (current === undefined) {
+    return {
+      text: appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY),
+      verb: "registered",
+    };
+  }
+  if (isDeepStrictEqual(JSON.parse(JSON.stringify(getNodeValue(current))), MCP_SERVER_ENTRY)) {
+    return null;
+  }
+  return { text: replaceValue(text, current, MCP_SERVER_ENTRY), verb: "updated" };
 }
