@@ -9,6 +9,7 @@ import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { ListReport, SyncOptions } from "../../src/commands/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
+import { opencode } from "../../src/harnesses/opencode/index.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import {
   configEditHarness,
@@ -199,6 +200,33 @@ describe("list", () => {
       await runSync(SYNC, io);
       expect(existsSync(join(w.userHome, ".fixture", "settings.json"))).toBe(true);
       expect(existsSync(join(w.userHome, ".fixture", "config.json"))).toBe(false);
+      const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+      expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["current"]);
+    });
+  });
+
+  // The hook is judged alone, so a config the listing never edits cannot refuse it, however
+  // unparsable.
+  test("a hook is reported present when its harness's config file is unparsable", async () => {
+    await world(async (w) => {
+      const source = writeSource(join(w.dir, "src"), TWO_MEMORIES);
+      writeState(
+        w.home,
+        stateWith(
+          {
+            [source]: entryFor(localFrom(source), {
+              harnesses: ["opencode"],
+              destination: { scope: "project", root: w.project },
+            }),
+          },
+          { project: { [w.project]: ["opencode"] } },
+        ),
+      );
+      const io = fakeIo({ ...w, cwd: w.project, harnesses: [opencode] });
+      mkdirSync(join(w.project, ".opencode"), { recursive: true });
+      await runSync(SYNC, io);
+      expect(existsSync(join(w.project, ".opencode", "plugins", "maxims.ts"))).toBe(true);
+      writeFileSync(join(w.project, "opencode.json"), "{");
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
       expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["current"]);
     });

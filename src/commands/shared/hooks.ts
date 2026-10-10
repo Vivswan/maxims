@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import {
   type HarnessContext,
@@ -6,7 +5,7 @@ import {
   type Scope,
   scopeRoot,
 } from "../../harnesses/contract.ts";
-import { type HookPlan, planHookWrite } from "../../harnesses/hook-writer.ts";
+import { type HookPlan, planHookOnly } from "../../harnesses/hook-writer.ts";
 import type { State } from "../../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../../state/scoped.ts";
 import type { Change } from "../../util/change.ts";
@@ -30,13 +29,6 @@ export function hookedAt(
 
 export type HookStatus = "current" | "missing" | "none" | "not-wanted";
 
-export type PlanHookAlone = (
-  def: HarnessDefinition,
-  scope: Scope,
-  ctx: HarnessContext,
-  wanted: boolean,
-) => Promise<HookPlan>;
-
 // The one judgment `list` and `doctor` report a hook by. The hook alone is planned: a pending
 // config edit beside it is not a missing hook. A harness with no usable home at this scope (its
 // config folder absent, or a file) gets no hook from sync either, so none is wanted there.
@@ -47,7 +39,7 @@ export async function hookStatus(
   state: Pick<State, "hooks">,
   projectRoot: string | null,
   ctx: HarnessContext,
-  plan: PlanHookAlone,
+  plan: typeof planHookOnly,
 ): Promise<HookStatus> {
   if (def.hook.kind === "none") return "none";
   if (!hookedAt(state, scope, projectRoot).includes(def.id)) return "not-wanted";
@@ -58,7 +50,7 @@ export async function hookStatus(
   ) {
     return "not-wanted";
   }
-  const planned = await plan(def, scope, ctx, true);
+  const planned = await plan({ def, scope, ctx, wanted: true });
   return planned.changes.length === 0 ? "current" : "missing";
 }
 
@@ -116,26 +108,6 @@ export type HooksPlan = {
   failures: { message: string; hint: string | undefined }[];
 };
 
-// The hook writer plans a definition's config edit together with the hook, under the hook's
-// `wanted`. Here the hook is planned alone: the bundled edit is taken back out, so the registry
-// entry and the config entry each follow their own answer (the hook list, the rules).
-export async function planHookAlone(
-  def: HarnessDefinition,
-  scope: Scope,
-  ctx: HarnessContext,
-  wanted: boolean,
-): Promise<HookPlan> {
-  const hook = await planHookWrite({ def, scope, ctx, wanted });
-  if (def.configEdit === undefined) return hook;
-  const bundled = await def.configEdit(scope, ctx, wanted);
-  return {
-    ...hook,
-    changes: hook.changes.filter(
-      (change) => !bundled.some((other) => isDeepStrictEqual(other, change)),
-    ),
-  };
-}
-
 // Reconciles every definition's hook and config edit at every scope this run can reach. The
 // hook follows the scope's hook list and the sources the harness has there; the config edit a
 // rules directory needs follows the rules alone, so a harness that lists rules without a hook
@@ -169,7 +141,7 @@ export async function planHooks(input: {
       try {
         const declared = declaredHookFile(def, scope, harnessCtx);
         if (declared !== null) reach.add(fileId(declared));
-        hook = await planHookAlone(def, scope, harnessCtx, wants.hook);
+        hook = await planHookOnly({ def, scope, ctx: harnessCtx, wanted: wants.hook });
         config = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
       } catch (error) {
         if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
@@ -260,7 +232,7 @@ async function sharedHookOf(
     if (!destinationUnresolvable(error)) throw error;
     return null;
   }
-  const hook = await planHookAlone(def, "project", there, true);
+  const hook = await planHookOnly({ def, scope: "project", ctx: there, wanted: true });
   const claims = hookFiles(def, "project", there, hook.changes);
   if (!claims.some((file) => reach.has(fileId(file)))) return null;
   return {

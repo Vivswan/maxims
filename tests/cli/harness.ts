@@ -141,7 +141,7 @@ export function fakeEngine(scenario: () => Scenario, options: ScenarioOptions): 
       calls.list.push(listOptions);
       return options.listReport ?? EMPTY_LIST;
     },
-    async planHookAlone(def) {
+    async planHookOnly({ def }) {
       const missing = (options.hookMissing ?? []).includes(def.id);
       return missing
         ? {
@@ -320,7 +320,7 @@ export function realEngineBundle(
       runSync,
       runRemove,
       runList,
-      planHookAlone: (def, scope, ctx, wanted) => planHookOnly({ def, scope, ctx, wanted }),
+      planHookOnly,
       achievedTier,
       serveMcpStub: () => {
         throw new Error("no CLI scenario drives the MCP stub");

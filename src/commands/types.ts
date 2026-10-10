@@ -8,7 +8,7 @@ import type {
   HarnessDefinition,
   Scope,
 } from "../harnesses/contract.ts";
-import type { HookPlan } from "../harnesses/hook-writer.ts";
+import type { planHookOnly } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { ResolverFor } from "../sources/contract.ts";
 import type { UserConfig } from "../state/config.ts";
@@ -222,19 +222,14 @@ export type McpStubOptions = {
 };
 
 // The engine as the command line sees it, loaded only once a verb runs. The three runners are the
-// engine's verbs; `planHookAlone` and `achievedTier` are what `doctor` and `list` compare disk
+// engine's verbs; `planHookOnly` and `achievedTier` are what `doctor` and `list` compare disk
 // against; `serveMcpStub` is the hidden `mcp-serve` verb's body. Everything else a verb derives
 // (a store entry's changes, the dedupe walk, a rule file's blocks) is a module function.
 export type Engine = {
   runSync(options: SyncOptions, io: EngineIo): Promise<SyncReport>;
   runRemove(options: RemoveOptions, io: EngineIo): Promise<SyncReport>;
   runList(options: ListOptions, io: EngineIo): Promise<ListReport>;
-  planHookAlone(
-    def: HarnessDefinition,
-    scope: Scope,
-    ctx: HarnessContext,
-    wanted: boolean,
-  ): Promise<HookPlan>;
+  planHookOnly: typeof planHookOnly;
   achievedTier(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Promise<AchievedTier>;
   serveMcpStub(options: McpStubOptions): Promise<void>;
 };

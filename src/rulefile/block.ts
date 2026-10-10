@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { compareCodeUnits } from "../util/order.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
 import {
   type BlockInput,
@@ -756,14 +757,6 @@ function appendBlock(fileText: string, rendered: string): string {
   const terminated = fileText.endsWith(ending) ? fileText : `${fileText}${ending}`;
   const closer = open === null ? "" : closerFor(open, ending);
   return `${terminated}${closer}${ending}${rendered}`;
-}
-
-// The one order of names and source keys wherever a file or a list must come out the same on two
-// machines (block order in a shared file, the tie-break of installation order, the self-refresh
-// line's owner): by code unit, ascending. Neither history nor locale enters.
-export function compareCodeUnits(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
 }
 
 type Occupant = { key: string; text: string };

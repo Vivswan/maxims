@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { heldToken } from "../console/strings.ts";
 import type { AchievedTier, Scope } from "../harnesses/contract.ts";
-import { achievedTier, hasHook } from "../harnesses/hook-writer.ts";
+import { achievedTier, hasHook, planHookOnly } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts";
@@ -25,7 +25,7 @@ import {
 } from "./shared/engine.ts";
 import { DAY_MS } from "./shared/fetch.ts";
 import { pathAbsent } from "./shared/fs-probe.ts";
-import { hookStatus, hookStatusText, planHookAlone } from "./shared/hooks.ts";
+import { hookStatus, hookStatusText } from "./shared/hooks.ts";
 import { readProjectLock } from "./shared/project-lock-io.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
 import { disabledNames, selectMemories } from "./shared/select.ts";
@@ -277,7 +277,7 @@ async function listHarnesses(
       listed.rulesPresent = fileExists(target.path);
     }
     if (skipped !== undefined) listed.skipped = skipped.reason;
-    listed.hook = await hookStatus(def, scope, state, ctx.projectRoot, harnessCtx, planHookAlone);
+    listed.hook = await hookStatus(def, scope, state, ctx.projectRoot, harnessCtx, planHookOnly);
     out.push(listed);
   }
   return out;
