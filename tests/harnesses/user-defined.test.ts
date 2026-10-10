@@ -4,10 +4,11 @@
 // the entry and the field; and what loads carries `userDefined` so `list` can label it. A loader
 // that dropped a bad entry and went on would leave a harness the user declared silently unsynced.
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 // The file name is the contract users write to, so the tests spell it out rather than asking the
@@ -136,6 +137,22 @@ test.each(refusals)(
     });
   },
 );
+
+// The file has no migration ladder, so an entry in the pre-stable `pages` shape is refused by name
+// rather than repaired or dropped. The exact message is the pin: a loader that grew a silent
+// repair, or a schema that stopped being strict, changes it.
+test("an entry in the old verifiedAgainst.pages shape is refused naming both keys", async () => {
+  await withTempDir(async (home) => {
+    const fixture = srcPath("harnesses", "fixtures", "corrupt-verified-against-pages.json");
+    const error = await refusal(home, readFileSync(fixture, "utf8"));
+    expect({ code: error.code, message: error.message }).toEqual({
+      code: ExitCode.DestinationWriteFailed,
+      message:
+        `${fileIn(home)}: harnesses[0] (id "acme"): verifiedAgainst.sources: Invalid input: ` +
+        'expected tuple, received undefined; verifiedAgainst: Unrecognized key: "pages"',
+    });
+  });
+});
 
 // Only "no file" reads as empty; a file that exists but cannot be read must not pass for an
 // empty list, or a permissions slip would silently drop every user-defined harness.
