@@ -3,8 +3,8 @@
 // a scope the harness does not install into, or collapses a per-scope budget or MCP file to one
 // cell. Whether docs/harnesses.md carries the current render is `bun run docs:tables:check`.
 import { expect, test } from "bun:test";
-import { renderMatrix } from "../scripts/lib/harness_matrix.ts";
-import type { HarnessDefinition } from "../src/harnesses/contract.ts";
+import { renderMatrix } from "../../scripts/lib/harness_matrix.ts";
+import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 
 // Hand-written definitions covering shapes and combinations the registry does not: no hook, a null
 // global target, no budget, a registry hook beside a null global target, a per-scope budget with

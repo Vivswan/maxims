@@ -6,7 +6,7 @@ import {
   bunTestArgs,
   DEFAULT_TEST_TIMEOUT_MS,
   WINDOWS_TEST_TIMEOUT_MS,
-} from "../scripts/lib/test_timeout.ts";
+} from "../../scripts/lib/test_timeout.ts";
 
 const budgets: [platform: NodeJS.Platform, argv: string[], expected: string[]][] = [
   [

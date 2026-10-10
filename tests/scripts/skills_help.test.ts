@@ -3,7 +3,7 @@
 // fixture would then report bytes no reader sees as upstream drift. That the fixture is itself in
 // normal form is pinned where it is read, in tests/parity.test.ts.
 import { expect, test } from "bun:test";
-import { captureSkillsHelp } from "../scripts/lib/skills_help.ts";
+import { captureSkillsHelp } from "../../scripts/lib/skills_help.ts";
 
 const ESC = "\x1b";
 

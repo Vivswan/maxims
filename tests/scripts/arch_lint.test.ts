@@ -9,8 +9,8 @@ import {
   type Architecture,
   importSpecifiers,
   lintAccommodationVocabulary,
-} from "../scripts/arch_lint.mts";
-import { withTempDir } from "./shared/temp_dir.ts";
+} from "../../scripts/arch_lint.mts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
 const ARCH: Architecture = {
   layers: { app: ["src/"] },
