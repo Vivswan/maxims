@@ -43,6 +43,7 @@ export const spec = {
         path: "codex-rs/config/src/loader/mod.rs",
         claims: [
           "let mut dirs = cwd",
+          ".scan(false, |done, a| {",
           "if &a == project_root {",
           "dirs.reverse();",
           'let dot_codex_abs = dir.join(".codex");',

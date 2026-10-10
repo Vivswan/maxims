@@ -6,7 +6,14 @@
 // the probe reads the config.toml under $CODEX_HOME, and the bytes a fresh hooks.json receives,
 // which Codex reads without checking them for us.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
@@ -132,25 +139,32 @@ test.each(walked)(
   },
 );
 
-// The walk starts from the real path of the session directory, and a folder above it that nobody
-// may search stops that lookup. The probe still answers: the walk climbs the typed path, and the
-// layer under the sealed folder is the reading, with the error that stopped the read. A throw
-// here would abort list, doctor and sync over files maxims never writes.
-test.skipIf(!CHMOD_DENIES)(
-  "a session directory under a folder nobody may search is a reading, never a throw",
-  async () => {
+// A folder nobody may search stops the real-path lookup of the session directory. The probe still
+// answers with the layer under it and the error that stopped the read, where a throw would abort
+// list, doctor and sync over files maxims never writes. Through an alias symlink to the project
+// the climb must still meet the root, recorded by its real path, or the sealed folder reads as
+// absent.
+const sealed: [string, (dir: string) => string][] = [
+  ["spelled under the root", (dir) => join(dir, "project", "locked", "app")],
+  ["spelled through an alias symlink to the root", (dir) => join(dir, "alias", "locked", "app")],
+];
+
+test.skipIf(!CHMOD_DENIES).each(sealed)(
+  "a session directory under a folder nobody may search is a reading, never a throw (%s)",
+  async (_, cwdIn) => {
     await withTempDir(async (dir) => {
       const home = join(dir, "home");
       const project = join(dir, "project");
       const locked = join(project, "locked");
-      const sub = join(locked, "app");
       mkdirSync(join(home, ".codex"), { recursive: true });
       mkdirSync(join(project, ".codex"), { recursive: true });
-      mkdirSync(sub, { recursive: true });
+      mkdirSync(join(locked, "app"), { recursive: true });
+      symlinkSync(project, join(dir, "alias"));
       writeFileSync(join(project, ".codex", "config.toml"), enabled);
       chmodSync(locked, 0o000);
       try {
-        const probed = await achievedTier({ home, projectRoot: project, cwd: sub, env: {} });
+        const projectRoot = realpathSync(project);
+        const probed = await achievedTier({ home, projectRoot, cwd: cwdIn(dir), env: {} });
         expect(probed.tier).toBe(2);
         expect(probed.unreadable).toMatch(
           /^config\.toml could not be read \(.*locked.*config\.toml: EACCES.*\); assuming hooks off$/,

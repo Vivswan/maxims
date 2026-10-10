@@ -84,7 +84,7 @@ test("adding then removing the instructions entry returns a hand-formatted openc
   await withTempDir(async (dir) => {
     const path = assertInsideRoot(dir, join(dir, "opencode.json"));
     writeFileSync(path, fixture);
-    const inProject = { ...ctx, projectRoot: dir };
+    const inProject = { ...ctx, projectRoot: dir, cwd: dir };
     const configEdit = opencode.configEdit;
     if (configEdit === undefined) throw new Error("OpenCode lists its rules dir in opencode.json");
 

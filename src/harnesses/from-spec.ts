@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { realpathOfExistingPrefix } from "../util/fs.ts";
@@ -126,11 +126,9 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
   };
 }
 
-// The directories a per-directory config is read from, the session's own first and the project
-// root last, since the nearest layer outranks the ones above it. The root is recorded by its real
-// path while the session directory is spelled as the harness gave it, so the climb starts from
-// its real path, a missing tail kept as typed so the layers of the ancestors that do exist are
-// still read; a session directory the root does not contain leaves the root alone.
+// The nearest layer outranks the ones above it, so the session's own directory comes first. The
+// root is recorded by its real path; the session directory climbs from its real path, or the
+// climb would pass an aliased root by.
 function directoriesDownTo(root: string, cwd: string): string[] {
   const dirs: string[] = [];
   let dir = sessionDirectory(cwd);
@@ -143,15 +141,18 @@ function directoriesDownTo(root: string, cwd: string): string[] {
   }
 }
 
-// A prefix nobody may inspect is climbed as typed: the probe then reads the layers under it and
-// reports what stopped it, where a throw here would abort a verb over files maxims never writes.
+// A prefix nobody may inspect is climbed from the real path of the deepest ancestor that can be,
+// the rest kept as typed: the climb still meets a root recorded by its real path, and the probe
+// reports the layer that stopped it, where a throw here would abort a verb over files maxims
+// never writes.
 function sessionDirectory(cwd: string): string {
   const typed = resolve(cwd);
   try {
     return realpathOfExistingPrefix(typed);
   } catch (error) {
     if (!(error instanceof MaximsError)) throw error;
-    return typed;
+    const parent = dirname(typed);
+    return parent === typed ? typed : join(sessionDirectory(parent), basename(typed));
   }
 }
 

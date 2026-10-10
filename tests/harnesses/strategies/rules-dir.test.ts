@@ -195,7 +195,7 @@ describe("planRulesDirWrite", () => {
       mkdirSync(join(project, ".claude"), { recursive: true });
       mkdirSync(outside);
       symlinkSync(outside, join(project, ".claude", "rules"));
-      const local: HarnessContext = { ...ctx, projectRoot: project };
+      const local: HarnessContext = { ...ctx, projectRoot: project, cwd: project };
       const verdict = outcome(() =>
         planRulesDirWrite({
           def: scoped,
