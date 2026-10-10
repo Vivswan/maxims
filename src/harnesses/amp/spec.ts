@@ -1,19 +1,24 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Amp always includes AGENTS.md from the working directory upward and `~/.config/amp/AGENTS.md`;
-// where a directory has no AGENTS.md it includes AGENT.md or CLAUDE.md instead, so creating one
-// beside those would stop Amp reading the user's file. Amp expands `@path` mentions inside the
-// file. It has no hook registry: a plugin file in its plugins directory receives `session.start`
-// and runs the sync through the plugin API's shell. Its docs give `~/.config/amp` for AGENTS.md
-// and settings without an XDG override, so the root stays fixed even though the plugins page
-// honours `XDG_CONFIG_HOME`.
+// Amp reads AGENTS.md from the working directory upward, then every user and system guidance
+// file that exists, side by side. Only a project directory with no AGENTS.md falls back to
+// AGENT.md or CLAUDE.md, so creating one beside those would stop Amp reading the user's file.
+//
+//   ~/.config/amp/AGENTS.md  -> the global target: Amp's own file
+//   ~/.config/AGENTS.md      -> shared with other tools and read beside it, so no precedence
+//   /etc/ampcode/AGENTS.md   -> outside HOME, where maxims never writes
+//
+// Amp expands `@path` mentions inside the file. It has no hook registry: a plugin file in its
+// plugins directory receives `session.start` and runs the sync through the plugin API's shell.
+// Its docs give `~/.config/amp` for AGENTS.md and settings without an XDG override, so the root
+// stays fixed even though the plugins page honours `XDG_CONFIG_HOME`.
 export const spec = {
   id: "amp",
   displayName: "Amp",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-10",
     sources: [
       {
         kind: "schema",
@@ -26,12 +31,13 @@ export const spec = {
         url: "https://ampcode.com/docs/markdown/customize/agents-md",
         claims: [
           "`AGENTS.md` files in the current working directory",
-          "$HOME/.config/amp/AGENTS.md",
+          "System-wide guidance files, as well as both `$HOME/.config/amp/AGENTS.md` and `$HOME/.config/AGENTS.md`, are always included if they exist.",
+          "/etc/ampcode/AGENTS.md",
           "If no `AGENTS.md` exists in a directory, but a file named `AGENT.md` (without an `S`) or `CLAUDE.md` does exist, that file will be included.",
           "AMP_IGNORE_GUIDANCE_FILES",
         ],
         why: "Amp is closed source and its settings schema covers settings keys only, not file discovery; this is the page's markdown rendition",
-        note: "AGENTS.md discovery and the AGENT.md and CLAUDE.md fallback",
+        note: "AGENTS.md discovery, the user and system files read side by side, and the AGENT.md and CLAUDE.md fallback",
       },
       {
         kind: "page",
