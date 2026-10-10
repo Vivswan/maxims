@@ -6,11 +6,11 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { MATRIX_PAGE, renderPage, renderRow } from "../scripts/render_harness_matrix.ts";
-import type { HarnessDefinition } from "../src/harnesses/contract.ts";
+import { MATRIX_PAGE, renderPage, renderRow } from "../../scripts/render_harness_matrix.ts";
+import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 
 test("the committed page carries the matrix rendered from the registry", () => {
-  const page = readFileSync(resolve(import.meta.dir, "..", MATRIX_PAGE), "utf8");
+  const page = readFileSync(resolve(import.meta.dir, "..", "..", MATRIX_PAGE), "utf8");
   expect(renderPage(page)).toBe(page);
 });
 

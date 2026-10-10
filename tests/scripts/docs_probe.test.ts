@@ -21,9 +21,9 @@ import {
   probePage,
   scanPage,
   trackedPaths,
-} from "../scripts/docs_probe.mts";
-import { commitAll, gitInit } from "./shared/git_fixture.ts";
-import { withTempDir } from "./shared/temp_dir.ts";
+} from "../../scripts/docs_probe.mts";
+import { commitAll, gitInit } from "../shared/git_fixture.ts";
+import { withTempDir } from "../shared/temp_dir.ts";
 
 const words = (count: number) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
 const page = (paragraph: string) => `# Title\n\n${paragraph}\n`;
@@ -588,7 +588,7 @@ test.each(inheritedGitEnv)(
       commitAll(dir, "pages");
       mkdirSync(join(dir, ".claude"));
       const proc = Bun.spawnSync(
-        ["bun", resolve(import.meta.dir, "..", "scripts", "docs_probe.mts"), "docs/page.md"],
+        ["bun", resolve(import.meta.dir, "..", "..", "scripts", "docs_probe.mts"), "docs/page.md"],
         { cwd: dir, env: { ...process.env, ...env(dir) }, stdout: "pipe", stderr: "pipe" },
       );
       expect(proc.stdout.toString()).toBe("");
