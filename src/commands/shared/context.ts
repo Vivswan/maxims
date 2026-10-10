@@ -2,12 +2,16 @@ import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { HarnessContext } from "../../harnesses/contract.ts";
+import {
+  classifyInvoker,
+  type InvokerClassification,
+  stdoutVariantFor,
+} from "../../harnesses/hook-stdin.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
 import { type LoadedUserConfig, readUserConfig, type UserConfig } from "../../state/config.ts";
 import type { SourceEntry } from "../../state/schema.ts";
 import { type HomePaths, homePaths, maximsHome } from "../../util/home.ts";
 import type { EngineIo, HarnessFilter } from "../types.ts";
-import { classifyInvoker, type InvokerClassification, stdoutVariantFor } from "./stdin.ts";
 
 export const DEFAULT_COOLDOWN_DAYS = 7;
 

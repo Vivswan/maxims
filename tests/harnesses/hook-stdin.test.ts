@@ -3,13 +3,13 @@
 // value, and a source slug two sources can share.
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { sourceSlug } from "../../../src/commands/shared/slug.ts";
+import { sourceSlug } from "../../src/commands/shared/slug.ts";
+import type { HookStdout } from "../../src/harnesses/contract.ts";
 import {
   classifyInvoker,
   readHookStdin,
   renderHookStdout,
-} from "../../../src/commands/shared/stdin.ts";
-import type { HookStdout } from "../../../src/harnesses/contract.ts";
+} from "../../src/harnesses/hook-stdin.ts";
 
 describe("readHookStdin", () => {
   test("a terminal is never read: no listener is attached and the answer is immediate", async () => {

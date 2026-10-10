@@ -1,4 +1,5 @@
 import { count, installedCounts } from "../../console/strings.ts";
+import { renderHookStdout } from "../../harnesses/hook-stdin.ts";
 import type { State } from "../../state/schema.ts";
 import { inspectState, type LoadedState } from "../../state/store.ts";
 import { applyChanges, type Change, renderPlan } from "../../util/change.ts";
@@ -11,7 +12,6 @@ import type { EngineContext } from "./context.ts";
 import type { SyncFailure, SyncOutcome } from "./engine.ts";
 import { failedFetches } from "./engine-io.ts";
 import { errorDocument, ReportedMaximsError } from "./errors.ts";
-import { renderHookStdout } from "./stdin.ts";
 
 export const EMPTY_REPORT: SyncReport = {
   sources: 0,

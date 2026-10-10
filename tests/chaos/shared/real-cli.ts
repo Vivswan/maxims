@@ -6,12 +6,12 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createEngine } from "../../../src/commands/engine.ts";
 import { type CliDeps, main } from "../../../src/commands/main.ts";
-import { createResolvers } from "../../../src/commands/shared/resolvers.ts";
 import type { EngineBundle } from "../../../src/commands/types.ts";
 import {
   type ScriptedRunner,
   scriptedRunner,
 } from "../../../src/sources/github/fixtures/runner.ts";
+import { createResolvers } from "../../../src/sources/resolvers.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 export type RealWorld = {

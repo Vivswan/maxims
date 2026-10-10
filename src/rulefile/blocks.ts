@@ -1,5 +1,5 @@
-import { type MemoryName, memoryStem, parseMemoryName } from "../../memory/contract.ts";
-import { markdownLines, parseBlocks } from "../../rulefile/block.ts";
+import { type MemoryName, memoryStem, parseMemoryName } from "../memory/contract.ts";
+import { markdownLines, parseBlocks } from "./block.ts";
 
 // A managed block as a rule file holds it: the source it belongs to and the local names of the
 // rule lines it carries, read back from each line's detail path.

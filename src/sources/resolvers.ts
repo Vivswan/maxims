@@ -1,10 +1,10 @@
-import type { SourceFrom } from "../../contracts/source.ts";
-import type { ResolverFor, SourceResolver } from "../../sources/contract.ts";
-import type { GitResolver } from "../../sources/git/index.ts";
-import type { GithubResolver } from "../../sources/github/index.ts";
-import type { Runner } from "../../sources/github/ladder.ts";
-import { createLocalResolver } from "../../sources/local.ts";
-import type { WarnSink } from "../../sources/tree.ts";
+import type { SourceFrom } from "../contracts/source.ts";
+import type { ResolverFor, SourceResolver } from "./contract.ts";
+import type { GitResolver } from "./git/index.ts";
+import type { GithubResolver } from "./github/index.ts";
+import type { Runner } from "./github/ladder.ts";
+import { createLocalResolver } from "./local.ts";
+import type { WarnSink } from "./tree.ts";
 
 export type ResolverOptions = {
   warn: WarnSink;
@@ -24,14 +24,13 @@ export function createResolvers(options: ResolverOptions): ResolverFor {
   // session-start `sync --quiet` with nothing due never pays for (tests/cli/module-graph.test.ts).
   let remote: Promise<RemoteResolvers> | undefined;
   const remoteResolvers = (): Promise<RemoteResolvers> => {
-    remote ??= Promise.all([
-      import("../../sources/github/index.ts"),
-      import("../../sources/git/index.ts"),
-    ]).then(([{ createGithubResolver }, { createGitResolver }]) => {
-      const runner = options.runner === undefined ? {} : { runner: options.runner };
-      const shared = { warn: options.warn, rung: options.rung, env: options.env, ...runner };
-      return { github: createGithubResolver(shared), git: createGitResolver(shared) };
-    });
+    remote ??= Promise.all([import("./github/index.ts"), import("./git/index.ts")]).then(
+      ([{ createGithubResolver }, { createGitResolver }]) => {
+        const runner = options.runner === undefined ? {} : { runner: options.runner };
+        const shared = { warn: options.warn, rung: options.rung, env: options.env, ...runner };
+        return { github: createGithubResolver(shared), git: createGitResolver(shared) };
+      },
+    );
     return remote;
   };
   return <F extends SourceFrom>(from: F): SourceResolver<F> => {

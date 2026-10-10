@@ -6,15 +6,15 @@ import { expect, jest, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fc from "fast-check";
 import { util } from "zod";
+import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
+import type { HookStdout } from "../../src/harnesses/contract.ts";
 import {
   classifyInvoker,
   readHookStdin,
   renderHookStdout,
   type StdinLike,
   stdoutVariantFor,
-} from "../../src/commands/shared/stdin.ts";
-import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
-import type { HookStdout } from "../../src/harnesses/contract.ts";
+} from "../../src/harnesses/hook-stdin.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";

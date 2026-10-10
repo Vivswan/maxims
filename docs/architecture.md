@@ -289,7 +289,7 @@ flowchart LR
   bin[["maxims add: the bin entry hands real streams and an engine loader to main"]]
   main["src/commands/main.ts<br>main() CliDeps"]
   options["src/commands/shared/options.ts<br>parseVerbArgs() GLOBAL_FLAGS FLAGS parseDestination() parseSelect() parseAgents()"]
-  engine["src/commands/engine.ts<br>createEngine()<br>src/commands/shared/resolvers.ts<br>createResolvers()"]
+  engine["src/commands/engine.ts<br>createEngine()<br>src/sources/resolvers.ts<br>createResolvers()"]
   console["src/console/mode.ts<br>consoleMode()<br>src/console/contract.ts<br>createConsole() promptsAllowed()"]
   add["src/commands/add.ts<br>add parseAddRequest() stageAdd() provenanceFor() showProvenance() planAdd()"]
   temp[("the fetch's temporary directory, removed on every path")]
@@ -376,7 +376,7 @@ flowchart LR
   hook[["the harness's hook: maxims sync --quiet, the event payload on stdin"]]
   main["src/commands/main.ts<br>main()"]
   runsync["src/commands/sync.ts<br>runSync()"]
-  stdin["src/commands/shared/stdin.ts<br>readHookStdin() classifyInvoker() stdoutVariantFor() HOOK_STDIN_FIRST_CHUNK_MS"]
+  stdin["src/harnesses/hook-stdin.ts<br>readHookStdin() classifyInvoker() stdoutVariantFor() HOOK_STDIN_FIRST_CHUNK_MS"]
   context["src/commands/shared/context.ts<br>loadContext()"]
   debounce["src/commands/shared/debounce.ts<br>isDebounced() stampLastSync() QUIET_DEBOUNCE_MS"]
   stamp[("the quiet-mode stamp: last-sync")]
@@ -384,7 +384,7 @@ flowchart LR
   plan["src/commands/shared/engine.ts<br>planSync()"]
   builder["src/commands/shared/plan.ts<br>PlanBuilder"]
   finish["src/commands/shared/report.ts<br>finishSync() EMPTY_REPORT"]
-  render["src/commands/shared/stdin.ts<br>renderHookStdout()"]
+  render["src/harnesses/hook-stdin.ts<br>renderHookStdout()"]
   log["src/util/log.ts<br>appendRefreshLog()"]
   session[["the session that started: stdout in the harness's protocol, exit 0 always"]]
   hook -->|"--quiet is read off argv first: a usage error is one log line and exit 0"| main
@@ -407,7 +407,7 @@ flowchart LR
 - **One stamp debounces every hook on the machine,** since each runs the same command; an interactive run is never debounced but writes the stamp too.
 - **Notices reach the session only in its protocol.** `stdoutVariantFor()` reads the definition's declared stdout shape; a harness this build does not know gets silence, since plain text into a JSON-only reader is a hook error at every session start.
 
-Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-failsoft.test.ts), [tests/commands/shared/stdin.test.ts](../tests/commands/shared/stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
+Demonstrated by: [tests/commands/sync-failsoft.test.ts](../tests/commands/sync-failsoft.test.ts), [tests/harnesses/hook-stdin.test.ts](../tests/harnesses/hook-stdin.test.ts), [tests/cli/verbs.test.ts](../tests/cli/verbs.test.ts).
 
 ## A verb runs: remove
 
@@ -456,7 +456,7 @@ flowchart LR
   statefile[("intent: state.json, read without the lock")]
   trees["src/commands/shared/engine.ts<br>readInstalledTree() retainedNames() staleness() installedHere()"]
   derived["src/harnesses/hook-writer.ts<br>achievedTier() planHookOnly()<br>src/rulefile/dedupe.ts<br>buildNameIndex()<br>src/rulefile/budget.ts<br>estimateTokens()"]
-  blocks["src/commands/shared/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
+  blocks["src/rulefile/blocks.ts<br>parseRuleBlocks()<br>src/harnesses/strategies/rules-dir.ts<br>rulesDirFrontmatter()"]
   manifest["src/commands/shared/project-lock-io.ts<br>readProjectLock()"]
   disk[("the store, the rule files, the registries, the manifest, the stamp")]
   stdout[["stdout: the listing, or the ok, warn and x lines; one document under --json"]]

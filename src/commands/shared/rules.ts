@@ -17,6 +17,7 @@ import {
   renderBlock,
   replaceBlock,
 } from "../../rulefile/block.ts";
+import { parseRuleLines, ruleLineName } from "../../rulefile/blocks.ts";
 import { estimateTokens } from "../../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../../rulefile/types.ts";
 import type { Change } from "../../util/change.ts";
@@ -30,7 +31,6 @@ import {
   realpathOfExistingPrefix,
 } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
-import { parseRuleLines, ruleLineName } from "./blocks.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, realKeyOf } from "./destination.ts";
 
