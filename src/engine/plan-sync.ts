@@ -28,7 +28,7 @@ import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
 import { hashFiles, type TreeFile } from "../sources/tree.ts";
 import type { Fetched, SourceEntry, SourceIntent, State } from "../state/schema.ts";
 import { serializeState, WRITTEN_BY } from "../state/store.ts";
-import type { Change, Plan } from "../util/change.ts";
+import { type Change, lstatOrNullSync, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -59,7 +59,6 @@ import {
   type BlockRequest,
   changingBlocks,
   claimedByMaxims,
-  isSymlink,
   planRuleFile,
   planRulesDirSweep,
   type RuleFile,
@@ -346,12 +345,13 @@ async function planInstall(
       ...(hold.hint === undefined ? {} : { hint: hold.hint }),
     });
   };
-  // A link at a rule file's path holds nothing while this run writes the path: the write replaces
-  // the link and never reaches the file behind it. A link no write replaces stays, its block
-  // loaded, and is held like a file. Which it is is known once every file is rendered.
+  // A link at a rule file's path holds nothing while this run writes or deletes the path: either
+  // replaces the link and never reaches the file behind it. A link no change replaces (a hook run
+  // defers its deletions) stays, its block loaded, and is held like a file. Which it is is known
+  // once every file is rendered.
   const linkedHolds: RuleFileHeld[] = [];
   const reserveHold = (hold: RuleFileHeld): void => {
-    if (isSymlink(hold.path)) linkedHolds.push(hold);
+    if (lstatOrNullSync(hold.path)?.isSymbolicLink() ?? false) linkedHolds.push(hold);
     else takeHold(hold);
   };
   // What a source already holds on disk keeps its names ahead of anything shipped this run: the
@@ -674,6 +674,9 @@ async function planInstall(
         builder.add("destination", filePlan.writes);
         builder.add("removal", filePlan.removals);
         for (const change of filePlan.writes) written.add(realKeyOf(change.path));
+        for (const change of filePlan.removals) {
+          if (!hookRun && change.kind === "delete") written.add(realKeyOf(change.path));
+        }
         for (const line of filePlan.notices) {
           if (said.has(line)) continue;
           said.add(line);
