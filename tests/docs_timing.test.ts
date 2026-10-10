@@ -46,7 +46,7 @@ const PHRASES: Phrase[] = [
   // OpenCode startup times measured on one machine, in prose and in the two rows of one table.
   phrase("measured startup", null, String.raw`takes about ${N}`),
   phrase("measured startup", null, String.raw`(?:as installed|together) \| ${N} \|`),
-  phrase("HOOK_STDIN_TOTAL_MS", HOOK_STDIN_TOTAL_MS, String.raw`${N} in all`),
+  phrase("HOOK_STDIN_TOTAL_MS", HOOK_STDIN_TOTAL_MS, `${N} in all`),
 ];
 
 const SECONDS = /\b(\d+(?:\.\d+)?)[ -]s(?:econds?)?\b/g;
