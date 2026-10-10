@@ -11,7 +11,8 @@ import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
-import { projectLockChange } from "./shared/project-lock-io.ts";
+import { installedSourceOrNull, withIntent } from "./frame/lookup.ts";
+import { projectLockChange } from "./frame/project-lock-io.ts";
 import {
   EMPTY_REPORT,
   emptyDocument,
@@ -19,8 +20,7 @@ import {
   previewState,
   reportedUnderJson,
   unusableStateLine,
-} from "./shared/report.ts";
-import { installedSourceOrNull, withIntent } from "./shared/sources.ts";
+} from "./frame/report.ts";
 
 // Intent mutation, then the same convergence that installs: with the entry gone the regenerated
 // output no longer carries its lines and its links have no owner. Deletions apply even under

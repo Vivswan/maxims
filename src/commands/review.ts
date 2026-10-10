@@ -23,16 +23,16 @@ import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { admitIntent, syncCommitted } from "./add.ts";
-import { type Intent, loadIntentFor, updateIntent } from "./shared/cli-context.ts";
+import { type Intent, loadIntentFor, updateIntent } from "./frame/cli-context.ts";
+import { findInstalledSource, sourcesHere, withIntent } from "./frame/lookup.ts";
 import {
   type Args,
   type Command,
   type CommandContext,
   type FlagSpec,
   usage,
-} from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
-import { findInstalledSource, sourcesHere, withIntent } from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
 
 // `review` marks a source as reviewed-before-apply: from then on a refresh is held under pending
 // and the last-good block stays until `accept`. `unreview` lifts the mark and applies whatever is

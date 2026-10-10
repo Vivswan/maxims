@@ -9,10 +9,10 @@ import {
 import { join, relative, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
+import { ReportedMaximsError } from "../../src/commands/frame/errors.ts";
 import { runList } from "../../src/commands/list.ts";
 import { type CliDeps, main } from "../../src/commands/main.ts";
 import { runRemove } from "../../src/commands/remove.ts";
-import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { InteractiveStreams } from "../../src/console/contract.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";

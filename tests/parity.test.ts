@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { scanPage } from "../scripts/docs_probe.mts";
 import { normalizeHelp } from "../scripts/lib/skills_help.ts";
-import { FLAGS, type FlagSpec, GLOBAL_FLAGS } from "../src/commands/shared/options.ts";
+import { FLAGS, type FlagSpec, GLOBAL_FLAGS } from "../src/commands/frame/options.ts";
 import { ExitCode } from "../src/util/exit-codes.ts";
 import { VERSION } from "../src/version.ts";
 import { FIXTURES, runCli, type Scenario, withScenario } from "./cli/harness.ts";

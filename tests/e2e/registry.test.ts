@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { util } from "zod";
-import { targetPath } from "../../src/commands/shared/sources.ts";
+import { targetPath } from "../../src/commands/frame/lookup.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import {
   type HarnessContext,

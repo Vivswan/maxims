@@ -21,8 +21,17 @@ import {
   loadIntentFor,
   persistConfig,
   updateIntent,
-} from "./shared/cli-context.ts";
-import { failedFetches, framed } from "./shared/engine-io.ts";
+} from "./frame/cli-context.ts";
+import { failedFetches, framed } from "./frame/engine-io.ts";
+import {
+  findInstalledSource,
+  installedSources,
+  knownHarnessIds,
+  resolveIncoming,
+  ruleCapRefusal,
+  upstreamNames,
+  withIntent,
+} from "./frame/lookup.ts";
 import {
   agentsFilter,
   type Command,
@@ -33,19 +42,10 @@ import {
   parseAgents,
   parseRenames,
   usage,
-} from "./shared/options.ts";
-import { failed, finish } from "./shared/output.ts";
-import { lockChanges } from "./shared/project-lock-io.ts";
-import { refreshWarnings, refuseRisky, riskLine } from "./shared/risk.ts";
-import {
-  findInstalledSource,
-  installedSources,
-  knownHarnessIds,
-  resolveIncoming,
-  ruleCapRefusal,
-  upstreamNames,
-  withIntent,
-} from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { failed, finish } from "./frame/output.ts";
+import { lockChanges } from "./frame/project-lock-io.ts";
+import { refreshWarnings, refuseRisky, riskLine } from "./frame/risk.ts";
 
 const UPDATE_FLAGS: readonly FlagSpec[] = [
   FLAGS.agent,

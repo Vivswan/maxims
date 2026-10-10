@@ -4,12 +4,12 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { updateIntent } from "../../src/commands/shared/cli-context.ts";
-import { emptyState, parseState, type State } from "../../src/state/schema.ts";
-import { WRITTEN_BY } from "../../src/state/store.ts";
-import { MaximsError } from "../../src/util/exit-codes.ts";
-import { homePaths } from "../../src/util/home.ts";
-import { withTempDir } from "../shared/temp_dir.ts";
+import { updateIntent } from "../../../src/commands/frame/cli-context.ts";
+import { emptyState, parseState, type State } from "../../../src/state/schema.ts";
+import { WRITTEN_BY } from "../../../src/state/store.ts";
+import { MaximsError } from "../../../src/util/exit-codes.ts";
+import { homePaths } from "../../../src/util/home.ts";
+import { withTempDir } from "../../shared/temp_dir.ts";
 
 const withBadRef = (): State => ({
   ...emptyState(WRITTEN_BY),

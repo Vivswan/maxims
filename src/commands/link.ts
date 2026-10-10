@@ -5,8 +5,15 @@ import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { admitIntent, syncCommitted } from "./add.ts";
-import { loadIntentFor, updateIntent } from "./shared/cli-context.ts";
-import { framed } from "./shared/engine-io.ts";
+import { loadIntentFor, updateIntent } from "./frame/cli-context.ts";
+import { framed } from "./frame/engine-io.ts";
+import {
+  findInstalledSource,
+  harnessById,
+  knownHarnessIds,
+  scopeOf,
+  withIntent,
+} from "./frame/lookup.ts";
 import {
   type Args,
   type Command,
@@ -16,16 +23,9 @@ import {
   type FlagSpec,
   parseAgents,
   usage,
-} from "./shared/options.ts";
-import { finish } from "./shared/output.ts";
-import { lockChanges } from "./shared/project-lock-io.ts";
-import {
-  findInstalledSource,
-  harnessById,
-  knownHarnessIds,
-  scopeOf,
-  withIntent,
-} from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { finish } from "./frame/output.ts";
+import { lockChanges } from "./frame/project-lock-io.ts";
 
 const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent];
 

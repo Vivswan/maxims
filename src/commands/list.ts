@@ -39,7 +39,7 @@ import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
-import { previewState, reportedUnderJson } from "./shared/report.ts";
+import { previewState, reportedUnderJson } from "./frame/report.ts";
 
 // Read-only: what state asks for, with everything past intent (tier, hook presence, collisions,
 // staleness, token cost) re-derived from disk on the spot. Never takes the lock and never settles

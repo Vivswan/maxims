@@ -13,7 +13,13 @@ import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
-import { peekIntent } from "./shared/cli-context.ts";
+import { peekIntent } from "./frame/cli-context.ts";
+import {
+  findInstalledSource,
+  installedElsewhere,
+  lookupSource,
+  type SourceLookup,
+} from "./frame/lookup.ts";
 import {
   type Args,
   type Command,
@@ -23,14 +29,8 @@ import {
   type FlagSpec,
   projectDestination,
   usage,
-} from "./shared/options.ts";
-import { reportedUnderJson } from "./shared/report.ts";
-import {
-  findInstalledSource,
-  installedElsewhere,
-  lookupSource,
-  type SourceLookup,
-} from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { reportedUnderJson } from "./frame/report.ts";
 import { heldLines, sourceFactLines, sourceFacts } from "./show-source.ts";
 
 const SHOW_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.source];

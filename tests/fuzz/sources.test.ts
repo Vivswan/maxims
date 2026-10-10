@@ -8,7 +8,7 @@ import fc from "fast-check";
 import {
   parseSourceArgument,
   parseSourceSelector,
-} from "../../src/commands/shared/source-argument.ts";
+} from "../../src/commands/frame/source-argument.ts";
 import { isUsableRemote, parseRemote, SourceFromSchema } from "../../src/contracts/source.ts";
 import { canonicalSourceKey } from "../../src/state/schema.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";

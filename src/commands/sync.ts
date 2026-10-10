@@ -6,7 +6,7 @@ import type { StateLock } from "../state/store.ts";
 import { withStateLock } from "../state/store.ts";
 import { maximsHome } from "../util/home.ts";
 import { appendRefreshLog } from "../util/log.ts";
-import { isDebounced, stampLastSync } from "./shared/debounce.ts";
+import { isDebounced, stampLastSync } from "./frame/debounce.ts";
 import {
   EMPTY_REPORT,
   emptyDocument,
@@ -14,7 +14,7 @@ import {
   previewState,
   reportedUnderJson,
   unusableStateLine,
-} from "./shared/report.ts";
+} from "./frame/report.ts";
 
 // The verb every other verb ends in. Under `--quiet` nothing here may throw or block: the run is
 // debounced, takes the lock without waiting, and any failure past the rungs the plan handles is

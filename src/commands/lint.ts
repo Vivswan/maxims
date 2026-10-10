@@ -20,8 +20,8 @@ import {
   INTEGER,
   INTENT_DEFAULTS,
   parseInteger,
-} from "./shared/options.ts";
-import { riskWarningsFor } from "./shared/risk.ts";
+} from "./frame/options.ts";
+import { riskWarningsFor } from "./frame/risk.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 

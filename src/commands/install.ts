@@ -29,6 +29,7 @@ import {
   stageAdd,
   syncCommitted,
 } from "./add.ts";
+import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./frame/lookup.ts";
 import {
   type Command,
   type CommandContext,
@@ -37,9 +38,8 @@ import {
   INTENT_DEFAULTS,
   parseAgents,
   usage,
-} from "./shared/options.ts";
-import { finish, mergePlans } from "./shared/output.ts";
-import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./shared/sources.ts";
+} from "./frame/options.ts";
+import { finish, mergePlans } from "./frame/output.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes, FLAGS.strict];
 
