@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, normalize, sep } from "node:path";
 import { z } from "zod";
 import {
   HARNESS_ID_PATTERN,
@@ -10,7 +10,7 @@ import {
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { JsonDialect } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ByteBudget, ConfigFormat, HookStdout, UnreadableLayer } from "./contract.ts";
+import type { ByteBudget, HookStdout, UnreadableLayer } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -46,12 +46,6 @@ function completeEnum<T extends string>() {
 const MarkersEnum = completeEnum<Markers>()(["stripped", "counted"]);
 const ExpansionEnum = completeEnum<ExpansionSyntax>()(["at-import", "none"]);
 const JsonDialectEnum = completeEnum<JsonDialect>()(["json", "json-with-comments", "jsonc"]);
-const ConfigFormatEnum = completeEnum<ConfigFormat>()([
-  "json",
-  "json-with-comments",
-  "jsonc",
-  "toml",
-]);
 const UnreadableLayerEnum = completeEnum<UnreadableLayer>()(["skips-the-file", "refuses-to-start"]);
 const HookStdoutEnum = completeEnum<HookStdout>()([
   "plain",
@@ -223,11 +217,13 @@ const Detect = z
 // `layers` lists, per scope and in the harness's own precedence order, the config files it reads
 // the key from; the walk takes the project list, then the global one. A project entry may instead
 // name a file the harness reads in every directory from the project root down to the one the
-// session runs in, the nearest first. `unreadable` is the vendor's own behavior on a broken
-// layer, which no file states. `projectTrust` names the user-layer table that marks a directory,
-// the mark that trusts it and every mark the vendor accepts, for a harness that applies a project
-// layer only when trusted. zod drops a `__proto__` key from what it parses, so a check on that
-// segment could never read it and is refused here.
+// session runs in, the nearest first. `format` is given only for TOML layers: a JSON layer is read
+// in the hook's own dialect, so the writer and the probe cannot judge one file by two parsers.
+// `unreadable` is the vendor's own behavior on a broken layer, which no file states. `projectTrust`
+// names the user-layer table that marks a directory, the mark that trusts it and every mark the
+// vendor accepts, for a harness that applies a project layer only when trusted. zod drops a
+// `__proto__` key from what it parses, so a check on that segment could never read it and is
+// refused here.
 const KeyPath = z
   .string()
   .min(1)
@@ -240,7 +236,12 @@ const TierCheck = z.strictObject({
     project: z.array(z.union([RelPath, WalkLayer])).min(1),
     global: z.array(RelPath).min(1),
   }),
-  format: ConfigFormatEnum,
+  format: z
+    .literal("toml", {
+      error:
+        "a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
+    })
+    .optional(),
   key: KeyPath,
   demotesWhen: z.json(),
   unreadable: UnreadableLayerEnum,
@@ -272,6 +273,8 @@ function refuseUnknownPlaceholders(
     });
   }
 }
+
+type TierCheckSpec = z.infer<typeof TierCheck>;
 
 const RegistryHook = z
   .strictObject({
@@ -308,7 +311,35 @@ const RegistryHook = z
     for (const text of stringsIn(handlerTemplate)) {
       refuseUnknownPlaceholders(ctx, text, ["handlerTemplate"]);
     }
+    refuseTomlLayerOnRegistry(ctx, ctx.value);
   });
+
+// A TOML tier check is the one way a layer is parsed in another dialect than the registry, so the
+// registry file itself is refused as a layer: the writer would edit it as JSON while the probe read
+// the same bytes as TOML and called them unreadable. A walked layer is read in every directory up
+// to the project root, so it reaches the registry whenever the registry path ends with its file.
+function refuseTomlLayerOnRegistry(
+  ctx: { issues: z.core.$ZodRawIssue[] },
+  hook: { path: { project: string; global: string }; format: string; tierCheck?: TierCheckSpec },
+): void {
+  if (hook.tierCheck?.format !== "toml") return;
+  for (const scope of ["project", "global"] as const) {
+    const registry = normalize(hook.path[scope]);
+    hook.tierCheck.layers[scope].forEach((layer, index) => {
+      const reaches =
+        typeof layer === "string"
+          ? normalize(layer) === registry
+          : registry === normalize(layer.file) || registry.endsWith(sep + normalize(layer.file));
+      if (!reaches) return;
+      ctx.issues.push({
+        code: "custom",
+        input: layer,
+        path: ["tierCheck", "layers", scope, index],
+        message: `a TOML tier check cannot read hook.path.${scope} (${hook.path[scope]}), the registry the writer edits as ${hook.format}; name the vendor's TOML config instead`,
+      });
+    });
+  }
+}
 
 const FileHook = z
   .strictObject({

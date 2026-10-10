@@ -139,7 +139,8 @@ test.each(refusals)(
 // schema that stopped being strict, changes it. The `path` tier check named one file per scope; a
 // loader that read it as one layer per scope would silently probe the wrong files. A tier check
 // without `unreadable` never said what its harness does with a broken layer; a default would
-// decide that for it.
+// decide that for it. A JSON `format` of its own let a tier check read the registry file in a
+// dialect the hook writer did not, so the writer kept a construct the probe called unreadable.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
@@ -158,6 +159,11 @@ const oldShapes: [string, string, string][] = [
     "tierCheck without unreadable",
     "corrupt-tier-check-without-unreadable.json",
     'hook.tierCheck.unreadable: Invalid option: expected one of "skips-the-file"|"refuses-to-start"',
+  ],
+  [
+    "tierCheck with a JSON format",
+    "corrupt-tier-check-json-format.json",
+    "hook.tierCheck.format: a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
   ],
 ];
 

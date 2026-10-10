@@ -26,8 +26,8 @@
       "detect": { "dirs": ["."] },
       "hook": {
         "kind": "registry",
-        "path": { "project": ".acme/hooks.json", "global": "hooks.json" },
-        "format": "json",
+        "path": { "project": ".acme/settings.json", "global": "settings.json" },
+        "format": "jsonc",
         "eventPath": ["hooks", "SessionStart"],
         "grouped": true,
         "handlerTemplate": {
@@ -39,9 +39,11 @@
         "stdout": "plain",
         "async": false,
         "tierCheck": {
-          "path": { "project": ".acme/config.json", "global": "config.json" },
+          "layers": { "project": [".acme/settings.json"], "global": ["settings.json"] },
+          "format": "json",
           "key": "hooks.enabled",
-          "demotesWhen": false
+          "demotesWhen": false,
+          "unreadable": "skips-the-file"
         }
       }
     }

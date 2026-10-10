@@ -40,7 +40,6 @@
         "async": false,
         "tierCheck": {
           "layers": { "project": [".acme/config.json"], "global": ["config.json"] },
-          "format": "json",
           "key": "hooks.enabled",
           "demotesWhen": false
         }

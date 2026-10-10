@@ -55,13 +55,15 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
 | `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
-| `tierCheck` | `{ layers, format, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value |
+| `tierCheck` | `{ layers, format?, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value |
 
 The writer finds and prunes its own entries by the `commandKey` prefix. A registry holding a construct outside its `format` (a trailing comma where the vendor reads strict JSON) is refused with exit 4, never written: the vendor would skip the file, hook included.
 
-A `tierCheck` walks `layers.project`, then `layers.global`, each list in the order it gives; its `format` adds `toml`, read and never written. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
+A `tierCheck` reads its layers in the hook's `format`, or as `toml` when its own `format` says so, the one kind read and never written. A JSON tier check declares no dialect of its own, and a TOML one cannot name the registry file, so the writer and the probe cannot judge the same file by two parsers.
 
-- **An unreadable layer** is a file that does not parse as its `format` (strict `json` takes no comment or trailing comma), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
+It walks `layers.project`, then `layers.global`, each list in the order it gives. A project entry of `{ "kind": "root-to-cwd", "file": "..." }` stands for that file in every directory from the one the session runs in up to the project root, nearest first:
+
+- **An unreadable layer** is a file that does not parse in its dialect (strict `json` takes no comment or trailing comma), a non-table where the key path expects one, or a key of another type than `demotesWhen`. Under `unreadable: "refuses-to-start"` (Codex) any such layer is tier 2 with the reason; under `"skips-the-file"` (Claude Code) only the file the probed scope's hook is registered in is, and any other is skipped.
 - **A project layer under `projectTrust`** is read only where a global layer marks its directory trusted: the first of `<table>.<directory>.<key>` set for the layer's own directory, then for the project root, holds the `trusted` mark (Codex's `projects.<path>.trust_level = "trusted"`). Any other directory's layer is skipped whole, broken or not. A global layer whose table holds a mark outside `accepted` is unreadable, as the vendor refuses it.
 - **Otherwise the first layer that sets the key decides:** tier 2 when it holds `demotesWhen`, the declared tier when it does not.
 - **A key no layer sets** leaves the declared tier.

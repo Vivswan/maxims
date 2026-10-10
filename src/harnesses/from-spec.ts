@@ -63,8 +63,7 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (paths: PathsPerScope): ScopedPath =>
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
-  // A plain project layer belongs to the project root; a walked one to each directory it is read
-  // from, so a trust lookup asks about the directory the layer sits in.
+  // `dir` is what a trust lookup asks about: a walked layer is trusted per directory, not per project.
   const layered =
     (layers: LayersSpec) =>
     (ctx: HarnessContext): TierLayer[] => {
@@ -272,7 +271,7 @@ function compileHook(
           : {
               tierCheck: {
                 layers: layered(tierCheck.layers),
-                format: tierCheck.format,
+                format: tierCheck.format ?? hook.format,
                 key: tierCheck.key,
                 demotesWhen: tierCheck.demotesWhen,
                 unreadable: tierCheck.unreadable,

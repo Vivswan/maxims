@@ -174,12 +174,47 @@ const refusals: [string, Mutation, string][] = [
     "a tier check on a key zod would drop from what it parses",
     at(["hook", "tierCheck"], {
       layers: { project: [".example/settings.json"], global: ["settings.json"] },
-      format: "json",
       key: "hooks.__proto__",
       demotesWhen: false,
       unreadable: "refuses-to-start",
     }),
     "hook.tierCheck.key: a key segment cannot be __proto__",
+  ],
+  [
+    "a tier check declaring a JSON dialect of its own beside the hook's",
+    at(["hook", "tierCheck"], {
+      layers: { project: [".example/settings.json"], global: ["settings.json"] },
+      format: "json",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "skips-the-file",
+    }),
+    "hook.tierCheck.format: a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
+  ],
+  [
+    "a TOML tier check walking into the project registry file the writer edits as JSON",
+    at(["hook", "tierCheck"], {
+      layers: {
+        project: [{ kind: "root-to-cwd", file: "./hooks.json" }],
+        global: ["config.toml"],
+      },
+      format: "toml",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "refuses-to-start",
+    }),
+    "hook.tierCheck.layers.project.0: a TOML tier check cannot read hook.path.project (.example/hooks.json), the registry the writer edits as json; name the vendor's TOML config instead",
+  ],
+  [
+    "a TOML tier check reading the global registry file the writer edits as JSON",
+    at(["hook", "tierCheck"], {
+      layers: { project: [".example/config.toml"], global: ["hooks.json"] },
+      format: "toml",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "refuses-to-start",
+    }),
+    "hook.tierCheck.layers.global.0: a TOML tier check cannot read hook.path.global (hooks.json), the registry the writer edits as json; name the vendor's TOML config instead",
   ],
   [
     "a per-scope budget that names no scope",

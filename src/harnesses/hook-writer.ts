@@ -517,7 +517,6 @@ const plainTable = z.custom<Record<string, unknown>>(util.isPlainObject, {
   error: (issue) => `Invalid input: expected object, received ${util.getParsedType(issue.input)}`,
 });
 
-// `leaf` at the end of the key path, every table on the way optional and otherwise unconstrained.
 function nestedSchema(segments: string[], leaf: z.ZodType): z.ZodType {
   return segments.reduceRight<z.ZodType>(
     (inner, segment) => plainTable.pipe(z.looseObject({ [segment]: inner.optional() })),
