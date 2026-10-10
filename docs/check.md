@@ -80,7 +80,7 @@ npx -y @vivswan/maxims doctor
 | `!` | a warning: an undefined harness id, a [held revision](keep-fresh.md#hold-changes-for-review), or "never synced" |
 | `x` | one harness that will not load a rule you believe is installed |
 
-The report ends with a `Defaults:` line naming the `rule` and `addHook` defaults from `config.json`, and with the age of the last sync. Exit 0 when every harness in state passes, exit 1 when any line is `x`.
+The report ends with a `Defaults:` line naming the `rule` and `addHook` defaults from `config.json`, and with the age of the last sync. Exit 0 when every harness in state passes, exit 1 when any line is `x`. A rule file [held behind a block marker](troubleshooting.md#exit-4-a-blocks-marker-carries-no-version-or-another-one) is one such `x` row.
 
 ## The CI one-liner
 
