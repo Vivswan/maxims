@@ -163,6 +163,14 @@ test.each(goldens)("golden %s matches byte for byte", async (name, options, prod
 // Where a description breaks is what the terminal shows, so the rendered rows are pinned per
 // terminal width. The call site chooses the soft wrap: a word wider than the text column stays
 // whole on its own row, since a URL cut in two is worse than an overlong row.
+const CJK_PAIRS = [
+  "\u4e2d\u6587",
+  "\u65e5\u672c",
+  "\u8a9e\u5b57",
+  "\u6f22\u5b57",
+  "\u8a00\u8449",
+  "\u6587\u5b57",
+];
 const itemRows: [string, number, string, string[]][] = [
   [
     "a line filled to the last column",
@@ -187,6 +195,13 @@ const itemRows: [string, number, string, string[]][] = [
     10,
     "aaaa bbbb cccc dddd eeee ffff",
     ["|      aaaa bbbb cccc dddd", "|      eeee ffff"],
+  ],
+  ["two spaces between words reach the terminal as typed", 30, "one  two", ["|      one  two"]],
+  [
+    "a wide glyph takes two columns, so six CJK pairs need two rows",
+    30,
+    CJK_PAIRS.join(" "),
+    [`|      ${CJK_PAIRS.slice(0, 4).join(" ")}`, `|      ${CJK_PAIRS.slice(4).join(" ")}`],
   ],
 ];
 
