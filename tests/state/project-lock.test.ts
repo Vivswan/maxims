@@ -8,7 +8,7 @@ import {
   parseProjectLock,
   serializeProjectLock,
 } from "../../src/state/project-lock.ts";
-import { memoryName } from "../engine/harness.ts";
+import { memoryName } from "../engine/fakes.ts";
 
 // Sources and rename keys are given out of order on purpose: the serializer must sort them.
 const LOCK: ProjectLock = {

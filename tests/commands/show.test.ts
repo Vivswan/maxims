@@ -26,7 +26,7 @@ import {
   memoryName,
   seedStore,
   stateWith,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 const NOW = new Date("2026-09-20T12:00:00.000Z");

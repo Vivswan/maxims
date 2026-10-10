@@ -15,7 +15,7 @@ import {
   stateWith,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 
 const FROM = githubFrom("a/b");

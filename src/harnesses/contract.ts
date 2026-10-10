@@ -46,7 +46,7 @@ export type SharedBlockTarget = Extract<Target, { kind: "shared-block" }>;
 
 declare const sourceSlugBrand: unique symbol;
 
-// The file-name form of a source, built by `sourceSlug` in src/commands/shared/slug.ts and parsed
+// The file-name form of a source, built by `sourceSlug` in src/engine/slug.ts and parsed
 // here before it is trusted: one path segment with nothing a path builder could misread, so a
 // rules-dir file name made from it and a template the spec admits is one segment by construction.
 export type SourceSlug = string & { readonly [sourceSlugBrand]: true };

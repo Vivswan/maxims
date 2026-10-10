@@ -23,7 +23,7 @@ import { readRuleFile } from "./rule_file.ts";
 const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
 
 // The rule file REFERENCE_ADD writes under HOME: the claude-code global rules directory and the
-// clean slug of @Vivswan/skills (src/commands/shared/slug.ts).
+// clean slug of @Vivswan/skills (src/engine/slug.ts).
 const REFERENCE_RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
 
 export type Step = {

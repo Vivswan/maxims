@@ -13,10 +13,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { SyncOptions } from "../../src/commands/types.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
+import type { SyncOptions } from "../../src/engine/types.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
@@ -45,7 +45,7 @@ import {
   treeDigest,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { budgetedReader, fetchedOf, heldHint, NOW, QUIET, SYNC } from "../shared/sync_support.ts";

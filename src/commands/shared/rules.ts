@@ -1,5 +1,8 @@
 import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { agentsAllowed, type EngineContext, harnessContext } from "../../engine/context.ts";
+import { type HarnessTarget, realKeyOf } from "../../engine/destination.ts";
+import type { HarnessFilter } from "../../engine/types.ts";
 import {
   type HarnessDefinition,
   type Scope,
@@ -30,9 +33,6 @@ import {
   readIfPresent,
   realpathOfExistingPrefix,
 } from "../../util/fs.ts";
-import type { HarnessFilter } from "../types.ts";
-import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { type HarnessTarget, realKeyOf } from "./destination.ts";
 
 export type BlockRequest = {
   key: string;

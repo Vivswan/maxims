@@ -18,8 +18,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import { HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
 import { hasHook } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";

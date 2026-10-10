@@ -18,9 +18,9 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -46,7 +46,7 @@ import {
   treeDigest,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { DAY_MS, fetchedOf, NOW, QUIET, SYNC } from "../shared/sync_support.ts";

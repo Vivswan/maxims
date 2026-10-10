@@ -1,20 +1,20 @@
-import type { HarnessId } from "../../contracts/harness-id.ts";
+import type { HarnessId } from "../contracts/harness-id.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
   type Scope,
   scopeRoot,
-} from "../../harnesses/contract.ts";
-import { type HookPlan, planHookOnly } from "../../harnesses/hook-writer.ts";
-import type { State } from "../../state/schema.ts";
-import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../../state/scoped.ts";
-import type { Change } from "../../util/change.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, realpathOfExistingPrefix } from "../../util/fs.ts";
-import type { HarnessFilter } from "../types.ts";
+} from "../harnesses/contract.ts";
+import { type HookPlan, planHookOnly } from "../harnesses/hook-writer.ts";
+import type { State } from "../state/schema.ts";
+import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../state/scoped.ts";
+import type { Change } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { destinationConflict } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
+import type { HarnessFilter } from "./types.ts";
 
 // The harnesses whose hook state wants at one scope; a project scope with no project root wants
 // none.

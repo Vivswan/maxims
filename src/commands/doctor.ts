@@ -1,5 +1,11 @@
 import { heldFinding, notDefinedHere } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
+import { actsHere, harnessContext } from "../engine/context.ts";
+import { pathAbsent } from "../engine/fs-probe.ts";
+import { type HookStatus, hookStatus, hookStatusText } from "../engine/hooks.ts";
+import { disabledNames } from "../engine/select.ts";
+import { sourceSlug } from "../engine/slug.ts";
+import { findSourceKey } from "../engine/source-key.ts";
 import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName, renamed } from "../memory/contract.ts";
@@ -10,10 +16,7 @@ import { readIfPresent } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import { peekIntent } from "./shared/cli-context.ts";
-import { actsHere, harnessContext } from "./shared/context.ts";
 import { readLastSync } from "./shared/debounce.ts";
-import { pathAbsent } from "./shared/fs-probe.ts";
-import { type HookStatus, hookStatus, hookStatusText } from "./shared/hooks.ts";
 import {
   type Command,
   type CommandContext,
@@ -21,9 +24,6 @@ import {
   type FlagSpec,
   usage,
 } from "./shared/options.ts";
-import { disabledNames } from "./shared/select.ts";
-import { sourceSlug } from "./shared/slug.ts";
-import { findSourceKey } from "./shared/source-key.ts";
 import {
   effectiveNames,
   effectiveNamesIfReadable,

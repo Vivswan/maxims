@@ -16,13 +16,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, sep } from "node:path";
-import { loadContext } from "../../../src/commands/shared/context.ts";
-import { type HarnessWants, planHooks } from "../../../src/commands/shared/hooks.ts";
-import { runSync } from "../../../src/commands/sync.ts";
-import { claudeCode } from "../../../src/harnesses/claude-code/spec.ts";
-import { HOOK_COMMAND, type Scope } from "../../../src/harnesses/contract.ts";
-import { dsh } from "../../../src/harnesses/dsh/spec.ts";
-import { readIfPresent } from "../../../src/util/fs.ts";
+import { runSync } from "../../src/commands/sync.ts";
+import { loadContext } from "../../src/engine/context.ts";
+import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
+import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
+import { HOOK_COMMAND, type Scope } from "../../src/harnesses/contract.ts";
+import { dsh } from "../../src/harnesses/dsh/spec.ts";
+import { readIfPresent } from "../../src/util/fs.ts";
+import { SYNC } from "../shared/sync_support.ts";
 import {
   configEditHarness,
   entryFor,
@@ -33,9 +34,8 @@ import {
   stateWith,
   writeSource,
   writeState,
-} from "../../engine/harness.ts";
-import { TWO_MEMORIES, world } from "../../engine/world.ts";
-import { SYNC } from "../../shared/sync_support.ts";
+} from "./fakes.ts";
+import { TWO_MEMORIES, world } from "./world.ts";
 
 // The registry write's content is the hook writer's; this test pins only which changes appear.
 const configWrite = (config: string): unknown => ({

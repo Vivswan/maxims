@@ -2,8 +2,8 @@ import { statSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { SymlinkSupport } from "../types.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import type { SymlinkSupport } from "./types.ts";
 
 // Only "nothing is there" reads as absent; a path that cannot be looked at (a parent without
 // search permission) throws, so an inaccessible project or lock is never called missing.

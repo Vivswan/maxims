@@ -1,6 +1,6 @@
-import { type Memory, type MemoryName, renamed } from "../../memory/contract.ts";
-import type { Candidate } from "../../rulefile/dedupe.ts";
-import type { Select, SourceIntent, State } from "../../state/schema.ts";
+import { type Memory, type MemoryName, renamed } from "../memory/contract.ts";
+import type { Candidate } from "../rulefile/dedupe.ts";
+import type { Select, SourceIntent, State } from "../state/schema.ts";
 import type { SourceMemory } from "./memories.ts";
 
 export type SelectedMemory = {

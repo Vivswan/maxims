@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
-import type { SyncOptions, SyncReport } from "../../src/commands/types.ts";
+import type { SyncOptions, SyncReport } from "../../src/engine/types.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/spec.ts";
@@ -30,7 +30,7 @@ import { renderBlock } from "../../src/rulefile/block.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
-import { fakeResolvers, memoryName, writeSource } from "../engine/harness.ts";
+import { fakeResolvers, memoryName, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";

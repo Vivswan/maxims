@@ -19,7 +19,7 @@ import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { fakeResolvers, writeSource } from "../engine/harness.ts";
+import { fakeResolvers, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import {

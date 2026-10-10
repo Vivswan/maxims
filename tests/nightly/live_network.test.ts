@@ -22,7 +22,7 @@ type Call = { argv: readonly string[]; env: Record<string, string> };
 const ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
 
 // Where `maxims add @Vivswan/skills -g --rule -a claude-code` puts its rule file under HOME: the
-// claude-code global rules directory and the source's slug (src/commands/shared/slug.ts). Spelled
+// claude-code global rules directory and the source's slug (src/engine/slug.ts). Spelled
 // here rather than imported so a ladder that reads a different path fails on this file.
 const RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
 const RULE_FILE_SHOWN = `~/${RULE_FILE}`;

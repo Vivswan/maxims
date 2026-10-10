@@ -3,7 +3,7 @@
 // value, and a source slug two sources can share.
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import type { HookStdout } from "../../src/harnesses/contract.ts";
 import {
   classifyInvoker,

@@ -14,7 +14,7 @@ import type { ResolverFor } from "../sources/contract.ts";
 import type { UserConfig } from "../state/config.ts";
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import type { Change, Plan } from "../util/change.ts";
-import type { HookStatus } from "./shared/hooks.ts";
+import type { HookStatus } from "./hooks.ts";
 
 export type CommonOptions = {
   quiet: boolean;

@@ -1,5 +1,28 @@
 import { readFileSync, statSync } from "node:fs";
 import { heldToken } from "../console/strings.ts";
+import {
+  actsHere,
+  DEFAULT_COOLDOWN_DAYS,
+  type EngineContext,
+  harnessContext,
+  loadContext,
+} from "../engine/context.ts";
+import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
+import { DAY_MS } from "../engine/fetch.ts";
+import { pathAbsent } from "../engine/fs-probe.ts";
+import { hookStatus, hookStatusText } from "../engine/hooks.ts";
+import { readProjectLock } from "../engine/project-lock-read.ts";
+import { disabledNames, selectMemories } from "../engine/select.ts";
+import { sourceSlug } from "../engine/slug.ts";
+import type {
+  EngineIo,
+  ListedHarness,
+  ListedMemory,
+  ListedRename,
+  ListedSource,
+  ListOptions,
+  ListReport,
+} from "../engine/types.ts";
 import type { AchievedTier, Scope } from "../harnesses/contract.ts";
 import { achievedTier, demotionNote, hasHook, planHookOnly } from "../harnesses/hook-writer.ts";
 import type { MemoryName } from "../memory/contract.ts";
@@ -9,14 +32,6 @@ import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import {
-  actsHere,
-  DEFAULT_COOLDOWN_DAYS,
-  type EngineContext,
-  harnessContext,
-  loadContext,
-} from "./shared/context.ts";
-import { noDefinitionReason, resolveTargets } from "./shared/destination.ts";
-import {
   installedHere,
   isFetchedEntry,
   readInstalledTree,
@@ -24,22 +39,7 @@ import {
   shortSha,
   staleness,
 } from "./shared/engine.ts";
-import { DAY_MS } from "./shared/fetch.ts";
-import { pathAbsent } from "./shared/fs-probe.ts";
-import { hookStatus, hookStatusText } from "./shared/hooks.ts";
-import { readProjectLock } from "./shared/project-lock-read.ts";
 import { previewState, reportedUnderJson } from "./shared/report.ts";
-import { disabledNames, selectMemories } from "./shared/select.ts";
-import { sourceSlug } from "./shared/slug.ts";
-import type {
-  EngineIo,
-  ListedHarness,
-  ListedMemory,
-  ListedRename,
-  ListedSource,
-  ListOptions,
-  ListReport,
-} from "./types.ts";
 
 // Read-only: what state asks for, with everything past intent (tier, hook presence, collisions,
 // staleness, token cost) re-derived from disk on the spot. Never takes the lock and never settles

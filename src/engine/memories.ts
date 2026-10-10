@@ -1,11 +1,11 @@
-import { type Memory, parseMemory } from "../../memory/contract.ts";
+import { type Memory, parseMemory } from "../memory/contract.ts";
 import {
   hashFiles,
   readMemoryTree,
   type TreeFile,
   type TreeScope,
   type WarnSink,
-} from "../../sources/tree.ts";
+} from "../sources/tree.ts";
 
 export type SourceMemory = {
   memory: Memory;

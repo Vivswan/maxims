@@ -1,5 +1,14 @@
 import { relative, sep } from "node:path";
 import { DEFAULT_GIT_REF, isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
+import {
+  insideProject,
+  manifestOrUsage,
+  projectLockPath,
+  readProjectLock,
+  sourceFromLock,
+} from "../../engine/project-lock-read.ts";
+import { sourceIdentity } from "../../engine/source-key.ts";
+import type { CliIo } from "../../engine/types.ts";
 import type { MemoryName } from "../../memory/contract.ts";
 import { CURRENT_PROJECT_LOCK_VERSION } from "../../state/migrations/project-lock-ladder.ts";
 import {
@@ -13,16 +22,7 @@ import type { SourceEntry, SourceIntent, State } from "../../state/schema.ts";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../../util/fs.ts";
-import type { CliIo } from "../types.ts";
 import { INTENT_DEFAULTS } from "./options.ts";
-import {
-  insideProject,
-  manifestOrUsage,
-  projectLockPath,
-  readProjectLock,
-  sourceFromLock,
-} from "./project-lock-read.ts";
-import { sourceIdentity } from "./source-key.ts";
 import { effectiveNames } from "./sources.ts";
 
 function realRelative(projectRoot: string, path: string): string {

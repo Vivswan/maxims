@@ -1,6 +1,13 @@
 import { promptsAllowed } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
+import type {
+  CliIo,
+  CommonOptions,
+  HarnessFilter,
+  RemoveOptions,
+  RemoveTarget,
+} from "../engine/types.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { cooldownCapConfig, loadIntentFor, persistConfig } from "./shared/cli-context.ts";
@@ -24,7 +31,6 @@ import {
   type ResolvedMemory,
   resolveMemoryName,
 } from "./shared/sources.ts";
-import type { CliIo, CommonOptions, HarnessFilter, RemoveOptions, RemoveTarget } from "./types.ts";
 
 // The three engine verbs as the command line dispatches them: parse, hand the typed options to
 // the engine, and let the engine speak. Its output is the frame here: the `--json` document, the

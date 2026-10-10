@@ -8,10 +8,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { validateMemoryFiles } from "../../src/commands/shared/memories.ts";
-import type { EngineIo, SymlinkSupport } from "../../src/commands/types.ts";
 import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
+import { validateMemoryFiles } from "../../src/engine/memories.ts";
+import type { EngineIo, SymlinkSupport } from "../../src/engine/types.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,

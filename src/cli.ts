@@ -2,8 +2,8 @@
 import { homedir } from "node:os";
 import { createEngine } from "./commands/engine.ts";
 import { main } from "./commands/main.ts";
-import { findProjectRoot } from "./commands/shared/context.ts";
 import { detectAgent } from "./console/mode.ts";
+import { findProjectRoot } from "./engine/context.ts";
 import { maximsHome } from "./util/home.ts";
 
 // The bin entry: real streams, the real machine, the engine as built. Everything else is `main`,

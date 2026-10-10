@@ -1,13 +1,13 @@
 import { createTwoFilesPatch } from "diff";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import { DEFAULT_GIT_REF, isLiveLocal } from "../contracts/source.ts";
+import { type FetchedEntry, type HeldRevision, readHeldRevision } from "../engine/fetch.ts";
+import { disabledNames, type SelectedMemory, selectMemories } from "../engine/select.ts";
+import type { CliIo } from "../engine/types.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import type { Pending, RenameMap, Select, SourceEntry, State } from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 import { isFetchedEntry, readInstalledTree, shortSha } from "./shared/engine.ts";
-import { type FetchedEntry, type HeldRevision, readHeldRevision } from "./shared/fetch.ts";
-import { disabledNames, type SelectedMemory, selectMemories } from "./shared/select.ts";
-import type { CliIo } from "./types.ts";
 
 export type SourceRef =
   | { kind: "tracking" | "pinned"; ref: string }

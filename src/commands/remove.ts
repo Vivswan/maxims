@@ -1,14 +1,16 @@
 import { memories, notInstalled } from "../console/strings.ts";
+import { actsHere, type EngineContext, loadContext } from "../engine/context.ts";
+import { prunedHooks } from "../engine/hooks.ts";
+import type { SourceTree } from "../engine/memories.ts";
+import { selectMemories } from "../engine/select.ts";
+import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "../engine/types.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
-import { actsHere, type EngineContext, loadContext } from "./shared/context.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "./shared/engine.ts";
-import { prunedHooks } from "./shared/hooks.ts";
-import type { SourceTree } from "./shared/memories.ts";
 import { projectLockChange } from "./shared/project-lock-io.ts";
 import {
   EMPTY_REPORT,
@@ -18,9 +20,7 @@ import {
   reportedUnderJson,
   unusableStateLine,
 } from "./shared/report.ts";
-import { selectMemories } from "./shared/select.ts";
 import { installedSourceOrNull, withIntent } from "./shared/sources.ts";
-import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "./types.ts";
 
 // Intent mutation, then the same convergence that installs: with the entry gone the regenerated
 // output no longer carries its lines and its links have no owner. Deletions apply even under

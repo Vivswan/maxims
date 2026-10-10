@@ -9,6 +9,14 @@ import {
   unreviewed,
 } from "../console/strings.ts";
 import { isLiveLocal } from "../contracts/source.ts";
+import {
+  type FetchedEntry,
+  fetchedFactsFor,
+  readHeldRevision,
+  swapStoreEntry,
+  withoutPending,
+} from "../engine/fetch.ts";
+import type { CliIo } from "../engine/types.ts";
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -16,13 +24,6 @@ import { storePathFor } from "../util/home.ts";
 import { admitIntent, syncCommitted } from "./add.ts";
 import { type Intent, loadIntentFor, updateIntent } from "./shared/cli-context.ts";
 import { isFetchedEntry } from "./shared/engine.ts";
-import {
-  type FetchedEntry,
-  fetchedFactsFor,
-  readHeldRevision,
-  swapStoreEntry,
-  withoutPending,
-} from "./shared/fetch.ts";
 import {
   type Args,
   type Command,
@@ -32,7 +33,6 @@ import {
 } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 import { findInstalledSource, sourcesHere, withIntent } from "./shared/sources.ts";
-import type { CliIo } from "./types.ts";
 
 // `review` marks a source as reviewed-before-apply: from then on a refresh is held under pending
 // and the last-good block stays until `accept`. `unreview` lifts the mark and applies whatever is

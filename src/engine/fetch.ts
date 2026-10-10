@@ -2,30 +2,30 @@ import { lstatSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { heldRevisionAltered, heldRevisionGone } from "../../console/strings.ts";
-import { parseGitSha } from "../../contracts/git-sha.ts";
-import type { LastError } from "../../contracts/last-error.ts";
+import { heldRevisionAltered, heldRevisionGone } from "../console/strings.ts";
+import { parseGitSha } from "../contracts/git-sha.ts";
+import type { LastError } from "../contracts/last-error.ts";
 import {
   contentHashOf,
   type MemoryName,
   parseContentHash,
   parseMemoryName,
-} from "../../memory/contract.ts";
-import { pruneRenames, shortHash } from "../../rulefile/dedupe.ts";
-import { FetchFailure, needsFetch } from "../../sources/contract.ts";
-import type { TreeFile } from "../../sources/tree.ts";
-import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../../state/schema.ts";
-import type { Change } from "../../util/change.ts";
-import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { assertInsideRoot, isAbsent, type RootedPath } from "../../util/fs.ts";
-import { pendingPathFor, storePathFor } from "../../util/home.ts";
-import type { EngineIo, FetchIntent } from "../types.ts";
+} from "../memory/contract.ts";
+import { pruneRenames, shortHash } from "../rulefile/dedupe.ts";
+import { FetchFailure, needsFetch } from "../sources/contract.ts";
+import type { TreeFile } from "../sources/tree.ts";
+import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../state/schema.ts";
+import type { Change } from "../util/change.ts";
+import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { assertInsideRoot, isAbsent, type RootedPath } from "../util/fs.ts";
+import { pendingPathFor, storePathFor } from "../util/home.ts";
 import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import { inSelect, isHiddenInternal } from "./select.ts";
 import { storeTree } from "./source-key.ts";
+import type { EngineIo, FetchIntent } from "./types.ts";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 // A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last

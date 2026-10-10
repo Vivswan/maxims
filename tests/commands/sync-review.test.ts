@@ -26,7 +26,7 @@ import {
   treeDigest,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { globalRulesFile, TWO_MEMORIES, type World, world } from "../engine/world.ts";
 import { DAY_MS, fetchedOf, NOW, SYNC } from "../shared/sync_support.ts";
 

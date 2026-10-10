@@ -10,7 +10,7 @@ import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writ
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { renderBlock } from "../../../src/rulefile/block.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
-import { memoryName } from "../../engine/harness.ts";
+import { memoryName } from "../../engine/fakes.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { exampleContext as ctx } from "../context.ts";
 

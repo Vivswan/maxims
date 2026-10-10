@@ -1,7 +1,7 @@
-import type { SyncOptions } from "../../src/commands/types.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
+import type { SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
-import { readStateFile, sharedBlockHarness } from "../engine/harness.ts";
+import { readStateFile, sharedBlockHarness } from "../engine/fakes.ts";
 
 export const SYNC: SyncOptions = {
   quiet: false,

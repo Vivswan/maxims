@@ -1,8 +1,8 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type { SourceFrom } from "../../contracts/source.ts";
-import { type MemoryTree, readMemoryTree, type TreeScope } from "../../sources/tree.ts";
-import { canonicalSourceKey, type State } from "../../state/schema.ts";
+import type { SourceFrom } from "../contracts/source.ts";
+import { type MemoryTree, readMemoryTree, type TreeScope } from "../sources/tree.ts";
+import { canonicalSourceKey, type State } from "../state/schema.ts";
 
 // GitHub names are case-insensitive, so `@vivswan/skills` finds the entry recorded as
 // `@Vivswan/skills`; every other key matches as typed.

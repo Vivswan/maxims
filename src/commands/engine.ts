@@ -1,7 +1,7 @@
 import { Writable } from "node:stream";
+import type { EngineBundle } from "../engine/types.ts";
 import type { Runner } from "../sources/github/ladder.ts";
 import { maximsHome } from "../util/home.ts";
-import type { EngineBundle } from "./types.ts";
 
 // What a run may replace in the real engine: the HTTP, `gh` and git runner the fetch ladder
 // climbs (a scripted one in a test), whether resolver warnings may reach stderr (a hook run

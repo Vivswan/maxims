@@ -4,10 +4,10 @@ import {
   parseRemote,
   type SourceFrom,
   stripGitSuffix,
-} from "../../contracts/source.ts";
-import { parseSourceSlug, type SourceSlug } from "../../harnesses/contract.ts";
-import { canonicalSourceKey } from "../../state/schema.ts";
-import { sha256 } from "../../util/fs.ts";
+} from "../contracts/source.ts";
+import { parseSourceSlug, type SourceSlug } from "../harnesses/contract.ts";
+import { canonicalSourceKey } from "../state/schema.ts";
+import { sha256 } from "../util/fs.ts";
 
 const SLUG_HASH_LENGTH = 6;
 // A hashed slug's readable part is cut so `maxims-<slug>.md` stays far under the 255-byte file

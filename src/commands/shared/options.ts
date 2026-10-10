@@ -4,11 +4,11 @@ import { closestMatch } from "leven";
 import type { Console } from "../../console/contract.ts";
 import { invalidAgents, STRINGS } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
+import type { CliIo, CommonOptions, Engine, HarnessFilter } from "../../engine/types.ts";
 import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
 import type { UserConfig } from "../../state/config.ts";
 import type { Destination, RenameMap, Select } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import type { CliIo, CommonOptions, Engine, HarnessFilter } from "../types.ts";
 
 export type FlagSpec = {
   name: string;

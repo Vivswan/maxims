@@ -19,9 +19,9 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { ReportedMaximsError } from "../../src/commands/shared/errors.ts";
-import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
-import type { RemoveOptions } from "../../src/commands/types.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
+import type { RemoveOptions } from "../../src/engine/types.ts";
 import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
@@ -42,7 +42,7 @@ import {
   treeDigest,
   writeSource,
   writeState,
-} from "../engine/harness.ts";
+} from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { SYNC } from "../shared/sync_support.ts";
