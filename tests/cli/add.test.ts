@@ -35,7 +35,7 @@ import {
   writeState,
 } from "./harness.ts";
 
-const SKILLS = join(FIXTURES, "skills");
+const RULES = join(FIXTURES, "rules");
 const DOTFILES = join(FIXTURES, "dotfiles");
 const RISKY = join(FIXTURES, "risky");
 
@@ -65,11 +65,11 @@ function source(scenario: Scenario, key: string): SourceRecord {
 
 test("add records intent and the fetch, lays the store entry, then syncs once without a fetch", async () => {
   await withScenario(
-    { github: { "vivswan/skills": SKILLS }, syncReport: { rules: 4, tokens: 103 } },
+    { github: { "octocat/rules": RULES }, syncReport: { rules: 4, tokens: 103 } },
     async (scenario) => {
       const run = await runCli(scenario, [
         "add",
-        "@Vivswan/skills",
+        "@Octocat/rules",
         "-g",
         "--rule",
         "--add-hook",
@@ -81,7 +81,7 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
       expect(run.stdout).toContain("o  Found 4 memories\n");
       expect(run.stdout).toContain("o  Installed 4 memories, 4 rule lines (~103 tokens)\n");
       expect(run.stdout.match(/Hook registered/g)?.length).toBe(2);
-      const entry = source(scenario, "@Vivswan/skills");
+      const entry = source(scenario, "@Octocat/rules");
       expect(entry.intent).toMatchObject({
         select: "*",
         rule: true,
@@ -91,14 +91,14 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
         auth: false,
       });
       expect(Object.keys(entry.fetched?.memories ?? {}).sort()).toEqual([
-        "gate-exit-conditions-the-merge",
-        "no-sleep-waiting-on-subagents",
-        "rubber-duck-before-every-commit",
-        "skip-unfit-skills",
+        "commit-small-and-often",
+        "never-retry-without-a-cap",
+        "prefer-timeouts-to-hangs",
+        "tests-before-the-fix",
       ]);
       expect(readState(scenario).hooks).toEqual({ global: ["claude-code", "codex"] });
-      const store = join(scenario.home, "store", "vivswan", "skills", "memories");
-      expect(existsSync(join(store, "skip-unfit-skills.md"))).toBe(true);
+      const store = join(scenario.home, "store", "octocat", "rules", "memories");
+      expect(existsSync(join(store, "tests-before-the-fix.md"))).toBe(true);
       // The plan that admits the install runs first, against the would-be state; the sync that
       // writes follows once.
       expect(scenario.engine.calls.sync).toEqual([
@@ -126,7 +126,7 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
 // waits for that plan, so a refusal leaves neither state nor store behind.
 test("a refusal from the admission plan leaves nothing written", async () => {
   await withScenario(
-    { github: { "a/b": SKILLS }, refuse: { code: 8, message: "over the 6000-byte limit" } },
+    { github: { "a/b": RULES }, refuse: { code: 8, message: "over the 6000-byte limit" } },
     async (scenario) => {
       const before = await snapshot(scenario.root);
       const run = await runCli(scenario, ["add", "@a/b", "-g", "--rule", "-a", "codex"]);
@@ -145,7 +145,7 @@ test("a refusal from the admission plan leaves nothing written", async () => {
 // code. `--quiet` is the hook's mode and still wins: the document names the code, the exit is 0.
 test("a refusal under --json is one document and the exit is its code; --quiet still exits 0", async () => {
   await withScenario(
-    { github: { "a/b": SKILLS }, refuse: { code: 8, message: "over the 6000-byte limit" } },
+    { github: { "a/b": RULES }, refuse: { code: 8, message: "over the 6000-byte limit" } },
     async (scenario) => {
       const argv = ["add", "@a/b", "-g", "--rule", "-a", "codex", "-y", "--json"];
       const run = await runCli(scenario, argv);
@@ -176,7 +176,7 @@ test("a refusal under --json is one document and the exit is its code; --quiet s
 // the list as well as the ones on it; `--quiet` on a framed verb is the frame's silence, never
 // the hook's debounce, so the engine is asked for an interactive run.
 test("a re-add with fewer harnesses syncs the dropped ones too, and --quiet stays out of the engine", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     await runCli(scenario, ["add", "@a/b", "-g", "-a", "claude-code,codex"]);
     const fewer = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--quiet"]);
     expect(fewer.code).toBe(0);
@@ -192,8 +192,8 @@ test("a re-add with fewer harnesses syncs the dropped ones too, and --quiet stay
 });
 
 test("re-adding with a different -m replaces the selection and says so first", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "skip-unfit-skills"]);
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
+    await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-m", "tests-before-the-fix"]);
     const first = source(scenario, "@a/b");
     const run = await runCli(scenario, [
       "add",
@@ -202,18 +202,18 @@ test("re-adding with a different -m replaces the selection and says so first", a
       "-a",
       "codex",
       "-m",
-      "gate-exit-conditions-the-merge",
+      "commit-small-and-often",
     ]);
     expect(run.code).toBe(0);
     const lines = run.stdout.split("\n");
     const replaced = lines.indexOf(
-      "o  Selection replaced: skip-unfit-skills -> gate-exit-conditions-the-merge",
+      "o  Selection replaced: tests-before-the-fix -> commit-small-and-often",
     );
     const plan = lines.indexOf("o  Memories to install");
     expect(replaced).toBeGreaterThan(0);
     expect(replaced).toBeLessThan(plan);
     const second = source(scenario, "@a/b");
-    expect(second.intent.select).toEqual(["gate-exit-conditions-the-merge"]);
+    expect(second.intent.select).toEqual(["commit-small-and-often"]);
     expect(second.addedAt).toBe(first.addedAt);
   });
 });
@@ -235,16 +235,16 @@ const nothingWritten: [string, string[], number, string, Record<string, string>]
   ],
   [
     "an unmet wikilink",
-    ["add", "@a/b", "-g", "-a", "codex", "-m", "no-sleep-waiting-on-subagents"],
+    ["add", "@a/b", "-g", "-a", "codex", "-m", "never-retry-without-a-cap"],
     7,
-    "no-sleep-waiting-on-subagents links to [[rubber-duck-before-every-commit]], which is not installed",
+    "never-retry-without-a-cap links to [[prefer-timeouts-to-hangs]], which is not installed",
     {},
   ],
   [
     "a collision without --rename",
     ["add", "@a/d", "-g", "-a", "codex"],
     6,
-    "gate-exit-conditions-the-merge is owned by @a/b",
+    "commit-small-and-often is owned by @a/b",
     {},
   ],
   [
@@ -267,7 +267,7 @@ test.each(nothingWritten)(
   "%s exits with its code and leaves home and project untouched",
   async (_name, argv, code, message) => {
     await withScenario(
-      { github: { "a/b": SKILLS, "a/c": "", "a/d": DOTFILES }, project: true },
+      { github: { "a/b": RULES, "a/c": "", "a/d": DOTFILES }, project: true },
       async (scenario) => {
         const hidden = join(scenario.root, "hidden", "memories");
         mkdirSync(hidden, { recursive: true });
@@ -287,7 +287,7 @@ test.each(nothingWritten)(
             "-a",
             "codex",
             "-m",
-            "gate-exit-conditions-the-merge",
+            "commit-small-and-often",
           ]);
           expect(first.code).toBe(0);
         }
@@ -304,7 +304,7 @@ test.each(nothingWritten)(
 );
 
 test("--allow-hidden lets the hidden character through and --rename resolves a known collision", async () => {
-  await withScenario({ github: { "a/b": SKILLS, "a/d": DOTFILES } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES, "a/d": DOTFILES } }, async (scenario) => {
     const hidden = join(scenario.root, "hidden", "memories");
     mkdirSync(hidden, { recursive: true });
     writeFileSync(
@@ -323,30 +323,30 @@ test("--allow-hidden lets the hidden character through and --rename resolves a k
       "-a",
       "codex",
       "--rename",
-      "gate-exit-conditions-the-merge=gate-exit-conditions-the-merge-dotfiles",
+      "commit-small-and-often=commit-small-and-often-dotfiles",
     ]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
     expect(source(scenario, "@a/d").intent.rename).toEqual({
-      "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles",
+      "commit-small-and-often": "commit-small-and-often-dotfiles",
     });
-    expect(run.stdout).toContain("|    gate-exit-conditions-the-merge-dotfiles\n");
+    expect(run.stdout).toContain("|    commit-small-and-often-dotfiles\n");
     expect(run.stdout).toContain("o  Found 1 memory (1 internal, hidden)\n");
   });
 });
 
 test("--list prints every name, warns on ignored flags, and never writes or syncs", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const before = await snapshot(scenario.root);
     const run = await runCli(scenario, ["add", "@a/b", "--list", "--rule", "-y"]);
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("!  --rule is ignored with --list\n");
     expect(run.stdout).toContain("!  --yes is ignored with --list\n");
     expect(run.stdout.match(/^\| {4}[a-z-]+$/gm)).toEqual([
-      "|    gate-exit-conditions-the-merge",
-      "|    no-sleep-waiting-on-subagents",
-      "|    rubber-duck-before-every-commit",
-      "|    skip-unfit-skills",
+      "|    commit-small-and-often",
+      "|    never-retry-without-a-cap",
+      "|    prefer-timeouts-to-hangs",
+      "|    tests-before-the-fix",
     ]);
     expect(run.stdout.endsWith("|\no  Run without --list to install\n\n")).toBe(true);
     expect(await snapshot(scenario.root)).toBe(before);
@@ -358,35 +358,32 @@ test("--list prints every name, warns on ignored flags, and never writes or sync
 // install plan folds to one entry plus a count. The plan run on the same terminal is the control
 // for the fold the preview does not have, and for the descriptions it does not print.
 test("--list on a terminal prints every memory name, no description, and never folds", async () => {
-  await withScenario(
-    { github: { "a/b": SKILLS }, tty: true, stdinTty: false },
-    async (scenario) => {
-      const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
-      expect([listed.code, listed.stderr]).toEqual([0, ""]);
-      expect(listed.stdout).toContain(
-        [
-          "o  Available Memories",
-          "|    gate-exit-conditions-the-merge",
-          "|    no-sleep-waiting-on-subagents",
-          "|    rubber-duck-before-every-commit",
-          "|    skip-unfit-skills",
-          "|",
-          "o  Run without --list to install",
-        ].join("\n"),
-      );
-      expect(listed.stdout).not.toContain("|      ");
-      expect(listed.stdout).not.toContain(" more\n");
-      const planned = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-y"]);
-      expect([planned.code, planned.stderr]).toEqual([0, ""]);
-      expect(planned.stdout).toContain("|      the merge on the gate's exit code\n");
-      expect(planned.stdout).toContain("|    ... 3 more\n");
-    },
-  );
+  await withScenario({ github: { "a/b": RULES }, tty: true, stdinTty: false }, async (scenario) => {
+    const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
+    expect([listed.code, listed.stderr]).toEqual([0, ""]);
+    expect(listed.stdout).toContain(
+      [
+        "o  Available Memories",
+        "|    commit-small-and-often",
+        "|    never-retry-without-a-cap",
+        "|    prefer-timeouts-to-hangs",
+        "|    tests-before-the-fix",
+        "|",
+        "o  Run without --list to install",
+      ].join("\n"),
+    );
+    expect(listed.stdout).not.toContain("|      ");
+    expect(listed.stdout).not.toContain(" more\n");
+    const planned = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-y"]);
+    expect([planned.code, planned.stderr]).toEqual([0, ""]);
+    expect(planned.stdout).toContain("|      pass\n");
+    expect(planned.stdout).toContain("|    ... 3 more\n");
+  });
 });
 
 // The cap counts rule lines, and a source installed without --rule publishes none.
 test("a source without --rule installs past the cap, since it publishes no rule lines", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--cap", "3"]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
@@ -443,7 +440,7 @@ test("a risky description earns ! lines and json warnings; --strict refuses it w
 test("the first source from an owner earns a provenance block; a second from the same owner does not", async () => {
   await withScenario(
     {
-      github: { "a/r": RISKY, "a/b": SKILLS, "b/d": DOTFILES, "c/d": DOTFILES },
+      github: { "a/r": RISKY, "a/b": RULES, "b/d": DOTFILES, "c/d": DOTFILES },
       syncReport: { rules: 2, tokens: 60 },
     },
     async (scenario) => {
@@ -554,18 +551,18 @@ test.each(owners)("the owner of a %s", (_name, from, owner) => {
 });
 
 test("--list shows a source whose install would collide", async () => {
-  await withScenario({ github: { "a/b": SKILLS, "a/d": DOTFILES } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES, "a/d": DOTFILES } }, async (scenario) => {
     expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
     const listed = await runCli(scenario, ["add", "@a/d", "--list"]);
     expect(listed.code).toBe(0);
-    expect(listed.stdout).toContain("|    gate-exit-conditions-the-merge\n");
+    expect(listed.stdout).toContain("|    commit-small-and-often\n");
     const installed = await runCli(scenario, ["add", "@a/d", "-g", "-a", "codex"]);
     expect(installed.code).toBe(6);
   });
 });
 
 test("--list --no-fetch stays offline: the store copy when present, the empty line otherwise", async () => {
-  await withScenario({ github: { "example/repo": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "example/repo": RULES } }, async (scenario) => {
     const empty = await runCli(scenario, ["add", "@example/repo", "--list", "--no-fetch"]);
     expect(empty.code).toBe(0);
     expect(empty.stdout).toContain("o  Found 0 memories (store empty; run without --no-fetch)\n");
@@ -628,7 +625,7 @@ test("--list --no-fetch sees the files the fetch saw: a full-depth root folder a
 // The mark rides on the entry `add` records, so a re-add without the flag replaces it like every
 // other flag, and the add's own fetch applies: there is no last-good copy to keep behind yet.
 test("add --review records the mark and applies its own fetch; a live source has nothing to hold", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--review"]);
     expect(run.code).toBe(0);
     const entry = source(scenario, "@a/b");
@@ -686,7 +683,7 @@ test("a local source into the project scope warns with the repository path", asy
 // source and lists shared sources only.
 test("a project-scope add writes the lock only for shared sources, as a sorted projection of intent", async () => {
   await withScenario(
-    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    { project: true, github: { "a/b": RULES, "a/d": DOTFILES } },
     async (scenario) => {
       const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
       expect(
@@ -710,7 +707,7 @@ test("a project-scope add writes the lock only for shared sources, as a sorted p
             "cursor",
             "--rule",
             "-m",
-            "skip-unfit-skills",
+            "tests-before-the-fix",
             "--share",
           ])
         ).code,
@@ -721,7 +718,7 @@ test("a project-scope add writes the lock only for shared sources, as a sorted p
       expect(Object.keys(lock.sources)).toEqual(["@a/b", "@a/d"]);
       expect(lock.sources["@a/b"]).toEqual({
         from: { type: "github", repo: "a/b" },
-        select: ["skip-unfit-skills"],
+        select: ["tests-before-the-fix"],
         rule: true,
         harnesses: ["cursor"],
       });
@@ -742,7 +739,7 @@ test("a project-scope add writes the lock only for shared sources, as a sorted p
 // root to run from instead. Names that project's entries provide are not this project's either.
 test("a source recorded for another project is refused by add, link, update, share and remove, and claims no name here", async () => {
   await withScenario(
-    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    { project: true, github: { "a/b": RULES, "a/d": DOTFILES } },
     async (scenario) => {
       const elsewhere = join(scenario.root, "elsewhere");
       writeState(scenario, {
@@ -767,7 +764,7 @@ test("a source recorded for another project is refused by add, link, update, sha
               sha: "a".repeat(40),
               memoryPath: "memories",
               memories: {
-                "gate-exit-conditions-the-merge": {
+                "commit-small-and-often": {
                   content: `sha256:${"1".repeat(64)}`,
                   description: `sha256:${"2".repeat(64)}`,
                 },
@@ -793,18 +790,18 @@ test("a source recorded for another project is refused by add, link, update, sha
       }
       const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
       expect([listed.code, listed.stderr]).toEqual([0, ""]);
-      expect(listed.stdout).toContain("gate-exit-conditions-the-merge");
+      expect(listed.stdout).toContain("commit-small-and-often");
       expect(source(scenario, "@a/b").intent.destination).toEqual({
         scope: "project",
         root: elsewhere,
       });
-      // The other project's gate-exit-conditions-the-merge does not collide with this one's.
+      // The other project's commit-small-and-often does not collide with this one's.
       const added = await runCli(scenario, ["add", "@a/d", "-p", "-a", "codex"]);
       expect(added.stderr).toBe("");
       expect(added.code).toBe(0);
-      expect((await runCli(scenario, ["disable", "gate-exit-conditions-the-merge"])).code).toBe(0);
+      expect((await runCli(scenario, ["disable", "commit-small-and-often"])).code).toBe(0);
       expect(readState(scenario).disabled).toEqual({
-        project: { [scenario.cwd]: ["gate-exit-conditions-the-merge"] },
+        project: { [scenario.cwd]: ["commit-small-and-often"] },
       });
     },
   );
@@ -822,7 +819,7 @@ const scopeMoves: [string, string[], string[], string][] = [
 test.each(scopeMoves)(
   "re-adding an installed source at another scope is refused: %s",
   async (_title, first, second, message) => {
-    await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+    await withScenario({ project: true, github: { "a/b": RULES } }, async (scenario) => {
       expect((await runCli(scenario, ["add", "@a/b", ...first, "-a", "codex"])).code).toBe(0);
       const before = readFileSync(homePaths(scenario.home).state, "utf8");
       const run = await runCli(scenario, ["add", "@a/b", ...second, "-a", "codex"]);
@@ -860,7 +857,7 @@ const refMoves: [string, string[], string[], string, string, string][] = [
 test.each(refMoves)(
   "re-adding an installed source with another ref is refused: %s",
   async (_title, first, second, recorded, tracking, flag) => {
-    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
       expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", ...first])).code).toBe(0);
       const before = readFileSync(homePaths(scenario.home).state, "utf8");
       const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", ...second]);
@@ -877,7 +874,7 @@ test.each(refMoves)(
 // A collision the incoming source has with itself (two names renamed onto one) is not a repin:
 // removing the installed copy could not resolve it, so the rename path keeps it.
 test("a re-add colliding with itself through a rename keeps the rename path", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
     const run = await runCli(scenario, [
       "add",
@@ -886,11 +883,11 @@ test("a re-add colliding with itself through a rename keeps the rename path", as
       "-a",
       "codex",
       "--rename",
-      "no-sleep-waiting-on-subagents=skip-unfit-skills",
+      "never-retry-without-a-cap=tests-before-the-fix",
     ]);
     expect([run.code, run.stderr]).toEqual([
       6,
-      " ERROR  skip-unfit-skills is owned by @a/b\nTip: --rename skip-unfit-skills=<new>\n",
+      " ERROR  tests-before-the-fix is owned by @a/b\nTip: --rename tests-before-the-fix=<new>\n",
     ]);
   });
 });
@@ -900,7 +897,7 @@ test("a re-add colliding with itself through a rename keeps the rename path", as
 // its hook up, so a later add there without the flag registers nothing either.
 test("hook intent is recorded and honored per scope", async () => {
   const fake = fakeResolvers();
-  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
+  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: RULES });
   const loadEngine = async () => realEngineBundle(fake.resolvers);
   await withScenario({ project: true, loadEngine }, async (scenario) => {
     const other = writeSource(join(scenario.root, "other"), TWO_MEMORIES);
@@ -997,7 +994,7 @@ test("a local source outside the project cannot be shared", async () => {
 // edits only the entries it owns, so the team's stay through everything it does.
 test("a lock this machine has not replayed keeps the team's entries through a private add, a shared add and an unshare", async () => {
   await withScenario(
-    { project: true, github: { "a/b": SKILLS, "a/d": DOTFILES } },
+    { project: true, github: { "a/b": RULES, "a/d": DOTFILES } },
     async (scenario) => {
       const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
       mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
@@ -1038,7 +1035,7 @@ test("a lock this machine has not replayed keeps the team's entries through a pr
 // A source the committed lock already lists is the team's: a plain `add -p` of it keeps the
 // entry, as `install` does, instead of recording it private and taking it out of the lock.
 test("add -p of a source the lock lists inherits the shared mark and leaves the lock as it is", async () => {
-  await withScenario({ project: true, github: { "acme/rules": SKILLS } }, async (scenario) => {
+  await withScenario({ project: true, github: { "acme/rules": RULES } }, async (scenario) => {
     const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
     mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
     const team = JSON.stringify({
@@ -1078,7 +1075,7 @@ test("add -p of a source the lock lists inherits the shared mark and leaves the 
 });
 
 test("share and unshare move a project source in and out of the lock, and the last unshare deletes it", async () => {
-  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ project: true, github: { "a/b": RULES } }, async (scenario) => {
     const lockPath = join(scenario.cwd, ".agents", "maxims.lock");
     expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex"])).code).toBe(0);
     expect(existsSync(lockPath)).toBe(false);
@@ -1102,7 +1099,7 @@ test("share and unshare move a project source in and out of the lock, and the la
 
 test("harness selection: detected first, then config.agents, then a global-less harness is skipped", async () => {
   await withScenario(
-    { github: { "a/b": SKILLS }, env: { FIXTURE_DETECT: "codex" } },
+    { github: { "a/b": RULES }, env: { FIXTURE_DETECT: "codex" } },
     async (scenario) => {
       const detected = await runCli(scenario, ["add", "@a/b", "-g"]);
       expect(detected.code).toBe(0);
@@ -1131,7 +1128,7 @@ test("harness selection: detected first, then config.agents, then a global-less 
 });
 
 test("--cooldown and --cap land in config.json and an explicit flag wins over the file", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     writeConfig(scenario, { ruleCap: 2 });
     const capped = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule"]);
     expect(capped.code).toBe(8);
@@ -1154,7 +1151,7 @@ test("--cooldown and --cap land in config.json and an explicit flag wins over th
 });
 
 test("--json emits exactly one document on success and on every failure", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const ok = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "-y", "--json"]);
     expect(ok.code).toBe(0);
     const body = JSON.parse(ok.stdout) as {
@@ -1185,7 +1182,7 @@ test("--json emits exactly one document on success and on every failure", async 
 });
 
 test("--quiet turns every failure into exit 0 with one log line", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, [
       "add",
       "@a/b",
@@ -1199,19 +1196,19 @@ test("--quiet turns every failure into exit 0 with one log line", async () => {
     expect(run).toEqual({ code: 0, stdout: "", stderr: "" });
     const log = readFileSync(homePaths(scenario.home).log, "utf8");
     expect(log).toBe(
-      "maxims: add failed (exit 3): No matching memories found for: ghost\nAvailable memories:\n  - gate-exit-conditions-the-merge\n  - no-sleep-waiting-on-subagents\n  - rubber-duck-before-every-commit\n  - skip-unfit-skills\n",
+      "maxims: add failed (exit 3): No matching memories found for: ghost\nAvailable memories:\n  - commit-small-and-often\n  - never-retry-without-a-cap\n  - prefer-timeouts-to-hangs\n  - tests-before-the-fix\n",
     );
   });
 });
 
 test("--dry-run shows the plan, hands the engine the would-be state, and creates nothing, not even the maxims home", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     rmSync(scenario.home, { recursive: true, force: true });
     const before = await snapshot(scenario.root);
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", "--dry-run"]);
     expect([run.code, run.stderr]).toEqual([0, ""]);
     expect(run.stdout).toContain("write   ");
-    expect(run.stdout).toContain("skip-unfit-skills.md");
+    expect(run.stdout).toContain("tests-before-the-fix.md");
     const [planned] = scenario.engine.calls.sync;
     expect(planned).toMatchObject({
       dryRun: true,
@@ -1219,7 +1216,7 @@ test("--dry-run shows the plan, hands the engine the would-be state, and creates
     });
     expect(
       planned?.preview?.changes.some(
-        (change) => change.kind === "write" && change.path.endsWith("skip-unfit-skills.md"),
+        (change) => change.kind === "write" && change.path.endsWith("tests-before-the-fix.md"),
       ),
     ).toBe(true);
     expect(existsSync(scenario.home)).toBe(false);
@@ -1228,7 +1225,7 @@ test("--dry-run shows the plan, hands the engine the would-be state, and creates
 });
 
 test("a corrupt state file is quarantined with a warning and the add proceeds on an empty intent", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     writeState(scenario, {
       version: CURRENT_STATE_VERSION,
       writtenBy: "x",
@@ -1242,7 +1239,7 @@ test("a corrupt state file is quarantined with a warning and the add proceeds on
 });
 
 test("re-adding a GitHub source in another case continues the recorded entry", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     expect((await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex"])).code).toBe(0);
     const run = await runCli(scenario, [
       "add",
@@ -1251,12 +1248,12 @@ test("re-adding a GitHub source in another case continues the recorded entry", a
       "-a",
       "codex",
       "-m",
-      "skip-unfit-skills",
+      "tests-before-the-fix",
     ]);
     expect(run.code).toBe(0);
     const state = readState(scenario) as { sources: Record<string, SourceRecord> };
     expect(Object.keys(state.sources)).toEqual(["@a/b"]);
-    expect(state.sources["@a/b"]?.intent.select).toEqual(["skip-unfit-skills"]);
+    expect(state.sources["@a/b"]?.intent.select).toEqual(["tests-before-the-fix"]);
     const listed = await runCli(scenario, ["add", "@a/b", "--list", "--no-fetch"]);
     expect(listed.stdout).toContain("Found 4 memories");
   });
@@ -1266,7 +1263,7 @@ test("re-adding a GitHub source in another case continues the recorded entry", a
 // re-add leaves the lock as it was, the removal takes the entry out of it.
 test("moving a shared source to the user scope goes through remove, which retires it from the manifest", async () => {
   const fake = fakeResolvers();
-  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: SKILLS });
+  fake.set({ type: "github", repo: "a/b", ref: "HEAD" }, { kind: "dir", dir: RULES });
   const loadEngine = async () => realEngineBundle(fake.resolvers);
   await withScenario({ project: true, loadEngine }, async (scenario) => {
     expect((await runCli(scenario, ["add", "@a/b", "-p", "-a", "codex", "--share"])).code).toBe(0);
@@ -1284,7 +1281,7 @@ test("moving a shared source to the user scope goes through remove, which retire
 // The old folder is nobody's destination any more, and only the caller knows it existed: the
 // sync is handed the replaced entry so its rule file and bodies leave as after a removal.
 test("re-adding a source under another -o folder hands the sync the entry it replaced", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     expect((await runCli(scenario, ["add", "@a/b", "-o", "./one", "-a", "codex"])).code).toBe(0);
     const previous = source(scenario, "@a/b");
     expect((await runCli(scenario, ["add", "@a/b", "-o", "./two", "-a", "codex"])).code).toBe(0);
@@ -1295,7 +1292,7 @@ test("re-adding a source under another -o folder hands the sync the entry it rep
 });
 
 test("an -o folder outside any git checkout is planned without a project root", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", "-o", "./team-rules", "-a", "codex"]);
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
@@ -1316,7 +1313,7 @@ test("a failed fetch closes the spinner with the failure line", async () => {
 });
 
 test("pinned sources get their own rules-file stem on the plan screen", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const argv = ["add", "@a/b", "-g", "--rule", "-a", "claude-code", "--pin", "v2"];
     const run = await runCli(scenario, argv);
     expect(run.code).toBe(0);
@@ -1324,7 +1321,7 @@ test("pinned sources get their own rules-file stem on the plan screen", async ()
       run.stdout,
     );
     expect(pinnedPath).not.toBeNull();
-    scenario.options.github = { ...scenario.options.github, "a/b-v2": SKILLS };
+    scenario.options.github = { ...scenario.options.github, "a/b-v2": RULES };
     const hyphen = await runCli(scenario, [
       "add",
       "@a/b-v2",
@@ -1333,9 +1330,9 @@ test("pinned sources get their own rules-file stem on the plan screen", async ()
       "-a",
       "claude-code",
       "-m",
-      "skip-unfit-skills",
+      "tests-before-the-fix",
       "--rename",
-      "skip-unfit-skills=skip-unfit-v2",
+      "tests-before-the-fix=tests-first-v2",
     ]);
     expect(hyphen.code).toBe(0);
     const hyphenPath = /A B V2 -> (~\/\.claude\/rules\/maxims-a-b-v2--[0-9a-f]{6}\.md)\n/.exec(
@@ -1347,7 +1344,7 @@ test("pinned sources get their own rules-file stem on the plan screen", async ()
 });
 
 test("a repeated -m name is one selection and a hookless harness registers no hook", async () => {
-  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ project: true, github: { "a/b": RULES } }, async (scenario) => {
     const argv = [
       "add",
       "@a/b",
@@ -1356,21 +1353,21 @@ test("a repeated -m name is one selection and a hookless harness registers no ho
       "cursor",
       "--add-hook",
       "-m",
-      "skip-unfit-skills",
+      "tests-before-the-fix",
       "-m",
-      "skip-unfit-skills",
+      "tests-before-the-fix",
     ];
     const run = await runCli(scenario, argv);
     expect(run.code).toBe(0);
     expect(run.stdout).not.toContain("Hook registered");
-    expect(run.stdout).toContain("o  Selected 1 memory: skip-unfit-skills\n");
+    expect(run.stdout).toContain("o  Selected 1 memory: tests-before-the-fix\n");
     expect(readState(scenario).hooks).toBeUndefined();
-    expect(source(scenario, "@a/b").intent.select).toEqual(["skip-unfit-skills"]);
+    expect(source(scenario, "@a/b").intent.select).toEqual(["tests-before-the-fix"]);
   });
 });
 
 test("a long pinned ref still yields a rules-file stem a filesystem accepts", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const ref = "r".repeat(240);
     const run = await runCli(scenario, [
       "add",
@@ -1390,7 +1387,7 @@ test("a long pinned ref still yields a rules-file stem a filesystem accepts", as
 });
 
 test("a --pin the state schema refuses is a usage error naming the flag, and nothing is written", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const before = await snapshot(scenario.root);
     const run = await runCli(scenario, [
       "add",
@@ -1414,7 +1411,7 @@ const PINNED_SHA = "0123456789abcdef0123456789abcdef01234567";
 // The `/tree/<ref>` ref is judged only if it survives to storage: `--pin` replaces it before
 // anything is recorded, so an unstorable spelling in the URL is no reason to refuse the pinned add.
 test("an explicit --pin replaces a /tree/<ref> the state schema would refuse", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, [
       "add",
       "https://github.com/a/b/tree/release--%3Ev1",
@@ -1441,7 +1438,7 @@ const unstorableTreeRefs: [string, string][] = [
 test.each(unstorableTreeRefs)(
   "a /tree/<ref> the state schema refuses is a usage error without a --pin, and nothing is written: %s",
   async (url, reason) => {
-    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
       const before = await snapshot(scenario.root);
       const run = await runCli(scenario, ["add", url, "-g", "-a", "codex", "-y"]);
       expect({ code: run.code, stderr: run.stderr }).toEqual({
@@ -1460,7 +1457,7 @@ test.each(unstorableTreeRefs)(
 test("the harnesses chosen at the prompt are remembered, pre-selected, and reused silently", async () => {
   await withScenario(
     {
-      github: { "a/b": SKILLS },
+      github: { "a/b": RULES },
       tty: true,
       answers: { [STRINGS.whichAgents]: " \r", [STRINGS.proceed]: "\r" },
     },
@@ -1475,7 +1472,7 @@ test("the harnesses chosen at the prompt are remembered, pre-selected, and reuse
       });
       const before = readFileSync(config, "utf8");
       scenario.options.answers = { [STRINGS.whichAgents]: "\r", [STRINGS.proceed]: "\r" };
-      const kept = await runCli(scenario, ["add", "@a/b", "-g", "-m", "skip-unfit-skills"]);
+      const kept = await runCli(scenario, ["add", "@a/b", "-g", "-m", "tests-before-the-fix"]);
       expect(kept.code).toBe(0);
       expect(source(scenario, "@a/b").intent.harnesses).toEqual(["claude-code"]);
       const silent = await runCli(scenario, ["add", "@a/b", "-g", "-y"]);
@@ -1490,7 +1487,7 @@ test("the harnesses chosen at the prompt are remembered, pre-selected, and reuse
 // and `install` on a fresh machine records the same intent `add` did, so a replay reads the
 // folder the author named instead of the default one.
 test("--from, --full-depth and --copy round-trip through the manifest into a fresh install", async () => {
-  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ project: true, github: { "a/b": RULES } }, async (scenario) => {
     mkdirSync(join(scenario.cwd, "src", "rules"), { recursive: true });
     writeFileSync(
       join(scenario.cwd, "src", "rules", "own-rule.md"),
@@ -1566,7 +1563,7 @@ const CORRUPT_STATE = {
 // aside (a write) and, before that, create the home to take the lock. The notice names the verb
 // that settles it.
 test("add --dry-run refuses a corrupt state file and add --list warns, both leaving it in place", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     writeState(scenario, CORRUPT_STATE);
     const before = await snapshot(scenario.home);
     const dry = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--dry-run"]);
@@ -1580,7 +1577,7 @@ test("add --dry-run refuses a corrupt state file and add --list warns, both leav
     expect(listed.stdout).toContain(
       "!  state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
     );
-    expect(listed.stdout).toContain("|    skip-unfit-skills\n");
+    expect(listed.stdout).toContain("|    tests-before-the-fix\n");
     expect(await snapshot(scenario.home)).toBe(before);
     expect((await runCli(scenario, ["link", "@a/b", "-a", "claude-code", "--dry-run"])).code).toBe(
       1,

@@ -89,11 +89,11 @@ const FILE_PIECES = [
 
 // Whole blocks for this and other sources, duplicates included, between user lines, unterminated
 // begins and fence openers: the shapes that reach the span, duplicate and deal assertions, which
-// random fragments almost never assemble. `@Vivswan/skills` sorts before this source (an upper-case
+// random fragments almost never assemble. `@Octocat/rules` sorts before this source (an upper-case
 // code unit is lower), so the dealt block lands in a middle or last slot as well as the first.
 const blockFor = fc
   .tuple(
-    fc.constantFrom(SOURCE, "@Vivswan/skills", "@other/source", "@third/one#v2"),
+    fc.constantFrom(SOURCE, "@Octocat/rules", "@other/source", "@third/one#v2"),
     fc.stringMatching(/^[0-9a-f]{7}$/),
   )
   .map(

@@ -16,7 +16,7 @@ What a session start, a sync, or an install can report, what each report means, 
 **What to do:** install fewer memories, or raise the cap once, which persists it in `config.json`:
 
 ```bash
-npx -y @vivswan/maxims add @owner/repo --rule -m rubber-duck-before-every-commit,gate-exit-conditions-the-merge
+npx -y @vivswan/maxims add @owner/repo --rule -m prefer-timeouts-to-hangs,commit-small-and-often
 npx -y @vivswan/maxims add @owner/repo --rule --cap 40
 ```
 
@@ -158,10 +158,10 @@ The second variable drops a models.dev refresh the namespace could not serve; th
 
 ## A sync notice names a harness you defined yourself
 
-**What you see:** a terminal `sync` prints this line at every run and skips that harness, `@Vivswan/skills` being the source and `my-harness` the id from `<MAXIMS_HOME>/harnesses.json`; `list` shows the same reason under the source. The [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
+**What you see:** a terminal `sync` prints this line at every run and skips that harness, `@Octocat/rules` being the source and `my-harness` the id from `<MAXIMS_HOME>/harnesses.json`; `list` shows the same reason under the source. The [adding a harness](adding-a-harness.md#your-own-harnesses-in-harnessesjson) page owns that file.
 
 ```text
-!  maxims: @Vivswan/skills: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
+!  maxims: @Octocat/rules: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
 ```
 
 **What it means:** A source in state still lists that id in `intent.harnesses`, but the file no longer defines it. Intent is never dropped on its own, so the notice repeats until you change either side. A hook run under `--quiet` does not print it; `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records it.

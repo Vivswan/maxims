@@ -35,9 +35,9 @@ import { srcPath } from "../shared/src_path.ts";
 import { withTempHome } from "../shared/temp_dir.ts";
 
 const FIXTURES = srcPath("state", "fixtures", "state");
-const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
-const RENAME_FROM = memoryName("gate-exit-conditions-the-merge");
-const RENAME_TO = memoryName("gate-exit-conditions-the-merge-dotfiles");
+const TIMEOUTS = memoryName("prefer-timeouts-to-hangs");
+const RENAME_FROM = memoryName("commit-small-and-often");
+const RENAME_TO = memoryName("commit-small-and-often-dotfiles");
 
 function contentHash(candidate: string): ContentHash {
   const hash = parseContentHash(candidate);
@@ -60,7 +60,7 @@ const VALID_STATE: State = {
     "@example-user/rules#main": {
       intent: {
         from: { type: "github", repo: "example-user/rules", ref: "main" },
-        select: [RUBBER_DUCK],
+        select: [TIMEOUTS],
         rename: { [RENAME_FROM]: RENAME_TO },
         rule: true,
         destination: { scope: "global" },
@@ -75,7 +75,7 @@ const VALID_STATE: State = {
         sha: gitSha("fc675572711b0a1c9e00000000000000000000aa"),
         memoryPath: "memories",
         memories: {
-          [RUBBER_DUCK]: {
+          [TIMEOUTS]: {
             content: contentHash(`sha256:${"9f2a1c".repeat(10)}9f2a`),
             description: contentHash(`sha256:${"11cd".repeat(16)}`),
           },

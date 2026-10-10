@@ -15,8 +15,8 @@ import {
 
 const FRONTMATTER = [
   "---",
-  "name: gate-exit-conditions-the-merge",
-  'description: "Never chain a merge in the same command as reading a gate log - condition it on the exit code"',
+  "name: commit-small-and-often",
+  'description: "Keep every commit to one change - a reviewer reads a small diff in one pass"',
   "metadata:",
   "  node_type: memory",
   "  type: feedback",
@@ -25,16 +25,16 @@ const FRONTMATTER = [
   "---",
 ].join("\n");
 const BODY =
-  "\nA landing merge is a SEPARATE command.\n\n**Why:** 2026-01-01. Sibling of [[no-pipe-masked-exit-codes]].\n";
+  "\nOne change per commit, however small the second looks.\n\n**Why:** 2026-01-01. Sibling of [[one-topic-per-pull-request]].\n";
 const FILE = `${FRONTMATTER}\n${BODY}`;
 
 describe("parseMemoryName", () => {
   const cases: [string, boolean][] = [
-    ["rubber-duck-before-every-commit", true],
+    ["prefer-timeouts-to-hangs", true],
     ["a", true],
     ["v2-rules", true],
     ["", false],
-    ["Rubber-Duck", false],
+    ["Tests-First", false],
     ["has space", false],
     ["../../x", false],
     ["MEMORY", false],
@@ -82,12 +82,11 @@ describe("parseMemory", () => {
   const accepted: { title: string; filename: string; text: string; memory: Memory }[] = [
     {
       title: "a conforming file with metadata",
-      filename: "/store/x/gate-exit-conditions-the-merge.md",
+      filename: "/store/x/commit-small-and-often.md",
       text: FILE,
       memory: {
-        name: "gate-exit-conditions-the-merge" as Memory["name"],
-        description:
-          "Never chain a merge in the same command as reading a gate log - condition it on the exit code",
+        name: "commit-small-and-often" as Memory["name"],
+        description: "Keep every commit to one change - a reviewer reads a small diff in one pass",
         body: BODY,
         metadata: {
           nodeType: "memory",
@@ -97,7 +96,7 @@ describe("parseMemory", () => {
         },
         raw: FILE,
         contentHash:
-          "sha256:a59fc98b89dd2709b679b583e870430f043175b628e8b23f4d08ced89f998978" as ContentHash,
+          "sha256:a12d5c9195838ca5628a894f7c6e275285c075ba4fe1fd3c25d88dc057372e63" as ContentHash,
       },
     },
     {
@@ -177,7 +176,7 @@ describe("parseMemory", () => {
   ];
   test.each(warned)("$title passes with the whole metadata kept", ({ line, warning, metadata }) => {
     const text = FILE.replace("  type: feedback", line);
-    const result = parseMemory("gate-exit-conditions-the-merge.md", text);
+    const result = parseMemory("commit-small-and-often.md", text);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect({ warning: result.warning, metadata: result.memory.metadata }).toEqual({
@@ -226,7 +225,7 @@ describe("parseMemory", () => {
       text: FILE,
       reason: /not kebab-case/,
     },
-    { title: "uppercase stem", filename: "Gate-Exit.md", text: FILE, reason: /not kebab-case/ },
+    { title: "uppercase stem", filename: "Small-Commits.md", text: FILE, reason: /not kebab-case/ },
     { title: "space in stem", filename: "gate exit.md", text: FILE, reason: /not kebab-case/ },
     {
       title: "name differs from the filename stem",

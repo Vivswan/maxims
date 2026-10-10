@@ -6,7 +6,7 @@
     "@example-user/rules": {
       "intent": {
         "from": { "type": "github", "repo": "example-user/rules", "ref": "main" },
-        "select": ["rubber-duck-before-every-commit"],
+        "select": ["prefer-timeouts-to-hangs"],
         "rename": {},
         "rule": true,
         "destination": { "scope": "global" },

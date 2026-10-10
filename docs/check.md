@@ -38,23 +38,23 @@ Defaults: agents=detected rule=false cooldownDays=7 ruleCap=25
 ## Read one memory or source: show
 
 ```bash
-npx -y @vivswan/maxims show skip-unfit-skills
+npx -y @vivswan/maxims show tests-before-the-fix
 ```
 
 `show` prints one installed memory in full: the source it came from, the installed revision, whether it is disabled here or [held for review](keep-fresh.md#hold-changes-for-review), the rule line as maxims renders it, then the whole file, frontmatter included. The body comes from the store copy, never from a harness's file, so what prints is what the next sync installs.
 
 ```text
 |
-o  skip-unfit-skills
-   source: @Vivswan/skills
-   revision: a8d5fe2
+o  tests-before-the-fix
+   source: @Octocat/rules
+   revision: 3701003
    disabled: no
    held: no
-   rule: - The agent may skip an invoked skill that does not fit the task, but must say why (detail: <HOME>/.agents/maxims/store/vivswan/skills/memories/skip-unfit-skills.md, 8a205e7)
+   rule: - A fix lands with the test that failed before it, never a test written after the fact (detail: <HOME>/.agents/maxims/store/octocat/rules/memories/tests-before-the-fix.md, 997856e)
 |
 ---
-name: skip-unfit-skills
-description: The agent may skip an invoked skill that does not fit the task, but must say why
+name: tests-before-the-fix
+description: A fix lands with the test that failed before it, never a test written after the fact
 ...
 ```
 
@@ -85,7 +85,7 @@ The report ends with a `Defaults:` line naming the `rule` and `addHook` defaults
 ## The CI one-liner
 
 ```bash
-npx -y @vivswan/maxims doctor --expect rubber-duck-before-every-commit --json
+npx -y @vivswan/maxims doctor --expect prefer-timeouts-to-hangs --json
 ```
 
 `--expect <name>` or `--expect @owner/repo/name` asserts that memory has a rule line in place for every harness it targets. A missing one exits 1 with the harness and path named. The flag repeats, one memory per `--expect`.

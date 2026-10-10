@@ -12,7 +12,7 @@ import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { memoryName } from "../../engine/fakes.ts";
 import { outcome } from "../../shared/outcome.ts";
 
-const RUBBER_DUCK = memoryName("rubber-duck-before-every-commit");
+const TIMEOUTS = memoryName("prefer-timeouts-to-hangs");
 const USAGE_REFUSAL = expect.objectContaining({ code: ExitCode.Usage });
 
 describe("parseSourceArgument", () => {
@@ -74,12 +74,10 @@ describe("parseSourceArgument", () => {
   });
 
   test("the @owner/repo@memory-name suffix selects one memory", () => {
-    expect(parseSourceSelector("@example-user/rules@rubber-duck-before-every-commit", cwd)).toEqual(
-      {
-        from: github("example-user/rules"),
-        memory: RUBBER_DUCK,
-      },
-    );
+    expect(parseSourceSelector("@example-user/rules@prefer-timeouts-to-hangs", cwd)).toEqual({
+      from: github("example-user/rules"),
+      memory: TIMEOUTS,
+    });
     expect(parseSourceSelector("example-user/rules", cwd)).toEqual({
       from: github("example-user/rules"),
       memory: null,
@@ -88,7 +86,7 @@ describe("parseSourceArgument", () => {
       () => parseSourceSelector("@example-user/rules@NotKebab", cwd),
       () => parseSourceSelector("@example-user/rules@", cwd),
       () => parseSourceSelector("@example-user/rules@one@two", cwd),
-      () => parseSourceArgument("@example-user/rules@rubber-duck-before-every-commit", cwd),
+      () => parseSourceArgument("@example-user/rules@prefer-timeouts-to-hangs", cwd),
     ];
     for (const attempt of attempts) expect(attempt).toThrow(USAGE_REFUSAL);
   });

@@ -15,12 +15,12 @@ import {
 import type { RenameMap, Select } from "../../src/state/schema.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 
-const SKILLS = "@Vivswan/skills";
-const DOTFILES = "@Vivswan/dotfiles";
-const GATE = "gate-exit-conditions-the-merge" as MemoryName;
-const GATE_DOTFILES = "gate-exit-conditions-the-merge-dotfiles" as MemoryName;
-const RUBBER_DUCK = "rubber-duck-before-every-commit" as MemoryName;
-const NO_PIPE = "no-pipe-masked-exit-codes" as MemoryName;
+const RULES = "@Octocat/rules";
+const DOTFILES = "@Octocat/dotfiles";
+const SMALL_COMMITS = "commit-small-and-often" as MemoryName;
+const SMALL_COMMITS_DOTFILES = "commit-small-and-often-dotfiles" as MemoryName;
+const TIMEOUTS = "prefer-timeouts-to-hangs" as MemoryName;
+const ONE_TOPIC = "one-topic-per-pull-request" as MemoryName;
 const BRAND_NEW = "brand-new" as MemoryName;
 
 const HASH_A = contentHashLiteral(`sha256:${"a".repeat(64)}`);
@@ -47,17 +47,17 @@ function installed(sources: Installed[]): IndexedSource[] {
   }));
 }
 
-describe("the worked example: two sources ship gate-exit-conditions-the-merge", () => {
-  const skills: Installed = { key: SKILLS, names: [GATE, RUBBER_DUCK] };
-  const dotfiles: Installed = { key: DOTFILES, names: [GATE, NO_PIPE] };
+describe("the worked example: two sources ship commit-small-and-often", () => {
+  const rules: Installed = { key: RULES, names: [SMALL_COMMITS, TIMEOUTS] };
+  const dotfiles: Installed = { key: DOTFILES, names: [SMALL_COMMITS, ONE_TOPIC] };
 
   test("the second source collides on the shared name and nothing resolves", () => {
-    const index = buildNameIndex(installed([skills, dotfiles]));
-    expect(index.get(GATE)).toBe(SKILLS);
+    const index = buildNameIndex(installed([rules, dotfiles]));
+    expect(index.get(SMALL_COMMITS)).toBe(RULES);
     expect(
       resolveSourceCandidates({
         source: DOTFILES,
-        memories: [candidate(GATE), candidate(NO_PIPE)],
+        memories: [candidate(SMALL_COMMITS), candidate(ONE_TOPIC)],
         select: "*",
         rename: {},
         index,
@@ -66,19 +66,19 @@ describe("the worked example: two sources ship gate-exit-conditions-the-merge", 
     ).toEqual({
       ok: false,
       code: ExitCode.NameCollision,
-      collisions: [{ name: GATE, ownedBy: SKILLS }],
+      collisions: [{ name: SMALL_COMMITS, ownedBy: RULES }],
     });
   });
 
   test("a recorded rename resolves it: two lines, two names, ordered by the name they carry", () => {
-    const rename: RenameMap = { [GATE]: GATE_DOTFILES };
-    const index = buildNameIndex(installed([skills, { ...dotfiles, rename }]));
-    expect(index.get(GATE_DOTFILES)).toBe(DOTFILES);
-    expect(index.get(GATE)).toBe(SKILLS);
+    const rename: RenameMap = { [SMALL_COMMITS]: SMALL_COMMITS_DOTFILES };
+    const index = buildNameIndex(installed([rules, { ...dotfiles, rename }]));
+    expect(index.get(SMALL_COMMITS_DOTFILES)).toBe(DOTFILES);
+    expect(index.get(SMALL_COMMITS)).toBe(RULES);
     expect(
       resolveSourceCandidates({
         source: DOTFILES,
-        memories: [candidate(NO_PIPE, HASH_B), candidate(GATE)],
+        memories: [candidate(ONE_TOPIC, HASH_B), candidate(SMALL_COMMITS)],
         select: "*",
         rename,
         index,
@@ -88,15 +88,15 @@ describe("the worked example: two sources ship gate-exit-conditions-the-merge", 
       ok: true,
       lines: [
         {
-          name: GATE_DOTFILES,
-          description: `about ${GATE}`,
-          detailPath: `/store/${GATE}.md`,
+          name: SMALL_COMMITS_DOTFILES,
+          description: `about ${SMALL_COMMITS}`,
+          detailPath: `/store/${SMALL_COMMITS}.md`,
           shortHash: "aaaaaaa",
         },
         {
-          name: NO_PIPE,
-          description: `about ${NO_PIPE}`,
-          detailPath: `/store/${NO_PIPE}.md`,
+          name: ONE_TOPIC,
+          description: `about ${ONE_TOPIC}`,
+          detailPath: `/store/${ONE_TOPIC}.md`,
           shortHash: "bbbbbbb",
         },
       ],
@@ -105,28 +105,29 @@ describe("the worked example: two sources ship gate-exit-conditions-the-merge", 
 
   test("the owning source keeps its own name, and an unowned name is free", () => {
     const index = buildNameIndex(
-      installed([skills, { ...dotfiles, rename: { [GATE]: GATE_DOTFILES } }]),
+      installed([rules, { ...dotfiles, rename: { [SMALL_COMMITS]: SMALL_COMMITS_DOTFILES } }]),
     );
     const result = resolveSourceCandidates({
-      source: SKILLS,
-      memories: [candidate(GATE), candidate(RUBBER_DUCK), candidate(BRAND_NEW)],
+      source: RULES,
+      memories: [candidate(SMALL_COMMITS), candidate(TIMEOUTS), candidate(BRAND_NEW)],
       select: "*",
       rename: {},
       index,
       cap: DEFAULT_RULE_CAP,
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.lines.map((l) => l.name)).toEqual([BRAND_NEW, GATE, RUBBER_DUCK]);
+    if (result.ok)
+      expect(result.lines.map((l) => l.name)).toEqual([BRAND_NEW, SMALL_COMMITS, TIMEOUTS]);
   });
 
   test("installation order decides ownership by instant, not by timestamp text", () => {
     const index = buildNameIndex(
       installed([
         { ...dotfiles, addedAt: "2026-09-01T00:00:00.500Z" },
-        { ...skills, addedAt: "2026-09-01T00:00:00Z" },
+        { ...rules, addedAt: "2026-09-01T00:00:00Z" },
       ]),
     );
-    expect(index.get(GATE)).toBe(SKILLS);
+    expect(index.get(SMALL_COMMITS)).toBe(RULES);
   });
 });
 
@@ -134,29 +135,31 @@ describe("resolveSourceCandidates", () => {
   test("select narrows before anything else, so an unselected collision never fires", () => {
     const index = buildNameIndex(
       installed([
-        { key: SKILLS, names: [GATE] },
-        { key: DOTFILES, names: [GATE, NO_PIPE], select: [NO_PIPE] },
+        { key: RULES, names: [SMALL_COMMITS] },
+        { key: DOTFILES, names: [SMALL_COMMITS, ONE_TOPIC], select: [ONE_TOPIC] },
       ]),
     );
     const result = resolveSourceCandidates({
       source: DOTFILES,
-      memories: [candidate(GATE), candidate(NO_PIPE)],
-      select: [NO_PIPE],
+      memories: [candidate(SMALL_COMMITS), candidate(ONE_TOPIC)],
+      select: [ONE_TOPIC],
       rename: {},
       index,
       cap: DEFAULT_RULE_CAP,
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.lines.map((l) => l.name)).toEqual([NO_PIPE]);
+    if (result.ok) expect(result.lines.map((l) => l.name)).toEqual([ONE_TOPIC]);
   });
 
   test("a rename onto a name the same source also ships is a collision with itself", () => {
-    const rename: RenameMap = { [GATE]: RUBBER_DUCK };
-    const index = buildNameIndex(installed([{ key: SKILLS, names: [GATE, RUBBER_DUCK], rename }]));
+    const rename: RenameMap = { [SMALL_COMMITS]: TIMEOUTS };
+    const index = buildNameIndex(
+      installed([{ key: RULES, names: [SMALL_COMMITS, TIMEOUTS], rename }]),
+    );
     expect(
       resolveSourceCandidates({
-        source: SKILLS,
-        memories: [candidate(GATE), candidate(RUBBER_DUCK)],
+        source: RULES,
+        memories: [candidate(SMALL_COMMITS), candidate(TIMEOUTS)],
         select: "*",
         rename,
         index,
@@ -165,20 +168,20 @@ describe("resolveSourceCandidates", () => {
     ).toEqual({
       ok: false,
       code: ExitCode.NameCollision,
-      collisions: [{ name: RUBBER_DUCK, ownedBy: SKILLS }],
+      collisions: [{ name: TIMEOUTS, ownedBy: RULES }],
     });
   });
 
   test("every collision is reported, not just the first", () => {
     const index = buildNameIndex(
       installed([
-        { key: SKILLS, names: [GATE, RUBBER_DUCK] },
-        { key: DOTFILES, names: [GATE, RUBBER_DUCK] },
+        { key: RULES, names: [SMALL_COMMITS, TIMEOUTS] },
+        { key: DOTFILES, names: [SMALL_COMMITS, TIMEOUTS] },
       ]),
     );
     const result = resolveSourceCandidates({
       source: DOTFILES,
-      memories: [candidate(RUBBER_DUCK), candidate(GATE)],
+      memories: [candidate(TIMEOUTS), candidate(SMALL_COMMITS)],
       select: "*",
       rename: {},
       index,
@@ -188,8 +191,8 @@ describe("resolveSourceCandidates", () => {
       ok: false,
       code: ExitCode.NameCollision,
       collisions: [
-        { name: GATE, ownedBy: SKILLS },
-        { name: RUBBER_DUCK, ownedBy: SKILLS },
+        { name: SMALL_COMMITS, ownedBy: RULES },
+        { name: TIMEOUTS, ownedBy: RULES },
       ],
     });
   });
@@ -198,10 +201,10 @@ describe("resolveSourceCandidates", () => {
     const memories = Array.from({ length: 26 }, (_, i) =>
       candidate(`rule-${String(i).padStart(2, "0")}` as MemoryName),
     );
-    const index = buildNameIndex(installed([{ key: SKILLS, names: memories.map((m) => m.name) }]));
+    const index = buildNameIndex(installed([{ key: RULES, names: memories.map((m) => m.name) }]));
     const resolve = (list: Candidate[]) =>
       resolveSourceCandidates({
-        source: SKILLS,
+        source: RULES,
         memories: list,
         select: "*",
         rename: {},
@@ -224,11 +227,11 @@ describe("resolveSourceCandidates", () => {
 
   test("a memory named like an Object prototype member is a plain name, not a lookup hit", () => {
     const name = "constructor" as MemoryName;
-    const index = buildNameIndex(installed([{ key: SKILLS, names: [name] }]));
-    expect(index.get(name)).toBe(SKILLS);
+    const index = buildNameIndex(installed([{ key: RULES, names: [name] }]));
+    expect(index.get(name)).toBe(RULES);
     expect(
       resolveSourceCandidates({
-        source: SKILLS,
+        source: RULES,
         memories: [candidate(name)],
         select: "*",
         rename: {},
@@ -254,22 +257,24 @@ describe("buildNameIndex", () => {
     const index = buildNameIndex(
       installed([
         {
-          key: SKILLS,
-          names: [GATE, RUBBER_DUCK],
-          select: [GATE],
-          rename: { [GATE]: GATE_DOTFILES, [RUBBER_DUCK]: NO_PIPE },
+          key: RULES,
+          names: [SMALL_COMMITS, TIMEOUTS],
+          select: [SMALL_COMMITS],
+          rename: { [SMALL_COMMITS]: SMALL_COMMITS_DOTFILES, [TIMEOUTS]: ONE_TOPIC },
         },
       ]),
     );
-    expect([...index]).toEqual([[GATE_DOTFILES, SKILLS]]);
+    expect([...index]).toEqual([[SMALL_COMMITS_DOTFILES, RULES]]);
   });
 });
 
 describe("pruneRenames", () => {
   test("drops a mapping whose upstream name vanished and keeps the rest byte-identical", () => {
-    const rename: RenameMap = { [GATE]: GATE_DOTFILES, [RUBBER_DUCK]: NO_PIPE };
-    expect(pruneRenames(rename, [GATE])).toEqual({ [GATE]: GATE_DOTFILES });
-    expect(pruneRenames(rename, [GATE, RUBBER_DUCK])).toEqual(rename);
+    const rename: RenameMap = { [SMALL_COMMITS]: SMALL_COMMITS_DOTFILES, [TIMEOUTS]: ONE_TOPIC };
+    expect(pruneRenames(rename, [SMALL_COMMITS])).toEqual({
+      [SMALL_COMMITS]: SMALL_COMMITS_DOTFILES,
+    });
+    expect(pruneRenames(rename, [SMALL_COMMITS, TIMEOUTS])).toEqual(rename);
     expect(pruneRenames(rename, [])).toEqual({});
   });
 });
