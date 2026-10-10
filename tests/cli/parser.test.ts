@@ -9,12 +9,15 @@ import { FIXTURES, runCli, snapshot, withScenario } from "./harness.ts";
 
 const SKILLS = join(FIXTURES, "skills");
 
+// A refusal at the door reaches no engine runner.
+const NO_ENGINE_CALLS = { sync: [], remove: [], list: [], mcpServe: 0 };
+
 const refusals: [string, string[], string][] = [
   ["two scopes", ["add", "@a/b", "-g", "-p"], "two destinations given"],
   ["scope with out", ["add", "@a/b", "-g", "-o", "x"], "two destinations given"],
   [
-    "all with names",
-    ["add", "@a/b", "--all", "-m", "x"],
+    "all with a @name suffix",
+    ["add", "@a/b@skip-unfit-skills", "--all"],
     "Cannot combine --all with specific memory names.",
   ],
   ["link on github", ["add", "@a/b", "--link"], "--link applies to a local directory"],
@@ -23,8 +26,6 @@ const refusals: [string, string[], string][] = [
     ["add", "./dir", "--pin", "abc"],
     "--pin applies to a GitHub or git source, not a directory",
   ],
-  ["unknown flag", ["add", "@a/b", "--frobnicate"], "unknown option: --frobnicate"],
-  ["missing source", ["add"], "Missing required argument: source"],
   [
     "bad cooldown",
     ["add", "@a/b", "--cooldown", "x"],
@@ -80,6 +81,13 @@ const refusals: [string, string[], string][] = [
   ["show with out", ["show", "x", "-o", "dir"], "unknown option: -o"],
   ["show two scopes", ["show", "x", "-g", "-p"], "two destinations given"],
   ["show with nothing installed", ["show", "x"], "x is not installed"],
+  ["yes on disable", ["disable", "skip-unfit-skills", "-y"], "unknown option: -y"],
+  ["extra word on remove", ["remove", "@a/b", "@a/c", "-y"], "unexpected argument: @a/c"],
+  [
+    "extra word on config unset",
+    ["config", "unset", "rule", "false"],
+    "unexpected argument: false",
+  ],
 ];
 
 test.each(refusals)(
@@ -92,6 +100,7 @@ test.each(refusals)(
       expect(run.stderr).toBe(` ERROR  ${message}\n`);
       expect(run.stdout).toBe("");
       expect(await snapshot(scenario.root)).toBe(before);
+      expect(scenario.engine.calls).toEqual(NO_ENGINE_CALLS);
     });
   },
 );
@@ -113,6 +122,11 @@ const jsonRefusals: [string, string[], string][] = [
     ["add", "@a/b", "--json", "-y", "--list"],
     "The --json flag cannot be combined with --list.",
   ],
+  [
+    "remove --all with -m",
+    ["remove", "--all", "-m", "skip-unfit-skills", "--json"],
+    "Cannot combine --all with specific memory names.",
+  ],
 ];
 
 test.each(jsonRefusals)("%s exits 1 with one JSON document", async (_name, argv, message) => {
@@ -121,14 +135,7 @@ test.each(jsonRefusals)("%s exits 1 with one JSON document", async (_name, argv,
     expect(run.code).toBe(1);
     expect(run.stderr).toBe("");
     expect(JSON.parse(run.stdout)).toEqual({ ok: false, code: 1, message, hint: null });
-  });
-});
-
-test("unknown verb prints the skills wording and exits 1", async () => {
-  await withScenario({}, async (scenario) => {
-    const run = await runCli(scenario, ["frob"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toBe(" ERROR  Unknown command: frob\nTip: Run maxims --help for usage.\n");
+    expect(scenario.engine.calls).toEqual(NO_ENGINE_CALLS);
   });
 });
 

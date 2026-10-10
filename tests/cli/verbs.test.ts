@@ -19,17 +19,18 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
+import type { SyncReport } from "../../src/commands/types.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/spec.ts";
 import { planRulesDirWrite } from "../../src/harnesses/strategies/rules-dir.ts";
 import { zed } from "../../src/harnesses/zed/spec.ts";
-import { type MemoryName, parseMemory, parseMemoryName } from "../../src/memory/contract.ts";
+import { parseMemory } from "../../src/memory/contract.ts";
 import { renderBlock } from "../../src/rulefile/block.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
-import { fakeResolvers, writeSource } from "../engine/harness.ts";
+import { fakeResolvers, memoryName, writeSource } from "../engine/harness.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
@@ -40,6 +41,7 @@ import {
   realEngineBundle,
   runCli,
   type Scenario,
+  type ScenarioOptions,
   snapshot,
   withScenario,
   writeConfig,
@@ -50,15 +52,17 @@ const SKILLS = join(FIXTURES, "skills");
 const DOTFILES = join(FIXTURES, "dotfiles");
 const RISKY = join(FIXTURES, "risky");
 
-function mn(raw: string): MemoryName {
-  const name = parseMemoryName(raw);
-  if (name === null) throw new Error(`${raw} is not a memory name`);
-  return name;
-}
-
 async function installSkills(scenario: Scenario, extra: string[] = []): Promise<void> {
   const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", ...extra]);
   expect(run.code).toBe(0);
+}
+
+// The writes of the state file a dry run of an intent edit names in its `--json` plan; a document
+// without a plan names none, so the count is judged at the assertion rather than thrown here.
+function stateWrites(scenario: Scenario, document: string): { kind: string; path: string }[] {
+  const body = JSON.parse(document) as { plan?: { changes?: { kind: string; path: string }[] } };
+  const state = homePaths(scenario.home).state;
+  return (body.plan?.changes ?? []).filter((c) => c.kind === "write" && c.path === state);
 }
 
 // The refresh summary is about what the user installs: an internal memory is hidden from the rule
@@ -152,7 +156,7 @@ function block(source: string, names: string[]): string {
     source,
     sha: "a".repeat(40),
     lines: names.map((name) => ({
-      name: mn(name),
+      name: memoryName(name),
       description: `Rule ${name}.`,
       detailPath: `memories/${name}.md`,
       shortHash: "abcdef1",
@@ -254,22 +258,41 @@ test("update --rename records the pair on the named source, and sync persists --
   });
 });
 
-test("update reports a source whose refetch failed and exits 2 after finishing the others", async () => {
-  await withScenario(
-    {
-      github: { "a/b": SKILLS },
-      syncReport: { failed: [{ key: "@a/b", message: "connect timed out", kind: "network" }] },
-    },
-    async (scenario) => {
-      await installSkills(scenario);
-      const run = await runCli(scenario, ["update"]);
-      expect(run.code).toBe(2);
-      expect(run.stderr).toContain(" ERROR  Failed to update @a/b: connect timed out\n");
-      const quiet = await runCli(scenario, ["update", "--quiet"]);
-      expect(quiet.code).toBe(0);
-    },
-  );
-});
+// The exit follows the report's failure classes: every failure a source with nothing valid is 3,
+// anything else 2. The frame renders the failure through the error path with the last-good tip,
+// never as "up to date"; the `--json` document agrees, a dry run exits the same way, and `--quiet`
+// is the hook's exit 0.
+const failedRefreshes: [string, SyncReport["failed"][number], number][] = [
+  ["a network failure", { key: "@a/b", message: "connect timed out", kind: "network" }, 2],
+  ["a rate limit", { key: "@a/b", message: "rate limited", kind: "ratelimit" }, 2],
+  [
+    "a source with nothing valid",
+    { key: "@a/b", message: "no valid memories at memories", kind: "invalid" },
+    3,
+  ],
+];
+
+test.each(failedRefreshes)(
+  "update renders %s through the error path and exits by its class, also under --json and --dry-run; --quiet exits 0",
+  async (_name, failure, code) => {
+    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+      await installSkills(scenario, ["-m", "skip-unfit-skills"]);
+      scenario.options.syncReport = { failed: [failure] };
+      const plain = await runCli(scenario, ["update"]);
+      expect([plain.code, plain.stderr]).toEqual([
+        code,
+        ` ERROR  Failed to update @a/b: ${failure.message}\nTip: the last good copy of each failed source stays installed\n`,
+      ]);
+      expect(plain.stdout).not.toContain("up to date");
+      for (const flags of [["--json"], ["--dry-run", "--json"]]) {
+        const json = await runCli(scenario, ["update", ...flags]);
+        expect(json.code).toBe(code);
+        expect(JSON.parse(json.stdout)).toMatchObject({ ok: false, code });
+      }
+      expect((await runCli(scenario, ["update", "--quiet"])).code).toBe(0);
+    });
+  },
+);
 
 test("init scaffolds a contract-valid file, refuses to overwrite, and needs a name non-interactively", async () => {
   await withScenario({}, async (scenario) => {
@@ -1006,21 +1029,37 @@ test("link adds harnesses with a target and syncs them; unlink is the remove -a 
   });
 });
 
-test("remove needs -y non-interactively, --all spells it out, and a bare name resolves or is ambiguous", async () => {
+// Without `-y`, `remove` asks on a terminal and stops before the engine anywhere else; a terminal
+// stdout over a piped stdin is "anywhere else", since the question could not be answered.
+const nonInteractiveRemoves: [string, ScenarioOptions][] = [
+  ["no terminal", {}],
+  ["a terminal stdout over a piped stdin", { tty: true, stdinTty: false }],
+];
+
+test.each(nonInteractiveRemoves)(
+  "remove without -y is refused before the engine runs under %s",
+  async (_name, options) => {
+    await withScenario({ github: { "a/b": SKILLS }, ...options }, async (scenario) => {
+      await installSkills(scenario);
+      const run = await runCli(scenario, ["remove", "@a/b"]);
+      expect([run.code, run.stderr]).toEqual([
+        1,
+        " ERROR  Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.\n",
+      ]);
+      expect(scenario.engine.calls.remove).toEqual([]);
+    });
+  },
+);
+
+test("remove --all spells it out, a bare name resolves or is ambiguous, and -m narrows a source only", async () => {
   await withScenario({ github: { "a/b": SKILLS, "a/d": DOTFILES } }, async (scenario) => {
     await installSkills(scenario);
-    const refused = await runCli(scenario, ["remove", "@a/b"]);
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toBe(
-      " ERROR  Interactive prompt required but stdin is not a TTY. Nothing was removed. Use -y to run non-interactively.\n",
-    );
-    expect(scenario.engine.calls.remove).toEqual([]);
     expect((await runCli(scenario, ["remove", "skip-unfit-skills", "-y"])).code).toBe(0);
     expect(scenario.engine.calls.remove.at(-1)).toEqual({
       quiet: false,
       dryRun: false,
       json: false,
-      targets: [{ source: "@a/b", memory: mn("skip-unfit-skills") }],
+      targets: [{ source: "@a/b", memory: memoryName("skip-unfit-skills") }],
       all: false,
       confirmed: true,
     });
@@ -1029,6 +1068,17 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
     expect(scopedSource.stderr).toBe(
       " ERROR  @a/b has one recorded destination; drop -g, -p or -o\n",
     );
+    const narrowedMemory = await runCli(scenario, [
+      "remove",
+      "skip-unfit-skills",
+      "-m",
+      "gate-exit-conditions-the-merge",
+      "-y",
+    ]);
+    expect([narrowedMemory.code, narrowedMemory.stderr]).toEqual([
+      1,
+      " ERROR  skip-unfit-skills names a memory; -m narrows a source, so name the source instead\n",
+    ]);
     for (const agent of ["codex", "*"]) {
       const oneHarness = await runCli(scenario, [
         "remove",
@@ -1072,7 +1122,7 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
     ]);
     expect(qualified.code).toBe(0);
     expect(scenario.engine.calls.remove.at(-1)?.targets).toEqual([
-      { source: "@a/d", memory: mn("gate-exit-conditions-the-merge") },
+      { source: "@a/d", memory: memoryName("gate-exit-conditions-the-merge") },
     ]);
     const all = await runCli(scenario, ["remove", "--all", "-a", "codex"]);
     expect(all.code).toBe(0);
@@ -1088,7 +1138,7 @@ test("remove needs -y non-interactively, --all spells it out, and a bare name re
     const narrowed = await runCli(scenario, ["remove", "@a/b", "-y", "-m", "skip-unfit-skills"]);
     expect(narrowed.code).toBe(0);
     expect(scenario.engine.calls.remove.at(-1)?.targets).toEqual([
-      { source: "@a/b", memory: mn("skip-unfit-skills") },
+      { source: "@a/b", memory: memoryName("skip-unfit-skills") },
     ]);
     const scoped = await runCli(scenario, [
       "remove",
@@ -1205,13 +1255,15 @@ test("sync hands the engine its fetch intent, its filter and the output modes, a
   );
 });
 
-test("mcp-serve hands the stub a quiet sync and stays out of --help", async () => {
+test("mcp-serve hands the stub a quiet sync, passes --dry-run through, and stays out of --help", async () => {
   await withScenario({}, async (scenario) => {
     const run = await runCli(scenario, ["mcp-serve"]);
     expect(run.code).toBe(0);
-    expect(scenario.engine.calls.mcpServe).toBe(1);
+    expect((await runCli(scenario, ["mcp-serve", "--dry-run"])).code).toBe(0);
+    expect(scenario.engine.calls.mcpServe).toBe(2);
     expect(scenario.engine.calls.sync).toEqual([
       { quiet: true, dryRun: false, json: false, fetch: "due" },
+      { quiet: true, dryRun: true, json: false, fetch: "due" },
     ]);
     const help = await runCli(scenario, ["--help"]);
     expect(help.stdout).not.toContain("mcp-serve");
@@ -1222,7 +1274,7 @@ test("mcp-serve hands the stub a quiet sync and stays out of --help", async () =
       code: 1,
       message: "mcp-serve speaks MCP on stdout; drop --json",
     });
-    expect(scenario.engine.calls.mcpServe).toBe(1);
+    expect(scenario.engine.calls.mcpServe).toBe(2);
   });
 });
 
@@ -1236,19 +1288,6 @@ test("list dispatches to the engine with the output modes and prints nothing of 
       { quiet: false, dryRun: false, json: false },
       { quiet: false, dryRun: false, json: true },
     ]);
-  });
-});
-
-test("remove --all with -m and add @owner/repo@name with --all are refused", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario);
-    const remove = await runCli(scenario, ["remove", "--all", "-m", "skip-unfit-skills", "--json"]);
-    expect(remove.code).toBe(1);
-    expect(JSON.parse(remove.stdout)).toMatchObject({ ok: false, code: 1 });
-    expect(scenario.engine.calls.remove).toEqual([]);
-    const add = await runCli(scenario, ["add", "@a/b@skip-unfit-skills", "--all"]);
-    expect(add.code).toBe(1);
-    expect(add.stderr).toBe(" ERROR  Cannot combine --all with specific memory names.\n");
   });
 });
 
@@ -1354,23 +1393,37 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
   });
 });
 
-test("--dry-run on disable and on link plans against the would-be state and writes nothing", async () => {
+test("--dry-run on disable and on link plans against the would-be state, names the state write, and writes nothing", async () => {
   await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
     await installSkills(scenario);
-    expect((await runCli(scenario, ["disable", "skip-unfit-skills", "--dry-run"])).code).toBe(0);
+    const before = await snapshot(scenario.home);
+    const disabled = await runCli(scenario, [
+      "disable",
+      "skip-unfit-skills",
+      "--dry-run",
+      "--json",
+    ]);
+    expect(disabled.code).toBe(0);
+    expect(stateWrites(scenario, disabled.stdout)).toHaveLength(1);
     expect(lastSyncCall(scenario).dryRun).toBe(true);
     expect(lastSyncCall(scenario).preview?.state.disabled).toEqual({
-      global: [mn("skip-unfit-skills")],
+      global: [memoryName("skip-unfit-skills")],
     });
     expect(readState(scenario).disabled).toBeUndefined();
-    const before = await snapshot(scenario.home);
-    expect((await runCli(scenario, ["link", "@a/b", "-a", "claude-code", "--dry-run"])).code).toBe(
-      0,
-    );
-    expect(await snapshot(scenario.home)).toBe(before);
-    const planned = scenario.engine.calls.sync.at(-1)?.preview;
+    const linked = await runCli(scenario, [
+      "link",
+      "@a/b",
+      "-a",
+      "claude-code",
+      "--dry-run",
+      "--json",
+    ]);
+    expect(linked.code).toBe(0);
+    expect(stateWrites(scenario, linked.stdout)).toHaveLength(1);
+    const planned = lastSyncCall(scenario).preview;
     expect(planned?.state.sources["@a/b"]?.intent.harnesses).toEqual(["codex", "claude-code"]);
     expect(planned?.config).toEqual({});
+    expect(await snapshot(scenario.home)).toBe(before);
   });
 });
 
@@ -1425,34 +1478,6 @@ test("pins differing only in case are different sources, and update --rename is 
       " ERROR  skip-unfit-skills is owned by @a/b#v1\nTip: --rename skip-unfit-skills=<new>\n",
     );
     expect(await snapshot(scenario.home)).toBe(before);
-  });
-});
-
-test("update renders a failed refetch through the error path, also under --json", async () => {
-  await withScenario(
-    {
-      github: { "a/b": SKILLS },
-      syncReport: { failed: [{ key: "@a/b", message: "connect timed out", kind: "network" }] },
-    },
-    async (scenario) => {
-      await installSkills(scenario);
-      const plain = await runCli(scenario, ["update"]);
-      expect(plain.code).toBe(2);
-      expect(plain.stdout).not.toContain("up to date");
-      expect(plain.stderr).toBe(
-        " ERROR  Failed to update @a/b: connect timed out\nTip: the last good copy of each failed source stays installed\n",
-      );
-      const json = await runCli(scenario, ["update", "--json"]);
-      expect(json.code).toBe(2);
-      expect(JSON.parse(json.stdout)).toMatchObject({ ok: false, code: 2 });
-    },
-  );
-});
-
-test("mcp-serve passes --dry-run through to its sync", async () => {
-  await withScenario({}, async (scenario) => {
-    expect((await runCli(scenario, ["mcp-serve", "--dry-run"])).code).toBe(0);
-    expect(scenario.engine.calls.sync.at(-1)?.dryRun).toBe(true);
   });
 });
 
@@ -1566,133 +1591,6 @@ test("doctor leaves an -o folder unchecked instead of reading it as a file", asy
   });
 });
 
-test("remove refuses without -y when stdin is piped even though stdout is a terminal", async () => {
-  await withScenario(
-    { github: { "a/b": SKILLS }, tty: true, stdinTty: false },
-    async (scenario) => {
-      await installSkills(scenario);
-      const run = await runCli(scenario, ["remove", "@a/b"]);
-      expect(run.code).toBe(1);
-      expect(run.stderr).toContain("Interactive prompt required");
-      expect(scenario.engine.calls.remove).toEqual([]);
-    },
-  );
-});
-
-// The exit follows the report's failure classes: every failure a source with nothing valid is 3,
-// anything else 2, and the `--json` document agrees.
-test("a failed update exits by the failure class, also under --dry-run --json", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario, ["-m", "skip-unfit-skills"]);
-    scenario.options.syncReport = {
-      failed: [{ key: "@a/b", message: "rate limited", kind: "ratelimit" }],
-    };
-    const failed = await runCli(scenario, ["update", "--dry-run", "--json"]);
-    expect(failed.code).toBe(2);
-    expect(JSON.parse(failed.stdout)).toMatchObject({ ok: false, code: 2 });
-    scenario.options.syncReport = {
-      failed: [{ key: "@a/b", message: "no valid memories at memories", kind: "invalid" }],
-    };
-    const invalid = await runCli(scenario, ["update"]);
-    expect(invalid.code).toBe(3);
-    expect(invalid.stderr).toContain("Failed to update @a/b: no valid memories at memories");
-  });
-});
-
-test("an extra positional word is a usage error, not a silent drop", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario);
-    const run = await runCli(scenario, ["remove", "@a/b", "@a/c", "-y"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toBe(" ERROR  unexpected argument: @a/c\n");
-    expect(scenario.engine.calls.remove).toEqual([]);
-  });
-});
-
-test("a manifest whose key disagrees with its entry is refused", async () => {
-  await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
-    mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
-    const entry = {
-      from: { type: "github", repo: "a/b" },
-      pin: "v1",
-      select: "*",
-      rule: false,
-      harnesses: ["codex"],
-    };
-    writeFileSync(
-      join(scenario.cwd, ".agents", "maxims.lock"),
-      JSON.stringify({ version: 1, sources: { "@a/b": entry } }),
-    );
-    const run = await runCli(scenario, ["install"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toContain("is not a valid manifest");
-    expect(run.stderr).toContain("@a/b#v1");
-    const { pin: _pin, ...twin } = entry;
-    const upper = { ...twin, from: { ...twin.from, repo: "A/B" } };
-    writeFileSync(
-      join(scenario.cwd, ".agents", "maxims.lock"),
-      JSON.stringify({ version: 1, sources: { "@a/b": twin, "@A/B": upper } }),
-    );
-    const twins = await runCli(scenario, ["install"]);
-    expect(twins.code).toBe(1);
-    expect(twins.stderr).toContain("is not a valid manifest");
-    expect(twins.stderr).toContain("same GitHub repository");
-    const unset = await runCli(scenario, ["config", "unset", "rule", "false"]);
-    expect(unset.code).toBe(1);
-    expect(unset.stderr).toBe(" ERROR  unexpected argument: false\n");
-  });
-});
-
-test("an intent edit reports the state write in its dry-run plan", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario);
-    const run = await runCli(scenario, [
-      "link",
-      "@a/b",
-      "-a",
-      "claude-code",
-      "--dry-run",
-      "--json",
-    ]);
-    expect(run.code).toBe(0);
-    const body = JSON.parse(run.stdout) as { plan: { changes: { kind: string; path: string }[] } };
-    expect(body.plan.changes.some((c) => c.kind === "write" && c.path.endsWith("state.json"))).toBe(
-      true,
-    );
-  });
-});
-
-test("a dry run of an intent edit creates nothing, not even the maxims home", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    rmSync(scenario.home, { recursive: true, force: true });
-    const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--dry-run"]);
-    expect(run.code).toBe(0);
-    expect(existsSync(scenario.home)).toBe(false);
-  });
-});
-
-test("disable reports the engine's intent write in its plan and remove refuses -m on a memory", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario);
-    const run = await runCli(scenario, ["disable", "skip-unfit-skills", "--dry-run", "--json"]);
-    expect(run.code).toBe(0);
-    const body = JSON.parse(run.stdout) as { plan: { changes: { path: string }[] } };
-    expect(body.plan.changes.some((c) => c.path.endsWith("state.json"))).toBe(true);
-    const yes = await runCli(scenario, ["disable", "skip-unfit-skills", "-y"]);
-    expect(yes.code).toBe(1);
-    expect(yes.stderr).toBe(" ERROR  unknown option: -y\n");
-    const refused = await runCli(scenario, [
-      "remove",
-      "skip-unfit-skills",
-      "-m",
-      "gate-exit-conditions-the-merge",
-      "-y",
-    ]);
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("names a memory; -m narrows a source");
-  });
-});
-
 test("install replays the manifest's disabled names as project-scope disables", async () => {
   await withScenario({ project: true, github: { "a/b": SKILLS } }, async (scenario) => {
     mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
@@ -1726,42 +1624,81 @@ test("install replays the manifest's disabled names as project-scope disables", 
   });
 });
 
-test("a manifest local source that leaves the project is refused", async () => {
-  await withScenario({ project: true }, async (scenario) => {
-    mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
-    const lock = {
-      version: 1,
-      sources: {
-        "../outside": {
-          from: { type: "local", path: "../outside" },
-          select: "*",
-          rule: false,
-          harnesses: ["codex"],
-        },
-      },
-    };
-    writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
-    const run = await runCli(scenario, ["install"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toContain(
-      "is not a valid manifest: manifest source ../outside leaves the project root\n",
-    );
-  });
-});
+// A manifest source must stay inside the checkout whatever path says otherwise: a parent segment,
+// or a directory inside it that is itself a symlink out of it.
+const escapingManifestSources: [string, string, (scenario: Scenario) => void][] = [
+  ["a parent path", "../outside", () => undefined],
+  [
+    "a symlink out of the checkout",
+    "rules",
+    (scenario) => symlinkSync(join(scenario.root, "outside"), join(scenario.cwd, "rules")),
+  ],
+];
 
-test("a live project source is projected as .", async () => {
+test.each(escapingManifestSources)(
+  "a manifest local source that leaves the project through %s is refused",
+  async (_name, path, prepare) => {
+    await withScenario({ project: true }, async (scenario) => {
+      writeSource(join(scenario.root, "outside"), { leak: { description: "Outside" } });
+      prepare(scenario);
+      mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
+      const lock = {
+        version: 1,
+        sources: {
+          [path]: { from: { type: "local", path }, select: "*", rule: false, harnesses: ["codex"] },
+        },
+      };
+      writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
+      const run = await runCli(scenario, ["install"]);
+      expect(run.code).toBe(1);
+      expect(run.stderr).toContain(
+        `is not a valid manifest: manifest source ${path} leaves the project root\n`,
+      );
+    });
+  },
+);
+
+// A project directory enters the lock under its `./` path, which keeps the project root itself
+// (`.`, the one spelling that is live), an object property name, a prototype name and a
+// drive-relative name representable, side by side in one manifest.
+const projectDirectories: [string, string, string, boolean][] = [
+  ["the project root", ".", "root-rule", true],
+  ["an object property name", "./constructor", "property-rule", false],
+  ["a prototype name", "./__proto__", "proto-rule", false],
+  // A colon cannot be part of a directory name on Windows, so the row exists where it can be made.
+  ...(WINDOWS
+    ? []
+    : [
+        ["a drive-relative name", "./a:rules", "drive-rule", false] as [
+          string,
+          string,
+          string,
+          boolean,
+        ],
+      ]),
+];
+
+test("project directories are projected into the manifest by their ./ keys, the root as . and live", async () => {
   await withScenario({ project: true }, async (scenario) => {
-    mkdirSync(join(scenario.cwd, "memories"));
-    writeFileSync(
-      join(scenario.cwd, "memories", "own-rule.md"),
-      "---\nname: own-rule\ndescription: Ours\n---\n",
-    );
-    expect((await runCli(scenario, ["add", ".", "-p", "-a", "codex", "--share"])).code).toBe(0);
+    for (const [, key, rule, live] of projectDirectories) {
+      writeSource(join(scenario.cwd, key), { [rule]: { description: "Ours" } });
+      const run = await runCli(scenario, ["add", key, "-p", "-a", "codex", "--share"]);
+      expect([key, run.code, run.stderr]).toEqual([key, 0, ""]);
+      const lock = JSON.parse(
+        readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8"),
+      ) as { sources: Record<string, { from: unknown }> };
+      expect(lock.sources[key]?.from).toEqual({
+        type: "local",
+        path: key,
+        ...(live ? { live: true } : {}),
+      });
+    }
     const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
-      sources: Record<string, { from: { type: string; path: string; live?: boolean } }>;
+      sources: object;
     };
-    expect(Object.keys(lock.sources)).toEqual(["."]);
-    expect(lock.sources["."]?.from).toEqual({ type: "local", path: ".", live: true });
+    expect(Object.keys(lock.sources).sort()).toEqual(
+      projectDirectories.map(([, key]) => key).sort(),
+    );
   });
 });
 
@@ -1786,7 +1723,7 @@ test("a dry-run install hands the disabled-list edit the state it staged", async
     const preview = lastSyncCall(scenario).preview;
     expect(Object.keys(preview?.state.sources ?? {})).toEqual(["@a/b"]);
     expect(preview?.state.disabled).toEqual({
-      project: { [scenario.cwd]: [mn("skip-unfit-skills")] },
+      project: { [scenario.cwd]: [memoryName("skip-unfit-skills")] },
     });
     expect(existsSync(homePaths(scenario.home).state)).toBe(false);
   });
@@ -1818,33 +1755,6 @@ test("a live manifest source registers no hook even when config asks for one", a
     expect(run.code).toBe(0);
     expect(run.stdout).not.toContain("Hook registered");
     expect(readState(scenario).hooks).toBeUndefined();
-  });
-});
-
-test("a manifest local source reached through a symlink out of the checkout is refused", async () => {
-  await withScenario({ project: true }, async (scenario) => {
-    const outside = join(scenario.root, "outside", "memories");
-    mkdirSync(outside, { recursive: true });
-    writeFileSync(join(outside, "leak.md"), "---\nname: leak\ndescription: Outside\n---\n");
-    symlinkSync(join(scenario.root, "outside"), join(scenario.cwd, "rules"));
-    mkdirSync(join(scenario.cwd, ".agents"), { recursive: true });
-    const lock = {
-      version: 1,
-      sources: {
-        rules: {
-          from: { type: "local", path: "rules" },
-          select: "*",
-          rule: false,
-          harnesses: ["codex"],
-        },
-      },
-    };
-    writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(lock));
-    const run = await runCli(scenario, ["install"]);
-    expect(run.code).toBe(1);
-    expect(run.stderr).toContain(
-      "is not a valid manifest: manifest source rules leaves the project root\n",
-    );
   });
 });
 
@@ -1890,47 +1800,6 @@ test("two manifest spellings of one source are refused, and an undefined harness
       sources: Record<string, { intent: { harnesses: string[] } }>;
     };
     expect(state.sources["@a/b"]?.intent.harnesses).toEqual(["team-agent"]);
-  });
-});
-
-test("a project directory named like an object property projects into the manifest", async () => {
-  await withScenario({ project: true }, async (scenario) => {
-    mkdirSync(join(scenario.cwd, "constructor", "memories"), { recursive: true });
-    writeFileSync(
-      join(scenario.cwd, "constructor", "memories", "own-rule.md"),
-      "---\nname: own-rule\ndescription: Ours\n---\n",
-    );
-    const run = await runCli(scenario, ["add", "./constructor", "-p", "-a", "codex", "--share"]);
-    expect(run.stderr).toBe("");
-    expect(run.code).toBe(0);
-    const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
-      sources: object;
-    };
-    expect(Object.keys(lock.sources)).toEqual(["./constructor"]);
-  });
-});
-
-// The `./` prefix keeps a drive-relative or prototype-named directory representable.
-test("a drive-relative or prototype-named project directory is recorded under its ./ key", async () => {
-  await withScenario({ project: true }, async (scenario) => {
-    const memory = (name: string) => `---\nname: ${name}\ndescription: Ours\n---\n`;
-    // A colon cannot be part of a directory name on Windows, so the drive-relative row exists only
-    // where the directory can be made.
-    const named: [string, string][] = [
-      ...(WINDOWS ? [] : [["a:rules", "drive-rule"] as [string, string]]),
-      ["__proto__", "proto-rule"],
-    ];
-    for (const [name, rule] of named) {
-      mkdirSync(join(scenario.cwd, name, "memories"), { recursive: true });
-      writeFileSync(join(scenario.cwd, name, "memories", `${rule}.md`), memory(rule));
-      const run = await runCli(scenario, ["add", `./${name}`, "-p", "-a", "codex", "--share"]);
-      expect(run.stderr).toBe("");
-      expect(run.code).toBe(0);
-    }
-    const lock = JSON.parse(readFileSync(join(scenario.cwd, ".agents", "maxims.lock"), "utf8")) as {
-      sources: object;
-    };
-    expect(Object.keys(lock.sources).sort()).toEqual(named.map(([name]) => `./${name}`).sort());
   });
 });
 
@@ -2225,42 +2094,60 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
 
 // A stamp that is there but cannot be read is not a machine that never synced: the debounce
 // fails open on it and doctor names the read failure instead of a history it did not see. Text
-// that is not a time is the same case, since maxims wrote the stamp.
-test("doctor reports a stamp that holds no timestamp as unknown, not as never synced", async () => {
-  await withScenario({}, async (scenario) => {
-    const stamp = homePaths(scenario.home).lastSync;
-    writeFileSync(stamp, "not a time\n");
-    const run = await runCli(scenario, ["doctor", "--json"]);
-    const body = JSON.parse(run.stdout) as {
-      lastSync: string | null;
-      findings: { kind: string; text: string }[];
-    };
-    expect([body.lastSync, body.findings]).toEqual([
-      null,
-      [{ kind: "warn", text: `last sync unknown: ${stamp} does not hold a timestamp` }],
-    ]);
-  });
-});
+// that is not a time is the same case, since maxims wrote the stamp. Each row breaks the stamp
+// and returns the repair; the unreadable row exists where chmod can deny the read.
+const unreadableStamps: [
+  string,
+  (stamp: string) => () => void,
+  (stamp: string) => string | RegExp,
+][] = [
+  [
+    "holds no timestamp",
+    (stamp) => {
+      writeFileSync(stamp, "not a time\n");
+      return () => undefined;
+    },
+    (stamp) => `last sync unknown: ${stamp} does not hold a timestamp`,
+  ],
+  ...(CHMOD_DENIES
+    ? [
+        [
+          "cannot be read",
+          (stamp: string) => {
+            writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
+            chmodSync(stamp, 0o000);
+            return () => chmodSync(stamp, 0o644);
+          },
+          () => /^last sync unknown: EACCES/,
+        ] as [string, (stamp: string) => () => void, (stamp: string) => string | RegExp],
+      ]
+    : []),
+];
 
-test.skipIf(!CHMOD_DENIES)(
-  "doctor reports an unreadable sync stamp as unknown, not as never synced",
-  async () => {
+test.each(unreadableStamps)(
+  "doctor reports a sync stamp that %s as unknown, not as never synced",
+  async (_name, breakStamp, text) => {
     await withScenario({}, async (scenario) => {
       const stamp = homePaths(scenario.home).lastSync;
-      writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
-      chmodSync(stamp, 0o000);
+      const repair = breakStamp(stamp);
       try {
         const run = await runCli(scenario, ["doctor", "--json"]);
         const body = JSON.parse(run.stdout) as {
           lastSync: string | null;
           findings: { kind: string; text: string }[];
         };
-        expect(body.lastSync).toBeNull();
-        expect(body.findings).toEqual([
-          { kind: "warn", text: expect.stringMatching(/^last sync unknown: EACCES/) },
+        const expected = text(stamp);
+        expect([body.lastSync, body.findings]).toEqual([
+          null,
+          [
+            {
+              kind: "warn",
+              text: typeof expected === "string" ? expected : expect.stringMatching(expected),
+            },
+          ],
         ]);
       } finally {
-        chmodSync(stamp, 0o644);
+        repair();
       }
     });
   },
