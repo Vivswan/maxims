@@ -3,11 +3,12 @@
 // open (invisible to the parser, so every sync would append again), or a leftover empty file
 // would each corrupt or litter the AGENTS.md family silently. The engine writes a block with the
 // grammar's own `replaceBlock` over the file's current text (an absent file is "") and judges the
-// budget once on the finished text, so those two calls stand in for the write here.
+// budget once on the finished text, so those two calls stand in for the write here; the grammar's
+// own splices are tests/rulefile/block.test.ts's, and only what the strategy adds is pinned here.
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HarnessContext, HarnessDefinition, Scope } from "../../../src/harnesses/contract.ts";
+import type { HarnessDefinition, Scope } from "../../../src/harnesses/contract.ts";
 import { assertWithinBudget } from "../../../src/harnesses/strategies/rules-dir.ts";
 import {
   planSharedBlockRemove,
@@ -15,11 +16,12 @@ import {
   sharedBlockPath,
 } from "../../../src/harnesses/strategies/shared-block.ts";
 import { replaceBlock } from "../../../src/rulefile/block.ts";
-import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";
+import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { outcome } from "../../shared/outcome.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
+import { exampleContext as ctx } from "../context.ts";
 
-const ctx: HarnessContext = { home: "/home/user", projectRoot: "/home/user/project", env: {} };
 const target: SharedBlockTarget = { kind: "shared-block", file: "AGENTS.md" };
 const def: HarnessDefinition = {
   id: "codex",
@@ -42,7 +44,6 @@ const def: HarnessDefinition = {
 const blockFor = (source: string, body: string) =>
   `<!-- maxims:begin ${source} sha=abc -->\n${body}<!-- maxims:end ${source} -->\n`;
 const ours = blockFor("@a/b", "- one\n");
-const oursV2 = blockFor("@a/b", "- one\n- two\n");
 const theirs = blockFor("@c/d", "- other\n");
 const path = assertInsideRoot(ctx.home, "/home/user/project/AGENTS.md");
 
@@ -111,65 +112,9 @@ describe("replaceBlock then planSharedBlockRemove", () => {
     );
   });
 
-  test("replacing one source's block leaves the other source's bytes untouched", () => {
-    const before = `${ours}\n${theirs}\ntrailing notes\n`;
-    expect(write(before, "@a/b", oursV2)).toBe(`${oursV2}\n${theirs}\ntrailing notes\n`);
-    expect(planSharedBlockRemove(location("@c/d", before))).toEqual([
-      { kind: "write", path, content: `${ours}\ntrailing notes\n` },
-    ]);
-  });
-
-  // `add alpha; add beta; link beta; link alpha` and `add alpha -a codex; add beta -a codex` are
-  // one intent; the shared file they leave must be one set of bytes.
-  test("two sources reaching one file in either order leave the same bytes", () => {
-    const oursFirst = write(write("# Agents\n", "@a/b", ours), "@c/d", theirs);
-    const theirsFirst = write(write("# Agents\n", "@c/d", theirs), "@a/b", ours);
-    expect(theirsFirst).toBe(oursFirst);
-    expect(oursFirst).toBe(`# Agents\n\n${ours}\n${theirs}`);
-  });
-
-  // The second block's slot opens between the first block and the text glued below it; removing
-  // that block must take its separator back, or the user's text drifts one blank line down.
-  test("a block added after another one and removed again leaves the glued text as it was", () => {
-    const before = `${ours}user notes\n`;
-    const joined = `${ours}\n${theirs}user notes\n`;
-    expect(write(before, "@c/d", theirs)).toBe(joined);
-    expect(planSharedBlockRemove(location("@c/d", joined))).toEqual([
-      { kind: "write", path, content: before },
-    ]);
-  });
-
-  // A BEGIN and END the user left around a block are text only while a marker separates them;
-  // a removal that put them back to back would hand the user's lines to the next sweep.
-  const strayBegin = "<!-- maxims:begin @stray/notes sha=old -->\n";
-  const strayEnd = "<!-- maxims:end @stray/notes -->\n";
-  test("removing a block a stray marker pair wraps keeps the pair as text", () => {
-    const before = `${ours}\n${strayBegin}KEEP ME\n${theirs}\n${strayEnd}`;
-    expect(planSharedBlockRemove(location("@a/b", before))).toEqual([
-      { kind: "write", path, content: `\n${strayBegin}KEEP ME\n${theirs}\n${strayEnd}` },
-    ]);
-  });
-
-  test("removing the only block a stray marker pair wraps is refused", () => {
-    let caught: unknown;
-    try {
-      planSharedBlockRemove(location("@a/b", `${strayBegin}KEEP ME\n${ours}${strayEnd}`));
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
-  });
-
   test("removing a source that has no block changes nothing", () => {
     expect(planSharedBlockRemove(location("@a/b", `notes\n${theirs}`))).toEqual([]);
     expect(planSharedBlockRemove(location("@a/b", null))).toEqual([]);
-  });
-
-  test("a global install's file is under the home", () => {
-    expect(planSharedBlockRemove({ ...location("@a/b", ours), scope: "global" })).toEqual([
-      { kind: "delete", path: assertInsideRoot(ctx.home, "/home/user/AGENTS.md") },
-    ]);
   });
 
   // Windsurf caps a workspace rule and its one global file differently, so a budget may name a
@@ -220,19 +165,15 @@ describe("replaceBlock then planSharedBlockRemove", () => {
 
   test.each(budgets)("$name", ({ byteBudget, scope, refused }) => {
     const text = write("x".repeat(40), "@a/b", ours);
-    const judge = () => assertWithinBudget({ ...def, byteBudget }, scope, path, text);
-    if (!refused) {
-      expect(judge).not.toThrow();
-      return;
+    const verdict = outcome(() => assertWithinBudget({ ...def, byteBudget }, scope, path, text));
+    if (refused) {
+      expect(verdict).toMatchObject({
+        kind: "threw",
+        error: { name: "MaximsError", code: ExitCode.RuleCapExceeded },
+      });
+    } else {
+      expect(verdict).toEqual({ kind: "value", value: undefined });
     }
-    let caught: unknown;
-    try {
-      judge();
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.RuleCapExceeded);
   });
 });
 

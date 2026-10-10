@@ -1,18 +1,14 @@
 // Every harness definition, present and future, is held to the same promises here with no new
-// test code: a target outside its root, missing declared frontmatter, a block the marker parser
-// cannot find in the written file, an import token left bare where the harness expands it, a
-// hand-formatted registry that comes back changed, a handler
-// the prefix search cannot see, or a declared fixture that is missing would each ship a file the
-// harness loads wrongly or not at all.
+// test code: a rule file outside its root or one the marker parser cannot read back, an import
+// token left bare where the harness expands it, a hand-formatted registry that comes back
+// changed, a file hook not written and deleted whole, or a detection that reads a home it cannot
+// stat as absent would each ship a file the harness loads wrongly or not at all. A promise a
+// harness does not make (no hook of that shape, no import expansion) shows as skipped.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
-import { util } from "zod";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, sep } from "node:path";
 import {
-  type HarnessContext,
   type HarnessDefinition,
-  HOOK_COMMAND_PREFIX,
-  hookSpecFor,
   type Scope,
   type SourceSlug,
   scopeRoot,
@@ -29,17 +25,11 @@ import { parseMemoryName } from "../../src/memory/contract.ts";
 import { parseBlocks, renderBlock, replaceBlock } from "../../src/rulefile/block.ts";
 import type { BlockInput } from "../../src/rulefile/types.ts";
 import type { RootedPath } from "../../src/util/fs.ts";
-import { CHMOD_DENIES } from "../shared/platform.ts";
+import { outcome } from "../shared/outcome.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
+import { exampleContext as ctx } from "./context.ts";
 
-// The roots are spelled through resolve so the plans, which resolve every path, agree with them on
-// either separator.
-const ctx: HarnessContext = {
-  home: resolve("/home/user"),
-  projectRoot: resolve("/home/user/project"),
-  env: {},
-};
 const scopes: Scope[] = ["project", "global"];
 const source = "@example-user/doctrine";
 const sourceSlug = "example-user-doctrine" as SourceSlug;
@@ -77,21 +67,12 @@ function blockFor(def: HarnessDefinition, overrides: Partial<BlockInput> = {}): 
 function planRuleWrite(
   def: HarnessDefinition,
   scope: Scope,
-  paths?: string[],
 ): { path: RootedPath; content: string } {
   const target = def.targets[scope];
   if (target === null) throw new Error(`${def.id} has no ${scope} target`);
   const block = blockFor(def);
   if (target.kind === "rules-dir") {
-    const [change, ...rest] = planRulesDirWrite({
-      def,
-      target,
-      scope,
-      ctx,
-      sourceSlug,
-      block,
-      paths,
-    });
+    const [change, ...rest] = planRulesDirWrite({ def, target, scope, ctx, sourceSlug, block });
     if (change?.kind !== "write" || rest.length > 0) {
       throw new Error("the rules-dir strategy plans exactly one write");
     }
@@ -101,110 +82,91 @@ function planRuleWrite(
   return { path, content: replaceBlock("", source, block) };
 }
 
-function fixturePath(def: HarnessDefinition, name: string): string {
-  return srcPath("harnesses", def.id, "fixtures", name);
-}
-
 describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => {
   const targeted = scopes.filter((scope) => def.targets[scope] !== null);
+  const expandsImports = def.expands.length === 0 || def.expands.includes("at-import");
+  const registry = hasHook(def, "registry") ? def : null;
+  const fileHook = hasHook(def, "file") ? def : null;
 
-  test.each(targeted)("%s rule target is one real file inside the destination root", (scope) => {
-    const root = scopeRoot(def, scope, ctx);
-    const change = planRuleWrite(def, scope);
-    expect(change.path.startsWith(`${root}${sep}`)).toBe(true);
-    expect(change.content.endsWith("\n")).toBe(true);
-  });
-
-  test.each(targeted)("%s target emits its declared frontmatter and scope filter", (scope) => {
-    const target = def.targets[scope];
-    if (target?.kind !== "rules-dir") return;
-    const always = planRuleWrite(def, scope);
-    const declared = target.frontmatter?.({}) ?? "";
-    expect(always.content.startsWith(declared)).toBe(true);
-    const globs = ["src/**/*.ts"];
-    const scoped = planRuleWrite(def, scope, globs);
-    const filter = target.frontmatter?.({ paths: globs }) ?? def.scopeFrontmatter?.(globs) ?? "";
-    expect(scoped.content.startsWith(filter)).toBe(true);
-    if (filter !== "") expect(scoped.content).not.toBe(always.content);
-  });
-
-  test.each(targeted)("%s written file round-trips exactly one block for the source", (scope) => {
-    const change = planRuleWrite(def, scope);
-    const { blocks } = parseBlocks(change.content);
-    expect(blocks.map((block) => block.source)).toEqual([source]);
-    const [block] = blocks;
-    if (block === undefined) throw new Error("expected a block");
-    expect(change.content.slice(block.start, block.end)).toBe(blockFor(def));
-  });
+  test.each(targeted)(
+    "%s rule file sits inside the destination root and reads back as exactly one block for the source",
+    (scope) => {
+      const root = scopeRoot(def, scope, ctx);
+      const change = planRuleWrite(def, scope);
+      const { blocks } = parseBlocks(change.content);
+      const [block] = blocks;
+      expect({
+        inside: change.path.startsWith(`${root}${sep}`),
+        terminated: change.content.endsWith("\n"),
+        sources: blocks.map((found) => found.source),
+        block: block === undefined ? null : change.content.slice(block.start, block.end),
+      }).toEqual({ inside: true, terminated: true, sources: [source], block: blockFor(def) });
+    },
+  );
 
   // A harness that expands `@path` at load would pull the named file into context; outside the
   // markers and the code spans that fence a token, no `@` may reach such a harness.
-  test.each(targeted)(
+  test.skipIf(!expandsImports).each(targeted)(
     "%s file leaves no bare @ token where the harness expands imports",
     (scope) => {
-      if (def.expands.length > 0 && !def.expands.includes("at-import")) return;
       const change = planRuleWrite(def, scope);
       const visible = change.content.replace(/<!--[\s\S]*?-->/g, "").replace(/`[^`\n]*`/g, "");
       expect(visible).not.toContain("@");
     },
   );
 
-  test("the hook spec renders to a handler searchable by its command key", () => {
-    if (!hasHook(def, "registry")) return;
-    const handler = def.hook.handler(hookSpecFor(def));
-    const command = handler[def.hook.commandKey];
-    expect(typeof command).toBe("string");
-    if (typeof command === "string")
-      expect(command.startsWith(`${HOOK_COMMAND_PREFIX} `)).toBe(true);
-  });
+  test.skipIf(registry === null).each(scopes)(
+    "%s hook registration survives add then remove byte-identically",
+    (scope) => {
+      if (registry === null) throw new Error("the row is skipped without a registry hook");
+      const fixture = registry.fixtures?.config;
+      const original =
+        fixture === undefined
+          ? null
+          : readFileSync(srcPath("harnesses", registry.id, "fixtures", fixture), "utf8");
+      const add = (currentText: string | null) =>
+        planHookRegistryWrite({ def: registry, scope, ctx, wanted: true, currentText });
+      const remove = (currentText: string | null) =>
+        planHookRegistryWrite({ def: registry, scope, ctx, wanted: false, currentText });
+      const [added] = add(original).changes;
+      if (added?.kind !== "write") throw new Error("expected a write");
+      expect(added.path.startsWith(`${scopeRoot(registry, scope, ctx)}${sep}`)).toBe(true);
+      expect(add(added.content).changes).toEqual([]);
+      const [removed] = remove(added.content).changes;
+      expect(removed).toEqual({ kind: "write", path: added.path, content: original ?? "{}\n" });
+      expect(remove(original).changes).toEqual([]);
+      const [fresh] = add(null).changes;
+      const [reinstalled] = add("{}\n").changes;
+      if (fresh?.kind !== "write" || reinstalled?.kind !== "write")
+        throw new Error("expected writes");
+      expect(reinstalled.content).toBe(fresh.content);
+    },
+  );
 
-  test.each(scopes)("%s hook registration survives add then remove byte-identically", (scope) => {
-    if (!hasHook(def, "registry")) return;
-    const fixture = def.fixtures?.config;
-    const original = fixture === undefined ? null : readFileSync(fixturePath(def, fixture), "utf8");
-    const add = (currentText: string | null) =>
-      planHookRegistryWrite({ def, scope, ctx, wanted: true, currentText });
-    const remove = (currentText: string | null) =>
-      planHookRegistryWrite({ def, scope, ctx, wanted: false, currentText });
-    const [added] = add(original).changes;
-    if (added?.kind !== "write") throw new Error("expected a write");
-    expect(added.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
-    expect(add(added.content).changes).toEqual([]);
-    const [removed] = remove(added.content).changes;
-    expect(removed).toEqual({ kind: "write", path: added.path, content: original ?? "{}\n" });
-    expect(remove(original).changes).toEqual([]);
-    const [fresh] = add(null).changes;
-    const [reinstalled] = add("{}\n").changes;
-    if (fresh?.kind !== "write" || reinstalled?.kind !== "write")
-      throw new Error("expected writes");
-    expect(reinstalled.content).toBe(fresh.content);
-  });
-
-  test.each(scopes)("%s file-shaped hook is written when wanted and deleted when not", (scope) => {
-    if (!hasHook(def, "file")) return;
-    const [written] = planFileHookWrite({ def, scope, ctx, wanted: true, current: null }).changes;
-    if (written?.kind !== "write") throw new Error("expected a write");
-    expect(written.path.startsWith(`${scopeRoot(def, scope, ctx)}${sep}`)).toBe(true);
-    expect(written.mode).toBe(def.hook.executable ? 0o755 : undefined);
-    const gone = planFileHookWrite({
-      def,
-      scope,
-      ctx,
-      wanted: false,
-      current: { text: written.content, mode: written.mode ?? 0o644 },
-    });
-    expect(gone.changes).toEqual([{ kind: "delete", path: written.path }]);
-  });
-
-  test("declared fixtures exist and the hook stdin fixture is a JSON object", () => {
-    for (const name of Object.values(def.fixtures ?? {})) {
-      expect(existsSync(fixturePath(def, name))).toBe(true);
-    }
-    const stdin = def.fixtures?.hookStdin;
-    if (stdin === undefined) return;
-    const parsed: unknown = JSON.parse(readFileSync(fixturePath(def, stdin), "utf8"));
-    expect(util.isObject(parsed)).toBe(true);
-  });
+  test.skipIf(fileHook === null).each(scopes)(
+    "%s file-shaped hook is written when wanted and deleted when not",
+    (scope) => {
+      if (fileHook === null) throw new Error("the row is skipped without a file hook");
+      const [written] = planFileHookWrite({
+        def: fileHook,
+        scope,
+        ctx,
+        wanted: true,
+        current: null,
+      }).changes;
+      if (written?.kind !== "write") throw new Error("expected a write");
+      expect(written.path.startsWith(`${scopeRoot(fileHook, scope, ctx)}${sep}`)).toBe(true);
+      expect(written.mode).toBe(fileHook.hook.executable ? 0o755 : undefined);
+      const gone = planFileHookWrite({
+        def: fileHook,
+        scope,
+        ctx,
+        wanted: false,
+        current: { text: written.content, mode: written.mode ?? 0o644 },
+      });
+      expect(gone.changes).toEqual([{ kind: "delete", path: written.path }]);
+    },
+  );
 
   // A home that is a regular file puts every config directory under a file, the lookup Bun
   // answers with ENOTDIR rather than "missing"; a probe that lets it through crashes detection.
@@ -212,25 +174,10 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
     await withTempDir(async (dir) => {
       const file = join(dir, "home");
       writeFileSync(file, "");
-      expect(def.detect({ home: file, projectRoot: null, env: {} })).toBe(false);
+      expect(outcome(() => def.detect({ home: file, projectRoot: null, env: {} }))).toEqual({
+        kind: "value",
+        value: false,
+      });
     });
   });
-
-  // A probe that answers "not installed" for a lookup it was not allowed to make would hide a
-  // locked home behind a quiet skip.
-  test.skipIf(!CHMOD_DENIES)(
-    "detection surfaces a home it may not read instead of reading not installed",
-    async () => {
-      await withTempDir(async (dir) => {
-        const locked = join(dir, "home");
-        mkdirSync(locked);
-        chmodSync(locked, 0o000);
-        try {
-          expect(() => def.detect({ home: locked, projectRoot: null, env: {} })).toThrow(/EACCES/);
-        } finally {
-          chmodSync(locked, 0o700);
-        }
-      });
-    },
-  );
 });

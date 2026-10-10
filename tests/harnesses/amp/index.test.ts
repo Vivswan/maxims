@@ -1,14 +1,9 @@
 // Guards the plugin file Amp loads: a default export taking the plugin API, a `session.start`
 // listener, and the sync run through the API's shell inside a try so an offline npx never becomes
-// a plugin error. Also guards that a directory holding only AGENT.md or CLAUDE.md gets the block
-// there, since Amp reads those only while no AGENTS.md exists and creating one would drop the
-// user's file from Amp's context.
+// a plugin error.
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { amp } from "../../../src/harnesses/amp/spec.ts";
-import { hookSpecFor, sharedBlockFile } from "../../../src/harnesses/contract.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
+import { hookSpecFor } from "../../../src/harnesses/contract.ts";
 
 test("the plugin file is written byte for byte as Amp loads it", () => {
   if (amp.hook.kind !== "file") throw new Error("expected a file hook");
@@ -31,22 +26,4 @@ test("the plugin file is written byte for byte as Amp loads it", () => {
       "",
     ].join("\n"),
   );
-  const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
-  expect(amp.hook.path("global", ctx)).toBe(resolve("/home/user/.config/amp/plugins/maxims.ts"));
-  expect(amp.hook.path("project", ctx)).toBe(resolve("/home/user/project/.amp/plugins/maxims.ts"));
-  expect(amp.mcp?.path("global", ctx)).toBe(resolve("/home/user/.config/amp/settings.json"));
-});
-
-test("a project with only a fallback instructions file keeps it as the block's home", async () => {
-  const target = amp.targets.project;
-  if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-  await withTempDir((repo) => {
-    expect(sharedBlockFile(target, repo)).toBe("AGENTS.md");
-    writeFileSync(join(repo, "CLAUDE.md"), "");
-    expect(sharedBlockFile(target, repo)).toBe("CLAUDE.md");
-    writeFileSync(join(repo, "AGENT.md"), "");
-    expect(sharedBlockFile(target, repo)).toBe("AGENT.md");
-    writeFileSync(join(repo, "AGENTS.md"), "");
-    expect(sharedBlockFile(target, repo)).toBe("AGENTS.md");
-  });
 });

@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
-import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
@@ -60,19 +60,13 @@ async function load(home: string, content: string) {
   return loadUserDefinedHarnesses(home);
 }
 
-async function refusal(home: string, content: string): Promise<MaximsError> {
-  try {
-    await load(home, content);
-  } catch (error) {
-    if (error instanceof MaximsError) return error;
-    throw error;
-  }
-  throw new Error("expected the load to be refused");
+function refusalNaming(home: string, expected: string): RegExp {
+  return new RegExp(`^${RegExp.escape(`${fileIn(home)}: `)}.*${RegExp.escape(expected)}`, "s");
 }
 
 test("no file means no user-defined harnesses", async () => {
   await withTempDir(async (home) => {
-    expect(await loadUserDefinedHarnesses(home)).toEqual([]);
+    await expect(loadUserDefinedHarnesses(home)).resolves.toEqual([]);
   });
 });
 
@@ -130,10 +124,11 @@ test.each(refusals)(
   "refuses %s with exit 4 naming the file and the entry",
   async (_, content, expected) => {
     await withTempDir(async (home) => {
-      const error = await refusal(home, content);
-      expect(error.code).toBe(ExitCode.DestinationWriteFailed);
-      expect(error.message.startsWith(`${fileIn(home)}: `)).toBe(true);
-      expect(error.message).toContain(expected);
+      await expect(load(home, content)).rejects.toMatchObject({
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: expect.stringMatching(refusalNaming(home, expected)),
+      });
     });
   },
 );
@@ -144,8 +139,8 @@ test.each(refusals)(
 test("an entry in the old verifiedAgainst.pages shape is refused naming both keys", async () => {
   await withTempDir(async (home) => {
     const fixture = srcPath("harnesses", "fixtures", "corrupt-verified-against-pages.json");
-    const error = await refusal(home, readFileSync(fixture, "utf8"));
-    expect({ code: error.code, message: error.message }).toEqual({
+    await expect(load(home, readFileSync(fixture, "utf8"))).rejects.toMatchObject({
+      name: "MaximsError",
       code: ExitCode.DestinationWriteFailed,
       message:
         `${fileIn(home)}: harnesses[0] (id "acme"): verifiedAgainst.sources: Invalid input: ` +
@@ -159,15 +154,10 @@ test("an entry in the old verifiedAgainst.pages shape is refused naming both key
 test("a file that cannot be read is refused rather than read as empty", async () => {
   await withTempDir(async (home) => {
     mkdirSync(fileIn(home));
-    let caught: unknown;
-    try {
-      await loadUserDefinedHarnesses(home);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (!(caught instanceof MaximsError)) throw new Error("expected a MaximsError");
-    expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
-    expect(caught.message).toContain("cannot read");
+    await expect(loadUserDefinedHarnesses(home)).rejects.toMatchObject({
+      name: "MaximsError",
+      code: ExitCode.DestinationWriteFailed,
+      message: expect.stringContaining("cannot read"),
+    });
   });
 });

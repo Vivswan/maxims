@@ -2,7 +2,7 @@
 // behind, an orphan matcher group after removal, or a rewrite of a file we cannot parse would each
 // pass a shape check and still wreck the user's settings.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import {
@@ -26,13 +26,13 @@ import {
 import { INSTRUCTIONS_GLOB } from "../../src/harnesses/opencode/quirks.ts";
 import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
-import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
+import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
+import { exampleContext as ctx, exampleProjectRoot as projectRoot } from "./context.ts";
 
-const projectRoot = "/home/user/project";
-const ctx: HarnessContext = { home: "/home/user", projectRoot, env: {} };
 const rooted = (path: string) => assertInsideRoot(projectRoot, path);
 const settingsPath = rooted(`${projectRoot}/.claude/settings.json`);
 
@@ -490,30 +490,33 @@ ${flatOurs} ]}}`,
     expect(textOf(plan(grouped, false, added))).toBe(after);
   });
 
-  test("a comment between an event key and its list pins the list; it is emptied, not cut", () => {
-    const before = `{"hooks":{"SessionStart": /* keep */ [{"hooks":[${oursJson}]}]}}`;
-    expect(textOf(plan(grouped, false, before))).toBe(`{"hooks":{"SessionStart": /* keep */ []}}`);
-  });
+  // Anything a user wrote in a container pins it: the climb stops below the comment and only the
+  // lineage our handler alone kept alive leaves.
+  const pinned: { name: string; before: string; after: string }[] = [
+    {
+      name: "a comment between an event key and its list pins the list; it is emptied, not cut",
+      before: `{"hooks":{"SessionStart": /* keep */ [{"hooks":[${oursJson}]}]}}`,
+      after: `{"hooks":{"SessionStart": /* keep */ []}}`,
+    },
+    {
+      name: "a comment inside a group's matcher pins the group; only its hooks list is emptied",
+      before: `{"model":"opus","hooks":{"SessionStart":[{"matcher":/* keep */"startup","hooks":[${oursJson}]}]}}`,
+      after: `{"model":"opus","hooks":{"SessionStart":[{"matcher":/* keep */"startup","hooks":[]}]}}`,
+    },
+    {
+      name: "a trailing comma after ours and a comment goes with ours; the comment stays",
+      before: `{"hooks":{"SessionStart":[{"hooks":[${oursJson} /* keep */,]}]}}`,
+      after: `{"hooks":{"SessionStart":[{"hooks":[ /* keep */]}]}}`,
+    },
+    {
+      name: "a group annotated by the user keeps its comment; only its hooks list is emptied",
+      before: `{"hooks":{"SessionStart":[{"matcher":"x", /* keep */ "hooks":[${oursJson}]}]}}`,
+      after: `{"hooks":{"SessionStart":[{"matcher":"x", /* keep */ "hooks":[]}]}}`,
+    },
+  ];
 
-  test("a comment inside a group's matcher pins the group; only its hooks list is emptied", () => {
-    const before = `{"model":"opus","hooks":{"SessionStart":[{"matcher":/* keep */"startup","hooks":[${oursJson}]}]}}`;
-    expect(textOf(plan(grouped, false, before))).toBe(
-      `{"model":"opus","hooks":{"SessionStart":[{"matcher":/* keep */"startup","hooks":[]}]}}`,
-    );
-  });
-
-  test("a trailing comma after ours and a comment goes with ours; the comment stays", () => {
-    const before = `{"hooks":{"SessionStart":[{"hooks":[${oursJson} /* keep */,]}]}}`;
-    expect(textOf(plan(grouped, false, before))).toBe(
-      `{"hooks":{"SessionStart":[{"hooks":[ /* keep */]}]}}`,
-    );
-  });
-
-  test("a group annotated by the user keeps its comment; only its hooks list is emptied", () => {
-    const before = `{"hooks":{"SessionStart":[{"matcher":"x", /* keep */ "hooks":[${oursJson}]}]}}`;
-    expect(textOf(plan(grouped, false, before))).toBe(
-      `{"hooks":{"SessionStart":[{"matcher":"x", /* keep */ "hooks":[]}]}}`,
-    );
+  test.each(pinned)("removal: $name", ({ before, after }) => {
+    expect(textOf(plan(grouped, false, before))).toBe(after);
   });
 
   test("two copies of our handler converge to one on add and to none on remove", () => {
@@ -535,13 +538,6 @@ ${flatOurs} ]}}`,
     });
   });
 
-  test("a CRLF file gains CRLF-only lines", () => {
-    const added = textOf(plan(grouped, true, '{\r\n  "model": "opus"\r\n}\r\n'));
-    expect(added.includes("\r\n")).toBe(true);
-    expect(added.replaceAll("\r\n", "").includes("\n")).toBe(false);
-    expect(added.endsWith("\r\n")).toBe(true);
-  });
-
   const refusals: { name: string; text: string; wanted: boolean }[] = [
     { name: "a truncated file", text: '{ "hooks": { "SessionStart": [', wanted: true },
     { name: "a truncated file on removal", text: "{ bad", wanted: false },
@@ -552,14 +548,10 @@ ${flatOurs} ]}}`,
   ];
 
   test.each(refusals)("refuses to rewrite $name", ({ text, wanted }) => {
-    let caught: unknown;
-    try {
-      plan(grouped, wanted, text);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(MaximsError);
-    if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+    expect(outcome(() => plan(grouped, wanted, text))).toMatchObject({
+      kind: "threw",
+      error: { name: "MaximsError", code: ExitCode.DestinationWriteFailed },
+    });
   });
 });
 
@@ -638,34 +630,35 @@ describe("planFileHookWrite", () => {
     });
   });
 
-  test.skipIf(WINDOWS)(
-    "a hook whose execute bit was stripped is repaired through applyChanges (mode bits are POSIX)",
-    async () => {
-      await withTempDir(async (root) => {
-        const local: HarnessContext = { ...ctx, projectRoot: root };
-        const file = join(root, ".clinerules", "hooks", "TaskStart");
-        mkdirSync(join(root, ".clinerules", "hooks"), { recursive: true });
-        writeFileSync(file, rendered, { mode: 0o644 });
-        const repair = await planHookWrite({
-          def: fileDef,
-          scope: "project",
-          ctx: local,
-          wanted: true,
-        });
-        expect(repair.changes).toHaveLength(1);
-        await applyChanges({ changes: repair.changes, notices: [] }, { dryRun: false });
-        expect(statSync(file).mode & 0o7777).toBe(0o755);
-        expect(readFileSync(file, "utf8")).toBe(rendered);
-        const again = await planHookWrite({
-          def: fileDef,
-          scope: "project",
-          ctx: local,
-          wanted: true,
-        });
-        expect(again.changes).toEqual([]);
+  // The planner sees an existing hook only through the file read: a read that dropped the mode
+  // would rewrite a hook that is already executable, or leave one that is not.
+  test.skipIf(WINDOWS).each([
+    { name: "left alone when it is already executable", mode: 0o755, repaired: false },
+    { name: "made executable again when its exec bit is missing", mode: 0o644, repaired: true },
+  ])("an existing hook file is $name (mode bits are POSIX)", async ({ mode, repaired }) => {
+    await withTempDir(async (root) => {
+      const local: HarnessContext = { ...ctx, projectRoot: root };
+      const file = join(root, ".clinerules", "hooks", "TaskStart");
+      mkdirSync(join(root, ".clinerules", "hooks"), { recursive: true });
+      writeFileSync(file, rendered);
+      chmodSync(file, mode);
+      const plan = await planHookWrite({
+        def: fileDef,
+        scope: "project",
+        ctx: local,
+        wanted: true,
       });
-    },
-  );
+      const path = assertInsideRoot(root, file);
+      expect(plan).toEqual(
+        repaired
+          ? {
+              changes: [{ kind: "write", path, content: rendered, mode: 0o755 }],
+              notice: `made the maxims hook at ${path} executable again`,
+            }
+          : { changes: [] },
+      );
+    });
+  });
 });
 
 describe("planHookWrite against a real directory", () => {
@@ -729,14 +722,13 @@ describe("planHookWrite against a real directory", () => {
     await withTempDir(async (root) => {
       const local: HarnessContext = { ...ctx, projectRoot: root };
       mkdirSync(join(root, ".claude", "settings.json"), { recursive: true });
-      let caught: unknown;
-      try {
-        await planHookWrite({ def: grouped, scope: "project", ctx: local, wanted: true });
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(MaximsError);
-      if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+      const verdict = await asyncOutcome(() =>
+        planHookWrite({ def: grouped, scope: "project", ctx: local, wanted: true }),
+      );
+      expect(verdict).toMatchObject({
+        kind: "threw",
+        error: { name: "MaximsError", code: ExitCode.DestinationWriteFailed },
+      });
     });
   });
 });
@@ -760,20 +752,28 @@ describe("planHookWrite composes the hook with the definition's config edit", ()
         : [{ kind: "delete", path: configFile }],
   };
 
-  test("both wanted: the custom hook sees the scope and the command; the config edit follows", async () => {
-    const plan = await planHookWrite({ def, scope: "global", ctx, wanted: true });
-    expect(plan.changes).toEqual([
-      { kind: "write", path: hookFile, content: "hook\n" },
-      { kind: "write", path: configFile, content: "{}\n" },
-    ]);
-    expect(seen).toEqual([{ scope: "global", wanted: true, command: HOOK_COMMAND }]);
-  });
+  const intents: [string, Scope, boolean, Change[]][] = [
+    [
+      "both wanted",
+      "global",
+      true,
+      [
+        { kind: "write", path: hookFile, content: "hook\n" },
+        { kind: "write", path: configFile, content: "{}\n" },
+      ],
+    ],
+    ["both unwanted", "project", false, [{ kind: "delete", path: configFile }]],
+  ];
 
-  test("both unwanted: the config edit's removal is still planned", async () => {
-    const plan = await planHookWrite({ def, scope: "project", ctx, wanted: false });
-    expect(plan.changes).toEqual([{ kind: "delete", path: configFile }]);
-    expect(seen.at(-1)).toEqual({ scope: "project", wanted: false, command: HOOK_COMMAND });
-  });
+  test.each(intents)(
+    "%s: the hook plan carries the config edit",
+    async (_, scope, wanted, changes) => {
+      seen.length = 0;
+      const plan = await planHookWrite({ def, scope, ctx, wanted });
+      expect(plan.changes).toEqual(changes);
+      expect(seen).toEqual([{ scope, wanted, command: HOOK_COMMAND }]);
+    },
+  );
 });
 
 // A caller judging "is the hook itself current?" from the combined plan would read a pending

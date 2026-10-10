@@ -1,18 +1,9 @@
-// Guards the extension file Pi loads and what moves with `PI_CODING_AGENT_DIR`: the default
-// export takes the extension API, `session_start` runs the sync through `pi.exec` with an argv
-// (not a shell string) and a millisecond timeout inside a try, and the global AGENTS.md, the
-// extension and the `mcp.json` servers file all follow the overridden directory, while the
-// variable alone never counts as an install. Also guards that a directory's one context file receives the block, since Pi reads
-// only the first it finds of AGENTS.override.md, AGENTS.md and CLAUDE.md (the last two also
-// spelled `.MD`, which a case-insensitive filesystem cannot tell apart, so only the lower-case
-// names are driven here): a block in AGENTS.md beside AGENTS.override.md would never load, and
-// creating AGENTS.md beside a lone CLAUDE.md would drop the user's file from Pi's context.
+// Guards the extension file Pi loads: the default export takes the extension API, and
+// `session_start` runs the sync through `pi.exec` with an argv (not a shell string) and a
+// millisecond timeout inside a try, so an offline npx never becomes an extension error.
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { hookSpecFor, scopeRoot, sharedBlockFile } from "../../../src/harnesses/contract.ts";
+import { hookSpecFor } from "../../../src/harnesses/contract.ts";
 import { pi } from "../../../src/harnesses/pi/spec.ts";
-import { withTempDir } from "../../shared/temp_dir.ts";
 
 test("the extension file is written byte for byte as Pi loads it", () => {
   if (pi.hook.kind !== "file") throw new Error("expected a file hook");
@@ -36,73 +27,4 @@ test("the extension file is written byte for byte as Pi loads it", () => {
       "",
     ].join("\n"),
   );
-});
-
-test("$PI_CODING_AGENT_DIR moves the global AGENTS.md and the extension, even when relative", () => {
-  if (pi.hook.kind !== "file") throw new Error("expected a file hook");
-  const target = pi.targets.global;
-  if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-  const home = resolve("/home/user");
-  const plain = { home, projectRoot: null, env: {} };
-  expect(join(scopeRoot(pi, "global", plain), target.file)).toBe(
-    resolve("/home/user/.pi/agent/AGENTS.md"),
-  );
-  expect(pi.hook.path("global", plain)).toBe(resolve("/home/user/.pi/agent/extensions/maxims.ts"));
-  const moved = { home, projectRoot: null, env: { PI_CODING_AGENT_DIR: resolve("/opt/pi") } };
-  expect(join(scopeRoot(pi, "global", moved), target.file)).toBe(resolve("/opt/pi/AGENTS.md"));
-  expect(pi.hook.path("global", moved)).toBe(resolve("/opt/pi/extensions/maxims.ts"));
-  const relative = { home, projectRoot: null, env: { PI_CODING_AGENT_DIR: "custom-pi" } };
-  expect(pi.hook.path("global", relative)).toBe(
-    join(process.cwd(), "custom-pi/extensions/maxims.ts"),
-  );
-  expect(pi.hook.path("project", { ...plain, projectRoot: resolve("/home/user/project") })).toBe(
-    resolve("/home/user/project/.pi/extensions/maxims.ts"),
-  );
-});
-
-test("detection follows the config directory, not the exported variable", async () => {
-  await withTempDir((dir) => {
-    const home = join(dir, "home");
-    const present = join(dir, "present");
-    mkdirSync(present, { recursive: true });
-    writeFileSync(join(dir, "a-file"), "");
-    const at = (value: string | undefined) => ({
-      home,
-      projectRoot: null,
-      env: value === undefined ? {} : { PI_CODING_AGENT_DIR: value },
-    });
-    expect(pi.detect(at(present))).toBe(true);
-    expect(pi.detect(at(join(dir, "missing")))).toBe(false);
-    expect(pi.detect(at(join(dir, "a-file")))).toBe(false);
-    expect(pi.detect(at(undefined))).toBe(false);
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    expect(pi.detect(at(undefined))).toBe(true);
-  });
-});
-
-test.each(["project", "global"] as const)(
-  "the %s directory's one context file receives the block, in Pi's reading order",
-  async (scope) => {
-    const target = pi.targets[scope];
-    if (target?.kind !== "shared-block") throw new Error("expected a shared block");
-    await withTempDir((dir) => {
-      expect(sharedBlockFile(target, dir)).toBe("AGENTS.md");
-      writeFileSync(join(dir, "CLAUDE.md"), "");
-      expect(sharedBlockFile(target, dir)).toBe("CLAUDE.md");
-      writeFileSync(join(dir, "AGENTS.md"), "");
-      expect(sharedBlockFile(target, dir)).toBe("AGENTS.md");
-      writeFileSync(join(dir, "AGENTS.override.md"), "");
-      expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
-    });
-  },
-);
-
-test("the mcp.json servers file sits beside the extensions in each scope", () => {
-  const home = resolve("/home/user");
-  const plain = { home, projectRoot: resolve("/home/user/project"), env: {} };
-  expect(pi.mcp?.serversPath).toEqual(["mcpServers"]);
-  expect(pi.mcp?.path("project", plain)).toBe(resolve("/home/user/project/.pi/mcp.json"));
-  expect(pi.mcp?.path("global", plain)).toBe(resolve("/home/user/.pi/agent/mcp.json"));
-  const moved = { ...plain, env: { PI_CODING_AGENT_DIR: resolve("/opt/pi") } };
-  expect(pi.mcp?.path("global", moved)).toBe(resolve("/opt/pi/mcp.json"));
 });

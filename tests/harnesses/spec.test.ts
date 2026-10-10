@@ -5,6 +5,8 @@
 // to the wrong place or writes nothing, and the refusal must name the field so the author can find
 // it.
 import { expect, test } from "bun:test";
+import { append, type Json, nil, set, unset } from "@hyperjump/json-pointer";
+import { util } from "zod";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
 
 function base(): Record<string, unknown> {
@@ -54,29 +56,14 @@ function base(): Record<string, unknown> {
 
 type Mutation = (spec: Record<string, unknown>) => Record<string, unknown>;
 
-type Container = Record<string, unknown> | unknown[];
-
-function isContainer(value: unknown): value is Container {
-  return typeof value === "object" && value !== null;
-}
-
-// A path step through an array is its index as a string, so `["sources", "0", "claims"]` reaches
-// the first source's claims.
 function at(path: string[], value: unknown): Mutation {
+  const pointer = path.reduce((built, segment) => append(segment, built), nil);
   return (spec) => {
-    const copy = structuredClone(spec);
-    let cursor: Container = copy;
-    for (const key of path.slice(0, -1)) {
-      const next: unknown = Array.isArray(cursor) ? cursor[Number(key)] : cursor[key];
-      if (!isContainer(next)) throw new Error(`no object at ${key}`);
-      cursor = next;
-    }
-    const last = path[path.length - 1];
-    if (last === undefined) throw new Error("a path needs a key");
-    if (Array.isArray(cursor)) cursor[Number(last)] = value;
-    else if (value === undefined) delete cursor[last];
-    else cursor[last] = value;
-    return copy;
+    const subject = spec as Json;
+    const edited =
+      value === undefined ? unset(pointer, subject) : set(pointer, subject, value as Json);
+    if (!util.isObject(edited)) throw new Error("the spec stays an object");
+    return edited;
   };
 }
 
@@ -334,13 +321,10 @@ const refusals: [string, Mutation, string][] = [
   ],
 ];
 
-test("the base spec parses", () => {
-  expect(parseHarnessSpec(base())).toMatchObject({ ok: true });
-});
-
-// The positive control for the refusal table: one source of each kind, including the root pointer
-// and a pointer with a value, parses whole. Without it a schema that refused every `file` or
-// `schema` source would leave the refusals above passing for the wrong reason.
+// The positive control for the refusal table: the base spec with one source of each kind,
+// including the root pointer and a pointer with a value, parses whole. Without it a base that
+// stopped parsing, or a schema that refused every `file` or `schema` source, would leave most of
+// the refusals above passing for the wrong reason.
 test("a definition verified against a schema, a repository file and a page parses whole", () => {
   const sources = [
     {
