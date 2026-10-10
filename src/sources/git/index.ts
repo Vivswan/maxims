@@ -26,10 +26,11 @@ export interface GitResolver extends SourceResolver<GitSourceFrom> {
   resolveRef(from: GitSourceFrom, pin?: string, options?: { auth?: boolean }): Promise<string>;
 }
 
-// One transport only: the URL is handed to git exactly as the user wrote it (a mirror path that
-// happens to contain "github.com" is still this remote), and no GitHub token is ever attached,
-// because a token for github.com has no business reaching another host. `auth` is acknowledged
-// with a notice: git's own credential helpers are what authenticate here.
+// One transport only: the URL is handed to git as the user wrote it (a mirror path that happens
+// to contain "github.com" is still this remote), less a password git could print back, which the
+// runner withholds; and no GitHub token is ever attached, because a token for github.com has no
+// business reaching another host. `auth` is acknowledged with a notice: git's own credential
+// helpers are what authenticate here.
 export function createGitResolver(options: GitResolverOptions): GitResolver {
   const env = options.env ?? process.env;
   const runner = options.runner ?? systemRunner(env);

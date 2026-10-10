@@ -727,9 +727,9 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   // Only http(s) is stripped: an ssh user is the login the transport needs, and an scp-like remote
   // is not a URL at all.
   const target = async (url: string, credentials: GitCredentials): Promise<string> => {
-    if (credentials.kind !== "none") return url;
+    if (credentials.kind !== "none") return transportUrl(url);
     const expanded = await effectiveUrl(client([]), url);
-    return /^https?:\/\//i.test(expanded) ? withoutUserinfo(expanded) : expanded;
+    return /^https?:\/\//i.test(expanded) ? withoutUserinfo(expanded) : transportUrl(expanded);
   };
   return {
     lsRemote: (url, patterns, call) =>
@@ -766,6 +766,34 @@ export function withoutUserinfo(url: string): string {
   } catch {
     return url;
   }
+}
+
+// Git decodes a URL before parsing it. A `git://` or `ssh://` lookup failure prints the decoded
+// authority in pieces, cut wherever git's or ssh's parser ended the host, and neither transport
+// can send a password. Over http(s) git sends the password, and anonymizes the URL in its own
+// messages only when the first `@` comes before any `/`. An `insteadOf` rule matches a URL
+// textually. A typed `u:@host` means "no password" to git's credential code, where `u@host`
+// means "ask". The URL parser skips any run of slashes, backslashes and tabs after an http(s)
+// scheme; git does not, so that run is handed over as `//`.
+function transportUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const http = /^https?:$/.test(parsed.protocol);
+  if (parsed.password === "" && (!http || parsed.username === "")) return url;
+  const afterScheme = url.indexOf(":") + 1;
+  const slashes = (http ? /^[/\\\t\r\n]*/ : /^\/\//).exec(url.slice(afterScheme))?.[0] ?? "";
+  const start = afterScheme + slashes.length;
+  const authority = url.slice(start).split(http ? /[/\\?]/ : /[/?]/, 1)[0] ?? "";
+  const typed = authority.slice(0, authority.lastIndexOf("@"));
+  const userinfo = http
+    ? `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`
+    : (typed.split(":", 1)[0] ?? "");
+  const rest = url.slice(start + typed.length + 1);
+  return `${url.slice(0, afterScheme)}//${userinfo === "" ? "" : `${userinfo}@`}${rest}`;
 }
 
 // The user's `insteadOf` rules may send a URL somewhere else entirely; an anonymous call resolves

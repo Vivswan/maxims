@@ -151,6 +151,92 @@ describe("createGitResolver", () => {
     expect(error.message).toMatch(/^git ls-remote: /);
   });
 
+  // What would drift: a runner that hands git the URL as typed has git decode it and print the
+  // password in pieces (cut at a decoded `/`, `:port`, `@` or `[]`, lowercased or octal-escaped by
+  // ssh, a control byte written as `?`) that no shape-based redaction can know; one that
+  // re-serializes the URL changes the host, port or path an `insteadOf` rule matches. Every line
+  // names the host as typed and no piece of the password.
+  const passwordUrls: [string, string[], string[]][] = [
+    [
+      "git://fixture-user:fixture%20secret@host.invalid/o/r.git",
+      ["fixture secret", "fixture%20secret", "fixture"],
+      ["host.invalid"],
+    ],
+    [
+      "git://fixture-user:fixture%2Fsecret@HOST.invalid:9418/o/r.git",
+      ["fixture/secret", "fixture%2Fsecret", "fixture"],
+      ["HOST.invalid", "9418"],
+    ],
+    [
+      "git://fixture-user:fixture%2Fsecret%ZZ@host.invalid/o/r.git",
+      ["fixture", "%ZZ"],
+      ["host.invalid"],
+    ],
+    [
+      "git://fixture-user:fixture%00%2Fsecret@host.invalid/o/r.git",
+      ["fixture", "%00"],
+      ["host.invalid"],
+    ],
+    ["git://fixture-user:fixture%01%2Fsecret@host.invalid/o/r.git", ["fixture"], ["host.invalid"]],
+    ["git://fixture-user:77%2Fsecret@host.invalid/o/r.git", ["77", "secret"], ["host.invalid"]],
+    [
+      "git://fixture-user:fixture\tsecret%2Frest@host.invalid/o/r.git",
+      ["fixture", "secret"],
+      ["host.invalid"],
+    ],
+    [
+      "git://fixture-user:prefix%40%5Bfixture-secret%5Dtrailing%2Frest@host.invalid/o/r.git",
+      ["prefix", "fixture-secret", "trailing"],
+      ["host.invalid"],
+    ],
+    [
+      "ssh://fixture-user:fixture%40fixture-secret%2Frest@host.invalid/o/r.git",
+      ["fixture", "rest"],
+      ["host.invalid"],
+    ],
+    [
+      "ssh://fixture-user:prefix%40FiXtUrE-SeCrEt%2Frest@host.invalid/o/r.git",
+      ["prefix", "fixture-secret", "FiXtUrE"],
+      ["host.invalid"],
+    ],
+    [
+      "ssh://fixture-user:fixture%C3%A9%2Fsecret@host.invalid/o/r.git",
+      ["fixture", "\\303"],
+      ["host.invalid"],
+    ],
+    [
+      "https://fixture-user:fixture%20secret@HOST.invalid:443/o/r.git",
+      ["fixture", "secret"],
+      ["https://HOST.invalid:443/o/r.git"],
+    ],
+    [
+      "https://fixture-user:prefix@fixture secret@host.invalid/o/r.git",
+      ["prefix", "fixture", "secret"],
+      ["https://host.invalid/o/r.git"],
+    ],
+    [
+      "https://\t/fixture-user:fixture secret@host.invalid/o/r.git",
+      ["fixture", "secret"],
+      ["https://host.invalid/o/r.git"],
+    ],
+  ];
+  test.each(passwordUrls)(
+    "the password in %j reaches neither the rung line nor the recorded failure, and the host does",
+    async (url, absent, kept) => {
+      const rungs: string[] = [];
+      const resolver = createGitResolver({
+        warn: () => {},
+        rung: (m) => rungs.push(m),
+        env: process.env,
+      });
+      const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
+      expect(rungs).toEqual([error.message]);
+      expect(error.message).toMatch(/^git ls-remote: /);
+      for (const piece of absent) expect(error.message).not.toContain(piece);
+      for (const part of kept) expect(error.message).toContain(part);
+    },
+  );
+
   test("a file:// fixture repo is resolved, pinned to its tag, and sparse-cloned", async () => {
     await withTempDir(async (dir) => {
       const repo = await createFixtureRepo(join(dir, "repo"));
