@@ -23,10 +23,10 @@ import {
 } from "./shared/options.ts";
 import { disabledNames } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
+import { findSourceKey } from "./shared/source-key.ts";
 import {
   effectiveNames,
   effectiveNamesIfReadable,
-  findSourceKey,
   scopeOf,
   targetPath,
   tildify,

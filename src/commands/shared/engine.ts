@@ -66,7 +66,7 @@ import {
 import { Notices } from "./notices.ts";
 import { planOrphanSweep } from "./orphans.ts";
 import { PlanBuilder } from "./plan.ts";
-import { readProjectLock } from "./project-lock-io.ts";
+import { readProjectLock } from "./project-lock-read.ts";
 import {
   type BlockRequest,
   changingBlocks,
@@ -80,7 +80,7 @@ import {
 } from "./rules.ts";
 import { disabledNames, inSelect, selectMemories } from "./select.ts";
 import { sourceSlug } from "./slug.ts";
-import { findSourceKey } from "./sources.ts";
+import { findSourceKey } from "./source-key.ts";
 
 export type ScopeKind = SourceIntent["destination"]["scope"];
 
