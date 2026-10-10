@@ -395,6 +395,47 @@ describe("fetchTree", () => {
     });
   });
 
+  // What would drift: a redaction that stopped at the first `@` or at a quote, or needed a `//`
+  // before the userinfo, would print a password git itself did not anonymize; one that also ate a
+  // path segment holding an `@` would hide the repository the failure names.
+  const OFFLINE_TARBALL = `https://codeload.github.com/example-user/rules/tar.gz/${SHA}: fetch failed: getaddrinfo ENOTFOUND api.github.com`;
+  const leakedLines: [string, string, FetchFailureKind, string[]][] = [
+    [
+      "fatal: unable to access 'https://example-user:fixture@secret@github.com/example-user/rules.git/': Could not resolve host: github.com",
+      `git clone: fatal: unable to access '${GIT_URL}/': Could not resolve host: github.com`,
+      "network",
+      [],
+    ],
+    [
+      "fatal: unable to look up example-user:fixture'secret@example.invalid (port 9418) (Name or service not known)",
+      "git clone: fatal: unable to look up example.invalid (port 9418) (Name or service not known)",
+      "invalid",
+      [OFFLINE_TARBALL],
+    ],
+    [
+      "fatal: repository 'https://example.com/team@rules.git/' not found",
+      "git clone: fatal: repository 'https://example.com/team@rules.git/' not found",
+      "missing",
+      [OFFLINE_TARBALL],
+    ],
+  ];
+  test.each(leakedLines)(
+    "the git failure line %j reaches the rung line and the recorded failure with its userinfo gone and its path kept",
+    async (message, shown, kind, laterRungs) => {
+      await withTempDir(async (dir) => {
+        const rungs: string[] = [];
+        const runner = scriptedRunner({
+          git: scriptedGit({ shallowClone: () => ({ kind: "failed", message }) }),
+        });
+        const error = await failure(
+          ladder(runner, { rungs }).fetchTree(REPO, SHA, join(dir, "tree"), ANON),
+        );
+        expect(error).toMatchObject({ kind, message: shown });
+        expect(rungs).toEqual([shown, ...laterRungs]);
+      });
+    },
+  );
+
   test("a rung that throws is that rung's failure, and the ladder goes on", async () => {
     await withTempDir(async (dir) => {
       const rungs: string[] = [];

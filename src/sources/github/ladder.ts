@@ -211,25 +211,37 @@ export function createLadder(options: LadderOptions): Ladder {
         },
       ]),
     fetchTree: (repo, sha, destDir, request) =>
-      climb(rung, [
-        ...(request.auth
-          ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
-          : []),
-        cloneRung(runner, endpoints.gitUrl(repo), sha, destDir, {
-          ...gitOptions(request),
-          sparsePath: request.sparsePath,
-        }),
-        {
-          fallback: true,
-          run: async () => {
-            const url = endpoints.archiveUrl(repo, sha);
-            const body = await http(runner, url, bearer(request), timeoutMs);
-            if (body.kind !== "ok") return body;
-            return extract(body.value, destDir, warn);
+      climb(
+        rung,
+        [
+          ...(request.auth
+            ? [ghRung([api(repo, "tarball", sha)], (stdout) => extract(stdout, destDir, warn))]
+            : []),
+          cloneRung(runner, endpoints.gitUrl(repo), sha, destDir, {
+            ...gitOptions(request),
+            sparsePath: request.sparsePath,
+          }),
+          {
+            fallback: true,
+            run: async () => {
+              const url = endpoints.archiveUrl(repo, sha);
+              const body = await http(runner, url, bearer(request), timeoutMs);
+              if (body.kind !== "ok") return body;
+              return extract(body.value, destDir, warn);
+            },
           },
-        },
-      ]),
+        ].map(startingEmpty(destDir)),
+      ),
   };
+}
+
+// The tree rungs share one destination, so this is the one place a rung that failed half-way
+// cannot leave files for the next rung to merge into its own tree; each rung creates the directory.
+function startingEmpty(dir: string): <T>(step: Rung<T>) => Rung<T> {
+  return (step) => ({
+    ...step,
+    run: () => rm(dir, { recursive: true, force: true }).then(() => step.run()),
+  });
 }
 
 export function lsRemoteRung(
@@ -257,7 +269,6 @@ export function cloneRung(
 ): Rung<undefined> {
   return {
     run: async () => {
-      await emptyDir(destDir);
       const result = await runner.git.shallowClone(url, sha, destDir, options);
       return gitOutcome("git clone", result, (head) =>
         head === sha
@@ -301,12 +312,6 @@ function allowsFallback<T>(previous: RungOutcome<T>): boolean {
   return !(previous.kind === "failed" && previous.failure.kind === "network");
 }
 
-// A rung that failed half-way leaves files a later rung would otherwise merge into its own tree.
-async function emptyDir(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
-  await mkdir(dir, { recursive: true });
-}
-
 function failed<T>(
   kind: FetchFailureKind,
   message: string,
@@ -338,10 +343,14 @@ function gitOutcome<T>(
   return onSuccess(result.value);
 }
 
-// Git anonymizes URLs in most of its own messages but not in all of them; a remote's `user:pass@`
-// never belongs in a warning or a stored error.
+// Git anonymizes the URL in only some of its messages, and which ones is git's to change; nothing
+// here relies on it. A userinfo-shaped token (no space or slash, ending in `@`) goes where an
+// authority can sit, after `//` or bare, as a `git://` lookup failure names it with no scheme. A
+// password may itself carry an `@` or a quote; git's own anonymization stops at the first `@` and
+// leaves the rest standing, so the whole run up to the last one goes. An over-redacted diagnostic
+// costs less than a printed password.
 export function redactUserinfo(text: string): string {
-  return text.replace(/(\/\/)[^\s/@]+@/g, "$1");
+  return text.replace(/(?<=\/\/|\s|^)[^\s/]+@/g, "");
 }
 
 // The body is read inside the same guard as the request: a connection that drops mid-body is a
@@ -373,7 +382,6 @@ async function extract(
   warn: WarnSink,
 ): Promise<RungOutcome<undefined>> {
   try {
-    await emptyDir(destDir);
     await extractTarball(bytes, destDir, warn);
     return { kind: "ok", value: undefined };
   } catch (cause) {
@@ -490,9 +498,7 @@ function firstLine(text: string): string {
 }
 
 // Everything a child could use to open a prompt, a pager, or an editor is dropped from its
-// environment: a hook runs with no terminal to answer, and simple-git refuses such variables anyway.
-// The repository-selection variables go too, or a `GIT_DIR` inherited from a git hook would point
-// the clone rung's init and checkout at the caller's own repository instead of the temp dir.
+// environment: a hook runs with no terminal to answer.
 const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "EDITOR",
   "VISUAL",
@@ -507,14 +513,6 @@ const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "GIT_PROXY_COMMAND",
   "GIT_TEMPLATE_DIR",
   "GIT_EXTERNAL_DIFF",
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_NAMESPACE",
-  "GIT_PREFIX",
 ]);
 
 // Every git tracing switch goes too: a trace line carries the full remote URL, password included,
@@ -664,12 +662,10 @@ const GIT_CONFIG = [
   "protocol.file.allow=always",
 ];
 
-// simple-git refuses a variable its environment guard covers (any `GIT_*`, plus the keys
-// `isGitEnvKey` names) that arrives through `.env()` unless `allowEnvironment` lists it, and drops
-// an ambient one silently. Named: this module's own settings, the config variables the unsafe
-// flags below admit, libcurl's transport settings (none names a program), and PREFIX, git's
-// install prefix. The rest are dropped the way simple-git drops an ambient one, so an exported
-// prompt switch cannot fail a fetch.
+// The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
+// upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
+// repository. simple-git refuses a guarded variable handed to `.env()` unless `allowEnvironment`
+// lists it, so an unlisted one is dropped rather than failing the fetch.
 const isGuardedEnvKey = (key: string): boolean => {
   const normalized = key.toLowerCase().trim();
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
