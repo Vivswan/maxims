@@ -13,8 +13,9 @@ import {
   parseMemoryName,
 } from "../../src/memory/contract.ts";
 import { extractWikilinks, resolveWikilinks } from "../../src/memory/wikilinks.ts";
+import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, budgetMs, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
+import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
 
 // The frontmatter grammar's own tokens, so a near miss lands on the row-by-row checks rather than
 // on the first byte. YAML anchors, tags and flow collections reach the branches where the YAML

@@ -9,8 +9,9 @@ import fc from "fast-check";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/ladder.ts";
 import { parseProjectLock, serializeProjectLock } from "../../src/state/project-lock.ts";
 import { parseState, type State } from "../../src/state/schema.ts";
+import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, describeError, fragments, fuzz, mutatedJson, outcome } from "./shared.ts";
+import { anyText, describeError, fragments, fuzz, mutatedJson } from "./shared.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "src", "state", "fixtures");
 

@@ -19,8 +19,9 @@ import {
 import { buildNameIndex, compareInstalled, type IndexedSource } from "../../src/rulefile/dedupe.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { memoryName } from "../engine/harness.ts";
+import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, budgetMs, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
+import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
 
 const SOURCE = "@example-user/rules";
 const BEGIN = `<!-- maxims:begin ${SOURCE} sha=3f2a9c1e -->`;

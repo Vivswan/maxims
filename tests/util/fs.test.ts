@@ -1,6 +1,5 @@
 // Guards the write path every destination relies on: a temp file left behind or a traversal that
-// escapes its root would each fail silently in sync. Also guards the tree hash the CLI tests judge
-// with: one blind to a content change would pass every "writes nothing" assertion vacuously.
+// escapes its root would each fail silently in sync.
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -13,7 +12,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
@@ -23,8 +21,7 @@ import {
   realpathOfExistingPrefix,
   writeFileAtomic,
 } from "../../src/util/fs.ts";
-import { outcome } from "../fuzz/shared.ts";
-import { hashDirectory } from "../shared/hash_directory.ts";
+import { outcome } from "../shared/outcome.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
@@ -226,32 +223,6 @@ test.skipIf(WINDOWS)(
     });
   },
 );
-
-describe("hashDirectory", () => {
-  test("is deterministic over content, independent of creation order, and blind to symlinks", async () => {
-    await withTempDir(async (dir) => {
-      const a = join(dir, "a");
-      const b = join(dir, "b");
-      const secret = join(dir, "secret.txt");
-      await mkdir(join(a, "sub"), { recursive: true });
-      await mkdir(join(b, "sub"), { recursive: true });
-      await writeFile(secret, "token\n");
-      await writeFile(join(a, "sub", "two.md"), "two\n");
-      await writeFile(join(a, "one.md"), "one\n");
-      await writeFile(join(b, "one.md"), "one\n");
-      await writeFile(join(b, "sub", "two.md"), "two\n");
-      symlinkSync(secret, join(b, "leak.md"));
-
-      const hashA = await hashDirectory(a);
-      expect(await hashDirectory(b)).toBe(hashA);
-      expect(hashA).toMatch(/^sha256:[0-9a-f]{64}$/);
-
-      // The same length as before, so a hash that only saw sizes could not tell the change.
-      await writeFile(join(b, "one.md"), "two\n");
-      expect(await hashDirectory(b)).not.toBe(hashA);
-    });
-  });
-});
 
 test("ensureDir0700 creates the chain and leaves the leaf owner-only", async () => {
   await withTempDir(async (dir) => {

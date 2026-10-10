@@ -13,7 +13,7 @@ import {
   removeChild,
   replaceValue,
 } from "../../src/util/jsonc.ts";
-import { outcome } from "../fuzz/shared.ts";
+import { outcome } from "../shared/outcome.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const path = "/home/user/project/example.json";

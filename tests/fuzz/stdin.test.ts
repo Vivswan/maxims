@@ -16,8 +16,9 @@ import {
 import { HARNESS_IDS } from "../../src/contracts/harness-id.ts";
 import type { HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
+import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, asyncOutcome, describeError, fragments, fuzz, outcome, timed } from "./shared.ts";
+import { anyText, describeError, fragments, fuzz, timed } from "./shared.ts";
 
 // The fields the invoker rules read, each in the type that matches and in one that does not, so
 // a random record lands on every rule's boundary and on the order that disambiguates them.
