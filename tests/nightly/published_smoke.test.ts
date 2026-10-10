@@ -84,9 +84,8 @@ async function withScratchUnderHome<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const mustFail = (outcome: Awaited<ReturnType<typeof runPublishedSmoke>>) => {
-  expect(outcome.status).toBe("fail");
-  if (outcome.status !== "fail") throw new Error("unreachable: the matcher above failed first");
-  return outcome;
+  if (outcome.status === "fail") return outcome;
+  expect.unreachable("expected a fail outcome");
 };
 
 describe("runPublishedSmoke", () => {
