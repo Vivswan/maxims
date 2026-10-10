@@ -12,11 +12,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   assertInsideRoot,
   ensureDir0700,
+  followLinks,
+  type LinkChain,
   type RootedPath,
   realpathOfExistingPrefix,
   writeFileAtomic,
@@ -276,4 +278,56 @@ describe("realpathOfExistingPrefix", () => {
       });
     },
   );
+});
+
+// What would drift silently: node's realpathSync folds `jump/../file` before it looks at `jump`,
+// so a chain read through it names a file the kernel never opens; a lexical walk would also step a
+// `..` over a folder that is missing or a file, which the kernel refuses. Each row's reading is
+// checked against the kernel's own open of the link.
+describe("followLinks", () => {
+  type Row = [string, LinkChain["kind"], string[], (dir: string) => string];
+  const rows: Row[] = [
+    [
+      "a .. after a linked folder",
+      "reached",
+      ["jump", "rules/maxims-x.md", "notes.md"],
+      () => ["jump", "..", "maxims-x.md"].join(sep),
+    ],
+    ["a .. after a missing folder", "broken", [], () => ["missing", "..", "notes.md"].join(sep)],
+    ["a .. after a file", "broken", [], () => ["notes.md", "..", "notes.md"].join(sep)],
+    ["a file named with a trailing separator", "broken", [], () => `notes.md${sep}`],
+    ["a file named with a trailing dot", "broken", [], () => ["notes.md", "."].join(sep)],
+    [
+      "a chain past the kernel's bound",
+      "looped",
+      Array.from({ length: 40 }, (_, i) => `L${i + 1}`),
+      (dir) => {
+        for (let i = 1; i <= 40; i++) {
+          symlinkSync(
+            i === 40 ? join(dir, "notes.md") : join(dir, `L${i + 1}`),
+            join(dir, `L${i}`),
+          );
+        }
+        return "L1";
+      },
+    ],
+  ];
+  test.each(rows)("%s is read as the kernel reads it", async (_label, kind, passed, route) => {
+    await withTempDir((dir) => {
+      const rules = join(dir, "rules");
+      mkdirSync(join(rules, "sub"), { recursive: true });
+      const notes = join(dir, "notes.md");
+      writeFileSync(notes, "notes\n");
+      symlinkSync(notes, join(rules, "maxims-x.md"));
+      symlinkSync(join("rules", "sub"), join(dir, "jump"));
+      const link = join(dir, "AGENTS.md");
+      symlinkSync(route(dir), link);
+      const opened = outcome(() => readFileSync(link, "utf8"));
+      const hops = passed.map((rel) => join(realpathSync(dir), ...rel.split("/")));
+      const expected: LinkChain =
+        kind === "reached" ? { kind, hops, end: hops[hops.length - 1] as string } : { kind, hops };
+      expect([opened.kind === "value", followLinks(link)]).toEqual([kind === "reached", expected]);
+      expect(followLinks(notes)).toEqual({ kind: "reached", hops: [], end: notes });
+    });
+  });
 });

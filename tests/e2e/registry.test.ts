@@ -179,6 +179,8 @@ function carriedOut(change: Change): boolean {
   switch (change.kind) {
     case "write":
       return existsSync(change.path) && readFileSync(change.path, "utf8") === change.content;
+    case "edit":
+      return existsSync(change.target) && readFileSync(change.target, "utf8") === change.content;
     case "delete":
     case "unlink":
       return !existsSync(change.path);

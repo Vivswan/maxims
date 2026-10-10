@@ -32,8 +32,10 @@ import { type Change, lstatOrNullSync, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
+  followLinks,
   isAbsent,
   isInside,
+  isSymlink,
   type RootedPath,
   realpathOfExistingPrefix,
 } from "../util/fs.ts";
@@ -44,7 +46,7 @@ import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./c
 import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";
 import { DAY_MS, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
-import { hookedAt, planHooks } from "./hooks.ts";
+import { hookedAt, type LinkJudge, planHooks } from "./hooks.ts";
 import {
   readSourceMemories,
   type SourceMemory,
@@ -59,6 +61,9 @@ import {
   type BlockRequest,
   changingBlocks,
   claimedByMaxims,
+  LinkedAtRuleFile,
+  ownedWhole,
+  ownershipOf,
   planRuleFile,
   planRulesDirSweep,
   type RuleFile,
@@ -570,8 +575,12 @@ async function planInstall(
     if (intent.destination.scope === "out") {
       const outDir = intent.destination.path;
       const path = assertInsideRoot(outDir, outRuleFile(outDir, slug));
+      const found = files.get(path);
+      if (found !== undefined && found.kind !== "out") {
+        throw new LinkedAtRuleFile([key], found.path, path);
+      }
       requests.push({
-        file: files.get(path) ?? { kind: "out", path, blocks: [] },
+        file: found ?? { kind: "out", path, blocks: [] },
         lines: linesFor((_memory, local) => outDetailPath(local)),
       });
     }
@@ -579,7 +588,7 @@ async function planInstall(
       const [first] = group;
       if (first === undefined) continue;
       requests.push({
-        file: harnessFile(files, group, first, slug),
+        file: harnessFile(files, group, first, slug, key),
         lines: linesFor(detailPathFor(work, group, ctx)),
       });
       if (intent.paths !== undefined && !supportsPathScoping(first)) {
@@ -676,8 +685,10 @@ async function planInstall(
     const rendered = files.get(target.realKey);
     if (rendered?.kind !== "harness") continue;
     keepBlock(key, target.realKey);
-    addReaders(rendered, [target]);
+    addReaders(rendered, [target], key);
   }
+  const judgeLink = linkJudge(files, retained);
+  refuseLinksThroughRuleFiles(files, judgeLink);
   // A byte budget is only known once a file is rendered, so over it one source is held: refused
   // whole, as the rule cap refuses, while its last-good block stays where the file already carries
   // one. The lines go out loud: a hook session must hear that rules it expects are not loaded.
@@ -782,6 +793,7 @@ async function planInstall(
     ctx,
     harnesses: io.harnesses,
     agents,
+    judgeLink,
     wants: (id, scope) => ({
       hook: hookedAt(state, scope, ctx.projectRoot).includes(id) && at(scope, id).length > 0,
       rules: at(scope, id).some((entry) => entry.intent.rule),
@@ -860,24 +872,79 @@ function harnessFile(
   group: HarnessTarget[],
   first: HarnessTarget,
   slug: SourceSlug,
+  key: string,
 ): Extract<RuleFile, { kind: "harness" }> {
   const existing = files.get(first.realKey);
+  if (existing?.kind === "out" && ownershipOf(first.target) === "shared") {
+    throw new LinkedAtRuleFile([key], first.path, existing.path);
+  }
   const file: Extract<RuleFile, { kind: "harness" }> =
     existing?.kind === "harness"
       ? existing
-      : { kind: "harness", path: first.path, sourceSlug: slug, targets: [], blocks: [] };
-  addReaders(file, group);
+      : {
+          kind: "harness",
+          owned: ownershipOf(first.target),
+          path: first.path,
+          sourceSlug: slug,
+          targets: [],
+          aliases: [],
+          blocks: [],
+        };
+  addReaders(file, group, key);
   return file;
 }
 
 // Sources sharing one file each bring their own readers; the file carries the union, so its
-// rendering and its byte budget answer to every harness that reads it, not the first source's.
-function addReaders(file: Extract<RuleFile, { kind: "harness" }>, group: HarnessTarget[]): void {
+// rendering and its byte budget answer to every harness a source brings to it, not the first
+// source's. A reader that would hold the file the other way (a shared file linked at a rule file
+// maxims owns whole) never joins: the link is refused by name, since the file cannot be both.
+function addReaders(
+  file: Extract<RuleFile, { kind: "harness" }>,
+  group: HarnessTarget[],
+  key: string,
+): void {
   for (const target of group) {
+    if (ownershipOf(target.target) !== file.owned) {
+      const [link, ruleFile] =
+        file.owned === "shared" ? [file.path, target.path] : [target.path, file.path];
+      throw new LinkedAtRuleFile([key], link, ruleFile);
+    }
     const seen = file.targets.some(
       (known) => known.def.id === target.def.id && known.scope === target.scope,
     );
     if (!seen) file.targets.push(target);
+  }
+}
+
+// The one judgment of a link this run edits a user-owned file through, a shared file's or a
+// registry's: a hop that is a rule file maxims owns whole is refused by name, since written whole
+// that file would take the edit and cut off the reader whose link passes it. Whole-owned: the
+// rule files this run renders, and those it keeps for a harness `-a` leaves out, an unreadable
+// source, or another project.
+function linkJudge(
+  files: ReadonlyMap<string, RuleFile>,
+  retained: readonly { target: HarnessTarget }[],
+): LinkJudge {
+  const whole = new Set<string>();
+  for (const file of files.values()) if (ownedWhole(file)) whole.add(fileIdentity(file));
+  for (const { target } of retained) {
+    if (target.target.kind === "rules-dir") whole.add(target.realKey);
+  }
+  return (link, keys = []) => {
+    for (const hop of followLinks(link).hops) {
+      if (whole.has(realKeyOf(hop))) throw new LinkedAtRuleFile(keys, link, hop);
+    }
+  };
+}
+
+// Every link a reader reaches a shared file by, the file's own name included, whether or not a
+// source renders a block into it this run: the orphan strip edits the file through the same link.
+function refuseLinksThroughRuleFiles(files: ReadonlyMap<string, RuleFile>, judge: LinkJudge): void {
+  for (const file of files.values()) {
+    if (file.kind !== "harness" || file.owned !== "shared") continue;
+    const keys = file.blocks.map((block) => block.key);
+    const links = new Set([file.path, ...file.targets.map((t) => t.path), ...file.aliases]);
+    for (const link of links) judge(link, keys);
   }
 }
 
@@ -1642,26 +1709,51 @@ function addSharedFilesWithOrphans(
   agents: HarnessFilter | undefined,
 ): void {
   for (const def of io.harnesses) {
-    if (!agentsAllowed(agents, def.id)) continue;
+    const allowed = agentsAllowed(agents, def.id);
     for (const scope of scopes) {
       const target = def.targets[scope];
       if (target === null || target.kind !== "shared-block") continue;
-      const [only] = resolveTargets({
-        intent: { harnesses: [def.id] },
-        scope,
-        sourceSlug: null,
-        ctx,
-        harnesses: io.harnesses,
-        agents: undefined,
-        explicit: [],
-      }).targets;
-      if (only === undefined || files.has(only.realKey)) continue;
-      if (regularFileText(only.path) === null) continue;
+      // A harness `-a` leaves out is not planned, but a link it reads a visited file by is the
+      // user's, and the file must not be deleted under it. It is resolved for that alone, so a
+      // destination it cannot resolve (its config folder linked out of the root) costs this run
+      // nothing; a harness this run writes fails on the same, as it would for a source.
+      let only: HarnessTarget | undefined;
+      try {
+        [only] = resolveTargets({
+          intent: { harnesses: [def.id] },
+          scope,
+          sourceSlug: null,
+          ctx,
+          harnesses: io.harnesses,
+          agents: undefined,
+          explicit: [],
+        }).targets;
+      } catch (error) {
+        if (allowed || !destinationUnresolvable(error)) throw error;
+        continue;
+      }
+      if (only === undefined) continue;
+      // A reader no source here brings judges no budget, so it does not join the readers.
+      const visited = files.get(only.realKey);
+      if (visited !== undefined) {
+        if (
+          visited.kind === "harness" &&
+          visited.owned === "shared" &&
+          isSymlink(only.path) &&
+          !visited.aliases.includes(only.path)
+        ) {
+          visited.aliases.push(only.path);
+        }
+        continue;
+      }
+      if (!allowed || regularFileText(only.path) === null) continue;
       files.set(only.realKey, {
         kind: "harness",
+        owned: "shared",
         path: only.path,
         sourceSlug: null,
         targets: [only],
+        aliases: [],
         blocks: [],
       });
     }

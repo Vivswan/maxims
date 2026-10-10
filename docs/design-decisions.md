@@ -65,6 +65,7 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 - **The self-refresh line ships beside the stub.** Zero artifact and universal by construction, since every tier 2 harness has an always-loaded layer by definition; not written where a hook exists.
 - **Shell-rc lines, OS schedulers, editor tasks, and git hooks are rejected as freshness fallbacks.** None fires on the agent's session start, each forks per platform or writes into a file the team shares, and the one hook already refreshes every harness. The [prior art table](why.md#prior-art) places them beside the tools maxims did borrow from.
 - **The rule file is a real file, never a symlink, on every harness.** A rule that silently never loads is the failure the tool exists to prevent. The spec reports, unverified here, that Claude Code skips a symlinked rule file pointing outside the working directory.
+- **A file the user owns is edited through its symlink, never replaced.** A hook registry or a shared `AGENTS.md` linked into a dotfiles checkout stays in the checkout; replacing the link would cut it out silently. The [apply step](architecture.md#every-write-is-a-planned-change) owns the mechanics.
 
 ## Tooling
 

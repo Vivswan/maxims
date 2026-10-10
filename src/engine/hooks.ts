@@ -5,7 +5,7 @@ import {
   type Scope,
   scopeRoot,
 } from "../harnesses/contract.ts";
-import { planHookOnly } from "../harnesses/hook-writer.ts";
+import { type HookPlan, hasHook, hookPath, planHookOnly } from "../harnesses/hook-writer.ts";
 import {
   type McpRegistration,
   mcpRegistrationAt,
@@ -14,12 +14,13 @@ import {
 } from "../harnesses/mcp-stub/register.ts";
 import type { State } from "../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../state/scoped.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { destinationConflict, realKeyOf } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
+import { LinkedAtRuleFile } from "./rules.ts";
 import type { HarnessFilter } from "./types.ts";
 
 // The harnesses whose hook state wants at one scope; a project scope with no project root wants
@@ -103,6 +104,11 @@ export type HarnessWants = {
   unreachable: boolean;
 };
 
+// Refuses a link an edit would pass through a rule file maxims owns whole: the sync planner's
+// one judgment, shared files and registries alike, so a registry linked at a rule file never
+// holds the registry until the next sync writes rules over the user's settings.
+export type LinkJudge = (link: string, keys?: readonly string[]) => void;
+
 // `removals` take our entry or artifact out of a registry the intent no longer wants it in; a
 // hook run defers them like any other removal.
 export type HooksPlan = {
@@ -122,6 +128,7 @@ export async function planHooks(input: {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
+  judgeLink: LinkJudge;
   wants: (id: HarnessId, scope: Scope) => HarnessWants;
   // The roots of the other projects whose entries want the harness's hook.
   elsewhere: (id: HarnessId) => string[];
@@ -139,9 +146,7 @@ export async function planHooks(input: {
     try {
       return await plan();
     } catch (error) {
-      if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
-        throw error;
-      }
+      if (!registryFailure(error)) throw error;
       if (mustEdit && !failures.some((failure) => failure.message === error.message)) {
         failures.push({ message: error.message, hint: error.hint });
       }
@@ -158,7 +163,7 @@ export async function planHooks(input: {
       const wants = input.wants(def.id, scope);
       if (wants.unreachable) continue;
       const hook = await attempt(wants.hook, () =>
-        hookAnswer(def, scope, harnessCtx, wants.hook, reach),
+        hookAnswer(def, scope, harnessCtx, wants.hook, reach, input.judgeLink),
       );
       const mcp = await attempt(wants.hook, async () => {
         const registration = mcpRegistrationAt(def, scope, harnessCtx);
@@ -186,7 +191,7 @@ export async function planHooks(input: {
         const declared = resolvedThere(() => declaredHookFile(def, "project", there));
         if (declared === undefined) return null;
         if (declared !== null && !reach.has(fileId(declared))) return null;
-        return hookAnswer(def, "project", there, true, null);
+        return hookAnswer(def, "project", there, true, null, input.judgeLink);
       });
       const mcp = await attempt(true, async () => {
         const registration = resolvedThere(() => mcpRegistrationAt(def, "project", there));
@@ -223,6 +228,38 @@ function resolvedThere<T>(resolve: () => T): T | undefined {
   }
 }
 
+// A registry this run cannot read or edit (unparsable, a file where a folder should be, a link
+// nothing can follow) fails that harness alone, the others proceeding. A registry linked at a rule
+// file maxims owns whole refuses the plan whole instead, as a shared file's link does.
+function registryFailure(error: unknown): error is MaximsError {
+  return (
+    error instanceof MaximsError &&
+    error.code === ExitCode.DestinationWriteFailed &&
+    !(error instanceof LinkedAtRuleFile)
+  );
+}
+
+// A registry is the user's file, edited where its bytes live, and its link is judged before the
+// registry is read through it. A file hook is maxims's own artifact and stays a plain write, a
+// real file wherever a link pointed.
+async function planHook(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+  judgeLink: LinkJudge,
+): Promise<HookPlan> {
+  if (!hasHook(def, "registry")) return planHookOnly({ def, scope, ctx, wanted });
+  const path = hookPath(def, scope, ctx);
+  judgeLink(path);
+  const edit = editInPlace(scopeRoot(def, scope, ctx), path);
+  const hook = await planHookOnly({ def, scope, ctx, wanted });
+  const changes = hook.changes.map((change) =>
+    change.kind === "write" ? edit(change.content) : change,
+  );
+  return { ...hook, changes };
+}
+
 // A registry or file hook knows its file before it is planned; a custom hook names its files only
 // through the changes it returns (dsh's bridge emits its hooks-file write whenever it is wanted).
 function hookFiles(
@@ -253,19 +290,21 @@ async function hookAnswer(
   ctx: HarnessContext,
   wanted: boolean,
   reach: Set<string> | null,
+  judgeLink: LinkJudge,
 ): Promise<ScopeAnswer> {
   const declared = declaredHookFile(def, scope, ctx);
   if (declared !== null) reach?.add(fileId(declared));
-  const plan = await planHookOnly({ def, scope, ctx, wanted });
+  const plan = await planHook(def, scope, ctx, wanted, judgeLink);
   const claims = hookFiles(def, scope, ctx, plan.changes);
   for (const claim of claims) reach?.add(fileId(claim));
   return { artifact: plan.changes, claims, wanted, notices: noticesOf(plan.notice) };
 }
 
 // The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
-// the entry is then planned over the hook's planned text and rides in the hook's write, notice
-// included. The names are matched by `realKeyOf`: a servers path through a directory link is the
-// hook's registry, while a leaf that is a link is replaced by the write and stays its own file.
+// the entry is then planned over the hook's planned text and rides in the hook's change, notice
+// included, since a second change of that file planned from its old text would land after the
+// first and take the hook back out. The hook's change names its file by the leaf and, for an
+// edit, by the file behind the leaf's link; the entry's file is matched under either name.
 async function mcpAnswer(
   registration: McpRegistration,
   wanted: boolean,
@@ -274,10 +313,12 @@ async function mcpAnswer(
   const file = realKeyOf(registration.path);
   const shared =
     hook?.artifact.findIndex(
-      (change) => change.kind === "write" && realKeyOf(change.path) === file,
+      (change) =>
+        carriesText(change) &&
+        (realKeyOf(change.path) === file || realKeyOf(landsIn(change)) === file),
     ) ?? -1;
   const current = hook?.artifact[shared];
-  if (hook === null || current?.kind !== "write") {
+  if (hook === null || current === undefined || !carriesText(current)) {
     const plan = await planMcpOnly(registration, wanted);
     return {
       artifact: plan.changes,
@@ -293,6 +334,14 @@ async function mcpAnswer(
     hook.notices.push(...noticesOf(plan.notice));
   }
   return { artifact: [], claims: [registration.path], wanted, notices: [] };
+}
+
+function carriesText(change: Change): change is Extract<Change, { kind: "write" | "edit" }> {
+  return change.kind === "write" || change.kind === "edit";
+}
+
+function landsIn(change: Extract<Change, { kind: "write" | "edit" }>): string {
+  return change.kind === "edit" ? change.target : change.path;
 }
 
 function noticesOf(notice: string | undefined): string[] {

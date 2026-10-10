@@ -1,16 +1,19 @@
-// What would drift silently: the hook writer plans a definition's config edit under the same
-// `wanted` as the hook, so a source that lists rules without a hook would lose the config entry
-// its rules directory needs, and one that switched rules off would keep it. A hook that lives in
-// one place whatever the scope (dsh's bridge under the global root) would be written for the scope
-// that wants it and deleted again for the scope that does not. When both scopes resolve to one
-// registry (a home directory that is itself a git repository), the second sync would remove the
-// hook the first one wrote and the third would put it back.
+// What would drift silently:
+// - a config edit planned under a different `wanted` than its hook, so a source listing rules
+//   without a hook loses the config entry its rules directory needs
+// - a hook living in one place for both scopes (dsh's bridge) written for one and deleted for the
+//   other, or two scopes resolving to one registry undoing each other run after run
+// - a registry kept as a symlink into a dotfiles checkout replaced by a regular file, or edited
+//   through a link at a rule file maxims owns whole
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -19,6 +22,7 @@ import { basename, join, sep } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
 import { loadContext } from "../../src/engine/context.ts";
 import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import {
   type HarnessContext,
@@ -29,6 +33,7 @@ import {
 } from "../../src/harnesses/contract.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import { planMcpRegistration } from "../../src/harnesses/mcp-stub/register.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
@@ -43,17 +48,19 @@ import {
   writeSource,
   writeState,
 } from "./fakes.ts";
-import { TWO_MEMORIES, world } from "./world.ts";
+import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "./world.ts";
 
-// The registry write's content is the hook writer's; this test pins only which changes appear.
+// The registry write's content is the hook writer's; this test pins only which changes appear:
+// the config entry is a write of a file maxims owns, the registry an edit of the user's file.
 const configWrite = (config: string): unknown => ({
   kind: "write",
   path: config,
   content: FIXTURE_CONFIG_CONTENT,
 });
 const registryWrite = (registry: string): unknown => ({
-  kind: "write",
+  kind: "edit",
   path: registry,
+  target: registry,
   content: expect.stringContaining(HOOK_COMMAND),
 });
 
@@ -89,6 +96,7 @@ describe("planHooks", () => {
           wants: (_id, scope: Scope) =>
             scope === "global" ? wants : { ...wants, unreachable: true },
           elsewhere: () => [],
+          judgeLink: () => undefined,
         });
         const config = join(userHome, FIXTURE_DIR, "config.json");
         const registry = join(userHome, FIXTURE_DIR, "settings.json");
@@ -105,7 +113,7 @@ describe("planHooks", () => {
 // The stub server entry is the session-start sync of a harness whose event is the MCP handshake,
 // so it follows the hook intent: wanted, it is written beside the hook; unwanted, it leaves as a
 // removal. A user-defined harness may keep its hooks and its servers in one file, where two
-// writes in one plan would leave whichever landed last.
+// changes in one plan would leave whichever landed last.
 describe("the MCP server entry follows the hook intent", () => {
   const serversIn = (file: string): HarnessDefinition => ({
     ...rulesDirHarness,
@@ -132,6 +140,7 @@ describe("the MCP server entry follows the hook intent", () => {
       agents: undefined,
       wants: (_id, scope: Scope) => ({ hook, rules: false, unreachable: scope !== "global" }),
       elsewhere: () => [],
+      judgeLink: () => undefined,
     });
   };
 
@@ -159,28 +168,33 @@ describe("the MCP server entry follows the hook intent", () => {
     });
   });
 
-  test("in the hook's own registry it rides in the hook's write, so the file is written once", async () => {
+  test("in the hook's own registry it rides in the hook's edit, so the file is written once", async () => {
     await world(async ({ home, userHome, dir }) => {
       const registry = join(userHome, FIXTURE_DIR, "settings.json");
       const wanted = await plan(together, dir, home, userHome, true);
       expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
-      const [write] = wanted.changes;
-      if (write?.kind !== "write") throw new Error("expected the registry write");
-      expect(write.content).toContain(HOOK_COMMAND);
-      expect(write.content).toContain('"mcp-serve"');
-      writeFileSync(registry, write.content);
+      const [edit] = wanted.changes;
+      if (edit?.kind !== "edit") throw new Error("expected the registry edit");
+      expect(edit.content).toContain(HOOK_COMMAND);
+      expect(edit.content).toContain('"mcp-serve"');
+      writeFileSync(registry, edit.content);
       const settled = await plan(together, dir, home, userHome, true);
       expect(settled.changes).toEqual([]);
       const unwanted = await plan(together, dir, home, userHome, false);
       expect<unknown[]>(unwanted.removals).toEqual([
-        { kind: "write", path: registry, content: '{\n  "mcpServers": {}\n}\n' },
+        {
+          kind: "edit",
+          path: registry,
+          target: registry,
+          content: '{\n  "mcpServers": {}\n}\n',
+        },
       ]);
     });
   });
 
   // A user-defined harness may name the one file by two spellings: the hook by its path, the
   // servers through a directory link. Compared by name they would be two writes of one file.
-  test("in the hook's registry reached through a directory link it still rides in the hook's write", async () => {
+  test("in the hook's registry reached through a directory link it still rides in the hook's edit", async () => {
     await world(async ({ home, userHome, dir }) => {
       const alias = join(userHome, "fixture-alias");
       symlinkSync(join(userHome, FIXTURE_DIR), alias);
@@ -195,12 +209,56 @@ describe("the MCP server entry follows the hook intent", () => {
       const registry = join(userHome, FIXTURE_DIR, "settings.json");
       const wanted = await plan(linked, dir, home, userHome, true);
       expect<unknown[]>(wanted.changes.map((change) => change.path)).toEqual([registry]);
-      const [write] = wanted.changes;
-      if (write?.kind !== "write") throw new Error("expected the registry write");
-      expect(write.content).toContain(HOOK_COMMAND);
-      expect(write.content).toContain('"mcp-serve"');
+      const [edit] = wanted.changes;
+      if (edit?.kind !== "edit") throw new Error("expected the registry edit");
+      expect(edit.content).toContain(HOOK_COMMAND);
+      expect(edit.content).toContain('"mcp-serve"');
     });
   });
+
+  // The registry's edit lands in the file behind its link, so the one file the two entries share
+  // may be named by the leaf (both declared at a registry linked into a dotfiles checkout) or by
+  // the file behind it (a registry linked at the servers file). Either way a servers write planned
+  // from the file's old text would land after the edit and take the hook back out.
+  const linkedRegistry: [string, HarnessDefinition, (userHome: string) => string][] = [
+    [
+      "both declared at a registry linked into a dotfiles checkout",
+      together,
+      (userHome) => {
+        mkdirSync(join(userHome, "dotfiles"));
+        return join(userHome, "dotfiles", "settings.json");
+      },
+    ],
+    [
+      "a registry linked at the servers file",
+      apart,
+      (userHome) => join(userHome, FIXTURE_DIR, "mcp.json"),
+    ],
+  ];
+  test.each(linkedRegistry)(
+    "%s: the entry rides in the edit behind the link",
+    async (_label, def, plant) => {
+      await world(async ({ home, userHome, dir }) => {
+        const behind = plant(userHome);
+        const registry = join(userHome, FIXTURE_DIR, "settings.json");
+        writeFileSync(behind, '{ "theme": "dark" }\n');
+        symlinkSync(behind, registry);
+        const wanted = await plan(def, dir, home, userHome, true);
+        expect<unknown[]>(wanted.changes).toEqual([
+          {
+            kind: "edit",
+            path: registry,
+            target: behind,
+            content: expect.stringContaining('"mcp-serve"'),
+          },
+        ]);
+        const [edit] = wanted.changes;
+        if (edit?.kind !== "edit") throw new Error("expected the registry edit");
+        expect(edit.content).toContain(HOOK_COMMAND);
+        expect(edit.content).toContain('"theme": "dark"');
+      });
+    },
+  );
 
   // Each artifact is planned on its own: a servers file that cannot be read costs this run that
   // one registration, reported when it was wanted, and never the hook's own edit or removal.
@@ -214,12 +272,12 @@ describe("the MCP server entry follows the hook intent", () => {
       expect(wanted.failures.map((failure) => failure.message)).toEqual([
         expect.stringContaining(mcp),
       ]);
-      const [write] = wanted.changes;
-      if (write?.kind !== "write") throw new Error("expected the registry write");
-      writeFileSync(registry, write.content);
+      const [edit] = wanted.changes;
+      if (edit?.kind !== "edit") throw new Error("expected the registry edit");
+      writeFileSync(registry, edit.content);
       const unwanted = await plan(apart, dir, home, userHome, false);
       expect<unknown[]>(unwanted.removals).toEqual([
-        { kind: "write", path: registry, content: "{}\n" },
+        { kind: "edit", path: registry, target: registry, content: "{}\n" },
       ]);
       expect(unwanted.failures).toEqual([]);
     });
@@ -335,6 +393,7 @@ describe("a hook that lives in one place for both scopes", () => {
             agents: undefined,
             wants: () => ({ hook: false, rules: false, unreachable: false }),
             elsewhere: () => elsewhere,
+            judgeLink: () => undefined,
           });
           expect([elsewhere, plan.changes, plan.removals, plan.failures]).toEqual([
             elsewhere,
@@ -367,6 +426,7 @@ describe("a hook that lives in one place for both scopes", () => {
           agents: undefined,
           wants: () => nobody,
           elsewhere: () => elsewhere,
+          judgeLink: () => undefined,
         });
       expect((await plan([])).failures).toEqual([]);
       expect((await plan([userHome])).failures.map((failure) => failure.message)).toEqual([
@@ -477,10 +537,126 @@ describe("both scopes resolving to one registry", () => {
             unreachable: false,
           }),
           elsewhere: () => [],
+          judgeLink: () => undefined,
         });
         expect<unknown[]>(plan.changes).toEqual(changes.map((c) => ({ ...c, path: linked })));
         expect<unknown[]>(plan.removals).toEqual(removals.map((c) => ({ ...c, path: global })));
       });
     });
   }
+});
+
+describe("a registry kept as a symlink", () => {
+  // The dotfiles file lives under the home, where the link's target has to be.
+  test("the hook lands in the file the link points to, the link survives, and the plan names the target", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
+      mkdirSync(join(userHome, "dotfiles"));
+      const real = join(userHome, "dotfiles", "settings.json");
+      writeFileSync(real, '{ "theme": "dark" }\n');
+      const link = join(userHome, FIXTURE_DIR, "settings.json");
+      symlinkSync(real, link);
+
+      const dry = fakeIo({ home, userHome, cwd: dir });
+      await runSync({ ...SYNC, dryRun: true }, dry);
+      expect(dry.out.join("")).toContain(`edit    ${link} -> ${real} (`);
+      const json = fakeIo({ home, userHome, cwd: dir });
+      await runSync({ ...SYNC, json: true }, json);
+      const planned = JSON.parse(json.out.join("")).plan.changes;
+      expect(planned).toContainEqual({
+        kind: "edit",
+        path: link,
+        target: real,
+        content: expect.stringContaining(HOOK_COMMAND),
+      });
+
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(link)).toBe(real);
+      const text = readFileSync(real, "utf8");
+      expect(text).toContain(HOOK_COMMAND);
+      expect(text).toContain('"theme": "dark"');
+      expect(readdirSync(join(userHome, "dotfiles"))).toEqual(["settings.json"]);
+      expect((await runSync(SYNC, io)).changed).toEqual([]);
+    });
+  });
+
+  // Only the user can repoint the link, so the run fails on that harness by name, with the fix,
+  // and writes nothing in the link's place or behind it.
+  const unfollowable: [string, (dir: string) => string, RegExp][] = [
+    ["a dangling link", (dir) => join(dir, "gone.json"), /does not exist/],
+    [
+      "a link to a directory",
+      (dir) => {
+        mkdirSync(join(dir, "folder"));
+        return join(dir, "folder");
+      },
+      /is not a file/,
+    ],
+    [
+      "a link out of the home",
+      (dir) => {
+        writeFileSync(join(dir, "elsewhere.json"), "{}\n");
+        return join(dir, "elsewhere.json");
+      },
+      /outside/,
+    ],
+  ];
+  test.each(unfollowable)(
+    "%s is refused with the link and the fix",
+    async (_label, plant, reason) => {
+      await world(async ({ home, userHome, dir }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+        );
+        const target = plant(dir);
+        const behind = () =>
+          lstatSync(target, { throwIfNoEntry: false })?.isFile()
+            ? readFileSync(target, "utf8")
+            : undefined;
+        const before = behind();
+        const link = join(userHome, FIXTURE_DIR, "settings.json");
+        symlinkSync(target, link);
+        const io = fakeIo({ home, userHome, cwd: dir });
+        const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+        expect(error.message).toContain(`cannot edit ${link}`);
+        expect(error.message).toMatch(reason);
+        expect(error.hint).toContain("then run maxims sync");
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(behind()).toBe(before);
+      });
+    },
+  );
+
+  // The rule file is maxims's whole and the registry the user's: edited through the link, the
+  // rule file would hold the registry until the next sync wrote rules over the user's settings.
+  // The link is refused by name like a shared file's, and neither file moves.
+  test("a link at a rule file maxims owns whole is refused, nothing written", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      const ruleFile = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      writeFileSync(ruleFile, '{ "theme": "dark" }\n');
+      const link = join(userHome, FIXTURE_DIR, "settings.json");
+      rmSync(link);
+      symlinkSync(ruleFile, link);
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(`cannot edit ${link}: it is a symlink to ${ruleFile}`);
+      expect(error.hint).toContain("then run maxims sync");
+      expect(readFileSync(ruleFile, "utf8")).toBe('{ "theme": "dark" }\n');
+      expect(readlinkSync(link)).toBe(ruleFile);
+    });
+  });
 });
