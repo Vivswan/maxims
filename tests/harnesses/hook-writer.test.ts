@@ -2,7 +2,7 @@
 // behind, an orphan matcher group after removal, or a rewrite of a file we cannot parse would each
 // pass a shape check and still wreck the user's settings.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import {
@@ -29,6 +29,7 @@ import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { asyncOutcome, outcome } from "../shared/outcome.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { exampleContext as ctx, exampleProjectRoot as projectRoot } from "./context.ts";
 
@@ -626,6 +627,36 @@ describe("planFileHookWrite", () => {
         wanted: false,
       });
       expect(gone.changes).toEqual([{ kind: "delete", path: assertInsideRoot(root, file) }]);
+    });
+  });
+
+  // The planner sees an existing hook only through the file read: a read that dropped the mode
+  // would rewrite a hook that is already executable, or leave one that is not.
+  test.skipIf(WINDOWS).each([
+    { name: "left alone when it is already executable", mode: 0o755, repaired: false },
+    { name: "made executable again when its exec bit is missing", mode: 0o644, repaired: true },
+  ])("an existing hook file is $name (mode bits are POSIX)", async ({ mode, repaired }) => {
+    await withTempDir(async (root) => {
+      const local: HarnessContext = { ...ctx, projectRoot: root };
+      const file = join(root, ".clinerules", "hooks", "TaskStart");
+      mkdirSync(join(root, ".clinerules", "hooks"), { recursive: true });
+      writeFileSync(file, rendered);
+      chmodSync(file, mode);
+      const plan = await planHookWrite({
+        def: fileDef,
+        scope: "project",
+        ctx: local,
+        wanted: true,
+      });
+      const path = assertInsideRoot(root, file);
+      expect(plan).toEqual(
+        repaired
+          ? {
+              changes: [{ kind: "write", path, content: rendered, mode: 0o755 }],
+              notice: `made the maxims hook at ${path} executable again`,
+            }
+          : { changes: [] },
+      );
     });
   });
 });

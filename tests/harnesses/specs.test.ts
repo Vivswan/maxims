@@ -25,8 +25,16 @@ const folders = readdirSync(root, { withFileTypes: true })
   .map((entry) => entry.name)
   .sort();
 
+// A spec carries `id` and `targets` too; the compiled definition alone carries code.
 function isDefinition(value: unknown): value is HarnessDefinition {
-  return typeof value === "object" && value !== null && "id" in value && "targets" in value;
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    "targets" in value &&
+    "detect" in value &&
+    typeof value.detect === "function"
+  );
 }
 
 // The registry imports each definition by the camel-cased folder name docs/adding-a-harness.md
