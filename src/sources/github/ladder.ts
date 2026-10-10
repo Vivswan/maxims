@@ -585,36 +585,41 @@ export function gitEnvironment(base: NodeJS.ProcessEnv = process.env): Record<st
   return { ...env, GIT_SSH_COMMAND: batchSshCommand(base) };
 }
 
-// ssh honors the FIRST occurrence of an option, so BatchMode goes right after the program word of
-// whatever ssh command the user configured, ahead of any option of theirs; a program path spelled
-// with quotes is one word. A bare GIT_SSH is a literal program path, spaces and dollar signs and
-// all, so it is single-quoted before it joins a command line the shell will split and expand.
+// ssh honors the FIRST occurrence of an option, so BatchMode goes right after the program word,
+// ahead of the user's own. Only a program named ssh takes it: a wrapper that forwards to ssh
+// rejects an ssh option in its own argument slot, and nothing but its argv reaches ssh through
+// one. A bare GIT_SSH is a literal path, so it is single-quoted before the shell splits the line.
 function batchSshCommand(base: NodeJS.ProcessEnv): string {
   const program = base.GIT_SSH?.trim();
   const command =
     base.GIT_SSH_COMMAND?.trim() ||
     (program === undefined || program === "" ? "ssh" : shellQuote(program));
   const word = leadingShellWord(command);
-  return `${word} -o BatchMode=yes${command.slice(word.length)}`;
+  if (!/(^|[\\/])ssh(\.exe)?$/i.test(word.text)) return command;
+  return `${word.raw} -o BatchMode=yes${command.slice(word.raw.length)}`;
 }
 
-// The first word of a POSIX command line: quotes of either kind and backslash escapes glue pieces
-// together, and the word ends at the first unquoted whitespace.
-function leadingShellWord(command: string): string {
+// The first word of a POSIX command line, as spelled and as sh reads it: unquoted whitespace or an
+// operator character ends it. Inside double quotes a backslash escapes only `$`, a backquote, `"`,
+// `\` and a newline, and stays a character before anything else, which is how a Windows path keeps
+// its separators.
+function leadingShellWord(command: string): { raw: string; text: string } {
   let quote: string | null = null;
+  let text = "";
   for (let index = 0; index < command.length; index += 1) {
     const char = command[index] ?? "";
-    if (quote === null) {
-      if (/\s/.test(char)) return command.slice(0, index);
-      if (char === "'" || char === '"') quote = char;
-      else if (char === "\\") index += 1;
-    } else if (char === quote) {
-      quote = null;
-    } else if (quote === '"' && char === "\\") {
-      index += 1;
-    }
+    if (quote === null && /[\s<>|&;()]/.test(char)) return { raw: command.slice(0, index), text };
+    if (quote === null && (char === "'" || char === '"')) quote = char;
+    else if (char === quote) quote = null;
+    else if (char === "\\" && quote !== "'") {
+      const next = command[index + 1] ?? "";
+      if (quote === null || /[$`"\\\n]/.test(next)) {
+        index += 1;
+        if (next !== "\n") text += next;
+      } else text += char;
+    } else text += char;
   }
-  return command;
+  return { raw: command, text };
 }
 
 type ExecError = Error & {
