@@ -1,4 +1,4 @@
-import type { Change, Plan } from "../../util/change.ts";
+import type { Change, Plan } from "../util/change.ts";
 
 // `store` swaps a fetched entry, `destination` writes bodies and rule files, `removal` takes back
 // artifacts an intent no longer derives, `orphan` sweeps store entries nothing derives, `hook`

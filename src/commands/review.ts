@@ -16,6 +16,7 @@ import {
   swapStoreEntry,
   withoutPending,
 } from "../engine/fetch.ts";
+import { isFetchedEntry } from "../engine/plan-sync.ts";
 import type { CliIo } from "../engine/types.ts";
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
@@ -23,7 +24,6 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
 import { admitIntent, syncCommitted } from "./add.ts";
 import { type Intent, loadIntentFor, updateIntent } from "./shared/cli-context.ts";
-import { isFetchedEntry } from "./shared/engine.ts";
 import {
   type Args,
   type Command,

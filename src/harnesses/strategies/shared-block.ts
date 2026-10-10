@@ -22,7 +22,7 @@ export type SharedBlockLocation = {
   currentText: string | null;
 };
 
-// Writing a block is the engine's (`planRuleFile` in src/commands/shared/rules.ts); only removal
+// Writing a block is the engine's (`planRuleFile` in src/engine/rules.ts); only removal
 // is a strategy.
 export function planSharedBlockRemove(input: SharedBlockLocation): Change[] {
   const path = sharedBlockPath(input);

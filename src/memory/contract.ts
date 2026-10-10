@@ -66,7 +66,7 @@ function isReservedFile(name: string): boolean {
   return name === "MEMORY.md" || name.toLowerCase() === "readme.md";
 }
 
-// commands/shared/engine.ts walks installed bodies with this too, so a sweep and the parser share
+// engine/plan-sync.ts walks installed bodies with this too, so a sweep and the parser share
 // one suffix rule.
 export function memoryStem(fileName: string): string | null {
   return fileName.endsWith(".md") ? fileName.slice(0, -".md".length) : null;
