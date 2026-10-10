@@ -8,11 +8,11 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessContext, Scope, SourceSlug } from "../../../src/harnesses/contract.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
-import { opencode } from "../../../src/harnesses/opencode/index.ts";
 import {
   INSTRUCTIONS_GLOB,
   reconcileInstructions,
 } from "../../../src/harnesses/opencode/quirks.ts";
+import { opencode } from "../../../src/harnesses/opencode/spec.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
 import { ExitCode, MaximsError } from "../../../src/util/exit-codes.ts";

@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Warp applies the ALL CAPS `AGENTS.md` at the repository root and in the current directory, and
@@ -47,3 +48,5 @@ export const spec = {
   mcp: { path: { project: null, global: ".warp/.mcp.json" }, serversPath: ["mcpServers"] },
   fixtures: { config: "mcp.json" },
 } satisfies HarnessSpec;
+
+export const warp = toDefinition(spec);

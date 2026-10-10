@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { codex } from "../../../src/harnesses/codex/index.ts";
+import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
   type AchievedTier,
   type HarnessContext,

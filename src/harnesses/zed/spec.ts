@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Zed reads exactly one project instruction file, the first of nine names that exists at the
@@ -105,3 +106,5 @@ export const spec = {
   },
   fixtures: { config: "settings.json" },
 } satisfies HarnessSpec;
+
+export const zed = toDefinition(spec);

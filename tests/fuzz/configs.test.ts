@@ -16,10 +16,9 @@ import {
 } from "jsonc-parser";
 import { util } from "zod";
 import { spec as claudeCodeSpec } from "../../src/harnesses/claude-code/spec.ts";
-import { codex } from "../../src/harnesses/codex/index.ts";
+import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessContext, HookSpec } from "../../src/harnesses/contract.ts";
-import { dsh } from "../../src/harnesses/dsh/index.ts";
-import { spec as dshSpec } from "../../src/harnesses/dsh/spec.ts";
+import { dsh, spec as dshSpec } from "../../src/harnesses/dsh/spec.ts";
 import { parseHarnessSpec, UserHarnessSpecSchema } from "../../src/harnesses/spec.ts";
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";

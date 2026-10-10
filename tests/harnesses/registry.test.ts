@@ -5,8 +5,8 @@ import { dirname } from "node:path";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { srcPath } from "../shared/src_path.ts";
 
-test("every src/harnesses/*/index.ts is registered under its folder name exactly once", () => {
-  const folders = [...new Bun.Glob("*/index.ts").scanSync({ cwd: srcPath("harnesses") })]
+test("every src/harnesses/*/spec.ts is registered under its folder name exactly once", () => {
+  const folders = [...new Bun.Glob("*/spec.ts").scanSync({ cwd: srcPath("harnesses") })]
     .map((entry) => dirname(entry))
     .sort();
   const ids: string[] = HARNESSES.map((def) => def.id);

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharedBlockFile } from "../../../src/harnesses/contract.ts";
-import { warp } from "../../../src/harnesses/warp/index.ts";
+import { warp } from "../../../src/harnesses/warp/spec.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 test("WARP.md takes the block when it exists, AGENTS.md otherwise", async () => {

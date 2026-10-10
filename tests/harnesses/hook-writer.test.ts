@@ -23,8 +23,8 @@ import {
   planHookRegistryWrite,
   planHookWrite,
 } from "../../src/harnesses/hook-writer.ts";
-import { opencode } from "../../src/harnesses/opencode/index.ts";
 import { INSTRUCTIONS_GLOB } from "../../src/harnesses/opencode/quirks.ts";
+import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";

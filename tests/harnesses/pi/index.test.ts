@@ -11,7 +11,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { hookSpecFor, scopeRoot, sharedBlockFile } from "../../../src/harnesses/contract.ts";
-import { pi } from "../../../src/harnesses/pi/index.ts";
+import { pi } from "../../../src/harnesses/pi/spec.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 test("the extension file is written byte for byte as Pi loads it", () => {

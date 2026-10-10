@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cline } from "../../../src/harnesses/cline/index.ts";
+import { cline } from "../../../src/harnesses/cline/spec.ts";
 import {
   type HarnessContext,
   HOOK_COMMAND,

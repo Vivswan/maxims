@@ -191,9 +191,8 @@ Demonstrated by: [tests/rulefile/block.test.ts](../tests/rulefile/block.test.ts)
 
 ```mermaid
 flowchart LR
-  specfile["src/harnesses/codex/spec.ts<br>spec"]
+  specfile["src/harnesses/codex/spec.ts<br>spec codex"]
   quirks["src/harnesses/codex/quirks.ts<br>layeredHooksProbe()"]
-  folder["src/harnesses/codex/index.ts<br>codex"]
   schema["src/harnesses/spec.ts<br>HarnessSpecSchema UserHarnessSpecSchema parseHarnessSpec()"]
   fromspec["src/harnesses/from-spec.ts<br>toDefinition() HarnessQuirks"]
   detect["src/harnesses/detect.ts<br>configDirExists()"]
@@ -205,9 +204,8 @@ flowchart LR
   rulesdir["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite() rulesDirPath()"]
   shared["src/harnesses/strategies/shared-block.ts<br>planSharedBlockRemove() sharedBlockPath()"]
   hook["src/harnesses/hook-writer.ts<br>planHookWrite() achievedTier()"]
-  specfile -->|"satisfies HarnessSpec: paths relative to the scope root, a hook as a template"| folder
-  quirks -->|"achievedTier: the project config read over the user one, which one file per scope cannot say"| folder
-  folder -->|"toDefinition(spec, quirks)"| fromspec
+  quirks -->|"achievedTier: the project config read over the user one, which one file per scope cannot say"| specfile
+  specfile -->|"toDefinition(spec, quirks): paths relative to the scope root, a hook as a template"| fromspec
   userfile -->|"parsed with UserHarnessSpecSchema"| userdef
   userdef --> schema
   ids -->|"a spec id is a built-in id or a kebab-case user-defined one"| schema
@@ -215,7 +213,7 @@ flowchart LR
   schema --> fromspec
   fromspec -->|"every relative path joined under scopeRoot()"| contract
   fromspec -->|"detect.dirs become probes under the global root"| detect
-  folder --> registry
+  specfile --> registry
   registry -->|"one HarnessDefinition per folder, a static import list"| contract
   contract -->|"targets of kind rules-dir"| rulesdir
   contract -->|"targets of kind shared-block"| shared

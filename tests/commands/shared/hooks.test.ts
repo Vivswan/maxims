@@ -20,9 +20,9 @@ import { loadContext } from "../../../src/commands/shared/context.ts";
 import { type HarnessWants, planHooks } from "../../../src/commands/shared/hooks.ts";
 import { runSync } from "../../../src/commands/sync.ts";
 import type { SyncOptions } from "../../../src/commands/types.ts";
-import { claudeCode } from "../../../src/harnesses/claude-code/index.ts";
+import { claudeCode } from "../../../src/harnesses/claude-code/spec.ts";
 import { HOOK_COMMAND, type Scope } from "../../../src/harnesses/contract.ts";
-import { dsh } from "../../../src/harnesses/dsh/index.ts";
+import { dsh } from "../../../src/harnesses/dsh/spec.ts";
 import {
   configEditHarness,
   entryFor,

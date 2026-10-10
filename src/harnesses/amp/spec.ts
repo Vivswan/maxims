@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Amp always includes AGENTS.md from the working directory upward and `~/.config/amp/AGENTS.md`;
@@ -95,3 +96,5 @@ export const spec = {
   },
   fixtures: { config: "settings.json" },
 } satisfies HarnessSpec;
+
+export const amp = toDefinition(spec);

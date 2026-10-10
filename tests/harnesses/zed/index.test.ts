@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { scopeRoot, sharedBlockFile } from "../../../src/harnesses/contract.ts";
-import { zed } from "../../../src/harnesses/zed/index.ts";
+import { zed } from "../../../src/harnesses/zed/spec.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 
 const repos: [string, string[], string][] = [

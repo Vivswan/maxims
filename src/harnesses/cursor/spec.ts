@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Cursor ignores a plain `.md` in `.cursor/rules` and loads an `.mdc` only when its frontmatter
@@ -77,3 +78,5 @@ export const spec = {
   },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const cursor = toDefinition(spec);

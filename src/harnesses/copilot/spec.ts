@@ -1,3 +1,4 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
@@ -96,3 +97,5 @@ export const spec = {
   },
   fixtures: { hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const copilot = toDefinition(spec);

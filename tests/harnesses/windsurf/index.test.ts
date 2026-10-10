@@ -12,7 +12,7 @@
 import { expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { hookSpecFor, type SourceSlug, scopeRoot } from "../../../src/harnesses/contract.ts";
-import { windsurf } from "../../../src/harnesses/windsurf/index.ts";
+import { windsurf } from "../../../src/harnesses/windsurf/spec.ts";
 
 const ctx = { home: resolve("/home/user"), projectRoot: resolve("/home/user/project"), env: {} };
 

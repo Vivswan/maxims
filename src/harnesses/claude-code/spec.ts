@@ -1,4 +1,6 @@
+import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
+import { layeredDisableAllHooksProbe } from "./quirks.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
 // only a path-scoped install adds the `paths:` preamble. `disableAllHooks` silences every hook,
@@ -86,3 +88,7 @@ export const spec = {
   scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list" },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
+
+export const claudeCode = toDefinition(spec, (declared) => ({
+  achievedTier: layeredDisableAllHooksProbe(declared, spec.hook.tierCheck),
+}));
