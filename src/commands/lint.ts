@@ -1,11 +1,19 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { hiddenCharacters, isMemoryFile, type Memory, parseMemory } from "../memory/contract.ts";
+import { overRuleCap } from "../console/strings.ts";
+import {
+  hiddenCharacterLabel,
+  hiddenCharacters,
+  isMemoryFile,
+  type Memory,
+  parseMemory,
+} from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { type Command, FLAGS, type FlagSpec, INTEGER, parseInteger } from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
+import { isHiddenInternal } from "./shared/select.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 
@@ -32,7 +40,13 @@ export const lint: Command = {
     const cap =
       parseInteger(LINT_CAP, INTEGER.positive, args) ?? ctx.config.ruleCap ?? DEFAULT_RULE_CAP;
     const root = resolve(ctx.io.cwd, args.positionals[0] ?? "memories");
-    const problems = lintFolder(root, ctx.io.cwd, args.flag(FLAGS.fullDepth), cap);
+    const problems = lintFolder(
+      root,
+      ctx.io.cwd,
+      args.flag(FLAGS.fullDepth),
+      cap,
+      ctx.io.installInternal,
+    );
     if (ctx.global.json) {
       ctx.io.stdout.write(`${JSON.stringify({ ok: problems.length === 0, problems }, null, 2)}\n`);
     } else if (!ctx.global.quiet) {
@@ -49,6 +63,7 @@ export function lintFolder(
   cwd: string,
   recursive: boolean,
   cap: number,
+  installInternal: boolean,
 ): LintProblem[] {
   const files = collectMarkdown(root, recursive);
   const problems: LintProblem[] = [];
@@ -67,14 +82,10 @@ export function lintFolder(
     const hidden = hiddenCharacters(parsed.memory.description);
     const first = hidden[0];
     if (first !== undefined) {
-      const label =
-        first.kind === "html-comment"
-          ? "an HTML comment"
-          : `U+${first.codePoint.toString(16).toUpperCase().padStart(4, "0")} ${first.kind} character`;
       problems.push({
         path,
         line: keyLine(text, "description"),
-        reason: `description carries ${label} at column ${first.index + 1}`,
+        reason: `description carries ${hiddenCharacterLabel(first)} at column ${first.index + 1}`,
       });
     }
     for (const warning of riskWarningsFor([parsed.memory])) {
@@ -97,11 +108,15 @@ export function lintFolder(
       });
     }
   }
-  if (memories.length > cap) {
+  // A folder has no `select`, so the cap measures it as a `*` install would publish it.
+  const published = memories.filter(
+    ({ memory }) => !isHiddenInternal(memory, "*", installInternal),
+  ).length;
+  if (published > cap) {
     problems.push({
       path: relative(cwd, root) || ".",
       line: 1,
-      reason: `${memories.length} memories is over the rule cap of ${cap}`,
+      reason: overRuleCap("this folder", published, cap),
     });
   }
   return problems.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);

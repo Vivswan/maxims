@@ -1,4 +1,4 @@
-import { type MemoryName, renamed } from "../../memory/contract.ts";
+import { type Memory, type MemoryName, renamed } from "../../memory/contract.ts";
 import type { Candidate } from "../../rulefile/dedupe.ts";
 import type { Select, SourceIntent, State } from "../../state/schema.ts";
 import type { SourceMemory } from "./memories.ts";
@@ -38,8 +38,7 @@ export function selectMemories(input: SelectInput): Selection {
   for (const memory of input.memories) {
     const upstreamName = memory.memory.name;
     if (!inSelect(input.intent.select, upstreamName)) continue;
-    const explicit = input.intent.select !== "*";
-    if (memory.memory.metadata.internal === true && !explicit && !input.installInternal) {
+    if (isHiddenInternal(memory.memory, input.intent.select, input.installInternal)) {
       hiddenInternal += 1;
       continue;
     }
@@ -66,6 +65,17 @@ export function selectMemories(input: SelectInput): Selection {
 
 export function inSelect(select: Select, name: MemoryName): boolean {
   return select === "*" || select.includes(name);
+}
+
+// The ONE "an install hides this memory" judgment, shared by every verb that counts, lists, or
+// publishes a source's memories, so none of them can disagree on what reaches a rule line.
+export function isHiddenInternal(
+  memory: Memory,
+  select: Select,
+  installInternal: boolean,
+): boolean {
+  if (memory.metadata.internal !== true || installInternal) return false;
+  return select === "*" || !select.includes(memory.name);
 }
 
 // The names switched off at one scope, read from state, which owns both lists; a project's list

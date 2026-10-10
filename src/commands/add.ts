@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Console } from "../console/contract.ts";
-import { type Collision, promptRenames } from "../console/rename.ts";
+import { promptRenames } from "../console/rename.ts";
 import {
   firstSourceFrom,
   found,
@@ -33,7 +33,7 @@ import {
 import { type HarnessDefinition, HOOK_COMMAND } from "../harnesses/contract.ts";
 import {
   contentHashOf,
-  type HiddenCharacter,
+  hiddenCharacterLabel,
   hiddenCharacters,
   type Memory,
   type MemoryName,
@@ -94,7 +94,7 @@ import {
   riskWarningsFor,
   showRiskWarnings,
 } from "./shared/risk.ts";
-import { disabledNames } from "./shared/select.ts";
+import { disabledNames, isHiddenInternal } from "./shared/select.ts";
 import { sourceSlug } from "./shared/slug.ts";
 import { parseSourceSelector, storable } from "./shared/source-argument.ts";
 import {
@@ -103,10 +103,12 @@ import {
   findSourceKey,
   installedAtOtherRef,
   installedAtOtherScope,
+  installedElsewhere,
   installedSources,
   knownHarnessIds,
   realLocal,
   resolveIncoming,
+  ruleCapRefusal,
   scopeOf,
   sourceIdentity,
   sourcesHere,
@@ -580,11 +582,7 @@ function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequ
   if (entry === undefined) return request;
   const { destination } = entry.intent;
   if (!request.list && destination.scope === "project" && destination.root !== io.projectRoot) {
-    throw new MaximsError(
-      ExitCode.Usage,
-      `${recorded} is installed for the project at ${destination.root}`,
-      { hint: "remove it from that project first, or install it there" },
-    );
+    throw installedElsewhere(recorded, destination.root);
   }
   if (!request.list && destination.scope !== request.destination.scope) {
     throw installedAtOtherScope(recorded, destination, request.destination);
@@ -829,17 +827,13 @@ async function fetchTree(request: AddRequest, io: CliIo, console: Console): Prom
 
 type Scan = { memories: Memory[]; recorded: Memory[]; internalHidden: number };
 
-// Every `.md` under the memory folder is parsed; a file that fails the contract is skipped with
-// one warning naming the reason, never fatal. A memory marked internal is hidden unless it was
-// named on the command line or MAXIMS_INSTALL_INTERNAL=1 asks for the internal set; it still
-// enters the fetch record, which lists what the source ships.
+// A hidden internal memory still enters the fetch record, which lists what the source ships.
 function scanMemories(
   request: AddRequest,
   files: readonly TreeFile[],
   installInternal: boolean,
   console: Console,
 ): Scan {
-  const named = new Set<string>(request.select === "*" ? [] : request.select);
   const memories: Memory[] = [];
   const recorded: Memory[] = [];
   let internalHidden = 0;
@@ -852,11 +846,7 @@ function scanMemories(
     }
     if (parsed.warning !== undefined) console.warn(`${parsed.memory.name}: ${parsed.warning}`);
     recorded.push(parsed.memory);
-    if (
-      parsed.memory.metadata.internal === true &&
-      !installInternal &&
-      !named.has(parsed.memory.name)
-    ) {
+    if (isHiddenInternal(parsed.memory, request.select, installInternal)) {
       internalHidden += 1;
       continue;
     }
@@ -901,7 +891,7 @@ async function validate(
       if (first !== undefined) {
         throw new MaximsError(
           ExitCode.NothingResolved,
-          hiddenCharacter(memory.name, describeHidden(first), first.index + 1),
+          hiddenCharacter(memory.name, hiddenCharacterLabel(first), first.index + 1),
           { hint: "pass --allow-hidden to install it anyway" },
         );
       }
@@ -960,14 +950,8 @@ async function validate(
       installed,
     });
     if (outcome.ok) return rename;
-    if (outcome.code === ExitCode.RuleCapExceeded) {
-      throw new MaximsError(
-        ExitCode.RuleCapExceeded,
-        `${request.key} would publish ${outcome.count} rule lines, over the cap of ${outcome.cap}`,
-        { hint: outcome.hint },
-      );
-    }
-    const collisions: Collision[] = outcome.collisions;
+    if (outcome.code === ExitCode.RuleCapExceeded) throw ruleCapRefusal(request.key, outcome);
+    const { collisions } = outcome;
     const repin = repinRefusal(
       request.from,
       [...new Set(collisions.map((collision) => collision.ownedBy))],
@@ -977,12 +961,10 @@ async function validate(
     const taken = new Set<string>(installedNames);
     for (const memory of chosen) taken.add(renamed(rename, memory.name));
     const answer = await promptRenames(console, collisions, renameSuffix(request.from), taken);
-    const first = collisions[0];
-    if (answer.kind === "declined" || first === undefined) {
-      const owner = first === undefined ? request.key : first.ownedBy;
-      const name = first === undefined ? "" : first.name;
-      throw new MaximsError(ExitCode.NameCollision, ownedBy(name, owner), {
-        hint: renameHint(name),
+    if (answer.kind === "declined") {
+      const [first] = collisions;
+      throw new MaximsError(ExitCode.NameCollision, ownedBy(first.name, first.ownedBy), {
+        hint: renameHint(first.name),
       });
     }
     // The prompt answers per LOCAL name; the map is keyed by upstream name, so an answer for a
@@ -997,21 +979,6 @@ async function validate(
 function renameSuffix(from: SourceFrom): string {
   const tail = sourceSlug(from).split("-").pop();
   return tail === undefined || tail === "" ? "renamed" : tail;
-}
-
-const HIDDEN_LABELS: Record<number, string> = {
-  8203: "zero-width space",
-  8204: "zero-width non-joiner",
-  8205: "zero-width joiner",
-  8288: "word joiner",
-  65279: "byte order mark",
-};
-
-function describeHidden(hidden: HiddenCharacter): string {
-  if (hidden.kind === "html-comment") return "an HTML comment";
-  const hex = `U+${hidden.codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
-  const label = HIDDEN_LABELS[hidden.codePoint] ?? `${hidden.kind} character`;
-  return `${hex} ${label}`;
 }
 
 type HarnessChoice = { ids: HarnessId[]; warnings: string[]; remember: boolean };

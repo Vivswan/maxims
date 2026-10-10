@@ -180,7 +180,7 @@ test.skipIf(gitDaemon.kind === "unavailable" || WINDOWS).each(networkRows)(
       expect(refreshLog(world.home.maximsHome)).toMatch(
         / sync: .*: fetch failed \(network\): git ls-remote: fatal: unable to connect to 127\.0\.0\.1/,
       );
-      expect(manual.stdout.includes("has not refreshed since")).toBe(staleLine);
+      expect(manual.stdout.includes("have not refreshed since")).toBe(staleLine);
       expect(lastErrorOf(world.home.maximsHome, key)?.kind).toBe("network");
       expect(readFileSync(rule, "utf8")).toBe(after);
       expect(storeSnapshot(world.home)).toEqual(store);
@@ -482,11 +482,11 @@ row.each(zeroValidRows)(
       // A hook run speaks bare lines in its harness's protocol; an interactive run draws the frame.
       const glyph = quiet ? "" : "!  ";
       const lines = result.stdout.split("\n");
-      const stale = lines.filter((line) => line.includes("has not refreshed since"));
+      const stale = lines.filter((line) => line.includes("have not refreshed since"));
       expect(stale).toHaveLength(1);
       expect(stale[0]).toMatch(
         new RegExp(
-          `^${glyph}maxims: ${key} has not refreshed since \\d{4}-\\d{2}-\\d{2} \\(source content invalid\\); rules may be out of date$`,
+          `^${glyph}maxims: the rules from ${key} have not refreshed since \\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z \\(source content invalid\\) and may be out of date\\.$`,
         ),
       );
       expect(lines.filter((line) => line.includes("skipped memories/"))).toEqual([]);

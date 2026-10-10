@@ -120,7 +120,7 @@ test.each(jsonRefusals)("%s exits 1 with one JSON document", async (_name, argv,
     const run = await runCli(scenario, argv);
     expect(run.code).toBe(1);
     expect(run.stderr).toBe("");
-    expect(JSON.parse(run.stdout)).toEqual({ ok: false, code: 1, message });
+    expect(JSON.parse(run.stdout)).toEqual({ ok: false, code: 1, message, hint: null });
   });
 });
 

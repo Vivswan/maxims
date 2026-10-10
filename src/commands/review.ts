@@ -2,6 +2,7 @@ import {
   accepted,
   alreadyReviewing,
   nothingHeld,
+  notInstalled,
   notReviewing,
   reviewing,
   STRINGS,
@@ -53,7 +54,7 @@ function heldOf(entry: SourceEntry): Held | null {
 
 function entryOrThrow(state: State, key: string): SourceEntry {
   const entry = state.sources[key];
-  if (entry === undefined) throw new MaximsError(ExitCode.Usage, `${key} is not installed`);
+  if (entry === undefined) throw new MaximsError(ExitCode.Usage, notInstalled(key));
   return entry;
 }
 

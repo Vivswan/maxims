@@ -112,7 +112,7 @@ export function noDefinitionReason(id: HarnessId): string {
 // `.clinerules`); a project that has none of it is not using that harness here. A regular file
 // at the folder's path (the single-file `.clinerules` of older Cline) is a conflict, never a
 // directory to create over it.
-function destinationConflict(
+export function destinationConflict(
   def: HarnessDefinition,
   target: Target,
   root: string,

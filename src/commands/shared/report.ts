@@ -8,7 +8,8 @@ import { appendRefreshLog } from "../../util/log.ts";
 import type { CommonOptions, EngineIo, SyncReport } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 import type { SyncFailure, SyncOutcome } from "./engine.ts";
-import { ReportedMaximsError } from "./errors.ts";
+import { failedFetches } from "./engine-io.ts";
+import { errorDocument, ReportedMaximsError } from "./errors.ts";
 import { renderHookStdout } from "./stdin.ts";
 
 export const EMPTY_REPORT: SyncReport = {
@@ -143,41 +144,25 @@ export function summaryLine(report: SyncReport): string {
   return `o  Installed ${installedCounts(report.memories, report.rules)}${tokens}`;
 }
 
+// The failure document, when a change failed to apply or a fetch failed, carries what the success
+// document carries beside the failure; a failed fetch is the same failure `update` ends in.
 function jsonDocument(report: SyncReport, failures: SyncFailure[]): string {
   const { plan, ...rest } = report;
   const [failure] = failures;
   if (failure !== undefined) {
-    return `${JSON.stringify(
-      {
-        ok: false,
-        code: failure.code,
-        message: failure.message,
-        hint: failure.hint ?? null,
-        report: rest,
-        plan,
-      },
-      null,
-      2,
-    )}\n`;
+    const error = new MaximsError(failure.code, failure.message, { hint: failure.hint });
+    return errorDocument(error, { report: rest, plan });
   }
-  const ok = report.failed.length === 0;
-  return `${JSON.stringify({ ok, report: rest, plan }, null, 2)}\n`;
+  if (report.failed.length > 0) {
+    return errorDocument(failedFetches(report.failed), { report: rest, plan });
+  }
+  return `${JSON.stringify({ ok: true, report: rest, plan }, null, 2)}\n`;
 }
 
 // The `--json` document of a run that changed nothing and planned nothing.
 export function emptyDocument(notices: readonly string[]): string {
   const { plan, ...report } = EMPTY_REPORT;
   return `${JSON.stringify({ ok: true, report: { ...report, notices }, plan }, null, 2)}\n`;
-}
-
-// A defect with no exit code of its own is reported as the usage code, the one every unmapped
-// failure maps to. `extra` is what a verb still has to report beside the failure (the warnings
-// of the sources a partly failed update did refresh).
-export function errorDocument(error: unknown, extra: Record<string, unknown> = {}): string {
-  const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
-  const hint = error instanceof MaximsError ? (error.hint ?? null) : null;
-  const message = error instanceof Error ? error.message : String(error);
-  return `${JSON.stringify({ ok: false, code, message, hint, ...extra }, null, 2)}\n`;
 }
 
 // Under `--json` a failure that escaped the plan is printed as the one document and rethrown as

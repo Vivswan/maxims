@@ -14,6 +14,7 @@ import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { HarnessFilter } from "../types.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
+import { destinationConflict } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 
 // The harnesses whose hook state wants at one scope; a project scope with no project root wants
@@ -25,6 +26,47 @@ export function hookedAt(
 ): readonly HarnessId[] {
   if (scope === "global") return scopedAt(state.hooks, { scope });
   return projectRoot === null ? [] : scopedAt(state.hooks, { scope, root: projectRoot });
+}
+
+export type HookStatus = "current" | "missing" | "none" | "not-wanted";
+
+export type PlanHookAlone = (
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+) => Promise<HookPlan>;
+
+// The one judgment `list` and `doctor` report a hook by. The hook alone is planned: a pending
+// config edit beside it is not a missing hook. A harness with no usable home at this scope (its
+// config folder absent, or a file) gets no hook from sync either, so none is wanted there.
+// `plan` is the engine seam, so a verb outside the engine judges through it.
+export async function hookStatus(
+  def: HarnessDefinition,
+  scope: Scope,
+  state: Pick<State, "hooks">,
+  projectRoot: string | null,
+  ctx: HarnessContext,
+  plan: PlanHookAlone,
+): Promise<HookStatus> {
+  if (def.hook.kind === "none") return "none";
+  if (!hookedAt(state, scope, projectRoot).includes(def.id)) return "not-wanted";
+  const target = def.targets[scope];
+  if (
+    target !== null &&
+    destinationConflict(def, target, scopeRoot(def, scope, ctx), scope) !== null
+  ) {
+    return "not-wanted";
+  }
+  const planned = await plan(def, scope, ctx, true);
+  return planned.changes.length === 0 ? "current" : "missing";
+}
+
+// The word beside a judged hook; a harness with none, or none wanted, gets no word.
+export function hookStatusText(status: HookStatus): string | null {
+  if (status === "current") return "hook current";
+  if (status === "missing") return "hook missing";
+  return null;
 }
 
 // `add --add-hook` at a scope: the ids join that scope's list and no other.

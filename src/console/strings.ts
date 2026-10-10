@@ -48,6 +48,7 @@ export const STRINGS = {
   noManifest: "no manifest",
   nothingHeld: "nothing held for review",
   allWithSource: "--all accepts every held source; drop the source name",
+  lastGoodKept: "the last good copy of each failed source stays installed",
 } as const;
 
 export function jsonNeedsYes(acceptsAll: boolean): string {
@@ -99,6 +100,15 @@ export function invalidAgents(
 
 export function moreItems(n: number): string {
   return `... ${n} more`;
+}
+
+export function notInstalled(what: string): string {
+  return `${what} is not installed`;
+}
+
+// The cap refusal `add`, `update` and `lint` share; the subject is what would publish the lines.
+export function overRuleCap(subject: string, count: number, cap: number): string {
+  return `${subject} would publish ${ruleLines(count)}, over the cap of ${cap}`;
 }
 
 export function alreadyInstalled(name: string, owner: string): string {

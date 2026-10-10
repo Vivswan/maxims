@@ -1,7 +1,6 @@
 import { promptsAllowed } from "../console/contract.ts";
 import { STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
-import type { State } from "../state/schema.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { cooldownCapConfig, loadIntentFor, persistConfig } from "./shared/cli-context.ts";
@@ -20,12 +19,10 @@ import {
   usage,
 } from "./shared/options.ts";
 import {
-  installedElsewhere,
+  installedSourceOrNull,
   knownHarnessIds,
-  lookupSource,
   type ResolvedMemory,
   resolveMemoryName,
-  type SourceLookup,
 } from "./shared/sources.ts";
 import type { CliIo, CommonOptions, HarnessFilter, RemoveOptions, RemoveTarget } from "./types.ts";
 
@@ -192,21 +189,6 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
   }
   const resolved: ResolvedMemory = await resolveMemoryName(state, ctx.io, positional);
   return { kind: "memories", source: resolved.key, names: [resolved.name] };
-}
-
-// `@owner/repo` names a source and `@owner/repo/name` a memory of one, so the argument is read
-// as a source first and as a memory when no recorded source answers to it; one recorded for
-// another project is neither.
-function installedSourceOrNull(state: State, arg: string, io: CliIo): string | null {
-  let found: SourceLookup;
-  try {
-    found = lookupSource(state, arg, io);
-  } catch (error) {
-    if (error instanceof MaximsError && error.code === ExitCode.Usage) return null;
-    throw error;
-  }
-  if (found.kind === "elsewhere") throw installedElsewhere(found.key, found.root);
-  return found.kind === "here" ? found.key : null;
 }
 
 function describeTarget(target: RemoveTarget): string {

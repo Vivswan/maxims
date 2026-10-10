@@ -23,7 +23,7 @@ o  Up to date: 4 memories, 4 rule lines
 
 A source held for a [byte budget](troubleshooting.md#exit-8-a-rule-file-is-over-the-harness-byte-budget) or for [review](#hold-changes-for-review), a file held because [stray marker lines surround a block](troubleshooting.md#exit-4-stray-marker-lines-surround-the-block-to-remove), or a failed write, prints its own line instead, and the up-to-date line stays out.
 
-A failed fetch keeps it out too, and so does a source standing stale, whose stale line is the run's word on it. No stale line appears until the source has gone seven days without a refresh, or at once when the repository is gone or the fetched content invalid (the stale lines below).
+A failed fetch keeps it out too, and so does a source standing stale, whose stale line is the run's word on it. When the stale line appears is the [staleness section](#the-staleness-notice-and-the-self-refresh-line)'s rule.
 
 Until then the run prints one line on stderr naming the source and the failure, records the reason in `log/refresh.log`, and exits non-zero as the [failure paths](guarantees.md#failure-paths) say. The same run under `--quiet` prints nothing.
 
@@ -31,10 +31,10 @@ Until then the run prints one line on stderr naming the source and the failure, 
 maxims: @Vivswan/skills: fetch failed (network unreachable); kept last-good
 ```
 
-In quiet mode the output is only what a session must hear: a line per source that has failed to refresh for seven days, is gone, or holds invalid content, a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
+In quiet mode the output is only what a session must hear: a line per source gone [stale](#the-staleness-notice-and-the-self-refresh-line), a line per write failure, a line per revision [held for review](#hold-changes-for-review), and one when a file a harness reads changed. With none of those it prints nothing; the [quiet section](troubleshooting.md#--quiet-printed-nothing) owns the list.
 
 ```text
-maxims: @Vivswan/skills has not refreshed since 2026-08-26 (network unreachable); rules may be out of date
+maxims: the rules from @Vivswan/skills have not refreshed since 2026-08-26T09:00:00.000Z (network unreachable) and may be out of date.
 maxims: rules refreshed (1 file updated)
 ```
 
@@ -136,7 +136,7 @@ The first fetch of a source is never held: `add` installs what it fetched, and t
 
 ## The staleness notice and the self-refresh line
 
-A source is stale once its last successful fetch is more than 7 days old, or at once when the repository is gone or the fetched content invalid. The notice names the reason (network, rate limit, missing) rather than just "stale".
+A source is stale once a fetch has failed and its last successful fetch is more than 7 days old, or older than the [cooldown](#the-cap-and-the-cooldown) when that is longer, so a `--cooldown 14` source is not stale before its refresh was due; or at once when the repository is gone or the fetched content invalid. The notice names the reason (network, rate limit, missing) rather than just "stale".
 
 | where the harness has | the notice goes to |
 | --- | --- |

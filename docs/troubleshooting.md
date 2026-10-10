@@ -111,7 +111,7 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 | after a quiet run | on stdout |
 | --- | --- |
-| a source that has failed to refresh for seven days, is gone, or is invalid | one `maxims: <key> ...` line per such source, the last good copy kept |
+| a source gone [stale](keep-fresh.md#the-staleness-notice-and-the-self-refresh-line) | one `maxims: the rules from <key> ...` line per source, last good copy kept |
 | a write failed | one `maxims: <message>` line per failure |
 | a source was held for a harness's byte budget (the exit 8 section above) | its two lines: the overage and the way out |
 | a reviewed source has a revision [held for review](keep-fresh.md#hold-changes-for-review) | `maxims: <key> has <n> changed lines held for review; run maxims accept <key>` |

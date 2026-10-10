@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
-import { type BlockInput, type ExpansionSyntax, type RuleLine, STALE_REASON } from "./types.ts";
+import {
+  type BlockInput,
+  type ExpansionSyntax,
+  type RuleLine,
+  STALE_REASON,
+  type Staleness,
+  staleSentence,
+} from "./types.ts";
 
 const DESCRIPTION_MAX_CHARS = 300;
 const ELLIPSIS = "...";
@@ -31,7 +38,7 @@ export function renderBlock(input: BlockInput): string {
   const lines = [`<!-- maxims:begin ${source} sha=${sha} -->`];
   if (input.markers === "stripped") lines.push(...provenanceLines(source));
   if (input.stale !== undefined) {
-    lines.push(staleLine(source, input.stale.since, STALE_REASON[input.stale.kind], expands));
+    lines.push(staleLine(source, input.stale, expands));
     if (input.selfRefresh) lines.push(SELF_REFRESH_LINE);
   }
   for (const line of input.lines) lines.push(renderRuleLine(line, expands));
@@ -47,14 +54,8 @@ function provenanceLines(source: string): [string, string] {
   ];
 }
 
-function staleLine(
-  source: string,
-  since: string,
-  reason: string,
-  expands: readonly ExpansionSyntax[],
-): string {
-  const notice = `${source} have not refreshed since ${since} (${reason}) and may be out of date.`;
-  return `- maxims: the rules below from ${escapeText(notice, expands)}`;
+function staleLine(source: string, stale: Staleness, expands: readonly ExpansionSyntax[]): string {
+  return `- maxims: ${escapeText(staleSentence(`the rules below from ${source}`, stale), expands)}`;
 }
 
 // A block on disk may hold a line this run does not render (a staleness notice that appeared or
@@ -64,8 +65,8 @@ function staleLine(
 export function ownLineMatcher(source: string): (line: string) => boolean {
   const exact = new Set([...provenanceLines(source), SELF_REFRESH_LINE]);
   const notices = ESCAPINGS.flatMap((expands) =>
-    Object.values(STALE_REASON).map((reason) => {
-      const line = staleLine(source, SINCE_PLACEHOLDER, reason, expands);
+    (Object.keys(STALE_REASON) as Staleness["kind"][]).map((kind) => {
+      const line = staleLine(source, { since: SINCE_PLACEHOLDER, kind }, expands);
       const at = line.lastIndexOf(SINCE_PLACEHOLDER);
       return { head: line.slice(0, at), tail: line.slice(at + SINCE_PLACEHOLDER.length) };
     }),

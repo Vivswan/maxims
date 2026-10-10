@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
-import { STRINGS } from "../console/strings.ts";
+import { notInstalled, STRINGS } from "../console/strings.ts";
 import type { Scope } from "../harnesses/contract.ts";
 import { type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import { renderRuleLine } from "../rulefile/block.ts";
@@ -104,7 +104,7 @@ async function showOne(args: Args, ctx: CommandContext): Promise<number> {
   const recorded = recordedSource(state, positional, io, name !== null);
   if (recorded.kind === "absent") {
     if (lookup !== null && request !== null) return printMemory(lookup, request, ctx, console);
-    throw usage(`${positional} is not installed`);
+    throw usage(notInstalled(positional));
   }
   if (recorded.kind === "elsewhere") throw installedElsewhere(recorded.key, recorded.root);
   if (scope !== null) throw usage(`${recorded.key} has one recorded destination; drop -g or -p`);
@@ -245,7 +245,7 @@ function lookupFailure(
   const closest = closestName(request.name, lookup.names);
   const message =
     request.source === null
-      ? `${request.name} is not installed`
+      ? notInstalled(request.name)
       : `${request.source} does not provide ${request.name}`;
   return new MaximsError(ExitCode.Usage, message, {
     ...(closest === null ? {} : { hint: `did you mean ${closest}?` }),

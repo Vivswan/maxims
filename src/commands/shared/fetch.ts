@@ -25,10 +25,10 @@ import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
 import type { Notices } from "./notices.ts";
-import { inSelect } from "./select.ts";
+import { inSelect, isHiddenInternal } from "./select.ts";
 import { storeTree } from "./sources.ts";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 // A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last
 // SUCCESS and would otherwise ask the network at every session start while a source is down.
 export const FAILED_FETCH_RETRY_MS = 60 * 60 * 1000;
@@ -246,12 +246,11 @@ function absentPath(path: string): boolean {
   }
 }
 
-// The rule `selectMemories` installs by, asked of one memory: in the selection, and not an
-// internal memory hidden behind a `*` selection without MAXIMS_INSTALL_INTERNAL=1.
+// The rule `selectMemories` installs by, asked of one memory.
 function isVisible(memory: SourceMemory, select: Select, installInternal: boolean): boolean {
-  const { name, metadata } = memory.memory;
   return (
-    inSelect(select, name) && (metadata.internal !== true || select !== "*" || installInternal)
+    inSelect(select, memory.memory.name) &&
+    !isHiddenInternal(memory.memory, select, installInternal)
   );
 }
 

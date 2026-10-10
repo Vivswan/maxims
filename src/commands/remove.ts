@@ -1,6 +1,6 @@
-import { memories } from "../console/strings.ts";
+import { memories, notInstalled } from "../console/strings.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
-import { canonicalSourceKey, type SourceEntry, type State } from "../state/schema.ts";
+import type { SourceEntry, State } from "../state/schema.ts";
 import { withStateLock } from "../state/store.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -19,8 +19,7 @@ import {
   unusableStateLine,
 } from "./shared/report.ts";
 import { selectMemories } from "./shared/select.ts";
-import { parseSourceArgument } from "./shared/source-argument.ts";
-import { withIntent } from "./shared/sources.ts";
+import { installedSourceOrNull, withIntent } from "./shared/sources.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "./types.ts";
 
 // Intent mutation, then the same convergence that installs: with the entry gone the regenerated
@@ -140,7 +139,7 @@ async function resolveRemoval(
     if (options.agents !== undefined) {
       const dropped = entry.intent.harnesses.filter((id) => options.agents?.includes(id));
       if (dropped.length === 0) {
-        notices.push(`${key} is not installed for ${options.agents.join(", ")}`);
+        notices.push(`${notInstalled(key)} for ${options.agents.join(", ")}`);
         return;
       }
       for (const id of dropped) labels.push(`${key} from ${id}`);
@@ -167,27 +166,19 @@ async function resolveRemoval(
   const targets: RemoveTargetSpec[] = options.all
     ? installed.map((item) => item.key)
     : options.targets;
-  // A source recorded for another project is not this run's to remove: its files live under a
-  // root this run never writes, so the removal is refused rather than half done.
-  const elsewhere = Object.entries(state.sources).filter(([, entry]) => !actsHere(entry, ctx));
   for (const target of targets) {
+    // The lookup every verb resolves a source argument through; a source recorded for another
+    // project is refused there, since its files live under a root this run never writes.
     const named = typeof target === "string" ? target : target.source;
-    const other = elsewhere.find(([key]) => sameSource(key, named, ctx));
-    if (other !== undefined) {
-      const { destination } = other[1].intent;
-      const root = destination.scope === "project" ? destination.root : "";
-      throw new MaximsError(ExitCode.Usage, `${other[0]} is installed for the project at ${root}`, {
-        hint: `run maxims remove ${other[0]} from that project`,
-      });
-    }
-    if (typeof target === "string") {
-      const bySource = installed.find((item) => sameSource(item.key, target, ctx));
+    const key = installedSourceOrNull(state, named, ctx);
+    if (typeof target === "string" && key !== null) {
+      const bySource = installed.find((item) => item.key === key);
       if (bySource !== undefined) {
-        taken.push(bySource.key);
+        taken.push(key);
         takeOut(bySource);
         continue;
       }
-      if (taken.some((key) => sameSource(key, target, ctx))) continue;
+      if (taken.includes(key)) continue;
     }
     const spelled = typeof target === "string" ? target : `${target.source}/${target.memory}`;
     const name = typeof target === "string" ? parseMemoryName(target) : target.memory;
@@ -203,11 +194,9 @@ async function resolveRemoval(
       });
     }
     const candidates =
-      typeof target === "string"
-        ? installed
-        : installed.filter((item) => sameSource(item.key, target.source, ctx));
+      typeof target === "string" ? installed : installed.filter((item) => item.key === key);
     if (typeof target !== "string" && candidates.length === 0) {
-      throw new MaximsError(ExitCode.Usage, `${target.source} is not installed`);
+      throw new MaximsError(ExitCode.Usage, notInstalled(target.source));
     }
     const owners = candidates.filter((item) => item.pairs.some((pair) => pair.localName === name));
     if (owners.length > 1) {
@@ -220,7 +209,7 @@ async function resolveRemoval(
     }
     const [owner] = owners;
     if (owner === undefined) {
-      notices.push(`${spelled} is not installed`);
+      notices.push(notInstalled(spelled));
       continue;
     }
     // A single memory leaves by regenerating its source's block without it, which needs the
@@ -293,32 +282,6 @@ async function readInstalled(state: State, ctx: EngineContext, io: EngineIo): Pr
     installed.push({ key, entry, tree, pairs });
   }
   return installed;
-}
-
-// A source argument matches its state key exactly, or, for a GitHub repository, whose names
-// GitHub treats as one, case-insensitively on the `@owner/repo` part with the pin compared as
-// typed, since a git ref is case-sensitive. A key spelled with its `#pin` is not a source
-// argument the parser accepts, so it is compared as the key it is.
-function sameSource(key: string, argument: string, ctx: EngineContext): boolean {
-  if (key === argument) return true;
-  let candidate: string;
-  try {
-    candidate = canonicalSourceKey(
-      parseSourceArgument(argument, ctx.cwd, { ghHost: ctx.env.GH_HOST }),
-    );
-  } catch (error) {
-    if (!(error instanceof MaximsError && error.code === ExitCode.Usage)) throw error;
-    if (!argument.startsWith("@") || !argument.includes("#")) return false;
-    candidate = argument;
-  }
-  if (candidate === key) return true;
-  if (!candidate.startsWith("@")) return false;
-  const [candidateRepo, ...candidatePin] = candidate.split("#");
-  const [keyRepo, ...keyPin] = key.split("#");
-  return (
-    keyRepo?.toLowerCase() === candidateRepo?.toLowerCase() &&
-    keyPin.join("#") === candidatePin.join("#")
-  );
 }
 
 // A `*` selection becomes the explicit list of what remains, so a later refresh cannot bring

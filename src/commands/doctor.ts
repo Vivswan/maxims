@@ -1,4 +1,3 @@
-import { existsSync, statSync } from "node:fs";
 import { heldFinding, notDefinedHere } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
@@ -11,8 +10,9 @@ import { homePaths } from "../util/home.ts";
 import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere, harnessContext } from "./shared/context.ts";
+import { readLastSync } from "./shared/debounce.ts";
 import { pathAbsent } from "./shared/fs-probe.ts";
-import { hookedAt } from "./shared/hooks.ts";
+import { type HookStatus, hookStatus, hookStatusText } from "./shared/hooks.ts";
 import {
   type Command,
   type CommandContext,
@@ -49,7 +49,7 @@ type HarnessReport = {
   id: HarnessId;
   scope: Scope;
   ruleFiles: RuleFileReport[];
-  hook: "current" | "missing" | "none" | "not-wanted";
+  hook: HookStatus;
   tier: AchievedTier;
 };
 
@@ -101,11 +101,7 @@ export const doctor: Command = {
       findings.push(expectFinding(report));
     }
     const lastSync = lastSyncAge(io.home, io.now());
-    findings.push(
-      lastSync === null
-        ? { kind: "warn", text: "never synced" }
-        : { kind: "ok", text: `last sync ${lastSync}` },
-    );
+    findings.push(lastSync.finding);
     const defaults = `Defaults: rule=${ctx.config.rule === true} addHook=${ctx.config.addHook === true}`;
     const failed = findings.some((finding) => finding.kind === "fail");
     if (ctx.global.json) {
@@ -115,7 +111,7 @@ export const doctor: Command = {
         harnesses: reports,
         unresolved,
         expect: expects,
-        lastSync,
+        lastSync: lastSync.age,
         defaults: ctx.config,
       };
       io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
@@ -198,14 +194,14 @@ async function checkHarness(
       preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
     });
   }
-  const wanted = hookedAt(state, scope, ctx.io.projectRoot).includes(def.id);
-  let hook: HarnessReport["hook"] = "not-wanted";
-  if (def.hook.kind === "none") hook = "none";
-  else if (wanted) {
-    // The hook alone: a pending config edit beside it is not a missing hook.
-    const plan = await ctx.engine.planHookAlone(def, scope, harnessCtx, true);
-    hook = plan.changes.length === 0 ? "current" : "missing";
-  }
+  const hook = await hookStatus(
+    def,
+    scope,
+    state,
+    ctx.io.projectRoot,
+    harnessCtx,
+    ctx.engine.planHookAlone,
+  );
   const tier = await ctx.engine.achievedTier(def, scope, harnessCtx);
   return { id: def.id, scope, ruleFiles, hook, tier };
 }
@@ -267,14 +263,13 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
     for (const what of failed) findings.push({ kind: "fail", text: `${prefix} ${what}` });
     if (failed.length === 0) findings.push({ kind: "ok", text: `${prefix} ${shown}` });
   }
-  if (report.hook === "current") {
-    findings.push({ kind: "ok", text: `${prefix} SessionStart hook current` });
-  }
-  if (report.hook === "missing") {
-    findings.push({
-      kind: "fail",
-      text: `${prefix} hook missing (run maxims add <source> --add-hook)`,
-    });
+  const hook = hookStatusText(report.hook);
+  if (hook !== null) {
+    findings.push(
+      report.hook === "current"
+        ? { kind: "ok", text: `${prefix} ${hook}` }
+        : { kind: "fail", text: `${prefix} ${hook} (run maxims add <source> --add-hook)` },
+    );
   }
   if (report.tier.tier === 2) {
     findings.push({ kind: "warn", text: `${prefix} tier 2 on this machine` });
@@ -357,13 +352,21 @@ function expectFinding(report: ExpectReport): Finding {
   return { kind: "fail", text: `expect ${report.name}: no rule line in ${where}` };
 }
 
-function lastSyncAge(home: string, now: Date): string | null {
-  const path = homePaths(home).lastSync;
-  if (!existsSync(path)) return null;
-  const ageMs = now.getTime() - statSync(path).mtimeMs;
-  const minutes = Math.max(0, Math.round(ageMs / 60_000));
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+// The age is null when no sync has stamped and when the stamp cannot be read; the finding tells
+// the two apart, since a stamp nobody can read is not a machine that never synced.
+function lastSyncAge(home: string, now: Date): { age: string | null; finding: Finding } {
+  const stamp = readLastSync(homePaths(home));
+  if (stamp.kind === "absent")
+    return { age: null, finding: { kind: "warn", text: "never synced" } };
+  if (stamp.kind === "unreadable") {
+    return { age: null, finding: { kind: "warn", text: `last sync unknown: ${stamp.reason}` } };
+  }
+  const minutes = Math.max(0, Math.round((now.getTime() - stamp.at.getTime()) / 60_000));
+  const age =
+    minutes < 60
+      ? `${minutes}m ago`
+      : Math.round(minutes / 60) < 48
+        ? `${Math.round(minutes / 60)}h ago`
+        : `${Math.round(minutes / 60 / 24)}d ago`;
+  return { age, finding: { kind: "ok", text: `last sync ${age}` } };
 }
