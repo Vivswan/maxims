@@ -19,6 +19,7 @@ import { spec as claudeCodeSpec } from "../../src/harnesses/claude-code/spec.ts"
 import { codex } from "../../src/harnesses/codex/spec.ts";
 import type { HarnessContext, HookSpec } from "../../src/harnesses/contract.ts";
 import { dsh, spec as dshSpec } from "../../src/harnesses/dsh/spec.ts";
+import { achievedTier } from "../../src/harnesses/hook-writer.ts";
 import { parseHarnessSpec, UserHarnessSpecSchema } from "../../src/harnesses/spec.ts";
 import { loadUserDefinedHarnesses } from "../../src/harnesses/user-defined.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
@@ -229,16 +230,14 @@ function contextAt(home: string): HarnessContext {
 // reads: the probe answers a tier reading for any bytes, hooks off with the reason when it cannot
 // read a flag, and never a throw that would abort a sync or a read-only verb over it.
 test(
-  "codex.achievedTier answers a tier reading for any config.toml bytes",
+  "codex's tier probe answers a reading for any config.toml bytes",
   async () => {
-    const probe = codex.achievedTier;
-    if (probe === undefined) throw new Error("codex declares a tier probe");
     await withTempDir(async (home) => {
       mkdirSync(join(home, ".codex"));
       const configPath = join(home, ".codex", "config.toml");
       await fuzz("codex tier probe", tomlText, async (text) => {
         writeFileSync(configPath, text);
-        const result = await asyncOutcome(() => probe(contextAt(home)));
+        const result = await asyncOutcome(() => achievedTier(codex, "global", contextAt(home)));
         if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
         const reading = result.value;
         if (reading.unreadable === null) expect([1, 2]).toContain(reading.tier);

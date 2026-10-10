@@ -15,7 +15,11 @@ import {
   type Scope,
   sharedBlockFile,
 } from "../../../src/harnesses/contract.ts";
-import { hasHook, planHookRegistryWrite } from "../../../src/harnesses/hook-writer.ts";
+import {
+  hasHook,
+  planHookRegistryWrite,
+  achievedTier as probe,
+} from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -27,9 +31,10 @@ const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
 
+// The config.toml layers are the machine's whichever scope the hook sits in, so one scope stands
+// for both here; the shared writer's own tests cover the scope-independence.
 function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
-  if (codex.achievedTier === undefined) throw new Error("Codex probes its config.toml layers");
-  return codex.achievedTier(ctx);
+  return probe(codex, "global", ctx);
 }
 
 const layers: [string, string | null, string | null, 1 | 2][] = [
@@ -113,24 +118,31 @@ test.each(malformed)(
   },
 );
 
-// A project layer that cannot be read decides nothing for the user layer: the machine is taken
-// at hooks off whatever the user config says, since the layer Codex reads first is the broken one.
-test("an unreadable project config.toml is reported over an enabling user config", async () => {
-  await withTempDir(async (dir) => {
-    const home = join(dir, "home");
-    const project = join(dir, "project");
-    mkdirSync(join(home, ".codex"), { recursive: true });
-    mkdirSync(join(project, ".codex"), { recursive: true });
-    writeFileSync(join(home, ".codex", "config.toml"), enabled);
-    writeFileSync(join(project, ".codex", "config.toml"), "hooks\n");
-    expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
-      unreadable(
-        join(project, ".codex", "config.toml"),
-        "Invalid TOML document: illegal character in key (line 1, column 6)",
-      ),
-    );
-  });
-});
+// A layer that cannot be read decides nothing for the others and is the reading wherever it sits:
+// Codex refuses to load a config.toml that does not parse, so the machine is taken at hooks off
+// whatever the other layer says.
+const brokenLayers: [string, string, string, "project" | "home"][] = [
+  ["project broken over an enabling user config", "hooks\n", enabled, "project"],
+  ["user broken under an enabling project config", enabled, "hooks\n", "home"],
+];
+
+test.each(brokenLayers)(
+  "an unreadable config.toml is reported over the other layer (%s)",
+  async (_, projectToml, userToml, brokenIn) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(dir, "project");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      writeFileSync(join(home, ".codex", "config.toml"), userToml);
+      writeFileSync(join(project, ".codex", "config.toml"), projectToml);
+      const broken = join(dir, brokenIn, ".codex", "config.toml");
+      expect(await achievedTier({ home, projectRoot: project, env: {} })).toEqual(
+        unreadable(broken, "Invalid TOML document: illegal character in key (line 1, column 6)"),
+      );
+    });
+  },
+);
 
 test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
   await withTempDir(async (dir) => {

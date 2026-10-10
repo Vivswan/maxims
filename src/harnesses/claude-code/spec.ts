@@ -1,12 +1,12 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
-import { layeredDisableAllHooksProbe } from "./quirks.ts";
 
 // `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
 // only a path-scoped install adds the `paths:` preamble. `disableAllHooks` silences every hook,
-// ours included, and is read after settings precedence applies, so quirks.ts probes the layers
-// rather than the one file `tierCheck` names. Claude Code strips HTML comments before injection
-// and expands `@path` imports; a rule file may grow to its 4 MiB memory cap.
+// ours included, and is read after settings precedence applies, so the tier check walks the
+// layers in that order: managed settings and `--settings` outrank all three and are not read.
+// Claude Code strips HTML comments before injection and expands `@path` imports; a rule file may
+// grow to its 4 MiB memory cap.
 export const spec = {
   id: "claude-code",
   displayName: "Claude Code",
@@ -79,7 +79,10 @@ export const spec = {
     stdout: "plain",
     async: true,
     tierCheck: {
-      path: { project: ".claude/settings.json", global: ".claude/settings.json" },
+      layers: {
+        project: [".claude/settings.local.json", ".claude/settings.json"],
+        global: [".claude/settings.json"],
+      },
       format: "json",
       key: "disableAllHooks",
       demotesWhen: true,
@@ -89,6 +92,4 @@ export const spec = {
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
 
-export const claudeCode = toDefinition(spec, (declared) => ({
-  achievedTier: layeredDisableAllHooksProbe(declared, spec.hook.tierCheck),
-}));
+export const claudeCode = toDefinition(spec);

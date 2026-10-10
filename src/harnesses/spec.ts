@@ -212,10 +212,18 @@ const Detect = z
     }
   });
 
+// `layers` lists, per scope and in the harness's own precedence order, the config files it reads
+// the key from; the walk takes the project list, then the global one. zod drops a `__proto__` key
+// from what it parses, so a check on that segment could never read it and is refused here.
 const TierCheck = z.strictObject({
-  path: perScope(RelPath),
+  layers: perScope(z.array(RelPath).min(1)),
   format: ConfigFormatEnum,
-  key: z.string().min(1),
+  key: z
+    .string()
+    .min(1)
+    .refine((value) => !value.split(".").includes("__proto__"), {
+      error: "a key segment cannot be __proto__",
+    }),
   demotesWhen: z.json(),
 });
 

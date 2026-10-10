@@ -222,24 +222,56 @@ describe("claude-code", () => {
     },
   );
 
-  // A layer that does not parse is not a layer that sets nothing: the walk stops at it with the
-  // reason, so a valid user setting below it never passes for the machine's answer.
-  test("a malformed project settings.json is tier 2 with the reason, over a valid user layer", async () => {
-    await withTempDir(async (dir) => {
-      const home = join(dir, "home");
-      const project = join(dir, "project");
-      mkdirSync(join(home, ".claude"), { recursive: true });
-      mkdirSync(join(project, ".claude"), { recursive: true });
-      const broken = join(project, ".claude", "settings.json");
-      writeFileSync(broken, "{ this is not json\n");
-      writeFileSync(join(home, ".claude", "settings.json"), on);
-      const layered: HarnessContext = { home, projectRoot: project, env: {} };
-      for (const scope of ["project", "global"] as const) {
-        expect(await achievedTier(claudeCode, scope, layered)).toEqual({
-          tier: 2,
-          unreadable: `settings.json could not be read (${broken}: InvalidSymbol at offset 2); assuming hooks off`,
-        });
-      }
-    });
-  });
+  // A layer that does not parse is not a layer that sets nothing: wherever it sits in the walk, the
+  // reading is the reason, so a valid setting in another layer never passes for the machine's
+  // answer. Below a deciding project layer it is the user file the global hook is registered in:
+  // Claude Code skips a broken settings file, so that hook never runs whatever the project says.
+  const broken: [string, string | null, string | null, string | null, string][] = [
+    [
+      "project broken over a user on",
+      null,
+      "{ this is not json\n",
+      on,
+      "project/.claude/settings.json",
+    ],
+    [
+      "user broken under a project on",
+      null,
+      on,
+      "{ this is not json\n",
+      "home/.claude/settings.json",
+    ],
+    [
+      "user broken under a local on",
+      on,
+      null,
+      "{ this is not json\n",
+      "home/.claude/settings.json",
+    ],
+  ];
+
+  test.each(broken)(
+    "a malformed settings.json is tier 2 with the reason, whichever other layer sets the key (%s)",
+    async (_, localJson, projectJson, userJson, brokenFile) => {
+      await withTempDir(async (dir) => {
+        const home = join(dir, "home");
+        const project = join(dir, "project");
+        mkdirSync(join(home, ".claude"), { recursive: true });
+        mkdirSync(join(project, ".claude"), { recursive: true });
+        const write = (path: string, text: string | null): void => {
+          if (text !== null) writeFileSync(path, text);
+        };
+        write(join(project, ".claude", "settings.local.json"), localJson);
+        write(join(project, ".claude", "settings.json"), projectJson);
+        write(join(home, ".claude", "settings.json"), userJson);
+        const layered: HarnessContext = { home, projectRoot: project, env: {} };
+        for (const scope of ["project", "global"] as const) {
+          expect(await achievedTier(claudeCode, scope, layered)).toEqual({
+            tier: 2,
+            unreadable: `settings.json could not be read (${join(dir, brokenFile)}: InvalidSymbol at offset 2); assuming hooks off`,
+          });
+        }
+      });
+    },
+  );
 });

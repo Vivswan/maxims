@@ -12,7 +12,7 @@ import {
   printParseErrorCode,
 } from "jsonc-parser";
 import { parse as parseToml, TomlError } from "smol-toml";
-import { util } from "zod";
+import { util, z } from "zod";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
@@ -25,9 +25,11 @@ import {
   removeChild,
   replaceValue,
 } from "../util/jsonc.ts";
+import { flattenIssues } from "../util/zod-issues.ts";
 import {
   type AchievedTier,
   type ConfigFormat,
+  type ConfigLayer,
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND_PREFIX,
@@ -376,44 +378,102 @@ export function planFileHookWrite(input: FileHookWriteInput): HookPlan {
   };
 }
 
-// The tier a harness reaches on this machine: a definition's own probe wins, then a declared
-// config flag holding its demoting value demotes to 2, else the declared tier. A missing config
-// means the harness runs on its defaults, which the declaration already accounts for.
+// The tier a harness reaches on this machine, the same for either install scope: the harness reads
+// every layer its `tierCheck` declares whichever scope the hook sits in. An unreadable layer is the
+// reading wherever it sits, because the file the hook is registered in may be the broken one and
+// the harness skips or refuses a config its own schema rejects, so no other layer can answer for
+// it. A key no layer sets leaves the declared tier, which already accounts for the harness's
+// defaults.
 export async function achievedTier(
   def: HarnessDefinition,
-  scope: Scope,
+  _scope: Scope,
   ctx: HarnessContext,
 ): Promise<AchievedTier> {
   if (def.achievedTier !== undefined) return def.achievedTier(ctx);
   const declared: AchievedTier = { tier: def.tier, unreadable: null };
   if (!hasHook(def, "registry") || def.hook.tierCheck === undefined) return declared;
   const check = def.hook.tierCheck;
-  const path = check.path(scope, ctx);
-  const config = await readConfigValue(path, check.format);
-  if (config.kind === "absent") return declared;
-  if (config.kind === "unreadable") {
-    return { tier: 2, unreadable: unreadableNotice(path, config.reason) };
+  const paths = check.layers(ctx);
+  const layers = await Promise.all(paths.map((path) => readLayer(path, check)));
+  const broken = layers.findIndex((layer) => layer.kind === "unreadable");
+  const [path, layer] = [paths[broken], layers[broken]];
+  if (path !== undefined && layer?.kind === "unreadable") {
+    return { tier: 2, unreadable: unreadableNotice(path, layer.reason) };
   }
-  const value = valueAt(config.value, check.key.split("."));
-  const demoted = value !== undefined && sameJson(value, check.demotesWhen);
+  const deciding = layers.find((layer) => layer.kind === "value");
+  const demoted = deciding !== undefined && sameJson(deciding.value, check.demotesWhen);
   return demoted ? { tier: 2, unreadable: null } : declared;
+}
+
+type TierCheck = NonNullable<RegistryHook["tierCheck"]>;
+
+// The note `list` prints beside a tier the declared value demoted, spelled from the same key and
+// value the probe compared.
+export function demotionNote(check: Pick<TierCheck, "key" | "demotesWhen">): string {
+  return `${check.key} = ${JSON.stringify(check.demotesWhen)}`;
+}
+
+// One layer as the harness reads it. The key path is parsed with the type `demotesWhen` has, so a
+// table where a flag belongs, a flag where a table belongs, or a value of another type is the
+// same `unreadable` as a file that does not parse, with zod's wording for the reason; a segment
+// the file lacks is `unset`. The value itself is taken from the parsed file, not from zod's
+// output, which drops a `__proto__` property an object-valued flag may hold.
+async function readLayer(path: string, check: TierCheck): Promise<ConfigLayer> {
+  const file = await readConfigValue(path, check.format);
+  if (file.kind !== "value") return file;
+  const segments = check.key.split(".");
+  const parsed = keySchema(segments, check.demotesWhen).safeParse(file.value);
+  if (!parsed.success) {
+    return { kind: "unreadable", reason: flattenIssues(parsed.error.issues).join("; ") };
+  }
+  const value = valueAt(file.value, segments);
+  return value === undefined ? { kind: "unset" } : { kind: "value", value };
+}
+
+// zod's object schemas take any non-array object, a Date included, and smol-toml hands a TOML date
+// back as a Date subclass, so a plain-object gate in front of each table keeps a date where a table
+// belongs from reading as an empty table.
+function keySchema(segments: string[], demotesWhen: unknown): z.ZodType {
+  const table = z.custom<Record<string, unknown>>(util.isPlainObject, {
+    error: (issue) => `Invalid input: expected object, received ${util.getParsedType(issue.input)}`,
+  });
+  return segments.reduceRight<z.ZodType>(
+    (inner, segment) => table.pipe(z.looseObject({ [segment]: inner.optional() })),
+    jsonTypeOf(demotesWhen),
+  );
+}
+
+// The spec schema admits only a JSON value as `demotesWhen`, so a value outside these is a
+// definition that bypassed parsing.
+function jsonTypeOf(sample: unknown): z.ZodType {
+  if (sample === null) return z.null();
+  if (Array.isArray(sample)) return z.array(z.json());
+  switch (typeof sample) {
+    case "boolean":
+      return z.boolean();
+    case "number":
+      return z.number();
+    case "string":
+      return z.string();
+    case "object":
+      return z.record(z.string(), z.json());
+    default:
+      throw new Error(`demotesWhen is a JSON value, got ${typeof sample}`);
+  }
 }
 
 // The notice an `AchievedTier` carries for a config the probe could not read; the file's own name
 // leads so the line reads the same whichever harness owns it.
-export function unreadableNotice(path: string, reason: string): string {
+function unreadableNotice(path: string, reason: string): string {
   return `${basename(path)} could not be read (${path}: ${reason}); assuming hooks off`;
 }
 
-export type ConfigReading =
-  | { kind: "absent" }
-  | { kind: "unreadable"; reason: string }
-  | { kind: "value"; value: unknown };
+type FileReading = Exclude<ConfigLayer, { kind: "unset" }>;
 
 // A config maxims only reads, as a tier probe sees it. A regular file where the config directory
 // would be (ENOTDIR) sets nothing, like a missing file; anything else that stops the read is the
 // reason the probe reports, never a throw that would abort a sync over a file maxims never writes.
-export async function readConfigValue(path: string, format: ConfigFormat): Promise<ConfigReading> {
+async function readConfigValue(path: string, format: ConfigFormat): Promise<FileReading> {
   let text: string | null;
   try {
     ({ text } = await readPresentFile(path));
@@ -429,7 +489,7 @@ export async function readConfigValue(path: string, format: ConfigFormat): Promi
 
 // smol-toml's message carries a source excerpt with a caret on the lines after the first; the
 // reason keeps the first line and names the position instead.
-function parseTomlConfig(text: string): ConfigReading {
+function parseTomlConfig(text: string): FileReading {
   try {
     return { kind: "value", value: parseToml(text) };
   } catch (cause) {
@@ -439,7 +499,7 @@ function parseTomlConfig(text: string): ConfigReading {
   }
 }
 
-function parseJsonConfig(text: string): ConfigReading {
+function parseJsonConfig(text: string): FileReading {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: true });
   const [first] = errors;
@@ -453,10 +513,12 @@ function parseJsonConfig(text: string): ConfigReading {
   return { kind: "value", value: getNodeValue(root) };
 }
 
+// Own properties only: a plain object from smol-toml would otherwise answer a key named like an
+// Object.prototype member (`constructor`) with the prototype's function where the file sets nothing.
 function valueAt(value: unknown, path: string[]): unknown {
   let current = value;
   for (const key of path) {
-    if (!util.isObject(current)) return undefined;
+    if (!util.isObject(current) || !Object.hasOwn(current, key)) return undefined;
     current = current[key];
   }
   return current;

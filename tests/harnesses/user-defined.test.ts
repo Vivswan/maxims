@@ -133,21 +133,38 @@ test.each(refusals)(
   },
 );
 
-// The file has no migration ladder, so an entry in the pre-stable `pages` shape is refused by name
-// rather than repaired or dropped. The exact message is the pin: a loader that grew a silent
-// repair, or a schema that stopped being strict, changes it.
-test("an entry in the old verifiedAgainst.pages shape is refused naming both keys", async () => {
-  await withTempDir(async (home) => {
-    const fixture = srcPath("harnesses", "fixtures", "corrupt-verified-against-pages.json");
-    await expect(load(home, readFileSync(fixture, "utf8"))).rejects.toMatchObject({
-      name: "MaximsError",
-      code: ExitCode.DestinationWriteFailed,
-      message:
-        `${fileIn(home)}: harnesses[0] (id "acme"): verifiedAgainst.sources: Invalid input: ` +
-        'expected tuple, received undefined; verifiedAgainst: Unrecognized key: "pages"',
+// The file has no migration ladder, so an entry in a pre-stable shape is refused by name rather
+// than repaired or dropped. The exact message is the pin: a loader that grew a silent repair, or a
+// schema that stopped being strict, changes it. The `path` tier check named one file per scope; a
+// loader that read it as one layer per scope would silently probe the wrong files.
+const oldShapes: [string, string, string][] = [
+  [
+    "verifiedAgainst.pages",
+    "corrupt-verified-against-pages.json",
+    "verifiedAgainst.sources: Invalid input: expected tuple, received undefined; " +
+      'verifiedAgainst: Unrecognized key: "pages"',
+  ],
+  [
+    "tierCheck.path",
+    "corrupt-tier-check-path.json",
+    "hook.tierCheck.layers: Invalid input: expected object, received undefined; " +
+      'hook.tierCheck: Unrecognized key: "path"',
+  ],
+];
+
+test.each(oldShapes)(
+  "an entry in the old %s shape is refused naming both keys",
+  async (_, fixtureName, expected) => {
+    await withTempDir(async (home) => {
+      const fixture = srcPath("harnesses", "fixtures", fixtureName);
+      await expect(load(home, readFileSync(fixture, "utf8"))).rejects.toMatchObject({
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: `${fileIn(home)}: harnesses[0] (id "acme"): ${expected}`,
+      });
     });
-  });
-});
+  },
+);
 
 // Only "no file" reads as empty; a file that exists but cannot be read must not pass for an
 // empty list, or a permissions slip would silently drop every user-defined harness.

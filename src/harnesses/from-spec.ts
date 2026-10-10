@@ -25,10 +25,10 @@ import {
   type TargetSpec,
 } from "./spec.ts";
 
-// The members a spec cannot carry because they are code: a probe for the tier the machine really
-// reaches, a config edit a rules directory needs, or a hook the shared writers cannot express. A
-// quirk that needs the compiled paths (a probe reading the files `tierCheck` names under the
-// resolved global root) is given as a function of the data-only definition.
+// The members a spec cannot carry because they are code: a config edit a rules directory needs,
+// a hook the shared writers cannot express, or a probe for a tier no config file states. A quirk
+// that needs the compiled paths (a bridge row pointing at a file under the resolved global root)
+// is given as a function of the data-only definition.
 export type HarnessQuirks = {
   achievedTier?: HarnessDefinition["achievedTier"];
   configEdit?: HarnessDefinition["configEdit"];
@@ -62,6 +62,16 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
     (paths: PathsPerScope): ScopedPath =>
     (scope, ctx) =>
       join(scopeRoot(roots, scope, ctx), paths[scope]);
+  // Project layers lead, the global ones follow, each list in the order the spec gives; with no
+  // project root only the global list is read.
+  const layered =
+    (paths: Record<Scope, string[]>) =>
+    (ctx: HarnessContext): string[] => {
+      const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["project", "global"];
+      return scopes.flatMap((scope) =>
+        paths[scope].map((path) => join(scopeRoot(roots, scope, ctx), path)),
+      );
+    };
   const scopeFrontmatter = compileScopeFrontmatter(spec.scopeFrontmatter);
   const [first, ...rest] = spec.verifiedAgainst.sources;
 
@@ -77,7 +87,7 @@ function compileData(spec: HarnessSpec): HarnessDefinition {
       const dir = spec.bodiesDir[scope];
       return dir === null ? null : join(scopeRoot(roots, scope, ctx), dir);
     },
-    hook: compileHook(spec.hook, under),
+    hook: compileHook(spec.hook, under, layered),
     markers: spec.markers,
     expands: [...spec.expands],
     ...(spec.byteBudget === undefined ? {} : { byteBudget: spec.byteBudget }),
@@ -184,7 +194,11 @@ function fenced(fields: Record<string, unknown>): string {
   return `---\n${stringify(fields)}---\n`;
 }
 
-function compileHook(hook: HookSpecData, under: (paths: PathsPerScope) => ScopedPath): HookShape {
+function compileHook(
+  hook: HookSpecData,
+  under: (paths: PathsPerScope) => ScopedPath,
+  layered: (paths: Record<Scope, string[]>) => (ctx: HarnessContext) => string[],
+): HookShape {
   switch (hook.kind) {
     case "none":
       return { kind: "none" };
@@ -214,7 +228,7 @@ function compileHook(hook: HookSpecData, under: (paths: PathsPerScope) => Scoped
           ? {}
           : {
               tierCheck: {
-                path: under(tierCheck.path),
+                layers: layered(tierCheck.layers),
                 format: tierCheck.format,
                 key: tierCheck.key,
                 demotesWhen: tierCheck.demotesWhen,

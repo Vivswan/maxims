@@ -820,7 +820,7 @@ describe("achievedTier", () => {
   const codexLike = registryDef({
     path: (_, ctx) => join(ctx.home, ".codex", "hooks.json"),
     tierCheck: {
-      path: (_, ctx) => join(ctx.home, ".codex", "config.toml"),
+      layers: (ctx) => [join(ctx.home, ".codex", "config.toml")],
       format: "toml",
       key: "features.hooks",
       demotesWhen: false,
@@ -829,9 +829,18 @@ describe("achievedTier", () => {
   const jsonCheck = registryDef({
     path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
     tierCheck: {
-      path: (_, ctx) => join(ctx.home, ".example", "settings.json"),
+      layers: (ctx) => [join(ctx.home, ".example", "settings.json")],
       format: "json",
       key: "hooks.enabled",
+      demotesWhen: false,
+    },
+  });
+  const prototypeKey = registryDef({
+    path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
+    tierCheck: {
+      layers: (ctx) => [join(ctx.home, ".example", "settings.json")],
+      format: "json",
+      key: "hooks.constructor",
       demotesWhen: false,
     },
   });
@@ -842,9 +851,9 @@ describe("achievedTier", () => {
     tier: 1 | 2;
     unreadable: RegExp | null;
   };
-  // A config that exists but cannot be read is the AchievedTier contract's tier 2 with the reason,
-  // the reading the Codex probe already gives; the declared tier would call a broken config
-  // "hooks on" and doctor would report nothing.
+  // A config that exists but cannot be read is the AchievedTier contract's tier 2 with the reason;
+  // the declared tier would call a broken config "hooks on" and doctor would report nothing. A key
+  // or a table of the wrong type is the same reading: the harness's own schema rejects that file.
   const cases: Case[] = [
     {
       name: "no config file keeps the declared tier",
@@ -875,11 +884,12 @@ describe("achievedTier", () => {
       unreadable: null,
     },
     {
-      name: "a value other than the demoting one keeps the declared tier",
+      name: "a flag of another type than the demoting value is tier 2 with the key and both types",
       def: codexLike,
       config: '[features]\nhooks = "off"\n',
-      tier: 1,
-      unreadable: null,
+      tier: 2,
+      unreadable:
+        /^config\.toml could not be read \(.*config\.toml: features\.hooks: Invalid input: expected boolean, received string\); assuming hooks off$/,
     },
     {
       name: "an unparsable TOML config is tier 2 with the reason and its position",
@@ -888,6 +898,14 @@ describe("achievedTier", () => {
       tier: 2,
       unreadable:
         /^config\.toml could not be read \(.*config\.toml: Invalid TOML document: .* \(line 1, column \d+\)\); assuming hooks off$/,
+    },
+    {
+      name: "a TOML date where the harness reads a table is tier 2 with both types, never an empty table",
+      def: codexLike,
+      config: "features = 1979-05-27\n",
+      tier: 2,
+      unreadable:
+        /^config\.toml could not be read \(.*config\.toml: features: Invalid input: expected object, received date\); assuming hooks off$/,
     },
     {
       name: "a JSON flag set to false demotes to tier 2",
@@ -912,9 +930,25 @@ describe("achievedTier", () => {
         /^settings\.json could not be read \(.*settings\.json: .+ at offset \d+\); assuming hooks off$/,
     },
     {
-      name: "a JSON config holding a list has no flag, the declared tier",
+      name: "a JSON config holding a list where the harness reads an object is tier 2 with the reason",
       def: jsonCheck,
       config: "[]",
+      tier: 2,
+      unreadable:
+        /^settings\.json could not be read \(.*settings\.json: Invalid input: expected object, received array\); assuming hooks off$/,
+    },
+    {
+      name: "a JSON config holding a flag where the harness reads a table is tier 2 with the reason",
+      def: jsonCheck,
+      config: '{ "hooks": true }',
+      tier: 2,
+      unreadable:
+        /^settings\.json could not be read \(.*settings\.json: hooks: Invalid input: expected object, received boolean\); assuming hooks off$/,
+    },
+    {
+      name: "a key named like an Object.prototype member is unset when the file lacks it, never the prototype's value",
+      def: prototypeKey,
+      config: '{ "hooks": {} }',
       tier: 1,
       unreadable: null,
     },
@@ -922,7 +956,7 @@ describe("achievedTier", () => {
   test.each(cases)("$name", async ({ def, config, tier, unreadable }) => {
     await withTempDir(async (home) => {
       const local: HarnessContext = { home, projectRoot: null, env: {} };
-      const file = def.hook.tierCheck?.path("global", local);
+      const [file] = def.hook.tierCheck?.layers(local) ?? [];
       if (file === undefined) throw new Error("every case declares a tier check");
       if (config !== null) {
         mkdirSync(join(file, ".."), { recursive: true });
