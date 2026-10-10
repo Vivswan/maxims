@@ -261,10 +261,6 @@ function defaultPathRoots(root: string): string[] {
     .sort();
 }
 
-function escapeRe(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Problems with one label, as `"label": problem`. */
 export function labelProblems(
   label: string,
@@ -272,9 +268,9 @@ export function labelProblems(
   pathRoots: readonly string[] = defaultPathRoots(root),
 ): string[] {
   // A path starts under a top-level directory, or is a root-level file with a source or document extension (main.ts, README.md).
-  const rootFile = `[\\w.-]+(?:${[...SOURCE_EXTENSIONS, ".md", ".yml", ".yaml", ".json"].map(escapeRe).join("|")})`;
+  const rootFile = `[\\w.-]+(?:${[...SOURCE_EXTENSIONS, ".md", ".yml", ".yaml", ".json"].map(RegExp.escape).join("|")})`;
   const pathToken = new RegExp(
-    `^(?:(?:${pathRoots.map(escapeRe).join("|")})/[\\w./-]*|${rootFile})$`,
+    `^(?:(?:${pathRoots.map(RegExp.escape).join("|")})/[\\w./-]*|${rootFile})$`,
   );
   const problems: string[] = [];
   const missing = new Set<string>();

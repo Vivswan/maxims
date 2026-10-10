@@ -878,6 +878,7 @@ async function gitAttempt(
 //                            (uv_spawn on Windows)
 //   bun, bare name off PATH  Executable not found in $PATH: "<binary>"
 export function isAbsentBinary(binary: string, message: string): boolean {
+  // Hand-rolled on purpose: the bundle runs on the engines floor, Node 22, which has no RegExp.escape.
   const escaped = binary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const spellings = [
     `spawn ${escaped} ENOENT`,

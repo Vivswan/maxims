@@ -37,7 +37,7 @@ const WORD_FIRST = new RegExp(`^${WORD}`);
 const WORD_LAST = new RegExp(`${WORD}$`);
 
 export function claimPresent(text: string, claim: string): boolean {
-  const literal = squashWhitespace(claim).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const literal = RegExp.escape(squashWhitespace(claim));
   const before = WORD_FIRST.test(claim) ? `(?<!${WORD})` : "";
   const after = WORD_LAST.test(claim) ? `(?!${WORD})` : "";
   return new RegExp(`${before}${literal}${after}`).test(text);

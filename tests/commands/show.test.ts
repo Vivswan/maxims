@@ -67,7 +67,7 @@ describe("show", () => {
             "   revision: [0-9a-f]{7}",
             "   disabled: no",
             "   held: no",
-            `   rule: - ${regexLiteral(FILE.split("\n")[2]?.slice("description: ".length) ?? "")} \\(detail: ${regexLiteral(storeFile)}, [0-9a-f]{7}\\)`,
+            `   rule: - ${RegExp.escape(FILE.split("\n")[2]?.slice("description: ".length) ?? "")} \\(detail: ${RegExp.escape(storeFile)}, [0-9a-f]{7}\\)`,
             "\\|",
             "$",
           ].join("\\n"),
@@ -283,8 +283,4 @@ function splitAtBody(stdout: string): [string, string] {
   const at = stdout.indexOf("|\n---\n");
   if (at === -1) throw new Error(`no body follows the frame in:\n${stdout}`);
   return [stdout.slice(0, at + "|\n".length), stdout.slice(at + "|\n".length)];
-}
-
-function regexLiteral(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
