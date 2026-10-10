@@ -4,13 +4,17 @@
 // one place whatever the scope (dsh's bridge under the global root) would be written for the scope
 // that wants it and deleted again for the scope that does not. When both scopes resolve to one
 // registry (a home directory that is itself a git repository), the second sync would remove the
-// hook the first one wrote and the third would put it back.
+// hook the first one wrote and the third would put it back. A registry kept as a symlink into a
+// dotfiles checkout would be replaced by a regular file, cutting it out of the checkout.
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -22,6 +26,7 @@ import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import { HOOK_COMMAND, type Scope } from "../../src/harnesses/contract.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
 import { readIfPresent } from "../../src/util/fs.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
@@ -35,17 +40,19 @@ import {
   writeSource,
   writeState,
 } from "./fakes.ts";
-import { TWO_MEMORIES, world } from "./world.ts";
+import { expectExit, TWO_MEMORIES, world } from "./world.ts";
 
-// The registry write's content is the hook writer's; this test pins only which changes appear.
+// The registry write's content is the hook writer's; this test pins only which changes appear:
+// the config entry is a write of a file maxims owns, the registry an edit of the user's file.
 const configWrite = (config: string): unknown => ({
   kind: "write",
   path: config,
   content: FIXTURE_CONFIG_CONTENT,
 });
 const registryWrite = (registry: string): unknown => ({
-  kind: "write",
+  kind: "edit",
   path: registry,
+  target: registry,
   content: expect.stringContaining(HOOK_COMMAND),
 });
 
@@ -280,4 +287,94 @@ describe("both scopes resolving to one registry", () => {
       expect(readFileSync(settings, "utf8")).not.toContain(HOOK_COMMAND);
     });
   });
+});
+
+describe("a registry kept as a symlink", () => {
+  // The dotfiles file lives under the home, where the link's target has to be.
+  test("the hook lands in the file the link points to, the link survives, and the plan names the target", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+      );
+      mkdirSync(join(userHome, "dotfiles"));
+      const real = join(userHome, "dotfiles", "settings.json");
+      writeFileSync(real, '{ "theme": "dark" }\n');
+      const link = join(userHome, FIXTURE_DIR, "settings.json");
+      symlinkSync(real, link);
+
+      const dry = fakeIo({ home, userHome, cwd: dir });
+      await runSync({ ...SYNC, dryRun: true }, dry);
+      expect(dry.out.join("")).toContain(`edit    ${link} -> ${real} (`);
+      const json = fakeIo({ home, userHome, cwd: dir });
+      await runSync({ ...SYNC, json: true }, json);
+      const planned = JSON.parse(json.out.join("")).plan.changes;
+      expect(planned).toContainEqual({
+        kind: "edit",
+        path: link,
+        target: real,
+        content: expect.stringContaining(HOOK_COMMAND),
+      });
+
+      const io = fakeIo({ home, userHome, cwd: dir });
+      await runSync(SYNC, io);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(link)).toBe(real);
+      const text = readFileSync(real, "utf8");
+      expect(text).toContain(HOOK_COMMAND);
+      expect(text).toContain('"theme": "dark"');
+      expect(readdirSync(join(userHome, "dotfiles"))).toEqual(["settings.json"]);
+      expect((await runSync(SYNC, io)).changed).toEqual([]);
+    });
+  });
+
+  // Only the user can repoint the link, so the run fails on that harness by name, with the fix,
+  // and writes nothing in the link's place or behind it.
+  const unfollowable: [string, (dir: string) => string, RegExp][] = [
+    ["a dangling link", (dir) => join(dir, "gone.json"), /does not exist/],
+    [
+      "a link to a directory",
+      (dir) => {
+        mkdirSync(join(dir, "folder"));
+        return join(dir, "folder");
+      },
+      /is not a file/,
+    ],
+    [
+      "a link out of the home",
+      (dir) => {
+        writeFileSync(join(dir, "elsewhere.json"), "{}\n");
+        return join(dir, "elsewhere.json");
+      },
+      /outside/,
+    ],
+  ];
+  test.each(unfollowable)(
+    "%s is refused with the link and the fix",
+    async (_label, plant, reason) => {
+      await world(async ({ home, userHome, dir }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
+        );
+        const target = plant(dir);
+        const behind = () =>
+          lstatSync(target, { throwIfNoEntry: false })?.isFile()
+            ? readFileSync(target, "utf8")
+            : undefined;
+        const before = behind();
+        const link = join(userHome, FIXTURE_DIR, "settings.json");
+        symlinkSync(target, link);
+        const io = fakeIo({ home, userHome, cwd: dir });
+        const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+        expect(error.message).toContain(`cannot edit ${link}`);
+        expect(error.message).toMatch(reason);
+        expect(error.hint).toContain("then run maxims sync");
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(behind()).toBe(before);
+      });
+    },
+  );
 });

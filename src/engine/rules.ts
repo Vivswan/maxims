@@ -1,10 +1,11 @@
-import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
+import { readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   type HarnessDefinition,
   type Scope,
   type SourceSlug,
   scopeRoot,
+  type Target,
 } from "../harnesses/contract.ts";
 import { achievedTier } from "../harnesses/hook-writer.ts";
 import { chooseSelfRefreshSource } from "../harnesses/strategies/once-per-target.ts";
@@ -20,7 +21,7 @@ import {
 import { parseRuleLines, ruleLineName } from "../rulefile/blocks.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../rulefile/types.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, editInPlace, lstatOrNullSync } from "../util/change.ts";
 import { MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -45,12 +46,26 @@ export type BlockRequest = {
   paths: string[] | undefined;
 };
 
+// How maxims holds a file, fixed when the file is first met and agreed by every target that joins
+// it: a rules-dir file is written whole, a link at its path included; a shared file is the user's,
+// a block kept in it and edited through a link. A file met as one and joined as the other is a
+// shared file linked at a rule file, which the engine refuses rather than lets visit order decide.
+export type Ownership = "whole" | "shared";
+
+export function ownershipOf(target: Target): Ownership {
+  return target.kind === "rules-dir" ? "whole" : "shared";
+}
+
 export type RuleFile =
   | {
       kind: "harness";
+      owned: Ownership;
       path: RootedPath;
       sourceSlug: SourceSlug | null;
       targets: HarnessTarget[];
+      // Links other harnesses read the file by, none of them a reader this run renders for: the
+      // file is never deleted under one of them.
+      aliases: string[];
       blocks: BlockRequest[];
     }
   | { kind: "out"; path: RootedPath; blocks: BlockRequest[] };
@@ -68,11 +83,9 @@ export type RuleFileOptions = {
   keep: ReadonlySet<string>;
 };
 
-const EMPTY_PLAN: RuleFilePlan = { writes: [], removals: [], notices: [], tokens: [] };
-
-// A removal the grammar refuses (`stripBlock`) holds the file whole, since only the user can edit
-// the stray markers. Not a `MaximsError`: a catch that classifies write failures must not take
-// the hold for one.
+// A removal the grammar refuses (`stripBlock`), or a link maxims cannot edit through, holds the
+// file whole, since only the user can edit the stray markers or repoint the link. Not a
+// `MaximsError`: a catch that classifies write failures must not take the hold for one.
 export class RuleFileHeld extends Error {
   readonly hint: string | undefined;
 
@@ -96,24 +109,14 @@ export async function planRuleFile(
 ): Promise<RuleFilePlan> {
   const notices: string[] = [];
   const tokens: RuleFilePlan["tokens"] = [];
-  const drawn = await renderRuleFile(file);
-  if (drawn === null) {
-    // The sweep visits every shared file a harness reads here, wanted or not; a link is only
-    // worth a line when the run has a block to write, keep or strip in it.
-    if (!hasWork(file, options)) return EMPTY_PLAN;
-    return {
-      ...EMPTY_PLAN,
-      notices: [`maxims: ${file.path} is a symlink; managed blocks are not written through links`],
-    };
-  }
-  const { linked, current, rendering, gone, rendered, unreadable } = drawn;
+  const { linked, current, rendering, gone, rendered, unreadable } = await renderRuleFile(file);
   for (const line of unreadable) notices.push(`maxims: ${line}`);
   for (const { block, text } of rendered) {
     notices.push(...blockChangeNotices(file.path, block, text, current));
   }
   const writes: Change[] = [];
   const removals: Change[] = [];
-  if (file.kind === "out" || file.targets[0]?.target.kind === "rules-dir") {
+  if (ownedWhole(file)) {
     const [entry, ...extra] = rendered;
     if (entry === undefined) {
       if (linked || current !== null) removals.push({ kind: "delete", path: file.path });
@@ -131,9 +134,10 @@ export async function planRuleFile(
     }
     return { writes, removals, notices, tokens };
   }
-  const [primary] = file.targets;
+  const targets = file.kind === "harness" ? file.targets : [];
+  const [primary] = targets;
   if (primary === undefined || primary.target.kind !== "shared-block") {
-    return { writes, removals, notices, tokens };
+    throw new Error(`${file.path} is held as a shared file by no shared-block reader`);
   }
   // One shared file carries a block per source. The blocks are spliced here with the grammar's
   // own splicer (which closes a construct the user left open) and the byte budget is judged once,
@@ -141,21 +145,35 @@ export async function planRuleFile(
   // second of two blocks on the text with the first already replaced, and refuse a source that
   // grew while a later one shrank even when the finished file fits.
   const sharedTarget = primary.target;
-  const remove = (source: string, from: string): Change | undefined => {
+  // The file is the user's (a symlink into a dotfiles checkout included), so every write edits it
+  // where its bytes live; a link maxims cannot follow holds the file whole, since only the user
+  // can repoint it. A file the strip leaves blank is deleted, unless any reader reaches it
+  // through a link, which is the user's to keep: the blocks leave and the file stays, empty.
+  const held = <T>(plan: () => T): T => {
     try {
-      return planSharedBlockRemove({
-        def: primary.def,
-        target: sharedTarget,
-        scope: primary.scope,
-        ctx: primary.ctx,
-        source,
-        currentText: from,
-      })[0];
+      return plan();
     } catch (error) {
       if (!(error instanceof MaximsError)) throw error;
       throw new RuleFileHeld(file.path, error);
     }
   };
+  const root = scopeRoot(primary.def, primary.scope, primary.ctx);
+  const edit = (content: string): Change => held(() => editInPlace(root, file.path)(content));
+  const aliases = file.kind === "harness" ? file.aliases : [];
+  const aliased = linked || aliases.length > 0 || targets.some((target) => isSymlink(target.path));
+  const emptied = (): Change => (aliased ? edit("") : { kind: "delete", path: file.path });
+  const remove = (source: string, from: string): Change | undefined =>
+    held(
+      () =>
+        planSharedBlockRemove({
+          def: primary.def,
+          target: sharedTarget,
+          scope: primary.scope,
+          ctx: primary.ctx,
+          source,
+          currentText: from,
+        })[0],
+    );
   let text = current ?? "";
   for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
   // A still-installed source whose block renders empty leaves with this run's write, so the
@@ -163,30 +181,29 @@ export async function planRuleFile(
   for (const block of gone) {
     const change = remove(block.key, text);
     if (change?.kind === "delete") {
-      removals.push(change);
+      removals.push(emptied());
       return { writes, removals, notices, tokens };
     }
     if (change?.kind === "write") text = change.content;
   }
   if (rendered.length > 0) {
-    for (const target of file.targets)
-      assertWithinBudget(target.def, target.scope, file.path, text);
+    for (const target of targets) assertWithinBudget(target.def, target.scope, file.path, text);
   }
   if (text !== (current ?? "")) {
-    writes.push({ kind: "write", path: file.path, content: text });
+    writes.push(edit(text));
     tokens.push({ path: file.path, tokens: estimateTokens(text, rendering.markers) });
   }
   const wanted = new Set([...rendered.map((entry) => entry.block.key), ...options.keep]);
   let stripped = text;
-  let emptied = false;
+  let blank = false;
   for (const span of parseBlocks(text).blocks) {
-    if (wanted.has(span.source) || emptied) continue;
+    if (wanted.has(span.source) || blank) continue;
     const change = remove(span.source, stripped);
-    if (change?.kind === "delete") emptied = true;
+    if (change?.kind === "delete") blank = true;
     else if (change?.kind === "write") stripped = change.content;
   }
-  if (emptied && current !== null) removals.push({ kind: "delete", path: file.path });
-  else if (stripped !== text) removals.push({ kind: "write", path: file.path, content: stripped });
+  if (blank && current !== null) removals.push(emptied());
+  else if (stripped !== text) removals.push(edit(stripped));
   return { writes, removals, notices, tokens };
 }
 
@@ -200,17 +217,18 @@ type RenderedFile = {
   unreadable: string[];
 };
 
-// The blocks as this run draws them, beside what the file holds. Null for a shared file the user
-// keeps as a symlink (a dotfiles checkout): it is left alone rather than replaced by a regular
-// file holding only the blocks. A rule file maxims owns whole is always a real file, so a symlink
-// at its path reads as absent and the write that replaces it is planned even when the linked
-// content matches.
-async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
+// The blocks as this run draws them, beside what the file holds. A rule file maxims owns whole is
+// always a real file, so a symlink at its path reads as absent and the write that replaces it is
+// planned even when the linked content matches. A shared file is the user's, so a link there is
+// read through when it reaches a regular file: anything else behind it reads as nothing, and the
+// edit that follows refuses the link by name and holds the file.
+async function renderRuleFile(file: RuleFile): Promise<RenderedFile> {
   const linked = isSymlink(file.path);
-  if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
-    return null;
-  }
-  const current = linked ? null : readIfPresent(file.path);
+  const current = linked
+    ? ownedWhole(file)
+      ? null
+      : regularFileText(file.path)
+    : readIfPresent(file.path);
   const rendering = renderingFor(file);
   const live = file.blocks.filter((block) => block.lines.length > 0);
   const gone = file.blocks.filter((block) => block.lines.length === 0);
@@ -236,19 +254,14 @@ async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
   return { linked, current, rendering, gone, rendered, unreadable: probed?.unreadable ?? [] };
 }
 
-// Whether a run has anything to do in a file it cannot write: a block some source renders here,
-// one it keeps, or a managed block on disk it would strip.
-function hasWork(file: RuleFile, options: RuleFileOptions): boolean {
-  if (file.blocks.length > 0 || options.keep.size > 0) return true;
-  const current = readIfPresent(file.path);
-  return current !== null && parseBlocks(current).blocks.length > 0;
+export function ownedWhole(file: RuleFile): boolean {
+  return file.kind === "out" || file.owned === "whole";
 }
 
 // The sources whose block this run changes in the file: absent from it, or drawn differently
 // from the span it holds. Holding any other source cannot make the file smaller.
 export async function changingBlocks(file: RuleFile): Promise<string[]> {
   const drawn = await renderRuleFile(file);
-  if (drawn === null) return [];
   const current = drawn.current ?? "";
   const spans = parseBlocks(current).blocks;
   return drawn.rendered
@@ -419,13 +432,8 @@ export function claimedByMaxims(text: string): boolean {
   return parseBlocks(text).blocks.length > 0;
 }
 
-function isSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch (cause) {
-    if (isAbsent(cause)) return false;
-    throw cannotInspect(path, cause);
-  }
+export function isSymlink(path: string): boolean {
+  return lstatOrNullSync(path)?.isSymbolicLink() === true;
 }
 
 // The text of the file at a derived rule-file name, read through a link, for the reads that take

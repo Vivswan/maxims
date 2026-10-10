@@ -16,11 +16,12 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { runRemove } from "../../src/commands/remove.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
+import type { SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -1343,43 +1344,52 @@ describe("what a refused or departed source leaves behind", () => {
     });
   });
 
-  // A shared file the user keeps as a symlink (a dotfiles checkout) is never written through, at
-  // either scope. The sweep visits every shared file a harness reads here, and a link is only
-  // worth a line when the run has something to do in the file: a block a source here wants, or a
-  // departed source's block to strip.
-  const linkedVisits: [string, string, HarnessId, Scope, boolean][] = [
+  // A shared file the user keeps as a symlink (a dotfiles checkout) is the user's: the block is
+  // edited in the file the link points to and the link survives, at either scope. Replacing the
+  // link with a regular file (what a rule file gets) would cut the file out of the checkout.
+  const DOTFILES = "# From dotfiles\n";
+  const departed =
+    "<!-- maxims:begin @acme/gone sha=abc1234 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n";
+  const linkedVisits: [string, string, HarnessId, Scope, (text: string, key: string) => void][] = [
     [
-      "a linked file with no managed block, wanted by no source here",
-      "# From dotfiles\n",
+      "a linked file with no managed block, wanted by no source here, is untouched",
+      DOTFILES,
       "claude-code",
       "project",
-      false,
+      (text) => expect(text).toBe(DOTFILES),
     ],
     [
-      "a linked file holding a departed source's block",
-      "# From dotfiles\n<!-- maxims:begin @acme/gone sha=abc1234 -->\n- Gone.\n<!-- maxims:end @acme/gone -->\n",
+      "a departed source's block leaves the linked file",
+      `${DOTFILES}${departed}`,
       "claude-code",
       "project",
-      true,
+      (text) => expect(text).toBe(DOTFILES),
     ],
     [
-      "a linked project file a source here wants a block in",
-      "# From dotfiles\n",
+      "a linked file holding only a departed source's block is emptied, never deleted",
+      departed,
+      "claude-code",
+      "project",
+      (text) => expect(text).toBe(""),
+    ],
+    [
+      "a linked project file gains the block a source here wants",
+      DOTFILES,
       "codex",
       "project",
-      true,
+      (text, key) => expect(parseBlocks(text).blocks.map((b) => b.source)).toEqual([key]),
     ],
     [
-      "a linked global file a source here wants a block in",
-      "# From dotfiles\n",
+      "a linked global file gains the block a source here wants",
+      DOTFILES,
       "codex",
       "global",
-      true,
+      (text, key) => expect(parseBlocks(text).blocks.map((b) => b.source)).toEqual([key]),
     ],
   ];
   test.each(linkedVisits)(
-    "a linked shared file is left as it is: %s",
-    async (_label, content, harness, scope, noticed) => {
+    "a shared file kept as a symlink is edited through the link: %s",
+    async (_label, content, harness, scope, expectTarget) => {
       await world(async ({ home, dir, userHome }) => {
         const project = join(dir, "project");
         mkdirSync(project, { recursive: true });
@@ -1389,7 +1399,10 @@ describe("what a refused or departed source leaves behind", () => {
           ...(scope === "project" ? { destination: { scope, root: project } } : {}),
         });
         writeState(home, stateWith({ [source]: entry }));
-        const real = join(dir, "dotfiles-FIXTURE.md");
+        // The checkout sits under the scope's root: a link out of it is the held case below.
+        const dotfiles = join(scope === "project" ? project : userHome, "dotfiles");
+        mkdirSync(dotfiles);
+        const real = join(dotfiles, "FIXTURE.md");
         writeFileSync(real, content);
         const shared =
           scope === "project"
@@ -1398,10 +1411,330 @@ describe("what a refused or departed source leaves behind", () => {
         symlinkSync(real, shared);
         const io = fakeIo({ home, userHome, cwd: project });
         const report = await runSync(SYNC, io);
+        expect(report.heldFiles).toEqual([]);
         expect(lstatSync(shared).isSymbolicLink()).toBe(true);
-        expect(readFileSync(real, "utf8")).toBe(content);
-        const line = `maxims: ${shared} is a symlink; managed blocks are not written through links`;
-        expect(report.notices.includes(line)).toBe(noticed);
+        expect(readlinkSync(shared)).toBe(real);
+        expectTarget(readFileSync(real, "utf8"), source);
+        expect(report.notices.some((line) => line.includes("symlink"))).toBe(false);
+      });
+    },
+  );
+
+  // A link only the user can repoint holds the file whole: said loud with the fix, nothing
+  // written anywhere, and the file stays planned so the sweep leaves it.
+  const unfollowable: [string, (dir: string) => string, RegExp][] = [
+    ["a dangling link", (dir) => join(dir, "gone.md"), /does not exist/],
+    [
+      "a link to a directory",
+      (dir) => {
+        mkdirSync(join(dir, "folder"));
+        return join(dir, "folder");
+      },
+      /is not a file/,
+    ],
+    [
+      "a link out of the project",
+      (dir) => {
+        writeFileSync(join(dir, "elsewhere.md"), "# Elsewhere\n");
+        return join(dir, "elsewhere.md");
+      },
+      /outside/,
+    ],
+  ];
+  test.each(unfollowable)(
+    "a shared file that is %s is held, with the link and the fix",
+    async (_label, plant, reason) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        const entry = entryFor(localFrom(source), {
+          harnesses: ["codex"],
+          destination: { scope: "project", root: project },
+        });
+        writeState(home, stateWith({ [source]: entry }));
+        const target = plant(dir);
+        const shared = join(project, "FIXTURE.md");
+        symlinkSync(target, shared);
+        const behind = () =>
+          lstatSync(target, { throwIfNoEntry: false })?.isFile()
+            ? readFileSync(target, "utf8")
+            : null;
+        const before = behind();
+        const io = fakeIo({ home, userHome, cwd: project });
+        const report = await runSync(SYNC, io);
+        expect(report.heldFiles).toEqual([shared]);
+        const held = report.notices.find((line) => line.includes(`cannot edit ${shared}`));
+        expect(held).toMatch(reason);
+        expect(report.notices.some((line) => line.includes("then run maxims sync"))).toBe(true);
+        expect(lstatSync(shared).isSymbolicLink()).toBe(true);
+        expect(behind()).toBe(before);
+        expect(report.changed.filter((path) => path === shared || path === target)).toEqual([]);
+      });
+    },
+  );
+
+  // Two harnesses can read one shared file through a leaf link (`.github/copilot-instructions.md
+  // -> AGENTS.md`). Grouped by the link's own name, the second harness's visit would render the
+  // file on its own and strip the block the first one keeps for a source it cannot read.
+  const aliasHarness: HarnessDefinition = {
+    ...sharedBlockHarness,
+    id: "copilot",
+    displayName: "Fixture Alias",
+    targets: {
+      project: { kind: "shared-block", file: "ALIAS.md" },
+      global: { kind: "shared-block", file: join(".fixture", "ALIAS.md") },
+    },
+    hook: { kind: "none" },
+  };
+  test("a shared file aliased by a leaf link is one file: a kept block survives the alias's visit", async () => {
+    await world(async ({ home, dir, userHome }) => {
+      const harnesses = [rulesDirHarness, sharedBlockHarness, aliasHarness];
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      writeState(
+        home,
+        stateWith({ [source]: entryFor(localFrom(source), { harnesses: ["codex"] }) }),
+      );
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses });
+      await runSync(SYNC, io);
+      const shared = join(userHome, ".fixture", "FIXTURE.md");
+      const link = join(userHome, ".fixture", "ALIAS.md");
+      symlinkSync(shared, link);
+      const written = readFileSync(shared, "utf8");
+      expect(parseBlocks(written).blocks.map((block) => block.source)).toEqual([source]);
+      rmSync(source, { recursive: true });
+      const report = await runSync(SYNC, io);
+      expect(report.heldFiles).toEqual([]);
+      expect(readFileSync(shared, "utf8")).toBe(written);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  // The file is visited first under its own name, which is no link; the alias behind it still is,
+  // and still is when `-a` leaves the aliasing harness out of the run.
+  const aliasRuns: [string, SyncOptions][] = [
+    ["every harness", SYNC],
+    ["only the harness that owns the name", { ...SYNC, agents: ["codex"] }],
+  ];
+  test.each(aliasRuns)(
+    "a shared file a link aliases is emptied, not deleted, when its last block leaves: %s",
+    async (_label, options) => {
+      await world(async ({ home, dir, userHome }) => {
+        const harnesses = [rulesDirHarness, sharedBlockHarness, aliasHarness];
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith({ [source]: entryFor(localFrom(source), { harnesses: ["codex"] }) }),
+        );
+        const io = fakeIo({ home, userHome, cwd: dir, harnesses });
+        await runSync(SYNC, io);
+        const shared = join(userHome, ".fixture", "FIXTURE.md");
+        const link = join(userHome, ".fixture", "ALIAS.md");
+        symlinkSync(shared, link);
+        writeState(home, stateWith({}));
+        await runSync(options, io);
+        expect(readFileSync(shared, "utf8")).toBe("");
+        expect(readlinkSync(link)).toBe(shared);
+      });
+    },
+  );
+
+  // A harness `-a` leaves out is never planned, so a destination it cannot resolve is not this
+  // run's failure, whether the sweep meets it or a source of its own still names it. Main let both
+  // runs through: a folder linked out keeps the leaf's name there, and a file nothing can follow
+  // was never resolved past its folder.
+  const unresolvable: [string, (elsewhere: string, dir: string) => void, boolean][] = [
+    [
+      "its config folder linked out of the home, named by no source",
+      (elsewhere, dir) => {
+        rmSync(elsewhere, { recursive: true, force: true });
+        mkdirSync(join(dir, "elsewhere"));
+        symlinkSync(join(dir, "elsewhere"), elsewhere);
+      },
+      false,
+    ],
+    [
+      "its file a link to itself, named by a source of its own",
+      (elsewhere) => {
+        mkdirSync(elsewhere, { recursive: true });
+        const file = join(elsewhere, "ELSEWHERE.md");
+        symlinkSync(file, file);
+      },
+      true,
+    ],
+  ];
+  test.each(unresolvable)(
+    "a filtered sync is not aborted by an excluded harness with %s",
+    async (_label, plant, keepsOther) => {
+      await world(async ({ home, dir, userHome }) => {
+        const linkedOut: HarnessDefinition = {
+          ...aliasHarness,
+          id: "gemini-cli",
+          displayName: "Fixture Linked Out",
+          targets: {
+            project: null,
+            global: { kind: "shared-block", file: join(".elsewhere", "ELSEWHERE.md") },
+          },
+        };
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        const other = writeSource(join(dir, "other"), { other: { description: "Other." } });
+        const otherEntry = entryFor(localFrom(other), { harnesses: ["gemini-cli"], rule: false });
+        writeState(
+          home,
+          stateWith({
+            [source]: entryFor(localFrom(source), { harnesses: ["codex"] }),
+            [other]: otherEntry,
+          }),
+        );
+        const harnesses = [rulesDirHarness, sharedBlockHarness, linkedOut];
+        const io = fakeIo({ home, userHome, cwd: dir, harnesses });
+        await runSync(SYNC, io);
+        const shared = join(userHome, ".fixture", "FIXTURE.md");
+        expect(parseBlocks(readFileSync(shared, "utf8")).blocks).toHaveLength(1);
+        plant(join(userHome, ".elsewhere"), dir);
+        writeState(home, stateWith(keepsOther ? { [other]: otherEntry } : {}));
+        const report = await runSync({ ...SYNC, agents: ["codex"] }, io);
+        expect(report.failed).toEqual([]);
+        expect(existsSync(shared)).toBe(false);
+      });
+    },
+  );
+
+  // A shared file linked at a rule file maxims owns whole would make one file two: written whole
+  // for one source, edited for a block of another, whichever source is met first deciding. The
+  // link is refused by name with the fix, and neither file moves.
+  const linkOrders: [string, string, string][] = [
+    ["the rule file's source sorts first", "a-whole", "b-block"],
+    ["the shared file's source sorts first", "b-whole", "a-block"],
+  ];
+  // The rule file itself kept as a link elsewhere: the two files no longer share a name, so the
+  // shared link is judged by the hops it passes, a relative hop inside a linked folder resolved
+  // as the kernel resolves it. Written, the rule file would replace its link and the block would
+  // land in a file nothing reads.
+  test("a shared file linked through a rule file kept as a link is refused, nothing written", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const atProject = { destination: { scope: "project" as const, root: project } };
+      const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+      writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+      const io = fakeIo({ home, userHome, cwd: project });
+      await runSync(SYNC, io);
+      const slug = sourceSlug(localFrom(whole));
+      const rules = join(project, ".fixture", "rules");
+      const ruleFile = join(rules, `maxims-${slug}.md`);
+      const notes = join(project, "notes.md");
+      renameSync(ruleFile, notes);
+      symlinkSync(notes, ruleFile);
+      symlinkSync(rules, join(project, "linkdir"));
+      symlinkSync(join("..", "rules", basename(ruleFile)), join(rules, "bridge.md"));
+      const shared = join(project, "FIXTURE.md");
+      symlinkSync(join(project, "linkdir", "bridge.md"), shared);
+      const written = readFileSync(notes, "utf8");
+      const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+      writeState(
+        home,
+        stateWith({
+          [whole]: entryFor(localFrom(whole), atProject),
+          [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
+        }),
+      );
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(`cannot edit ${shared}: it is a symlink to ${ruleFile}`);
+      expect(readFileSync(notes, "utf8")).toBe(written);
+      expect(readlinkSync(ruleFile)).toBe(notes);
+      expect(readlinkSync(shared)).toBe(join(project, "linkdir", "bridge.md"));
+    });
+  });
+
+  // The file's own name is no link; a second reader of the source reaches it through the rule
+  // file, which the write would replace, cutting that reader off.
+  test("a shared file another reader reaches through a rule file is refused, nothing written", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const atProject = { destination: { scope: "project" as const, root: project } };
+      const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+      writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+      const harnesses = [rulesDirHarness, sharedBlockHarness, aliasHarness];
+      const io = fakeIo({ home, userHome, cwd: project, harnesses });
+      await runSync(SYNC, io);
+      const slug = sourceSlug(localFrom(whole));
+      const ruleFile = join(project, ".fixture", "rules", `maxims-${slug}.md`);
+      const shared = join(project, "FIXTURE.md");
+      writeFileSync(shared, "# Mine\n");
+      rmSync(ruleFile);
+      symlinkSync(shared, ruleFile);
+      const alias = join(project, "ALIAS.md");
+      symlinkSync(ruleFile, alias);
+      const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+      writeState(
+        home,
+        stateWith({
+          [whole]: entryFor(localFrom(whole), atProject),
+          [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex", "copilot"] }),
+        }),
+      );
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(`cannot edit ${alias}: it is a symlink to ${ruleFile}`);
+      expect(readFileSync(shared, "utf8")).toBe("# Mine\n");
+      expect(readlinkSync(ruleFile)).toBe(shared);
+    });
+  });
+
+  // A `-o` rule file is maxims's whole as much as a rules-dir file; a shared link at it would
+  // take the file over for the block and drop the source that owns it.
+  test("a shared file linked at a -o rule file is refused, nothing written", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const out = join(dir, "out");
+      const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+      const outEntry = entryFor(localFrom(whole), { destination: { scope: "out", path: out } });
+      writeState(home, stateWith({ [whole]: outEntry }));
+      const io = fakeIo({ home, userHome, cwd: project });
+      await runSync(SYNC, io);
+      const outFile = join(out, `maxims-${sourceSlug(localFrom(whole))}.md`);
+      const written = readFileSync(outFile, "utf8");
+      const shared = join(project, "FIXTURE.md");
+      symlinkSync(outFile, shared);
+      const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+      writeState(
+        home,
+        stateWith({
+          [whole]: outEntry,
+          [block]: entryFor(localFrom(block), {
+            destination: { scope: "project", root: project },
+            harnesses: ["codex"],
+          }),
+        }),
+      );
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(`cannot edit ${shared}: it is a symlink to ${outFile}`);
+      expect(readFileSync(outFile, "utf8")).toBe(written);
+      expect(readlinkSync(shared)).toBe(outFile);
+    });
+  });
+
+  test.each(linkOrders)(
+    "a shared file linked at a rule file maxims owns whole is refused, nothing written: %s",
+    async (_label, wholeDir, blockDir) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const atProject = { destination: { scope: "project" as const, root: project } };
+        const whole = writeSource(join(dir, wholeDir), TWO_MEMORIES);
+        writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const slug = sourceSlug(localFrom(whole));
+        const ruleFile = join(project, ".fixture", "rules", `maxims-${slug}.md`);
+        const written = readFileSync(ruleFile, "utf8");
+        const shared = join(project, "FIXTURE.md");
+        symlinkSync(ruleFile, shared);
+        const block = writeSource(join(dir, blockDir), { other: { description: "Other." } });
+        writeState(
+          home,
+          stateWith({
+            [whole]: entryFor(localFrom(whole), atProject),
+            [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
+          }),
+        );
+        const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+        expect(error.message).toContain(`cannot edit ${shared}: it is a symlink to ${ruleFile}`);
+        expect(error.hint).toContain("then run maxims sync");
+        expect(readFileSync(ruleFile, "utf8")).toBe(written);
+        expect(readlinkSync(shared)).toBe(ruleFile);
       });
     },
   );

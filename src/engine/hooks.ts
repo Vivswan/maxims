@@ -5,10 +5,10 @@ import {
   type Scope,
   scopeRoot,
 } from "../harnesses/contract.ts";
-import { type HookPlan, planHookOnly } from "../harnesses/hook-writer.ts";
+import { type HookPlan, hasHook, hookPath, planHookOnly } from "../harnesses/hook-writer.ts";
 import type { State } from "../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../state/scoped.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
@@ -141,7 +141,7 @@ export async function planHooks(input: {
       try {
         const declared = declaredHookFile(def, scope, harnessCtx);
         if (declared !== null) reach.add(fileId(declared));
-        hook = await planHookOnly({ def, scope, ctx: harnessCtx, wanted: wants.hook });
+        hook = await planHook(def, scope, harnessCtx, wants.hook);
         config = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
       } catch (error) {
         if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
@@ -178,6 +178,24 @@ export async function planHooks(input: {
     notices.push(...reconciled.notices);
   }
   return { changes, removals, notices, failures };
+}
+
+// A registry is the user's file, edited where its bytes live, and its link is judged before the
+// registry is read through it. A file hook is maxims's own artifact and stays a plain write, a
+// real file wherever a link pointed.
+async function planHook(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+): Promise<HookPlan> {
+  if (!hasHook(def, "registry")) return planHookOnly({ def, scope, ctx, wanted });
+  const edit = editInPlace(scopeRoot(def, scope, ctx), hookPath(def, scope, ctx));
+  const hook = await planHookOnly({ def, scope, ctx, wanted });
+  const changes = hook.changes.map((change) =>
+    change.kind === "write" ? edit(change.content) : change,
+  );
+  return { ...hook, changes };
 }
 
 // `claims` are the files the answer resolves to whether or not it changes them there; the notice
@@ -233,7 +251,7 @@ async function sharedHookOf(
     if (!destinationUnresolvable(error)) throw error;
     return null;
   }
-  const hook = await planHookOnly({ def, scope: "project", ctx: there, wanted: true });
+  const hook = await planHook(def, "project", there, true);
   const claims = hookFiles(def, "project", there, hook.changes);
   if (!claims.some((file) => reach.has(fileId(file)))) return null;
   return {
