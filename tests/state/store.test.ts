@@ -188,18 +188,6 @@ function holdLock(home: string, holder: Record<string, unknown>, ageMs = 0): str
   return lockPath;
 }
 
-async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
-  let caught: unknown;
-  try {
-    await promise;
-  } catch (error) {
-    caught = error;
-  }
-  if (!(caught instanceof MaximsError)) throw new Error(`expected a MaximsError, got ${caught}`);
-  expect(caught.code).toBe(ExitCode.StoreLocked);
-  return caught;
-}
-
 // A manual-mode holder that signals when its callback is running, so a contender started after
 // `entered` resolves is known to meet a held lock rather than an empty directory.
 function heldLock(home: string): {
@@ -502,10 +490,12 @@ describe("withStateLock", () => {
       const holder = heldLock(home);
       await holder.entered;
       const patient = withStateLock(home, "manual", async () => "second", { waitMs: 5000 });
-      const error = await expectLocked(
-        withStateLock(home, "manual", async () => "third", { waitMs: 60 }),
-      );
-      expect(error.message).toContain(process.argv.join(" "));
+      const impatient = withStateLock(home, "manual", async () => "third", { waitMs: 60 });
+      await expect(impatient).rejects.toBeInstanceOf(MaximsError);
+      await expect(impatient).rejects.toMatchObject({
+        code: ExitCode.StoreLocked,
+        message: expect.stringContaining(process.argv.join(" ")),
+      });
       expect(existsSync(homePaths(home).lock)).toBe(true);
       const meanwhile = Bun.sleep(60).then(() => "still held");
       await expect(Promise.race([patient, meanwhile])).resolves.toBe("still held");
