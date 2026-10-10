@@ -25,6 +25,12 @@ type Response = { jsonrpc: "2.0"; id: JsonRpcId } & (
   | { error: { code: number; message: string } }
 );
 
+const INVALID_REQUEST: Response = {
+  jsonrpc: "2.0",
+  id: null,
+  error: { code: -32600, message: "invalid request" },
+};
+
 // Resolves when the harness closes stdin. The sync is started exactly once, before the first
 // request is read, and never awaited by the protocol loop: a slow npx must not delay the
 // `initialize` reply past the client's handshake timeout, and a failed sync, whether it rejects
@@ -56,6 +62,8 @@ function respondToLine(line: string): Response | Response[] | null {
     return { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } };
   }
   if (Array.isArray(message)) {
+    // JSON-RPC 2.0 section 6: an empty batch is one invalid request, answered with a single error object, not an array.
+    if (message.length === 0) return INVALID_REQUEST;
     const responses = message.map(respondTo).filter((item): item is Response => item !== null);
     return responses.length === 0 ? null : responses;
   }
@@ -63,9 +71,7 @@ function respondToLine(line: string): Response | Response[] | null {
 }
 
 function respondTo(message: unknown): Response | null {
-  if (!util.isObject(message)) {
-    return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } };
-  }
+  if (!util.isObject(message)) return INVALID_REQUEST;
   const { id, method, params } = message;
   if (typeof id !== "string" && typeof id !== "number") return null;
   switch (method) {
