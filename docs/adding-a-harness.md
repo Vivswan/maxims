@@ -67,15 +67,19 @@ A `tierCheck` walks `layers.project`, then `layers.global`, each list in the ord
 
 A `file` hook is `{ kind: "file", path, contentTemplate, executable, stdout }`: a whole file maxims owns, such as a plugin or an executable script.
 
-Placeholders render from the hook command. A value that is exactly one placeholder keeps that placeholder's JSON type, so `"{{async}}"` becomes the boolean `async` flag and `"{{timeoutMs}}"` becomes `20000`; anywhere else the text is spliced in.
+Placeholders render from the hook command. A value that is exactly one placeholder keeps that placeholder's JSON type, so `"{{async}}"` becomes the boolean `async` flag and `"{{timeoutMs}}"` a number; anywhere else the text is spliced in.
+
+<!-- BEGIN GENERATED: hook-placeholders (bun run docs:tables) -->
 
 | Placeholder | Renders as |
-| --- | --- |
+|---|---|
 | `{{command}}` | `npx -y @vivswan/maxims sync --quiet` |
 | `{{argv}}` | `["npx","-y","@vivswan/maxims","sync","--quiet"]` |
 | `{{async}}` | the hook's `async` flag, `true` or `false` |
 | `{{timeoutSeconds}}` | `20` |
 | `{{timeoutMs}}` | `20000` |
+
+<!-- END GENERATED: hook-placeholders -->
 
 ## A full example
 

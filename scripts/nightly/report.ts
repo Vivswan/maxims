@@ -37,12 +37,3 @@ export function writeFailureReport(
   mkdirSync(failureDir, { recursive: true });
   writeFileSync(join(failureDir, "report.md"), renderFailureReport(replay, report));
 }
-
-export function markdownTable(
-  header: readonly string[],
-  rows: readonly (readonly string[])[],
-): string {
-  const line = (cells: readonly string[]): string =>
-    `| ${cells.map((cell) => cell.replaceAll("|", "\\|")).join(" | ")} |`;
-  return [line(header), `|${header.map(() => "---").join("|")}|`, ...rows.map(line)].join("\n");
-}

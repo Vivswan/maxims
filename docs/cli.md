@@ -116,8 +116,10 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 
 ## Exit codes
 
+<!-- BEGIN GENERATED: exit-codes (bun run docs:tables) -->
+
 | code | meaning |
-| --- | --- |
+|---|---|
 | 0 | success, or nothing to do |
 | 1 | usage error, or a failed check |
 | 2 | source unresolvable |
@@ -127,6 +129,8 @@ Flags compose. The everyday invocation, `add @Vivswan/skills -g --rule --add-hoo
 | 6 | name collision |
 | 7 | unmet dependency |
 | 8 | rule cap exceeded |
+
+<!-- END GENERATED: exit-codes -->
 
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
 - **Exit 1** follows an unknown flag, `--json` on `add`, `remove`, or `install` without `-y` (`--all` also serves on `add` and `remove`), `--json` with `--list`, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.

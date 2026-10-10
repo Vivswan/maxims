@@ -31,8 +31,10 @@ The `description` is the one-liner that reaches the rule file. Everything below 
 
 ## The contract
 
+<!-- BEGIN GENERATED: memory-contract (bun run docs:tables) -->
+
 | field | required | rule |
-| --- | --- | --- |
+|---|---|---|
 | `name` | yes | kebab-case, `[a-z0-9]+(-[a-z0-9]+)*`, at most 200 characters, equal to the filename stem |
 | `description` | yes | non-empty, one line after YAML unquoting; this is the one-liner that reaches the rule file |
 | `metadata.node_type` | no | `memory` when present; absent is accepted |
@@ -40,6 +42,8 @@ The `description` is the one-liner that reaches the rule file. Everything below 
 | `metadata.internal` | no | `true` hides the memory unless `MAXIMS_INSTALL_INTERNAL=1` is set; absent or `false` is normal |
 | `metadata.scope`, any other key | no | carried in the store, never interpreted |
 | body | no | may be empty; `[[links]]` are preserved and resolved as dependencies (below) |
+
+<!-- END GENERATED: memory-contract -->
 
 The name is the identity everywhere. `metadata.internal` hides a memory from every `add` and refresh, for a source repo's own maintainers. `**Why:**` and `**How to apply:**` are conventions maxims preserves verbatim and never parses.
 

@@ -275,7 +275,7 @@ function compileHook(
 
 type PlaceholderValues = Record<HookPlaceholder, string | boolean | number | string[]>;
 
-function placeholderValues(spec: HookSpec): PlaceholderValues {
+export function placeholderValues(spec: HookSpec): PlaceholderValues {
   const argv = [spec.command, ...spec.args];
   return {
     command: argv.join(" "),

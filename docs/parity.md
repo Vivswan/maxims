@@ -5,18 +5,20 @@ group: Reference
 
 # Parity with npx skills
 
-The `maxims` flags and verbs beside their `npx skills` counterparts, with the reason for each divergence. `skills` is the naming authority, so the same concept gets the same flag, short form, and value shape. The specified guard is a test that pins the maxims column against a captured `skills --help`, and this table against the decisions that test holds and the maxims flag registry.
+The `maxims` flags and verbs beside their `npx skills` counterparts, with the reason for each divergence. `skills` is the naming authority, so the same concept gets the same flag, short form, and value shape. The flag table is rendered from the parity decisions in `scripts/lib/parity.ts` by `bun run docs:tables`, and a test pins the maxims column against a captured `skills --help` by the same decisions.
 
 ## Flags
 
+<!-- BEGIN GENERATED: parity-flags (bun run docs:tables) -->
+
 | npx skills | maxims | parity | why |
-| --- | --- | --- | --- |
-| `-g, --global` | `-g, --global` | same | |
+|---|---|---|---|
+| `-g, --global` | `-g, --global` | same |  |
 | `-p, --project` | `-p, --project` | same | `skills` carries it on `update` only; maxims offers it on `add` and `remove` too |
-| `-s, --skill <skills>` | `-m, --memory <memories>` | analog | only the noun differs; the value shape is copied exactly |
-| `-a, --agent <agents>` | `-a, --agent <agents>` | same | |
-| `-l, --list` | `-l, --list` | same | |
-| `-y, --yes` | `-y, --yes` | same | |
+| `-s, --skill <skills>` | `-m, --memory <names>` | analog | only the noun differs; the value shape is copied exactly |
+| `-a, --agent <agents>` | `-a, --agent <ids>` | same |  |
+| `-l, --list` | `-l, --list` | same |  |
+| `-y, --yes` | `-y, --yes` | same |  |
 | `--all` | `--all` | same | same shorthand on both verbs |
 | `--copy` | `--copy` | same | materialize instead of link |
 | `--dry-run` | `--dry-run` | same | `skills` carries it on `experimental_sync` only; maxims accepts it on every verb |
@@ -32,8 +34,8 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | none | `-o, --out <dir>` | maxims-only | a team's rule file lives in a repo path, not a scope |
 | none | `--rule`, `--add-hook`, `--quiet` | maxims-only | skills have no always-loaded layer and no hook that runs unattended |
 | none | `--link` | maxims-only | a symlinked store entry for a local source; an open skills request (vercel-labs/skills#748) |
-| none | `--cooldown`, `--cap` | maxims-only | the refresh window and the rule budget have no skills concept |
-| none | `--auth`, `--rename`, `--allow-hidden` | maxims-only | anonymous fetch, scripted collision resolution, and the hidden-character gate have no skills concept |
+| none | `--cooldown <days>`, `--cap <n>` | maxims-only | the refresh window and the rule budget have no skills concept |
+| none | `--auth`, `--rename <upstream>=<local>`, `--allow-hidden` | maxims-only | anonymous fetch, scripted collision resolution, and the hidden-character gate have no skills concept |
 | none | `--share` | maxims-only | which sources a project commits is a choice per source; skills have no analog |
 | none | `--verbose` | maxims-only | unfolds the `add` and `install` plan to every one-liner; `skills` never folds its summary |
 | none | `--from <path>` | maxims-only | names the memories folder; `skills` searches for `SKILL.md`, maxims never autodetects |
@@ -42,7 +44,9 @@ The `maxims` flags and verbs beside their `npx skills` counterparts, with the re
 | none | `--review` | maxims-only | holds an upstream change until `accept`; a skills update applies at once |
 | none | `--strict` | maxims-only | the description gate has no skills concept; see [risky shapes](security.md#risky-shapes-in-descriptions) |
 | none | `--no-fetch` | maxims-only | `sync` without the network; the nearest skills idea is `--no-remote` above |
-| none | `--expect <name>`, `--source <key>` | maxims-only | belong to `doctor` and `show`, which skills lack |
+| none | `--expect <name or @owner/repo/name>`, `--source <key>` | maxims-only | belong to `doctor` and `show`, which skills lack |
+
+<!-- END GENERATED: parity-flags -->
 
 `-p` on `add` and `remove` exists so `-g` has a visible opposite.
 

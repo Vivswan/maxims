@@ -1,9 +1,7 @@
-#!/usr/bin/env bun
-// Renders the harness matrix on docs/harnesses.md from the registry, so the page describes the
-// definitions that ship rather than a hand-kept copy of them. `--check` exits 1 when the committed
-// block differs from the render; without it the page is rewritten in place.
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+// The harness matrix on docs/harnesses.md, rendered from the registry so the page describes the
+// definitions that ship rather than a hand-kept copy of them. render_docs_tables.ts splices it
+// into the page and fails the check while the committed block differs.
+import { join, sep } from "node:path";
 import {
   byteBudgetFor,
   type HarnessContext,
@@ -12,13 +10,9 @@ import {
   type Scope,
   type SourceSlug,
   scopeRoot,
-} from "../src/harnesses/contract.ts";
-import { HARNESSES } from "../src/harnesses/registry.ts";
-
-export const MATRIX_PAGE = "docs/harnesses.md";
-export const MATRIX_BEGIN = "<!-- BEGIN GENERATED: harness-matrix -->";
-export const MATRIX_END = "<!-- END GENERATED: harness-matrix -->";
-const REGENERATE = "bun run docs:matrix";
+} from "../../src/harnesses/contract.ts";
+import { HARNESSES } from "../../src/harnesses/registry.ts";
+import { markdownTable } from "./markdown_table.ts";
 
 // Paths render as a user would type them: `~` for the home and nothing for the project root.
 const DISPLAY_CONTEXT: HarnessContext = { home: "~", projectRoot: ".", cwd: ".", env: {} };
@@ -141,8 +135,8 @@ function renderBudget(def: HarnessDefinition): string {
   return declared.map(({ scope, bytes }) => `${scope} ${format(bytes)}`).join(", ");
 }
 
-export function renderRow(def: HarnessDefinition): string {
-  const cells = [
+export function renderRow(def: HarnessDefinition): readonly string[] {
+  return [
     code(def.id),
     def.displayName,
     renderTier(def),
@@ -155,45 +149,8 @@ export function renderRow(def: HarnessDefinition): string {
     def.markers,
     renderBudget(def),
   ];
-  return `| ${cells.join(" | ")} |`;
 }
 
 export function renderMatrix(defs: readonly HarnessDefinition[] = HARNESSES): string {
-  const header = `| ${COLUMNS.join(" | ")} |`;
-  const rule = `|${COLUMNS.map(() => " --- ").join("|")}|`;
-  return [header, rule, ...defs.map(renderRow)].join("\n");
+  return markdownTable(COLUMNS, defs.map(renderRow));
 }
-
-// The block between the markers is replaced whole, with a blank line on each side: a table glued
-// to the marker comment renders as one HTML block, and the docs probe then no longer sees a
-// generated region it should skip.
-export function renderPage(page: string, defs: readonly HarnessDefinition[] = HARNESSES): string {
-  const begin = page.indexOf(MATRIX_BEGIN);
-  const end = page.indexOf(MATRIX_END);
-  if (begin === -1 || end === -1 || end < begin) {
-    throw new Error(`${MATRIX_PAGE} needs ${MATRIX_BEGIN} before ${MATRIX_END}`);
-  }
-  const head = page.slice(0, begin + MATRIX_BEGIN.length);
-  const tail = page.slice(end);
-  return `${head}\n\n${renderMatrix(defs)}\n\n${tail}`;
-}
-
-function main(argv: string[]): number {
-  const check = argv.includes("--check");
-  const pagePath = resolve(import.meta.dir, "..", MATRIX_PAGE);
-  const current = readFileSync(pagePath, "utf8");
-  const next = renderPage(current);
-  if (next === current) {
-    process.stdout.write(`${MATRIX_PAGE}: matrix up to date (${HARNESSES.length} rows)\n`);
-    return 0;
-  }
-  if (check) {
-    process.stderr.write(`${MATRIX_PAGE}: matrix differs from the registry; run ${REGENERATE}\n`);
-    return 1;
-  }
-  writeFileSync(pagePath, next);
-  process.stdout.write(`${MATRIX_PAGE}: matrix rewritten (${HARNESSES.length} rows)\n`);
-  return 0;
-}
-
-if (import.meta.main) process.exit(main(process.argv.slice(2)));

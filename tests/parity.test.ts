@@ -1,83 +1,34 @@
 // Fails if maxims drifts from the `npx skills` surface captured from skills@1.7.2 into
 // tests/fixtures/golden/skills-help.txt: a shared flag respelled or re-shaped, a short letter
 // reassigned while `skills` keeps the old one, a documented alias dropped, a usage error that
-// stops exiting 1, an upstream flag or verb that no parity decision claims yet, or a flag table on
-// docs/parity.md that falls behind those decisions or the maxims flag registry.
+// stops exiting 1, or an upstream flag or verb that no parity decision in scripts/lib/parity.ts
+// claims yet. The flag table on docs/parity.md is rendered from those decisions, so it has no
+// pin here.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { scanPage } from "../scripts/docs_probe.mts";
+import {
+  ANALOG_FLAGS,
+  DIVERGE_FLAGS,
+  DIVERGE_VERBS,
+  FIXTURE,
+  MAXIMS_FLAGS,
+  maximsFlag,
+  SAME_FLAGS,
+  SAME_VERBS,
+  SCAN_FLAGS,
+  UNCLAIMED_VERBS,
+  UPSTREAM,
+  type UpstreamFlag,
+  upstreamFlag,
+  upstreamVerb,
+} from "../scripts/lib/parity.ts";
 import { normalizeHelp } from "../scripts/lib/skills_help.ts";
-import { FLAGS, type FlagSpec, GLOBAL_FLAGS } from "../src/commands/frame/options.ts";
+import type { FlagSpec } from "../src/commands/frame/options.ts";
 import { ExitCode } from "../src/util/exit-codes.ts";
 import { VERSION } from "../src/version.ts";
 import { FIXTURES, runCli, type Scenario, withScenario } from "./cli/harness.ts";
 
-const FIXTURE = readFileSync(
-  join(import.meta.dir, "fixtures", "golden", "skills-help.txt"),
-  "utf8",
-);
 const SKILLS = join(FIXTURES, "skills");
-
-type Kind = FlagSpec["kind"];
-type UpstreamFlag = { long: string; short: string | null; kind: Kind };
-type UpstreamVerb = { verb: string; aliases: string[] };
-
-// A flag row is two spaces, the flag in either order (`-g, --global` or `--help, -h`), an optional
-// `<placeholder>`, then at least two spaces before its summary. A verb row is two spaces and a
-// lower-case word; continuation lines are indented deeper and example lines start with `$ skills`.
-const FLAG_LINE = /^ {2}(?:-([a-zA-Z]), )?--([a-z][a-z-]*)(?:, -([a-zA-Z]))?( <[^>]+>)? {2,}\S/;
-const VERB_LINE = /^ {2}([a-z][a-z_]*)(?:, ([a-z]+))?(?: |$)(.*)$/;
-const ALIAS_NOTE = /\(alias: ([a-z]+)\)/;
-const EXAMPLE_LINE = /^ {2}\$ skills ([a-z_]+)/;
-
-// The page marks a list-valued flag only by a plural placeholder (`<agents>`, `<skills>`); a
-// scalar one is singular (`<json>`, `<owner>`). `use` takes one skill and one agent where `add`
-// takes lists, so a flag repeated across verbs keeps the widest shape the page documents.
-function kindOf(placeholder: string | undefined): Kind {
-  if (placeholder === undefined) return "boolean";
-  return placeholder.endsWith("s>") ? "list" : "value";
-}
-
-const KIND_WIDTH: Record<Kind, number> = { boolean: 0, value: 1, list: 2 };
-
-function parseUpstream(page: string): {
-  flags: Map<string, UpstreamFlag>;
-  verbs: Map<string, UpstreamVerb>;
-  exampleWords: Set<string>;
-} {
-  const flags = new Map<string, UpstreamFlag>();
-  const verbs = new Map<string, UpstreamVerb>();
-  const exampleWords = new Set<string>();
-  for (const line of page.split("\n")) {
-    const flag = FLAG_LINE.exec(line);
-    if (flag !== null) {
-      const [, shortBefore, long = "", shortAfter, placeholder] = flag;
-      const row = { long, short: shortBefore ?? shortAfter ?? null, kind: kindOf(placeholder) };
-      const seen = flags.get(long);
-      if (seen === undefined) flags.set(long, row);
-      else if (seen.short !== row.short || (seen.kind === "boolean") !== (row.kind === "boolean")) {
-        throw new Error(`--${long} is documented two ways in the fixture`);
-      } else if (KIND_WIDTH[row.kind] > KIND_WIDTH[seen.kind]) flags.set(long, row);
-      continue;
-    }
-    const example = EXAMPLE_LINE.exec(line);
-    if (example !== null) {
-      exampleWords.add(example[1] ?? "");
-      continue;
-    }
-    const verb = VERB_LINE.exec(line);
-    if (verb === null) continue;
-    const [, name = "", inlineAlias, rest = ""] = verb;
-    if (verbs.has(name)) throw new Error(`${name} is documented twice in the fixture`);
-    const noted = ALIAS_NOTE.exec(rest)?.[1];
-    const aliases = [inlineAlias, noted].filter((alias): alias is string => alias !== undefined);
-    verbs.set(name, { verb: name, aliases });
-  }
-  return { flags, verbs, exampleWords };
-}
-
-const UPSTREAM = parseUpstream(FIXTURE);
 
 // `rm` is documented only by an example line, which names no verb, so the mapping is a decision.
 const EXAMPLE_ONLY_ALIASES: Record<string, string> = { rm: "remove" };
@@ -86,123 +37,12 @@ for (const [alias, verb] of Object.entries(EXAMPLE_ONLY_ALIASES)) {
   upstreamVerb(verb).aliases.push(alias);
 }
 
-// The parity decisions. Every upstream flag and verb belongs to exactly one list, so the census
-// below fails on the first flag or verb `skills` adds until a decision places it.
-const SAME_FLAGS = [
-  "global",
-  "project",
-  "agent",
-  "list",
-  "yes",
-  "all",
-  "copy",
-  "dry-run",
-  "full-depth",
-  "json",
-];
-const SCAN_FLAGS = ["help", "version"];
-const ANALOG_FLAGS: Record<string, FlagSpec> = { skill: FLAGS.memory };
-const DIVERGE_FLAGS = [
-  "metadata",
-  "subagent",
-  "owner",
-  "no-cleanup",
-  "no-remote",
-  "recursive",
-  "include",
-  "exclude",
-];
-const SAME_VERBS = ["add", "remove", "list", "update"];
-const DIVERGE_VERBS = ["use", "find"];
-const UNCLAIMED_VERBS = ["experimental_install", "experimental_sync", "init"];
+type Shape = Pick<UpstreamFlag, "long" | "short" | "kind">;
 
-const MAXIMS_FLAGS: readonly FlagSpec[] = [...GLOBAL_FLAGS, ...Object.values(FLAGS)];
+const shape = ({ long, short, kind }: UpstreamFlag): Shape => ({ long, short, kind });
 
-const PARITY_PAGE = readFileSync(join(import.meta.dir, "..", "docs", "parity.md"), "utf8");
-
-type ParityRow = { upstream: string[]; maxims: string[]; parity: string };
-
-// The page's own probe reads the cells, so an escaped pipe or a code span reads as the rendered
-// page shows it. A row is one source line and the probe records no empty cell, so a flag column
-// with nothing to list says `none` and a row's first three cells are its flag columns and verdict.
-// Only the lines under `## Flags` count: a verb cell may quote a flag, and the header row names
-// none. With the heading gone, no row is found.
-function flagTable(page: string): ParityRow[] {
-  const lines = page.split("\n");
-  const heading = lines.indexOf("## Flags") + 1;
-  if (heading === 0) return [];
-  const next = lines.findIndex((line, index) => index >= heading && line.startsWith("## ")) + 1;
-  const inSection = (line: number): boolean => line > heading && (next === 0 || line < next);
-  const byLine = new Map<number, string[]>();
-  for (const unit of scanPage(page).units) {
-    if (unit.kind !== "cell" || !inSection(unit.line)) continue;
-    byLine.set(unit.line, [...(byLine.get(unit.line) ?? []), unit.text]);
-  }
-  const longs = (cell: string): string[] =>
-    [...cell.matchAll(/--([a-z][a-z-]*)(?![\w-])/g)].map((match) => match[1] ?? "");
-  return [...byLine.values()]
-    .map(([upstream = "", maxims = "", parity = ""]) => ({
-      upstream: longs(upstream),
-      maxims: longs(maxims),
-      parity,
-    }))
-    .filter((row) => row.upstream.length + row.maxims.length > 0);
-}
-
-const sorted = (names: readonly string[]): string[] => [...names].sort();
-
-type Claim = { parity: string; maxims: string[] };
-
-// The decisions above and the flag registry both exist outside the page, so neither can stop a
-// row from going missing, a verdict from flipping, or two rows from trading their maxims cells;
-// `--help` and `--version` have no row because the page documents decisions, and those two are
-// standard.
-test("docs/parity.md's flag table carries every parity decision and every maxims flag", () => {
-  const rows = flagTable(PARITY_PAGE);
-  const claims: Record<string, Claim[]> = {};
-  for (const row of rows) {
-    for (const long of row.upstream) {
-      claims[long] = [...(claims[long] ?? []), { parity: row.parity, maxims: row.maxims }];
-    }
-  }
-  const expected: Record<string, Claim[]> = {};
-  for (const long of SAME_FLAGS) expected[long] = [{ parity: "same", maxims: [long] }];
-  for (const [long, flag] of Object.entries(ANALOG_FLAGS)) {
-    expected[long] = [{ parity: "analog", maxims: [flag.name] }];
-  }
-  for (const long of DIVERGE_FLAGS) expected[long] = [{ parity: "diverge", maxims: [] }];
-  const ours = MAXIMS_FLAGS.map((flag) => flag.name);
-  const analogs = Object.values(ANALOG_FLAGS).map((flag) => flag.name);
-  const maximsOnly = (row: ParityRow): string[] => (row.parity === "maxims-only" ? row.maxims : []);
-  expect({
-    claims,
-    documented: sorted(rows.flatMap((row) => row.maxims)),
-    maximsOnly: sorted(rows.flatMap(maximsOnly)),
-  }).toEqual({
-    claims: expected,
-    documented: sorted(ours),
-    maximsOnly: sorted(ours.filter((n) => !SAME_FLAGS.includes(n) && !analogs.includes(n))),
-  });
-});
-
-function maximsFlag(long: string): FlagSpec | undefined {
-  return MAXIMS_FLAGS.find((flag) => flag.name === long);
-}
-
-function comparable(flag: FlagSpec): UpstreamFlag {
+function comparable(flag: FlagSpec): Shape {
   return { long: flag.name, short: flag.short ?? null, kind: flag.kind };
-}
-
-function upstreamFlag(long: string): UpstreamFlag {
-  const row = UPSTREAM.flags.get(long);
-  if (row === undefined) throw new Error(`the fixture documents no --${long}`);
-  return row;
-}
-
-function upstreamVerb(name: string): UpstreamVerb {
-  const row = UPSTREAM.verbs.get(name);
-  if (row === undefined) throw new Error(`the fixture documents no ${name} verb`);
-  return row;
 }
 
 test("the fixture is the normalized page and every upstream flag and verb has a parity row", () => {
@@ -233,9 +73,7 @@ test("the fixture is the normalized page and every upstream flag and verb has a 
 });
 
 test.each(SAME_FLAGS)("--%s keeps the skills short letter and value shape", (long) => {
-  const ours = maximsFlag(long);
-  if (ours === undefined) throw new Error(`maxims has no --${long}`);
-  expect(comparable(ours)).toEqual(upstreamFlag(long));
+  expect(comparable(maximsFlag(long))).toEqual(shape(upstreamFlag(long)));
 });
 
 test.each(SCAN_FLAGS)("--%s answers under both skills spellings and exits 0", async (long) => {
@@ -261,7 +99,7 @@ function listedNames(stdout: string): string[] {
 test("-s, --skill <skills> has the counterpart -m, --memory <names> with the comma-list shape", async () => {
   const [upstreamLong, ours] = Object.entries(ANALOG_FLAGS)[0] ?? [];
   if (upstreamLong === undefined || ours === undefined) throw new Error("no analog row");
-  expect(upstreamFlag(upstreamLong)).toEqual({ long: "skill", short: "s", kind: "list" });
+  expect(shape(upstreamFlag(upstreamLong))).toEqual({ long: "skill", short: "s", kind: "list" });
   expect(comparable(ours)).toEqual({ long: "memory", short: "m", kind: "list" });
   await withScenario({}, async (scenario) => {
     const two = await runCli(scenario, [
@@ -289,7 +127,7 @@ test("-s, --skill <skills> has the counterpart -m, --memory <names> with the com
 
 test.each(DIVERGE_FLAGS)("--%s stays absent from maxims", async (long) => {
   upstreamFlag(long);
-  expect(maximsFlag(long)).toBeUndefined();
+  expect(MAXIMS_FLAGS.map((flag) => flag.name)).not.toContain(long);
   await withScenario({}, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", `--${long}`, "x"]);
     expect({ code: run.code, stderr: run.stderr }).toEqual({
