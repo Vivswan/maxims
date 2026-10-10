@@ -1,18 +1,19 @@
 #!/usr/bin/env bun
-// Renders every docs table that restates a value the code owns, so a page describes the constants
-// and schemas that ship rather than a hand-kept copy of them. Each table sits between a
-// `<!-- BEGIN GENERATED: <name> -->` and `<!-- END GENERATED: <name> -->` marker pair on its page;
-// only that region is rewritten. `--check` exits 1 when a committed region differs from its
-// render; without it the pages are rewritten in place.
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_COOLDOWN_DAYS } from "../src/engine/context.ts";
 import type { FlagSpec } from "../src/commands/frame/options.ts";
+import { LAST_ERROR_KINDS } from "../src/contracts/last-error.ts";
+import { DEFAULT_GIT_REF } from "../src/contracts/source.ts";
+import { DEFAULT_COOLDOWN_DAYS } from "../src/engine/context.ts";
 import { hookSpecFor } from "../src/harnesses/contract.ts";
 import { placeholderValues } from "../src/harnesses/from-spec.ts";
 import { HARNESSES } from "../src/harnesses/registry.ts";
 import { HOOK_PLACEHOLDERS, type HookPlaceholder } from "../src/harnesses/spec.ts";
-import { MEMORY_NAME_MAX_LENGTH, MEMORY_NAME_PATTERN } from "../src/memory/contract.ts";
+import {
+  MEMORY_NAME_MAX_LENGTH,
+  MEMORY_NAME_PATTERN,
+  MEMORY_TYPES,
+} from "../src/memory/contract.ts";
 import { DEFAULT_RULE_CAP } from "../src/rulefile/budget.ts";
 import { type UserConfig, UserConfigSchema } from "../src/state/config.ts";
 import { SourceIntentSchema } from "../src/state/schema.ts";
@@ -28,14 +29,14 @@ import {
   type UpstreamFlag,
   upstreamFlag,
 } from "./lib/parity.ts";
-import { regionBounds } from "./render_architecture_map.mts";
+import { regionBounds } from "./lib/region.ts";
 
 const REGENERATE = "bun run docs:tables";
 
 const code = (text: string): string => `\`${text}\``;
+const codeList = (items: readonly string[]): string[] => items.map(code);
+const or = new Intl.ListFormat("en", { type: "disjunction" });
 
-// Each exit code's one-line meaning; the enum is the set, so a code added without a row here
-// fails to compile.
 const EXIT_MEANINGS: Record<ExitCode, string> = {
   [ExitCode.Ok]: "success, or nothing to do",
   [ExitCode.Usage]: "usage error, or a failed check",
@@ -63,8 +64,6 @@ function renderExitCodes(): string {
 const typed = (flag: FlagSpec): string =>
   `${flag.short === undefined ? `--${flag.name}` : `-${flag.short}`}${flag.placeholder === undefined ? "" : ` ${flag.placeholder}`}`;
 
-// What each config key stands in for and what applies when it is unset; the schema is the set of
-// keys, so a key added without a row here fails to compile.
 const CONFIG_ROWS: Record<keyof UserConfig, { standsFor: string; unset: string }> = {
   agents: { standsFor: code(typed(maximsFlag("agent"))), unset: "the detected harnesses" },
   yes: { standsFor: code(typed(maximsFlag("yes"))), unset: "prompt when interactive" },
@@ -132,7 +131,7 @@ function renderMemoryContract(): string {
       [
         code("metadata.type"),
         "no",
-        "`user`, `feedback`, `project`, or `reference`; an unknown value passes with a warning",
+        `${or.format(codeList(MEMORY_TYPES))}; an unknown value passes with a warning`,
       ],
       [
         code("metadata.internal"),
@@ -149,86 +148,189 @@ function renderMemoryContract(): string {
   );
 }
 
-// One bullet per intent fact. `fields` are the schema keys the bullet documents; a bullet with
-// none elaborates the one above it. Every key of the intent schema is claimed exactly once, so a
-// field added to or dropped from the schema fails the render until its bullet follows.
-const INTENT_BULLETS: readonly { lead: string; fields: readonly string[]; text: string }[] = [
+// `fields` are the intent schema keys a bullet documents, claimed once across the list; empty
+// for a top-level state field or a bullet elaborating the one above it.
+const STATE_BULLETS: readonly { lead: string; fields: readonly string[]; text: string }[] = [
   {
-    lead: "`intent.from`",
-    fields: ["from"],
-    text: "is `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down.",
-  },
-  {
-    lead: "`ref` is `HEAD`",
+    lead: code("version"),
     fields: [],
-    text: "for the default branch's head; the branch name is never stored because a repo can rename it.",
+    text: "is the integer schema version, bumped on any breaking shape change.",
   },
   {
-    lead: "`intent.auth`",
+    lead: code("writtenBy"),
+    fields: [],
+    text: "says which maxims wrote this, so a bug report is reproducible without asking.",
+  },
+  {
+    lead: code("hooks"),
+    fields: [],
+    text:
+      "lists the harnesses where the user wants a sync hook kept, per scope: `global` is one " +
+      "sorted list for the user scope, `project` one sorted list per project root, so " +
+      "`add --add-hook` in one project says nothing about the user scope or another project. " +
+      "A harness leaves a list with its last source at that scope. Lists, not records: whether " +
+      "the hook is registered is read from the harness.",
+  },
+  {
+    lead: code("overrides"),
+    fields: [],
+    text:
+      "is reserved for the one hook fact that is intent, a config path the user chose over the " +
+      "harness definition; accepted as an open record, and nothing writes or reads it yet.",
+  },
+  {
+    lead: code("intent.from"),
+    fields: ["from"],
+    text:
+      "is `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise " +
+      "instance at `add` time, so the source is never re-expanded against `github.com` later; " +
+      "`git` with the remote `url` as you typed it and `ref`; or `local` with `path` and " +
+      "optional `live`. A pinned local directory or a live fetched source cannot be written down.",
+  },
+  {
+    lead: `${code("ref")} is ${code(DEFAULT_GIT_REF)}`,
+    fields: [],
+    text:
+      "for the default branch's head; the branch name is never stored because a repo can " +
+      "rename it.",
+  },
+  {
+    lead: code("intent.auth"),
     fields: ["auth"],
-    text: "is whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own.",
+    text:
+      "is whether refreshes of this source use your `gh` login; set by `--auth`, false by " +
+      "default, so an anonymous install never turns authenticated on its own.",
   },
   {
-    lead: "`intent.select`",
+    lead: code("intent.select"),
     fields: ["select"],
     text: "is `*` or an explicit list; applied every sync, so a refresh can never widen the selection.",
   },
   {
-    lead: "`intent.rename`",
+    lead: code("intent.rename"),
     fields: ["rename"],
-    text: "maps upstream name to local name; why it exists is not stored, `list` re-derives whether it still resolves a live collision.",
+    text:
+      "maps upstream name to local name; why it exists is not stored, `list` re-derives whether " +
+      "it still resolves a live collision.",
   },
   {
-    lead: "`intent.rule`",
+    lead: code("intent.rule"),
     fields: ["rule"],
     text: "is whether this source publishes one-liners; the field that separates `--rule` from `--add-hook`.",
   },
   {
-    lead: "`intent.destination`",
+    lead: code("intent.destination"),
     fields: ["destination"],
-    text: "is `global`; `project` with `root`, the realpath of the project, so `sync` and `list` find a project's sources from state alone and a moved folder shows as a root that no longer exists; or `out` with a `path`. A project entry without `root` is corrupt, and `-g` with `-o` has no representation.",
+    text:
+      "is `global`; `project` with `root`, the realpath of the project, so `sync` and `list` " +
+      "find a project's sources from state alone and a moved folder shows as a root that no " +
+      "longer exists; or `out` with a `path`. A project entry without `root` is corrupt, and " +
+      "`-g` with `-o` has no representation.",
   },
   {
-    lead: "`intent.copy`, `intent.memoryPath`, `intent.fullDepth`, `intent.paths`",
+    lead: codeList(["intent.copy", "intent.memoryPath", "intent.fullDepth", "intent.paths"]).join(
+      ", ",
+    ),
     fields: ["copy", "memoryPath", "fullDepth", "paths"],
     text: "record `--copy`, `--from`, `--full-depth`, `--paths` per source.",
   },
   {
-    lead: "`intent.allowHidden`",
+    lead: code("intent.allowHidden"),
     fields: ["allowHidden"],
-    text: "is `true` when `add --allow-hidden` was given, or when `install` replays a lock entry carrying it, and otherwise absent. It is standing permission for descriptions with [hidden characters](write-memories.md#hidden-characters-are-refused), which `add` otherwise refuses with exit 3; the check runs at `add` time only.",
+    text:
+      "is `true` when `add --allow-hidden` was given, or when `install` replays a lock entry " +
+      "carrying it, and otherwise absent. It is standing permission for descriptions with " +
+      "[hidden characters](write-memories.md#hidden-characters-are-refused), which `add` " +
+      `otherwise refuses with exit ${ExitCode.NothingResolved}; the check runs at \`add\` time only.`,
   },
   {
-    lead: "`intent.harnesses`",
+    lead: code("intent.harnesses"),
     fields: ["harnesses"],
     text: "is which harnesses this source writes to.",
   },
   {
-    lead: "`intent.review`",
+    lead: code("intent.review"),
     fields: ["review"],
-    text: "is `true` or absent, never `false`: set by `add --review` or `review`, so refreshes wait for `accept` instead of applying. The [review hold](keep-fresh.md#hold-changes-for-review) owns the verbs.",
+    text:
+      "is `true` or absent, never `false`: set by `add --review` or `review`, so refreshes wait " +
+      "for `accept` instead of applying. The " +
+      "[review hold](keep-fresh.md#hold-changes-for-review) owns the verbs.",
   },
   {
-    lead: "`intent.shared`",
+    lead: code("intent.shared"),
     fields: ["shared"],
-    text: "is `true` or absent: `true` marks a project source as projected into `.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or `out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns the verbs.",
+    text:
+      "is `true` or absent: `true` marks a project source as projected into " +
+      "`.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or " +
+      "`out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns " +
+      "the verbs.",
+  },
+  {
+    lead: `${code("fetched.at")} and ${code("fetched.sha")}`,
+    fields: [],
+    text:
+      "drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was " +
+      "asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, " +
+      "or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled " +
+      "like a memory hash. A live local source has no `fetched` block, because the tree is the " +
+      "record.",
+  },
+  {
+    lead: code("fetched.memories"),
+    fields: [],
+    text:
+      "holds a content hash and a description hash per memory; a refresh diffs the content " +
+      "hashes to report each memory added, removed, or changed.",
+  },
+  {
+    lead: code("fetched.lastError"),
+    fields: [],
+    text:
+      `is why the last fetch failed (${codeList(LAST_ERROR_KINDS).join(", ")}), so the ` +
+      "staleness notice can say which.",
+  },
+  {
+    lead: code("pending"),
+    fields: [],
+    text:
+      "is the revision held for review: its `sha`, `at`, and `summary`, the diff against " +
+      "`fetched.memories`. It is absent while nothing waits, and a live source never has one, " +
+      "since its directory is read in place. A `pending` on a source without `intent.review`, " +
+      "without a `fetched` block, or at the installed sha is corrupt.",
+  },
+  {
+    lead: code("addedAt"),
+    fields: [],
+    text:
+      "is provenance; there is no `updatedAt`. Every timestamp is ISO 8601 UTC in millisecond " +
+      "form; a hand-edited spelling of another precision reads as the same instant in that form " +
+      "and is written back so on the next write.",
+  },
+  {
+    lead: code("disabled"),
+    fields: [],
+    text:
+      "holds the memories `disable` withheld, by local name: `global` is one sorted list for " +
+      "`-g`, `project` one sorted list per project root, so a memory disabled in one project " +
+      "stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a " +
+      "copy of its own root's list.",
   },
 ];
 
-function renderIntentFields(): string {
+function renderStateFields(): string {
   const schemaKeys = [
     ...new Set(SourceIntentSchema.options.flatMap((option) => Object.keys(option.shape))),
   ];
-  const claimed = INTENT_BULLETS.flatMap((bullet) => bullet.fields);
+  const claimed = STATE_BULLETS.flatMap((bullet) => bullet.fields);
   const twice = claimed.filter((key, index) => claimed.indexOf(key) !== index);
   const missing = schemaKeys.filter((key) => !claimed.includes(key));
   const unknown = claimed.filter((key) => !schemaKeys.includes(key));
   if (twice.length + missing.length + unknown.length > 0) {
     throw new Error(
-      `intent bullets: claimed twice [${twice}], schema fields without a bullet [${missing}], not schema fields [${unknown}]`,
+      `state bullets: claimed twice [${twice}], intent fields without a bullet [${missing}], not intent fields [${unknown}]`,
     );
   }
-  return INTENT_BULLETS.map((bullet) => `- **${bullet.lead}** ${bullet.text}`).join("\n");
+  return STATE_BULLETS.map((bullet) => `- **${bullet.lead}** ${bullet.text}`).join("\n");
 }
 
 // A flag as its help page spells it: `-g, --global`, `-m, --memory <names>`.
@@ -287,7 +389,7 @@ export const REGIONS: readonly Region[] = [
   { page: "docs/files.md", name: "config-keys", render: renderConfigKeys },
   { page: "docs/adding-a-harness.md", name: "hook-placeholders", render: renderPlaceholders },
   { page: "docs/write-memories.md", name: "memory-contract", render: renderMemoryContract },
-  { page: "docs/state.md", name: "intent-fields", render: renderIntentFields },
+  { page: "docs/state.md", name: "state-fields", render: renderStateFields },
   { page: "docs/parity.md", name: "parity-flags", render: renderParityFlags },
 ];
 

@@ -80,12 +80,12 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
 
 The example is hand-written and parses against the current schema; a test keeps it that way.
 
+<!-- BEGIN GENERATED: state-fields (bun run docs:tables) -->
+
 - **`version`** is the integer schema version, bumped on any breaking shape change.
 - **`writtenBy`** says which maxims wrote this, so a bug report is reproducible without asking.
 - **`hooks`** lists the harnesses where the user wants a sync hook kept, per scope: `global` is one sorted list for the user scope, `project` one sorted list per project root, so `add --add-hook` in one project says nothing about the user scope or another project. A harness leaves a list with its last source at that scope. Lists, not records: whether the hook is registered is read from the harness.
 - **`overrides`** is reserved for the one hook fact that is intent, a config path the user chose over the harness definition; accepted as an open record, and nothing writes or reads it yet.
-<!-- BEGIN GENERATED: intent-fields (bun run docs:tables) -->
-
 - **`intent.from`** is `github` with `repo`, `ref`, and `host` only when `GH_HOST` named an enterprise instance at `add` time, so the source is never re-expanded against `github.com` later; `git` with the remote `url` as you typed it and `ref`; or `local` with `path` and optional `live`. A pinned local directory or a live fetched source cannot be written down.
 - **`ref` is `HEAD`** for the default branch's head; the branch name is never stored because a repo can rename it.
 - **`intent.auth`** is whether refreshes of this source use your `gh` login; set by `--auth`, false by default, so an anonymous install never turns authenticated on its own.
@@ -98,14 +98,14 @@ The example is hand-written and parses against the current schema; a test keeps 
 - **`intent.harnesses`** is which harnesses this source writes to.
 - **`intent.review`** is `true` or absent, never `false`: set by `add --review` or `review`, so refreshes wait for `accept` instead of applying. The [review hold](keep-fresh.md#hold-changes-for-review) owns the verbs.
 - **`intent.shared`** is `true` or absent: `true` marks a project source as projected into `.agents/maxims.lock`, set by `add --share`, `share`, and `install`; on a `global` or `out` destination it is corrupt. The [sharing section](share.md#sharing-a-source) owns the verbs.
-
-<!-- END GENERATED: intent-fields -->
 - **`fetched.at` and `fetched.sha`** drive the cooldown and staleness; the sha is what was fetched, where `ref` is what was asked for. It is the 40-hex commit sha the remote reported for a GitHub or git source, or a `sha256:<64 hex>` hash of the directory contents for a copied local source, spelled like a memory hash. A live local source has no `fetched` block, because the tree is the record.
 - **`fetched.memories`** holds a content hash and a description hash per memory; a refresh diffs the content hashes to report each memory added, removed, or changed.
 - **`fetched.lastError`** is why the last fetch failed (`network`, `ratelimit`, `missing`, `auth`, `invalid`), so the staleness notice can say which.
 - **`pending`** is the revision held for review: its `sha`, `at`, and `summary`, the diff against `fetched.memories`. It is absent while nothing waits, and a live source never has one, since its directory is read in place. A `pending` on a source without `intent.review`, without a `fetched` block, or at the installed sha is corrupt.
 - **`addedAt`** is provenance; there is no `updatedAt`. Every timestamp is ISO 8601 UTC in millisecond form; a hand-edited spelling of another precision reads as the same instant in that form and is written back so on the next write.
 - **`disabled`** holds the memories `disable` withheld, by local name: `global` is one sorted list for `-g`, `project` one sorted list per project root, so a memory disabled in one project stays live everywhere else. The [project lock](share.md#the-project-manifest) carries a copy of its own root's list.
+
+<!-- END GENERATED: state-fields -->
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 

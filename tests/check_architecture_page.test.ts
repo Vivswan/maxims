@@ -7,7 +7,7 @@
 // counting as a mermaid diagram.
 
 import { expect, test } from "bun:test";
-import { type Fence, mermaidFences, readPage } from "../scripts/check_architecture_page.mts";
+import { type Fence, mermaidFences, readPage } from "../scripts/lib/page.ts";
 
 const unclosed: [where: string, markdown: string, text: (string | undefined)[], fence: Fence][] = [
   [
