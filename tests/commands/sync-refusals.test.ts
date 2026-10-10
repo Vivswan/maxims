@@ -21,9 +21,10 @@ import { runRemove } from "../../src/commands/remove.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
-import type { FetchIntent } from "../../src/engine/types.ts";
+import type { FetchIntent, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
+import { lstatOrNullSync } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
@@ -1115,6 +1116,44 @@ describe("what a refused or departed source leaves behind", () => {
       expect(readFileSync(stale, "utf8")).toBe(staleText);
     });
   });
+
+  // The same link, with every memory of its source disabled: the run plans no block for the file,
+  // so the link is deleted rather than replaced. A delete replaces the link as fully as a write
+  // does, and the hold a read through the link raised must die with it, not fail the run over a
+  // path that is gone. A hook run defers every deletion, so there the link stays loaded and the
+  // hold stands.
+  const linkRuns: [string, SyncOptions, (rules: string) => string[]][] = [
+    ["an interactive sync deletes it, unheld", SYNC, () => []],
+    ["a hook run defers the delete and holds it", QUIET, (rules) => [rules]],
+  ];
+  test.each(linkRuns)(
+    "a rule-file link to a stale file, every memory of its source disabled: %s",
+    async (_label, options, heldFiles) => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        const from = localFrom(source, true);
+        writeState(
+          home,
+          stateWith({ [source]: entryFor(from) }, undefined, {
+            global: Object.keys(TWO_MEMORIES).map(memoryName),
+          }),
+        );
+        const stale = join(dir, "stale.md");
+        const staleText =
+          "<!-- maxims:begin @old/notes sha=old -->\n- An old rule.\n<!-- maxims:end @old/notes -->\n";
+        writeFileSync(stale, staleText);
+        const rules = globalRulesFile(userHome, sourceSlug(from));
+        mkdirSync(dirname(rules), { recursive: true });
+        symlinkSync(stale, rules);
+        const io = fakeIo({ home, userHome, cwd: dir });
+        await expect(runSync(options, io)).resolves.toMatchObject({
+          heldFiles: heldFiles(rules),
+        });
+        expect(lstatOrNullSync(rules)?.isSymbolicLink() ?? false).toBe(options.quiet);
+        expect(readFileSync(stale, "utf8")).toBe(staleText);
+      });
+    },
+  );
 
   test("a name a newer source has installed stays its own when an older source ships it later", async () => {
     await world(async ({ home, dir, userHome, project }) => {
