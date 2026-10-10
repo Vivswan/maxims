@@ -7,6 +7,7 @@ import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { readIfPresent } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
+import { jsonDocument } from "../util/json.ts";
 import { parseRuleBlocks, type RuleBlock } from "./shared/blocks.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere, harnessContext } from "./shared/context.ts";
@@ -114,7 +115,7 @@ export const doctor: Command = {
         lastSync: lastSync.age,
         defaults: ctx.config,
       };
-      io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+      io.stdout.write(jsonDocument(body));
     } else if (!ctx.global.quiet) {
       for (const finding of findings) io.stdout.write(`${symbol(finding.kind)}  ${finding.text}\n`);
       io.stdout.write(`${defaults}\n`);

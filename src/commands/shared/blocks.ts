@@ -1,4 +1,4 @@
-import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
+import { type MemoryName, memoryStem, parseMemoryName } from "../../memory/contract.ts";
 import { markdownLines, parseBlocks } from "../../rulefile/block.ts";
 
 // A managed block as a rule file holds it: the source it belongs to and the local names of the
@@ -47,5 +47,5 @@ function detailStem(rendered: string): string {
     .replaceAll("&#91;", "[")
     .replaceAll("&#126;", "~");
   const last = path.split(/[\\/]/).pop() ?? "";
-  return last.endsWith(".md") ? last.slice(0, -".md".length) : last;
+  return memoryStem(last) ?? last;
 }

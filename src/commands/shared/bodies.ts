@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { type ContentHash, contentHashOf, parseMemory } from "../../memory/contract.ts";
+import { type ContentHash, contentHashOf, memoryStem, parseMemory } from "../../memory/contract.ts";
 import type { Change } from "../../util/change.ts";
 import { assertInsideRoot, isAbsent, isInside, realpathOfExistingPrefix } from "../../util/fs.ts";
 import type { SymlinkSupport } from "../types.ts";
@@ -104,8 +104,8 @@ export function planBodySweep(input: {
   }
   const changes: Change[] = [];
   for (const name of entries) {
-    if (!name.endsWith(".md")) continue;
-    const localName = name.slice(0, -".md".length);
+    const localName = memoryStem(name);
+    if (localName === null) continue;
     if (input.wanted.has(localName)) continue;
     const path = assertInsideRoot(input.root, join(input.dir, name));
     const entry = lstatSync(path, { throwIfNoEntry: false });

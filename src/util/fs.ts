@@ -20,6 +20,9 @@ export type WriteFileAtomicOptions = {
   mode?: number;
 };
 
+// Windows cannot hold a requested mode, so a mode compare there counts a change on every run.
+export const POSIX_MODES = process.platform !== "win32";
+
 declare const rootedPathBrand: unique symbol;
 
 // A path that `assertInsideRoot` has resolved and proven to lie under its destination root. It is
@@ -158,7 +161,7 @@ export function sha256(text: string | Uint8Array): string {
 export async function ensureDir0700(dir: string): Promise<void> {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (process.platform !== "win32") await chmod(dir, 0o700);
+    if (POSIX_MODES) await chmod(dir, 0o700);
   } catch (cause) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,

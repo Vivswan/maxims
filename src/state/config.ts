@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { HarnessIdSchema } from "../contracts/harness-id.ts";
+import { jsonDocument } from "../util/json.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import { CONFIG_LADDER, CURRENT_CONFIG_VERSION, envelope } from "./migrations/config-ladder.ts";
 import { migrate, versionOf } from "./migrations/runner.ts";
@@ -56,7 +57,7 @@ export function parseUserConfig(json: unknown): ParsedUserConfig {
 }
 
 export function serializeUserConfig(config: UserConfig): string {
-  return `${JSON.stringify({ version: CURRENT_CONFIG_VERSION, ...config }, null, 2)}\n`;
+  return jsonDocument({ version: CURRENT_CONFIG_VERSION, ...config });
 }
 
 // The one reader of config.json. Whether a run refuses a file that could not be read as one or

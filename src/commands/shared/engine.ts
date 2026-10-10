@@ -10,6 +10,7 @@ import {
   type ContentHash,
   contentHashOf,
   type MemoryName,
+  memoryStem,
   parseMemoryName,
   renamed,
 } from "../../memory/contract.ts";
@@ -462,7 +463,7 @@ async function planInstall(
         keepBlock(key, target.realKey);
       }
       if (intent.destination.scope === "out" && intent.rule) {
-        keepBlock(key, realKeyOf(join(intent.destination.path, `maxims-${slug}.md`)));
+        keepBlock(key, realKeyOf(outRuleFile(intent.destination.path, slug)));
       }
       for (const dir of allDirs) unsweepable.add(dir.id);
       const refusal = resolutionFailure(key, admission);
@@ -509,10 +510,10 @@ async function planInstall(
     const requests: { file: RuleFile; lines: RuleLine[] }[] = [];
     if (intent.destination.scope === "out") {
       const outDir = intent.destination.path;
-      const path = assertInsideRoot(outDir, join(outDir, `maxims-${slug}.md`));
+      const path = assertInsideRoot(outDir, outRuleFile(outDir, slug));
       requests.push({
         file: files.get(path) ?? { kind: "out", path, blocks: [] },
-        lines: linesFor((_memory, local) => `memories/${local}.md`),
+        lines: linesFor((_memory, local) => outDetailPath(local)),
       });
     }
     for (const group of groupTargets(targets.targets)) {
@@ -1230,11 +1231,27 @@ function staleNotices(work: SourceWork, notices: Notices): void {
   notices.loud(`maxims: ${staleSentence(`the rules from ${work.key}`, work.stale)}`);
 }
 
+// A harness reads a rule line's detail path relative to the rule file, so the bodies folder sits
+// beside the rule file at the `-o` root.
+const OUT_BODIES_DIR = "memories";
+
+function outRuleFile(root: string, slug: SourceSlug): string {
+  return join(root, `maxims-${slug}.md`);
+}
+
+function outBodiesDir(root: string): string {
+  return join(root, OUT_BODIES_DIR);
+}
+
+function outDetailPath(local: MemoryName): string {
+  return `${OUT_BODIES_DIR}/${local}.md`;
+}
+
 // `id` is the directory's real path, the identity two spellings of one folder share.
 type BodiesDir = { id: string; dir: string; root: string };
 
 // Every distinct memory directory the source's harnesses read at this scope; the user scope
-// links nothing (rule lines point into the store) and `-o` gets `<folder>/memories`.
+// links nothing (rule lines point into the store) and `-o` gets its own bodies folder.
 function bodiesDirsFor(
   work: Pick<SourceWork, "intent">,
   ctx: EngineContext,
@@ -1244,7 +1261,7 @@ function bodiesDirsFor(
   const { intent } = work;
   if (intent.destination.scope === "out") {
     const root = intent.destination.path;
-    return [bodiesDir(join(root, "memories"), root)];
+    return [bodiesDir(outBodiesDir(root), root)];
   }
   if (intent.destination.scope === "global" || ctx.projectRoot === null) return [];
   const projectRoot = ctx.projectRoot;
@@ -1306,7 +1323,7 @@ function allBodiesDirs(
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
-    sweepable(join(root, "memories"), root);
+    sweepable(outBodiesDir(root), root);
   }
   return [...dirs.values()];
 }
@@ -1418,11 +1435,12 @@ function installedBodies(
   }
   const names: MemoryName[] = [];
   for (const name of entries) {
-    if (!name.endsWith(".md")) continue;
+    const stem = memoryStem(name);
+    if (stem === null) continue;
     const path = join(dir, name);
     const stat = lstatSync(path, { throwIfNoEntry: false });
     if (stat === undefined) continue;
-    const parsed = parseMemoryName(name.slice(0, -".md".length));
+    const parsed = parseMemoryName(stem);
     if (parsed === null) continue;
     if (stat.isSymbolicLink()) {
       const target = resolve(realpathOfExistingPrefix(dir), readlinkSync(path));
@@ -1438,7 +1456,7 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
   const { intent } = entry;
   if (!intent.rule) return [];
   if (intent.destination.scope === "out") {
-    return [join(intent.destination.path, `maxims-${sourceSlug(intent.from)}.md`)];
+    return [outRuleFile(intent.destination.path, sourceSlug(intent.from))];
   }
   if (!actsHere(entry, ctx)) return [];
   return resolveTargets({
@@ -1464,7 +1482,7 @@ function removedOutRuleFiles(
   for (const entry of removed) {
     if (entry.intent.destination.scope !== "out") continue;
     const root = entry.intent.destination.path;
-    const path = join(root, `maxims-${sourceSlug(entry.intent.from)}.md`);
+    const path = outRuleFile(root, sourceSlug(entry.intent.from));
     if (planned.has(realKeyOf(path))) continue;
     const text = regularFileText(path);
     if (text === null || !claimedByMaxims(text)) continue;

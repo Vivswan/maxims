@@ -28,8 +28,8 @@ export type HomePaths = {
 };
 
 // `lastSync` is the universal quiet-mode debounce stamp: every `sync --quiet` run, whichever hook
-// fired it, exits 0 without work while the stamp is younger than 60 seconds. `pending` holds the
-// held revisions of reviewed sources, laid out like the store.
+// fired it, exits 0 without work while the stamp is younger than QUIET_DEBOUNCE_MS. `pending`
+// holds the held revisions of reviewed sources, laid out like the store.
 export function homePaths(home: string): HomePaths {
   return {
     store: join(home, "store"),

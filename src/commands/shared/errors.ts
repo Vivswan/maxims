@@ -1,4 +1,5 @@
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
+import { jsonDocument } from "../../util/json.ts";
 
 // A failure the run has already printed (as the `--json` document or the interactive lines), so
 // the caller maps it to an exit code without printing it a second time. It lives apart from the
@@ -14,5 +15,5 @@ export function errorDocument(error: unknown, extra: Record<string, unknown> = {
   const code = error instanceof MaximsError ? error.code : ExitCode.Usage;
   const hint = error instanceof MaximsError ? (error.hint ?? null) : null;
   const message = error instanceof Error ? error.message : String(error);
-  return `${JSON.stringify({ ok: false, code, message, hint, ...extra }, null, 2)}\n`;
+  return jsonDocument({ ok: false, code, message, hint, ...extra });
 }

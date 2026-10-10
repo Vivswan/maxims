@@ -43,6 +43,7 @@ import {
 } from "../memory/contract.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
+import { DEFAULT_GH_HOST } from "../sources/github/host.ts";
 import { materializeLocal } from "../sources/local.ts";
 import type { TreeFile } from "../sources/tree.ts";
 import type { UserConfig } from "../state/config.ts";
@@ -719,7 +720,7 @@ function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeF
 export function describeSource(from: SourceFrom): string {
   switch (from.type) {
     case "github":
-      return `https://${from.host ?? "github.com"}/${from.repo}.git`;
+      return `https://${from.host ?? DEFAULT_GH_HOST}/${from.repo}.git`;
     case "git":
       return from.url;
     case "local":
@@ -746,7 +747,7 @@ export type Provenance = {
 export function sourceOwner(from: SourceFrom): string | null {
   if (from.type === "github") {
     const [owner = ""] = from.repo.toLowerCase().split("/", 1);
-    return `${from.host ?? "github.com"}/${owner}`;
+    return `${from.host ?? DEFAULT_GH_HOST}/${owner}`;
   }
   if (from.type === "local") return null;
   const remote = parseRemote(from.url);

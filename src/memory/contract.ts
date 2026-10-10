@@ -66,9 +66,15 @@ function isReservedFile(name: string): boolean {
   return name === "MEMORY.md" || name.toLowerCase() === "readme.md";
 }
 
+// commands/shared/engine.ts walks installed bodies with this too, so a sweep and the parser share
+// one suffix rule.
+export function memoryStem(fileName: string): string | null {
+  return fileName.endsWith(".md") ? fileName.slice(0, -".md".length) : null;
+}
+
 // What a walk over a memories folder hands to the parser; everything else is passed over silently.
 export function isMemoryFile(name: string): boolean {
-  return name.endsWith(".md") && !isReservedFile(name);
+  return memoryStem(name) !== null && !isReservedFile(name);
 }
 
 export type MemoryMetadata = {
@@ -106,8 +112,8 @@ export function parseMemory(filename: string, text: string): ParsedMemory {
 function parseMemoryChecked(filename: string, text: string): ParsedMemory {
   const file = basename(filename);
   if (isReservedFile(file)) return { ok: false, reason: `${file} is reserved` };
-  if (!file.endsWith(".md")) return { ok: false, reason: `${file} is not a .md file` };
-  const stem = file.slice(0, -".md".length);
+  const stem = memoryStem(file);
+  if (stem === null) return { ok: false, reason: `${file} is not a .md file` };
   const name = parseMemoryName(stem);
   if (name === null) return { ok: false, reason: `filename stem "${stem}" is not kebab-case` };
 

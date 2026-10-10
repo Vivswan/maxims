@@ -2,6 +2,7 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot } from "../../util/fs.ts";
+import { jsonDocument } from "../../util/json.ts";
 import {
   appendChild,
   assertParses,
@@ -49,7 +50,7 @@ function editServers(
       (inner, key) => ({ [key]: inner }),
       MCP_SERVER_ENTRY,
     );
-    return `${JSON.stringify(nested, null, 2)}\n`;
+    return jsonDocument(nested);
   }
   const root = assertParses(text, path);
   // A missing level of the servers path is created with the rest nested inside it, so a file

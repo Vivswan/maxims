@@ -11,7 +11,15 @@ import {
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { type Command, FLAGS, type FlagSpec, INTEGER, parseInteger } from "./shared/options.ts";
+import { jsonDocument } from "../util/json.ts";
+import {
+  type Command,
+  FLAGS,
+  type FlagSpec,
+  INTEGER,
+  INTENT_DEFAULTS,
+  parseInteger,
+} from "./shared/options.ts";
 import { riskWarningsFor } from "./shared/risk.ts";
 import { isHiddenInternal } from "./shared/select.ts";
 
@@ -39,7 +47,7 @@ export const lint: Command = {
   async run(args, ctx) {
     const cap =
       parseInteger(LINT_CAP, INTEGER.positive, args) ?? ctx.config.ruleCap ?? DEFAULT_RULE_CAP;
-    const root = resolve(ctx.io.cwd, args.positionals[0] ?? "memories");
+    const root = resolve(ctx.io.cwd, args.positionals[0] ?? INTENT_DEFAULTS.memoryPath);
     const problems = lintFolder(
       root,
       ctx.io.cwd,
@@ -48,7 +56,7 @@ export const lint: Command = {
       ctx.io.installInternal,
     );
     if (ctx.global.json) {
-      ctx.io.stdout.write(`${JSON.stringify({ ok: problems.length === 0, problems }, null, 2)}\n`);
+      ctx.io.stdout.write(jsonDocument({ ok: problems.length === 0, problems }));
     } else if (!ctx.global.quiet) {
       for (const problem of problems) {
         ctx.io.stdout.write(`${problem.path}:${problem.line}: ${problem.reason}\n`);

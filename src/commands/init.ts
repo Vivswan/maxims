@@ -5,7 +5,7 @@ import { type MemoryName, parseMemory, parseMemoryName } from "../memory/contrac
 import { applyChanges, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot } from "../util/fs.ts";
-import { type Command, usage } from "./shared/options.ts";
+import { type Command, INTENT_DEFAULTS, usage } from "./shared/options.ts";
 import { finish } from "./shared/output.ts";
 
 // The scaffold every new memory starts from; it passes the contract as written, so `lint` on a
@@ -29,15 +29,15 @@ export function memoryTemplate(name: MemoryName): string {
 }
 
 export const init: Command = {
-  summary: "scaffold a contract-valid memory file under memories/",
+  summary: `scaffold a contract-valid memory file under ${INTENT_DEFAULTS.memoryPath}/`,
   usage: "init [name]",
   arity: 1,
   flags: [],
   async run(args, ctx) {
     const console = await ctx.openConsole(false);
     const name = await memoryName(args.positionals[0], console);
-    const dir = join(ctx.io.cwd, "memories");
-    const relPath = join("memories", `${name}.md`);
+    const dir = join(ctx.io.cwd, INTENT_DEFAULTS.memoryPath);
+    const relPath = join(INTENT_DEFAULTS.memoryPath, `${name}.md`);
     const path = assertInsideRoot(ctx.io.cwd, join(dir, `${name}.md`));
     if (existsSync(path)) throw new MaximsError(ExitCode.Usage, `${relPath} already exists`);
     const content = memoryTemplate(name);

@@ -16,6 +16,7 @@ import { util } from "zod";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
+import { jsonDocument } from "../util/json.ts";
 import {
   appendChild,
   assertParses,
@@ -142,7 +143,7 @@ export function freshRegistry(hook: RegistryShape, handler: Record<string, unkno
   }
   const event = hook.eventPath[hook.eventPath.length - 1];
   if (event !== undefined) container[event] = [hook.grouped ? { hooks: [handler] } : handler];
-  return `${JSON.stringify(root, null, 2)}\n`;
+  return jsonDocument(root);
 }
 
 // The registry policy over the splices in src/util/jsonc.ts: which entries are ours, where a new

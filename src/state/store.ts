@@ -3,6 +3,7 @@ import { applyChanges, type Plan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, ensureDir0700, type RootedPath } from "../util/fs.ts";
 import { homePaths } from "../util/home.ts";
+import { jsonDocument } from "../util/json.ts";
 import { type StolenLock, withLock } from "../util/lock.ts";
 import { VERSION } from "../version.ts";
 import { type Ladder, migrate, versionOf } from "./migrations/runner.ts";
@@ -87,7 +88,7 @@ export async function writeState(
   return withStateLock(home, "manual", (lock) => lock.write(state, writtenBy));
 }
 
-// Manual mode waits the spec's five seconds and then fails with exit 5 naming the holder; hook mode
+// Manual mode waits DEFAULT_LOCK_WAIT_MS and then fails with exit 5 naming the holder; hook mode
 // never waits, because a hook that blocks would block the session start it runs inside.
 export function withStateLock<T>(
   home: string,
@@ -224,10 +225,9 @@ async function quarantine(paths: StatePaths, issues: string[]): Promise<LoadedSt
   return { kind: "quarantined", movedTo, issues };
 }
 
-// The exact bytes the store writes, so a caller that folds the state write into its own
-// `applyChanges` plan produces a file byte-identical to one the store wrote itself.
+// The plans in commands/shared that write the state file themselves must spell it as the store does.
 export function serializeState(state: State): string {
-  return `${JSON.stringify(state, null, 2)}\n`;
+  return jsonDocument(state);
 }
 
 async function writeStateFile(paths: StatePaths, state: State): Promise<WriteResult> {

@@ -8,6 +8,7 @@ import { shortHash } from "../rulefile/dedupe.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
+import { jsonDocument } from "../util/json.ts";
 import { peekIntent } from "./shared/cli-context.ts";
 import { actsHere } from "./shared/context.ts";
 import { isFetchedEntry, readInstalledTree, shortSha } from "./shared/engine.ts";
@@ -115,7 +116,7 @@ async function showOne(args: Args, ctx: CommandContext): Promise<number> {
   for (const line of found.notices) console.warn(line);
   if (ctx.global.json) {
     const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
-    io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+    io.stdout.write(jsonDocument(body));
     return ExitCode.Ok;
   }
   if (ctx.global.quiet) return ExitCode.Ok;
@@ -208,7 +209,7 @@ function printMemory(
   const { memory } = lookup;
   if (ctx.global.json) {
     const body = { ok: true, kind: "memory", ...memory, notices: lookup.notices };
-    io.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+    io.stdout.write(jsonDocument(body));
     return ExitCode.Ok;
   }
   if (ctx.global.quiet) return ExitCode.Ok;

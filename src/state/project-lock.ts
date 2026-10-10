@@ -10,6 +10,7 @@ import {
   markerSafe,
   type SourceFrom,
 } from "../contracts/source.ts";
+import { jsonDocument } from "../util/json.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import { CURRENT_PROJECT_LOCK_VERSION } from "./migrations/project-lock-ladder.ts";
 import { versionOf } from "./migrations/runner.ts";
@@ -160,7 +161,7 @@ export function serializeProjectLock(lock: ProjectLock): string {
   }
   const canonical: Record<string, unknown> = { version: lock.version, sources };
   if (lock.disabled !== undefined) canonical.disabled = lock.disabled;
-  return `${JSON.stringify(canonical, null, 2)}\n`;
+  return jsonDocument(canonical);
 }
 
 function canonicalSource(source: LockSource): Record<string, unknown> {
