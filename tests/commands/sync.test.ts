@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { DEFAULT_COOLDOWN_DAYS } from "../../src/commands/shared/context.ts";
 import { sourceSlug } from "../../src/commands/shared/slug.ts";
 import { runSync } from "../../src/commands/sync.ts";
 import { type HarnessDefinition, HOOK_COMMAND } from "../../src/harnesses/contract.ts";
@@ -169,18 +170,20 @@ describe("idempotency and convergence", () => {
     });
   });
 
+  // The second row's gap is the cooldown itself: a due run that finds upstream unchanged restarts
+  // the clock, so its third run is due again the moment the gap elapses.
   const cooldownRuns: [string, number, string[], boolean][] = [
-    ["inside its cooldown is not asked and keeps its timestamp", 2, [], false],
+    ["inside its cooldown is not asked and keeps its timestamp", 1, [], false],
     [
-      "past its cooldown and unchanged upstream is asked once and refreshes its timestamp",
-      9,
+      "past its cooldown and unchanged upstream is asked once per due run and refreshes its timestamp",
+      DEFAULT_COOLDOWN_DAYS,
       ["resolveRef @acme/rules"],
       true,
     ],
   ];
   test.each(cooldownRuns)(
     "a github source with a store copy %s, and no file is written",
-    async (_label, ageDays, calls, refreshed) => {
+    async (_label, gapDays, calls, refreshed) => {
       await world(async ({ home, dir, userHome }) => {
         const upstream = writeSource(join(dir, "upstream"), TWO_MEMORIES);
         const from = githubFrom("acme/rules");
@@ -194,9 +197,16 @@ describe("idempotency and convergence", () => {
         expect(fake.calls).toEqual([]);
         expect(existsSync(globalRulesFile(userHome, "acme-rules"))).toBe(true);
         const before = treeDigest(userHome);
-        io.clock.now = new Date(NOW.getTime() + (ageDays - 1) * DAY_MS);
-        const report = await runSync(SYNC, io);
-        expect([fake.calls, report.fetched]).toEqual([calls, []]);
+        io.clock.now = new Date(NOW.getTime() + gapDays * DAY_MS);
+        const second = await runSync(SYNC, io);
+        expect([fake.calls, second.fetched]).toEqual([calls, []]);
+        expect(fetchedOf(home, "@acme/rules")?.at).toBe(
+          refreshed ? io.clock.now.toISOString() : facts.at,
+        );
+        expect(treeDigest(userHome)).toBe(before);
+        io.clock.now = new Date(NOW.getTime() + 2 * gapDays * DAY_MS);
+        const third = await runSync(SYNC, io);
+        expect([fake.calls, third.fetched]).toEqual([[...calls, ...calls], []]);
         expect(fetchedOf(home, "@acme/rules")?.at).toBe(
           refreshed ? io.clock.now.toISOString() : facts.at,
         );
