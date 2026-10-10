@@ -24,7 +24,7 @@ metadata:
 One change per commit, however small the second one looks.
 
 **Why:** 2026-08-23. A two-change commit was reverted for one of them and took the other down with it.
-**How to apply:** Stage by hunk when the tree holds two changes. Sibling of [[one-topic-per-pull-request]].
+**How to apply:** Stage by hunk when the tree holds two changes. Sibling of [[prefer-timeouts-to-hangs]].
 ```
 
 The `description` is the one-liner that reaches the rule file. Everything below the frontmatter stays in this file on disk, behind the pointer at the end of the rule line.

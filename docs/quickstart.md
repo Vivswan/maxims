@@ -82,8 +82,8 @@ The rule file for that install, cut to two of its four rule lines, with illustra
 <!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
 <!-- managed by maxims: @Octocat/rules - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->
-- One change per commit: a reviewer reads a small diff in one pass, a revert takes back one thing. (detail: /home/user/.agents/maxims/store/octocat/rules/memories/commit-small-and-often.md, 0f0f0f0)
-- A timeout on EVERY call that leaves the process, however short; a hang is worse than a clear failure. (detail: /home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
+- Keep every commit to one change - a reviewer reads a small diff in one pass (detail: /home/user/.agents/maxims/store/octocat/rules/memories/commit-small-and-often.md, 0f0f0f0)
+- Use when a call leaves the process, however small - give it a timeout, since a hang is worse than a clear failure (detail: /home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md, a1b2c3d)
 <!-- maxims:end @Octocat/rules -->
 ```
 
