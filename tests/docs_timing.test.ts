@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { QUIET_DEBOUNCE_MS } from "../src/commands/frame/debounce.ts";
 import { HOOK_TIMEOUT_SECONDS } from "../src/harnesses/contract.ts";
+import { HOOK_STDIN_TOTAL_MS } from "../src/harnesses/hook-stdin.ts";
 import { DEFAULT_LOCK_STALE_MS, DEFAULT_LOCK_WAIT_MS } from "../src/util/lock.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -45,8 +46,7 @@ const PHRASES: Phrase[] = [
   // OpenCode startup times measured on one machine, in prose and in the two rows of one table.
   phrase("measured startup", null, String.raw`takes about ${N}`),
   phrase("measured startup", null, String.raw`(?:as installed|together) \| ${N} \|`),
-  // The whole stdin budget is private to src/harnesses/hook-stdin.ts; only its first-chunk share is exported.
-  phrase("hook stdin budget", null, String.raw`${N} in all`),
+  phrase("HOOK_STDIN_TOTAL_MS", HOOK_STDIN_TOTAL_MS, String.raw`${N} in all`),
 ];
 
 const SECONDS = /\b(\d+(?:\.\d+)?)[ -]s(?:econds?)?\b/g;

@@ -71,8 +71,7 @@ export function parseSourceSelector(
     }
     return { from: github(repo, arg, enterpriseHost(options)), memory };
   }
-  const looksLocal = /^(\.{1,2}(\/|\\|$)|\/|\\|~|[A-Za-z]:[\\/])/.test(arg);
-  if (!looksLocal && GITHUB_REPO_PATTERN.test(arg)) {
+  if (GITHUB_REPO_PATTERN.test(arg)) {
     return { from: github(arg, arg, enterpriseHost(options)), memory: null };
   }
   if (arg.startsWith("~")) throw usage(`cannot expand "~" in ${arg}; give the full path`);
@@ -84,6 +83,14 @@ export function parseSourceSelector(
 }
 
 const GITHUB_TREE_SEGMENT = 2;
+
+// The advice for a GitHub URL whose tail says more than a ref, keyed by the segment GitHub puts
+// there. It names the flags that say the same thing and never an `@owner/repo` shorthand, which an
+// enterprise shell would re-host under GH_HOST.
+const TAIL_ADVICE = {
+  tree: 'a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>',
+  blob: "a blob URL names one file, and a source is a folder; drop the /blob/<ref>/<file> tail and pass --pin <ref> --from <folder> --memory <name>",
+} as const;
 
 // A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
 // a directory, so the store-path usability check does not apply to it, and whether it is storable
@@ -97,20 +104,18 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
     return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
   }
   const host = isGithubCom ? undefined : enterpriseHost(options);
-  const [owner, repoName, tree, ...rest] = remote.segments;
+  const [owner, repoName, kind, ...rest] = remote.segments;
   const repo = `${owner ?? ""}/${stripGitSuffix(repoName ?? "")}`;
-  const isTreeUrl = tree === "tree" && rest.length >= 1;
+  const isTreeUrl = kind === "tree" && rest.length >= 1;
+  const isBlobUrl = kind === "blob" && rest.length >= 2;
   if (
     !GITHUB_REPO_PATTERN.test(repo) ||
-    (remote.segments.length > GITHUB_TREE_SEGMENT && !isTreeUrl)
+    (remote.segments.length > GITHUB_TREE_SEGMENT && !isTreeUrl && !isBlobUrl)
   ) {
     throw usage(`${arg} is not a GitHub owner/repo URL`);
   }
-  if (rest.length > 1) {
-    throw usage(
-      `${arg}: a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>`,
-    );
-  }
+  if (isBlobUrl) throw usage(`${arg}: ${TAIL_ADVICE.blob}`);
+  if (rest.length > 1) throw usage(`${arg}: ${TAIL_ADVICE.tree}`);
   const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
   return github(repo, arg, host, ref);
 }

@@ -156,7 +156,7 @@ export type StdinLike = {
 };
 
 export const HOOK_STDIN_FIRST_CHUNK_MS = 200;
-const HOOK_STDIN_TOTAL_MS = 1000;
+export const HOOK_STDIN_TOTAL_MS = 1000;
 
 // A hook's stdin is a pipe the harness may never close, so the read waits a short while for the
 // first chunk, then only until the text parses as one JSON value; a terminal is never read at

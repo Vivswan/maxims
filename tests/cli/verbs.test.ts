@@ -863,8 +863,8 @@ test("update <source> --strict leaves the sources it does not refresh unjudged",
 });
 
 test("doctor reports rule files, frontmatter, hooks, tiers and --expect without writing", async () => {
-  const unreadable =
-    "config.toml could not be read (/home/user/.codex/config.toml: Invalid TOML document: illegal character in key (line 1, column 6)); assuming hooks off";
+  const unreadable = (scenario: Scenario): string =>
+    `config.toml could not be read (${join(scenario.userHome, ".codex", "config.toml")}: Invalid TOML document: illegal character in key (line 1, column 6)); assuming hooks off`;
   await withScenario(
     {
       project: true,
@@ -913,7 +913,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
           "ok  codex: AGENTS.md",
           "x   codex: hook missing (run maxims add <source> --add-hook)",
           "!   codex: tier 2 on this machine",
-          `!   codex: ${unreadable}`,
+          `!   codex: ${unreadable(scenario)}`,
           "x   cursor: .cursor/rules/maxims-a-b.mdc lacks the frontmatter Cursor needs to load it every session",
           "ok  expect gate-exit-conditions-the-merge: rule line in place",
           "x   expect @a/b/skip-unfit-skills: no rule line in AGENTS.md, .cursor/rules/maxims-a-b.mdc",

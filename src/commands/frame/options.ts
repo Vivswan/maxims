@@ -31,7 +31,11 @@ export const GLOBAL_FLAGS: readonly FlagSpec[] = [
   { name: "quiet", kind: "boolean", summary: "one line of output and fail-soft (the hook's mode)" },
   { name: "dry-run", kind: "boolean", summary: "print the plan and write nothing" },
   { name: "json", kind: "boolean", summary: "emit one JSON document instead of the frame" },
-  { name: "verbose", kind: "boolean", summary: "add fetch details to the output" },
+  {
+    name: "verbose",
+    kind: "boolean",
+    summary: "unfold the add and install plan to every one-liner",
+  },
 ];
 
 export const FLAGS = {

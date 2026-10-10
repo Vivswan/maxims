@@ -1,5 +1,5 @@
 import { promptsAllowed } from "../console/contract.ts";
-import { STRINGS } from "../console/strings.ts";
+import { agentsOnMemory, STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type {
   CliIo,
@@ -186,9 +186,7 @@ async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Prom
     throw usage(`${positional} names a memory; -m narrows a source, so name the source instead`);
   }
   if (agentFlag) {
-    throw usage(`-a applies to a source, not to the memory ${positional}`, {
-      hint: "name the source to drop a harness from, or drop the name without -a",
-    });
+    throw usage(agentsOnMemory(positional), { hint: STRINGS.agentsOnMemoryHint });
   }
   if (destination !== null) {
     throw usage(`${positional} names a memory of one recorded source; drop -g, -p or -o`);

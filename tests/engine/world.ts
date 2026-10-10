@@ -1,6 +1,8 @@
+import { expect } from "bun:test";
 import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { type ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { asyncOutcome } from "../shared/outcome.ts";
 import { withTempDir, withTempHome } from "../shared/temp_dir.ts";
 import { fixtureRoot } from "./fakes.ts";
 
@@ -36,12 +38,12 @@ export function globalRulesFile(userHome: string, slug: string): string {
   );
 }
 
+// An assertion rather than a throw, so a wrong outcome is reported as a diff against the code.
 export async function expectExit(run: Promise<unknown>, code: ExitCode): Promise<MaximsError> {
-  try {
-    await run;
-  } catch (error) {
-    if (error instanceof MaximsError && error.code === code) return error;
-    throw error;
-  }
-  throw new Error(`expected exit ${code}`);
+  const outcome = await asyncOutcome(() => run);
+  const refusal = outcome.kind === "threw" ? outcome.error : null;
+  const seen =
+    refusal instanceof MaximsError ? { exit: refusal.code, message: refusal.message } : outcome;
+  expect(seen).toMatchObject({ exit: code });
+  return refusal as MaximsError;
 }
