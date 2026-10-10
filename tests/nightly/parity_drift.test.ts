@@ -63,14 +63,20 @@ const fail = (body: string): Outcome => ({
   report: { title: TITLE, body },
 });
 
+const MATCHES: Outcome = {
+  status: "pass",
+  summary: `## Parity drift\n\n${VERSION}\n\n\`npx skills@latest --help\` matches the fixture.\n`,
+};
+
+const FIXTURE_MISSING = fail(
+  `${VERSION}\n\nThe fixture tests/fixtures/golden/skills-help.txt is missing, so there is nothing to diff against.\n`,
+);
+
 const cases: [string, ParityInputs, Outcome][] = [
   [
     "an identical capture passes",
     { fixture: FIXTURE, latest: { kind: "help", text: FIXTURE }, publishedVersion: "1.9.0" },
-    {
-      status: "pass",
-      summary: `## Parity drift\n\n${VERSION}\n\n\`npx skills@latest --help\` matches the fixture.\n`,
-    },
+    MATCHES,
   ],
   [
     "a changed page fails with the added and changed lines in the diff",
@@ -80,9 +86,7 @@ const cases: [string, ParityInputs, Outcome][] = [
   [
     "a missing fixture fails and says so",
     { fixture: null, latest: { kind: "help", text: LATEST }, publishedVersion: "1.9.0" },
-    fail(
-      `${VERSION}\n\nThe fixture tests/fixtures/golden/skills-help.txt is missing, so there is nothing to diff against.\n`,
-    ),
+    FIXTURE_MISSING,
   ],
   [
     "a failed capture fails with the error",
@@ -108,11 +112,9 @@ test("the run reads the fixture from disk and reports its absence", async () => 
     writeFileSync(fixture, FIXTURE);
     const capture = async () => ({ kind: "help", text: FIXTURE }) as const;
     const version = async () => "1.9.0";
-    expect((await runParityDrift(fixture, capture, version)).status).toBe("pass");
-    expect(await runParityDrift(join(dir, "absent.txt"), capture, version)).toEqual(
-      fail(
-        `${VERSION}\n\nThe fixture tests/fixtures/golden/skills-help.txt is missing, so there is nothing to diff against.\n`,
-      ),
+    await expect(runParityDrift(fixture, capture, version)).resolves.toEqual(MATCHES);
+    await expect(runParityDrift(join(dir, "absent.txt"), capture, version)).resolves.toEqual(
+      FIXTURE_MISSING,
     );
   });
 });

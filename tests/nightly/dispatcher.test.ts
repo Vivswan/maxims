@@ -215,11 +215,11 @@ test.skipIf(WINDOWS)(
           stderr: "pipe",
         },
       );
-      const report = readFileSync(join(reportDir, "live-network", "report.md"), "utf8");
       expect({ exitCode: proc.exitCode, stderr: proc.stderr.toString() }).toEqual({
         exitCode: 1,
         stderr: "",
       });
+      const report = readFileSync(join(reportDir, "live-network", "report.md"), "utf8");
       const stdout = proc.stdout.toString();
       expect(stdout).toContain("nightly live-network: fail\n");
       expect(stdout.split("Error: no node on PATH to run the bundle with")).toHaveLength(2);

@@ -59,7 +59,10 @@ describe("runLatencyTrend", () => {
   test("a hook-path regression past the gate fails with both entries compared", async () => {
     await withTempDir(async (dir) => {
       const trend = join(dir, "trend.json");
-      const history = { version: 1, entries: [entry(8, "8888888"), entry(1, "1111111", 52)] };
+      const history = {
+        version: 1,
+        entries: [entry(15, "1515151", 30), entry(8, "8888888"), entry(1, "1111111", 52)],
+      };
       writeFileSync(trend, JSON.stringify(history));
       const outcome = await runLatencyTrend(trend, {
         now: NOW,
