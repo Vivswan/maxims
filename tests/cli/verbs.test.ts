@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
-import type { SyncReport } from "../../src/commands/types.ts";
+import type { SyncOptions, SyncReport } from "../../src/commands/types.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import type { SourceSlug } from "../../src/harnesses/contract.ts";
 import { cursor } from "../../src/harnesses/cursor/spec.ts";
@@ -37,6 +37,7 @@ import { CURSOR_FRONTMATTER } from "./fixture-harnesses.ts";
 import {
   FIXTURES,
   lastSyncCall,
+  type RunResult,
   readState,
   realEngineBundle,
   runCli,
@@ -57,12 +58,13 @@ async function installSkills(scenario: Scenario, extra: string[] = []): Promise<
   expect(run.code).toBe(0);
 }
 
-// The writes of the state file a dry run of an intent edit names in its `--json` plan; a document
-// without a plan names none, so the count is judged at the assertion rather than thrown here.
-function stateWrites(scenario: Scenario, document: string): { kind: string; path: string }[] {
-  const body = JSON.parse(document) as { plan?: { changes?: { kind: string; path: string }[] } };
+// A plan without the state write, or a document without a plan at all, counts zero here, so the
+// miss is judged at the assertion rather than thrown.
+function stateWrites(scenario: Scenario, run: RunResult, json: boolean): number {
   const state = homePaths(scenario.home).state;
-  return (body.plan?.changes ?? []).filter((c) => c.kind === "write" && c.path === state);
+  if (!json) return run.stdout.split("\n").filter((l) => l.startsWith(`write   ${state} (`)).length;
+  const body = JSON.parse(run.stdout) as { plan?: { changes?: { kind: string; path: string }[] } };
+  return (body.plan?.changes ?? []).filter((c) => c.kind === "write" && c.path === state).length;
 }
 
 // The refresh summary is about what the user installs: an internal memory is hidden from the rule
@@ -1393,39 +1395,48 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
   });
 });
 
-test("--dry-run on disable and on link plans against the would-be state, names the state write, and writes nothing", async () => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
-    await installSkills(scenario);
-    const before = await snapshot(scenario.home);
-    const disabled = await runCli(scenario, [
-      "disable",
-      "skip-unfit-skills",
-      "--dry-run",
-      "--json",
-    ]);
-    expect(disabled.code).toBe(0);
-    expect(stateWrites(scenario, disabled.stdout)).toHaveLength(1);
-    expect(lastSyncCall(scenario).dryRun).toBe(true);
-    expect(lastSyncCall(scenario).preview?.state.disabled).toEqual({
-      global: [memoryName("skip-unfit-skills")],
+// The plain plan and the `--json` document leave a verb through different printers, so each row
+// runs both renderings: one can lose the state write while the other keeps it.
+const dryRunPlans: {
+  verb: string;
+  args: string[];
+  planned: (preview: SyncOptions["preview"]) => unknown;
+  expected: unknown;
+}[] = [
+  {
+    verb: "disable",
+    args: ["disable", "skip-unfit-skills"],
+    planned: (preview) => preview?.state.disabled,
+    expected: { global: [memoryName("skip-unfit-skills")] },
+  },
+  {
+    verb: "link",
+    args: ["link", "@a/b", "-a", "claude-code"],
+    planned: (preview) => [preview?.state.sources["@a/b"]?.intent.harnesses, preview?.config],
+    expected: [["codex", "claude-code"], {}],
+  },
+];
+
+test.each(dryRunPlans)(
+  "$verb --dry-run plans against the would-be state, names the state write in both renderings, and writes nothing",
+  async ({ args, planned, expected }) => {
+    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+      await installSkills(scenario);
+      const before = await snapshot(scenario.home);
+      for (const json of [false, true]) {
+        const calls = scenario.engine.calls.sync.length;
+        const run = await runCli(scenario, [...args, "--dry-run", ...(json ? ["--json"] : [])]);
+        expect([json, run.code, stateWrites(scenario, run, json)]).toEqual([json, 0, 1]);
+        const synced = scenario.engine.calls.sync.slice(calls);
+        expect(synced.length).toBeGreaterThan(0);
+        for (const call of synced) {
+          expect([call.dryRun, planned(call.preview)]).toEqual([true, expected]);
+        }
+        expect(await snapshot(scenario.home)).toBe(before);
+      }
     });
-    expect(readState(scenario).disabled).toBeUndefined();
-    const linked = await runCli(scenario, [
-      "link",
-      "@a/b",
-      "-a",
-      "claude-code",
-      "--dry-run",
-      "--json",
-    ]);
-    expect(linked.code).toBe(0);
-    expect(stateWrites(scenario, linked.stdout)).toHaveLength(1);
-    const planned = lastSyncCall(scenario).preview;
-    expect(planned?.state.sources["@a/b"]?.intent.harnesses).toEqual(["codex", "claude-code"]);
-    expect(planned?.config).toEqual({});
-    expect(await snapshot(scenario.home)).toBe(before);
-  });
-});
+  },
+);
 
 test("pins differing only in case are different sources, and update --rename is validated first", async () => {
   await withScenario({ github: { "a/b": SKILLS, "a/d": DOTFILES } }, async (scenario) => {
@@ -1661,26 +1672,17 @@ test.each(escapingManifestSources)(
 // A project directory enters the lock under its `./` path, which keeps the project root itself
 // (`.`, the one spelling that is live), an object property name, a prototype name and a
 // drive-relative name representable, side by side in one manifest.
-const projectDirectories: [string, string, string, boolean][] = [
-  ["the project root", ".", "root-rule", true],
-  ["an object property name", "./constructor", "property-rule", false],
-  ["a prototype name", "./__proto__", "proto-rule", false],
+const projectDirectories: { key: string; rule: string; live: boolean }[] = [
+  { key: ".", rule: "root-rule", live: true },
+  { key: "./constructor", rule: "property-rule", live: false },
+  { key: "./__proto__", rule: "proto-rule", live: false },
   // A colon cannot be part of a directory name on Windows, so the row exists where it can be made.
-  ...(WINDOWS
-    ? []
-    : [
-        ["a drive-relative name", "./a:rules", "drive-rule", false] as [
-          string,
-          string,
-          string,
-          boolean,
-        ],
-      ]),
+  ...(WINDOWS ? [] : [{ key: "./a:rules", rule: "drive-rule", live: false }]),
 ];
 
 test("project directories are projected into the manifest by their ./ keys, the root as . and live", async () => {
   await withScenario({ project: true }, async (scenario) => {
-    for (const [, key, rule, live] of projectDirectories) {
+    for (const { key, rule, live } of projectDirectories) {
       writeSource(join(scenario.cwd, key), { [rule]: { description: "Ours" } });
       const run = await runCli(scenario, ["add", key, "-p", "-a", "codex", "--share"]);
       expect([key, run.code, run.stderr]).toEqual([key, 0, ""]);
@@ -1697,7 +1699,7 @@ test("project directories are projected into the manifest by their ./ keys, the 
       sources: object;
     };
     expect(Object.keys(lock.sources).sort()).toEqual(
-      projectDirectories.map(([, key]) => key).sort(),
+      projectDirectories.map(({ key }) => key).sort(),
     );
   });
 });
@@ -2094,61 +2096,53 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
 
 // A stamp that is there but cannot be read is not a machine that never synced: the debounce
 // fails open on it and doctor names the read failure instead of a history it did not see. Text
-// that is not a time is the same case, since maxims wrote the stamp. Each row breaks the stamp
-// and returns the repair; the unreadable row exists where chmod can deny the read.
-const unreadableStamps: [
-  string,
-  (stamp: string) => () => void,
-  (stamp: string) => string | RegExp,
-][] = [
-  [
-    "holds no timestamp",
-    (stamp) => {
-      writeFileSync(stamp, "not a time\n");
-      return () => undefined;
-    },
-    (stamp) => `last sync unknown: ${stamp} does not hold a timestamp`,
-  ],
+// that is not a time is the same case, since maxims wrote the stamp. The unreadable row exists
+// where chmod can deny the read; the scenario's cleanup unlinks the mode-0 file as it stands.
+const unreadableStamps: {
+  stamp: string;
+  breakStamp: (stamp: string) => void;
+  text: (stamp: string) => string | RegExp;
+}[] = [
+  {
+    stamp: "holds no timestamp",
+    breakStamp: (stamp) => writeFileSync(stamp, "not a time\n"),
+    text: (stamp) => `last sync unknown: ${stamp} does not hold a timestamp`,
+  },
   ...(CHMOD_DENIES
     ? [
-        [
-          "cannot be read",
-          (stamp: string) => {
+        {
+          stamp: "cannot be read",
+          breakStamp: (stamp: string) => {
             writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
             chmodSync(stamp, 0o000);
-            return () => chmodSync(stamp, 0o644);
           },
-          () => /^last sync unknown: EACCES/,
-        ] as [string, (stamp: string) => () => void, (stamp: string) => string | RegExp],
+          text: () => /^last sync unknown: EACCES/,
+        },
       ]
     : []),
 ];
 
 test.each(unreadableStamps)(
-  "doctor reports a sync stamp that %s as unknown, not as never synced",
-  async (_name, breakStamp, text) => {
+  "doctor reports a sync stamp that $stamp as unknown, not as never synced",
+  async ({ breakStamp, text }) => {
     await withScenario({}, async (scenario) => {
       const stamp = homePaths(scenario.home).lastSync;
-      const repair = breakStamp(stamp);
-      try {
-        const run = await runCli(scenario, ["doctor", "--json"]);
-        const body = JSON.parse(run.stdout) as {
-          lastSync: string | null;
-          findings: { kind: string; text: string }[];
-        };
-        const expected = text(stamp);
-        expect([body.lastSync, body.findings]).toEqual([
-          null,
-          [
-            {
-              kind: "warn",
-              text: typeof expected === "string" ? expected : expect.stringMatching(expected),
-            },
-          ],
-        ]);
-      } finally {
-        repair();
-      }
+      breakStamp(stamp);
+      const run = await runCli(scenario, ["doctor", "--json"]);
+      const body = JSON.parse(run.stdout) as {
+        lastSync: string | null;
+        findings: { kind: string; text: string }[];
+      };
+      const expected = text(stamp);
+      expect([body.lastSync, body.findings]).toEqual([
+        null,
+        [
+          {
+            kind: "warn",
+            text: typeof expected === "string" ? expected : expect.stringMatching(expected),
+          },
+        ],
+      ]);
     });
   },
 );
