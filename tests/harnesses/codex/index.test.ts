@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { stringify } from "smol-toml";
 import { codex } from "../../../src/harnesses/codex/spec.ts";
 import {
   type AchievedTier,
@@ -28,7 +29,7 @@ import {
   achievedTier as probe,
 } from "../../../src/harnesses/hook-writer.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
-import { CHMOD_DENIES } from "../../shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext } from "../context.ts";
@@ -38,6 +39,12 @@ const fixture = (name: string): string =>
 const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
+// The projects entry as Codex's own trust prompt writes it, the path spelled as a TOML key
+// whatever it holds (a Windows path's backslashes included).
+const marked = (path: string, level: unknown): string =>
+  `\n${stringify({ projects: { [path]: { trust_level: level } } })}\n`;
+const trustedBy = (path: string): string => marked(path, "trusted");
+const untrustedBy = (path: string): string => marked(path, "untrusted");
 
 // The config.toml layers are the machine's whichever scope the hook sits in, so one scope stands
 // for both in the rows that set a readable flag; the broken-layer rows below probe both scopes.
@@ -45,10 +52,12 @@ function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
   return probe(codex, "global", ctx);
 }
 
+// The user config is written with the project marked trusted, as Codex's own trust prompt writes
+// it, so a project layer in these rows applies; the trust rows below cover the unmarked project.
 const layers: [string, string | null, string | null, 1 | 2][] = [
   ["no config at all", null, null, 1],
   ["configs without a features table", noFeatures, noFeatures, 1],
-  ["project disables", disabled, null, 2],
+  ["project disables", disabled, "", 2],
   ["user disables, project silent", noFeatures, disabled, 2],
   ["project enables over a disabling user config", enabled, disabled, 1],
   ["project disables over an enabling user config", disabled, enabled, 2],
@@ -59,11 +68,13 @@ test.each(layers)(
   async (_, projectToml, userToml, expected) => {
     await withTempDir(async (dir) => {
       const home = join(dir, "home");
-      const project = join(dir, "project");
+      const project = join(realpathSync(dir), "project");
       mkdirSync(join(home, ".codex"), { recursive: true });
       mkdirSync(join(project, ".codex"), { recursive: true });
       if (projectToml !== null) writeFileSync(join(project, ".codex", "config.toml"), projectToml);
-      if (userToml !== null) writeFileSync(join(home, ".codex", "config.toml"), userToml);
+      if (userToml !== null) {
+        writeFileSync(join(home, ".codex", "config.toml"), `${userToml}${trustedBy(project)}`);
+      }
       expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
         tier: expected,
         unreadable: null,
@@ -125,13 +136,14 @@ test.each(walked)(
   async (_, rootToml, subToml, fromSub, fromRoot) => {
     await withTempDir(async (dir) => {
       const home = join(dir, "home");
-      const project = join(dir, "project");
+      const project = join(realpathSync(dir), "project");
       const sub = join(project, "packages", "app");
       mkdirSync(join(home, ".codex"), { recursive: true });
       mkdirSync(join(project, ".codex"), { recursive: true });
       mkdirSync(join(sub, ".codex"), { recursive: true });
       writeFileSync(join(project, ".codex", "config.toml"), rootToml);
       writeFileSync(join(sub, ".codex", "config.toml"), subToml);
+      writeFileSync(join(home, ".codex", "config.toml"), trustedBy(project));
       const at = (cwd: string) => achievedTier({ home, projectRoot: project, cwd, env: {} });
       expect(await at(sub)).toEqual({ tier: fromSub, unreadable: null });
       expect(await at(project)).toEqual({ tier: fromRoot, unreadable: null });
@@ -161,6 +173,7 @@ test.skipIf(!CHMOD_DENIES).each(sealed)(
       mkdirSync(join(locked, "app"), { recursive: true });
       symlinkSync(project, join(dir, "alias"));
       writeFileSync(join(project, ".codex", "config.toml"), enabled);
+      writeFileSync(join(home, ".codex", "config.toml"), trustedBy(realpathSync(project)));
       chmodSync(locked, 0o000);
       try {
         const projectRoot = realpathSync(project);
@@ -190,12 +203,17 @@ test.each(malformed)(
   },
 );
 
-// Codex refuses to start on a config.toml that does not parse, so a broken layer is the reading
-// wherever it sits and whichever file the hook is registered in: the machine is taken at hooks off
-// whatever the other layer says.
-const brokenLayers: [string, string, string, "project" | "home"][] = [
-  ["project broken over an enabling user config", "hooks\n", enabled, "project"],
-  ["user broken under an enabling project config", enabled, "hooks\n", "home"],
+// Codex refuses to start on a user or trusted project config.toml that does not parse, so a
+// broken layer is the reading wherever it sits and whichever file the hook is registered in: the
+// machine is taken at hooks off whatever the other layer says.
+const brokenLayers: [string, string, (project: string) => string, "project" | "home"][] = [
+  [
+    "trusted project broken over an enabling user config",
+    "hooks\n",
+    (project) => `${enabled}${trustedBy(project)}`,
+    "project",
+  ],
+  ["user broken under an enabling project config", enabled, () => "hooks\n", "home"],
 ];
 
 test.each(brokenLayers)(
@@ -203,12 +221,15 @@ test.each(brokenLayers)(
   async (_, projectToml, userToml, brokenIn) => {
     await withTempDir(async (dir) => {
       const home = join(dir, "home");
-      const project = join(dir, "project");
+      const project = join(realpathSync(dir), "project");
       mkdirSync(join(home, ".codex"), { recursive: true });
       mkdirSync(join(project, ".codex"), { recursive: true });
-      writeFileSync(join(home, ".codex", "config.toml"), userToml);
+      writeFileSync(join(home, ".codex", "config.toml"), userToml(project));
       writeFileSync(join(project, ".codex", "config.toml"), projectToml);
-      const broken = join(dir, brokenIn, ".codex", "config.toml");
+      const broken =
+        brokenIn === "project"
+          ? join(project, ".codex", "config.toml")
+          : join(home, ".codex", "config.toml");
       for (const scope of ["project", "global"] as const) {
         expect(
           await probe(codex, scope, { home, projectRoot: project, cwd: project, env: {} }),
@@ -223,11 +244,11 @@ test.each(brokenLayers)(
 test("achievedTier skips a project whose .codex is a regular file and lets the user config decide", async () => {
   await withTempDir(async (dir) => {
     const home = join(dir, "home");
-    const project = join(dir, "project");
+    const project = join(realpathSync(dir), "project");
     mkdirSync(join(home, ".codex"), { recursive: true });
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, ".codex"), "not a directory\n");
-    writeFileSync(join(home, ".codex", "config.toml"), disabled);
+    writeFileSync(join(home, ".codex", "config.toml"), `${disabled}${trustedBy(project)}`);
     expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
       tier: 2,
       unreadable: null,
@@ -319,6 +340,133 @@ test.each(blankOverrideRows)(
       expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
       writeFileSync(override, "# override\n");
       expect(sharedBlockFile(target, dir)).toBe("AGENTS.override.md");
+    });
+  },
+);
+
+// Codex applies a project's `.codex/config.toml` only where the user config.toml marks the
+// directory, or the project root, trusted (`projects.<path>.trust_level = "trusted"`); an untrusted
+// one is skipped whole, broken or not, where a broken trusted one stops Codex from starting. A
+// probe that read every project layer called an untrusted project's broken file hooks off, and
+// its disabling flag a demotion Codex never applies.
+const trustRows: [
+  string,
+  string,
+  (project: string) => string,
+  (project: string, home: string) => AchievedTier,
+][] = [
+  [
+    "an unmarked project with a broken layer reads the user config alone",
+    "hooks\n",
+    () => enabled,
+    () => ({ tier: 1, unreadable: null }),
+  ],
+  [
+    "a project marked untrusted with a broken layer reads the user config alone",
+    "hooks\n",
+    (project) => `${enabled}${untrustedBy(project)}`,
+    () => ({ tier: 1, unreadable: null }),
+  ],
+  [
+    "an unmarked project's disabling layer does not apply",
+    disabled,
+    () => enabled,
+    () => ({ tier: 1, unreadable: null }),
+  ],
+  [
+    "a trusted project's broken layer is the reading",
+    "hooks\n",
+    (project) => `${enabled}${trustedBy(project)}`,
+    (project) =>
+      unreadable(
+        join(project, ".codex", "config.toml"),
+        "Invalid TOML document: illegal character in key (line 1, column 6)",
+      ),
+  ],
+  [
+    "a trusted project's disabling layer applies",
+    disabled,
+    (project) => `${enabled}${trustedBy(project)}`,
+    () => ({ tier: 2, unreadable: null }),
+  ],
+  [
+    "a mark outside Codex's own two is a user config Codex refuses, so the reading",
+    disabled,
+    (project) => `${enabled}${marked(project, "trustd")}`,
+    (project, home) =>
+      unreadable(
+        join(home, ".codex", "config.toml"),
+        `projects.${project}.trust_level: Invalid option: expected one of "trusted"|"untrusted"`,
+      ),
+  ],
+  [
+    "a mark of another type is the same refused user config",
+    disabled,
+    (project) => `${enabled}${marked(project, 42)}`,
+    (project, home) =>
+      unreadable(
+        join(home, ".codex", "config.toml"),
+        `projects.${project}.trust_level: Invalid option: expected one of "trusted"|"untrusted"`,
+      ),
+  ],
+];
+
+test.each(trustRows)(
+  "achievedTier reads a project config.toml only where the user config trusts the project (%s)",
+  async (_, projectToml, userToml, expected) => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(realpathSync(dir), "project");
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), projectToml);
+      writeFileSync(join(home, ".codex", "config.toml"), userToml(project));
+      for (const scope of ["project", "global"] as const) {
+        expect(
+          await probe(codex, scope, { home, projectRoot: project, cwd: project, env: {} }),
+        ).toEqual(expected(project, home));
+      }
+    });
+  },
+);
+
+// Trust granted to the project root covers the directories under it, as Codex looks the project
+// root up when the directory itself is unmarked.
+test("achievedTier applies a subdirectory layer only under a trusted project root", async () => {
+  await withTempDir(async (dir) => {
+    const home = join(dir, "home");
+    const project = join(realpathSync(dir), "project");
+    const sub = join(project, "packages", "app");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    mkdirSync(join(sub, ".codex"), { recursive: true });
+    writeFileSync(join(sub, ".codex", "config.toml"), disabled);
+    const at = (userToml: string) => {
+      writeFileSync(join(home, ".codex", "config.toml"), userToml);
+      return achievedTier({ home, projectRoot: project, cwd: sub, env: {} });
+    };
+    expect(await at(`${enabled}${trustedBy(project)}`)).toEqual({ tier: 2, unreadable: null });
+    expect(await at(enabled)).toEqual({ tier: 1, unreadable: null });
+  });
+});
+
+// The projects table is keyed by the directory's path, which Codex writes as a TOML string: a
+// Windows path's backslashes, or a quote in a directory name, must be spelled as TOML escapes or
+// the user config does not parse at all. Windows forbids a quote in a file name, so the row runs
+// where the name can exist; the Windows leg pins the backslash through every other row.
+test.skipIf(WINDOWS)(
+  "a project directory holding a backslash and a quote is keyed as TOML spells it",
+  async () => {
+    await withTempDir(async (dir) => {
+      const home = join(dir, "home");
+      const project = join(realpathSync(dir), 'pro"j\\ect');
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      mkdirSync(join(project, ".codex"), { recursive: true });
+      writeFileSync(join(project, ".codex", "config.toml"), disabled);
+      writeFileSync(join(home, ".codex", "config.toml"), `${enabled}${trustedBy(project)}`);
+      expect(await achievedTier({ home, projectRoot: project, cwd: project, env: {} })).toEqual({
+        tier: 2,
+        unreadable: null,
+      });
     });
   },
 );

@@ -9,6 +9,9 @@ import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   appendChild,
   assertParses,
+  type JsonDialect,
+  jsonReader,
+  parseJsonDocument,
   readConfigText,
   removeChild,
   replaceValue,
@@ -323,6 +326,98 @@ describe("readConfigText", () => {
       }
       expect(caught).toBeInstanceOf(MaximsError);
       if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
+    });
+  });
+});
+
+// The dialects are what the vendors' own parsers take, which nothing here enforces for us: a
+// `JSON.parse` vendor (Claude Code, Codex via serde_json) rejects a comment and a trailing comma,
+// Gemini CLI strips comments first and still rejects the comma, OpenCode takes both. A judgment
+// looser than the vendor's registers a hook into a file the vendor then skips; a stricter one
+// refuses a file the vendor loads. The position is the one a user opens the file at.
+describe("parseJsonDocument judges a file as its vendor's parser would", () => {
+  type Found = { comment?: string; comma?: string };
+  const texts: [string, string, unknown, Found][] = [
+    ["plain JSON", '{\n  "a": 1\n}\n', { a: 1 }, {}],
+    [
+      "a line comment",
+      '{\n  // mine\n  "a": 1\n}\n',
+      { a: 1 },
+      { comment: "a comment at line 2, column 3" },
+    ],
+    [
+      "a block comment",
+      '{ "a": /* c */ 1 }',
+      { a: 1 },
+      { comment: "a comment at line 1, column 8" },
+    ],
+    [
+      "a trailing comma",
+      '{\n  "a": [1,]\n}\n',
+      { a: [1] },
+      { comma: "a trailing comma at line 2, column 10" },
+    ],
+    [
+      "a comment and a later trailing comma",
+      '// top\n{ "a": 1, }\n',
+      { a: 1 },
+      { comment: "a comment at line 1, column 1", comma: "a trailing comma at line 2, column 9" },
+    ],
+    [
+      "a trailing comma in a CR-only file",
+      '{\r  "a": 1,\r}',
+      { a: 1 },
+      { comma: "a trailing comma at line 2, column 9" },
+    ],
+    [
+      "a slash inside a string",
+      '{ "url": "https://example.com", "a": 1 }',
+      { url: "https://example.com", a: 1 },
+      {},
+    ],
+    ["a comma inside a string before the brace", '{ "a": "x," }', { a: "x," }, {}],
+  ];
+  const dialects: [JsonDialect, (found: Found) => string | undefined][] = [
+    ["json", (found) => found.comment ?? found.comma],
+    ["json-with-comments", (found) => found.comma],
+    ["jsonc", () => undefined],
+  ];
+  const rows = texts.flatMap(([name, text, value, found]) =>
+    dialects.map(([dialect, offence]) => ({ name, text, value, dialect, reason: offence(found) })),
+  );
+
+  test.each(rows)("$name read as $dialect", ({ text, value, dialect, reason }) => {
+    const document = parseJsonDocument(text, jsonReader(dialect, "Vendor"));
+    if (reason === undefined) {
+      if (document.kind !== "root") throw new Error(`refused: ${JSON.stringify(document)}`);
+      expect(getNodeValue(document.root)).toEqual(value);
+      return;
+    }
+    const spelled =
+      dialect === "json" ? "strict JSON" : "JSON with comments and no trailing commas";
+    expect(document).toEqual({ kind: "dialect", reason: `${reason}; Vendor reads ${spelled}` });
+  });
+
+  test("a file nothing parses is a syntax reading in every dialect, with the first error's offset", () => {
+    for (const dialect of ["json", "json-with-comments", "jsonc"] as const) {
+      expect(parseJsonDocument('{ "a": [', jsonReader(dialect, "Vendor"))).toEqual({
+        kind: "syntax",
+        reason: "CloseBracketExpected at offset 8",
+      });
+    }
+  });
+
+  test("assertParses refuses a dialect offence naming the file, the construct and the vendor", () => {
+    const verdict = outcome(() =>
+      assertParses('{ "a": 1, }', path, jsonReader("json", "Claude Code")),
+    );
+    expect(verdict).toMatchObject({
+      kind: "threw",
+      error: {
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: `cannot edit ${path}: a trailing comma at line 1, column 9; Claude Code reads strict JSON`,
+      },
     });
   });
 });

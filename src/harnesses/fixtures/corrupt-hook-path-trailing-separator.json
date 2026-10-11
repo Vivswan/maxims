@@ -1,0 +1,44 @@
+{
+  "harnesses": [
+    {
+      "id": "acme",
+      "displayName": "Acme Agent",
+      "tier": 1,
+      "verifiedAgainst": {
+        "date": "2026-09-20",
+        "sources": [
+          {
+            "kind": "page",
+            "url": "https://example.com/acme/docs/hooks",
+            "claims": ["hooks"],
+            "why": "a fixture"
+          }
+        ]
+      },
+      "globalRoot": { "default": ".acme", "env": { "name": "ACME_HOME" } },
+      "targets": {
+        "project": { "kind": "shared-block", "file": "AGENTS.md" },
+        "global": { "kind": "shared-block", "file": "AGENTS.md" }
+      },
+      "bodiesDir": { "project": ".agents/memories", "global": null },
+      "markers": "counted",
+      "expands": [],
+      "detect": { "dirs": ["."] },
+      "hook": {
+        "kind": "registry",
+        "path": { "project": ".acme/settings.json/", "global": "settings.json" },
+        "format": "jsonc",
+        "eventPath": ["hooks", "SessionStart"],
+        "grouped": true,
+        "handlerTemplate": {
+          "type": "command",
+          "command": "{{command}}",
+          "timeout": "{{timeoutSeconds}}"
+        },
+        "commandKey": "command",
+        "stdout": "plain",
+        "async": false
+      }
+    }
+  ]
+}

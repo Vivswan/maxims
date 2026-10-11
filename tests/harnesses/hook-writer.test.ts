@@ -60,7 +60,8 @@ function registryDef(hook: Partial<RegistryHook> = {}): HarnessWithHook<"registr
       kind: "registry",
       path: (scope, ctx) =>
         join(scope === "global" ? ctx.home : (ctx.projectRoot ?? ""), ".claude", "settings.json"),
-      format: "json",
+      // A JSONC vendor, so the comment-keeping splices are exercised; a strict row overrides it.
+      format: "jsonc",
       eventPath: ["hooks", "SessionStart"],
       grouped: true,
       handler: (spec) => ({
@@ -718,6 +719,53 @@ describe("planHookWrite against a real directory", () => {
     },
   );
 
+  // The writer and the tier probe judge the same bytes through one parser, so a file the vendor
+  // would skip is refused by the one and read as unreadable by the other, with one reason: a
+  // writer looser than the probe registered a hook and then reported the file as hooks off.
+  test("a strict-JSON vendor's settings.json holding a trailing comma is refused unchanged, and the probe agrees", async () => {
+    await withTempDir(async (root) => {
+      const strict = registryDef({
+        format: "json",
+        path: (_, ctx) => join(ctx.projectRoot ?? "", ".claude", "settings.json"),
+        tierCheck: {
+          layers: (ctx) => [
+            {
+              scope: "project",
+              path: join(ctx.projectRoot ?? "", ".claude", "settings.json"),
+              dir: ctx.projectRoot ?? "",
+            },
+          ],
+          format: "json",
+          key: "disableAllHooks",
+          demotesWhen: true,
+          unreadable: "skips-the-file",
+        },
+      });
+      const local: HarnessContext = { ...ctx, projectRoot: root, cwd: root };
+      const file = join(root, ".claude", "settings.json");
+      mkdirSync(join(root, ".claude"), { recursive: true });
+      const original = '{\n  "model": "opus",\n}\n';
+      writeFileSync(file, original);
+      const reason = "a trailing comma at line 2, column 18; Example reads strict JSON";
+      const verdict = await asyncOutcome(() =>
+        planHookWrite({ def: strict, scope: "project", ctx: local, wanted: true }),
+      );
+      expect(verdict).toMatchObject({
+        kind: "threw",
+        error: {
+          name: "MaximsError",
+          code: ExitCode.DestinationWriteFailed,
+          message: `cannot edit ${file}: ${reason}`,
+        },
+      });
+      expect(readFileSync(file, "utf8")).toBe(original);
+      expect(await achievedTier(strict, "project", local)).toEqual({
+        tier: 2,
+        unreadable: `settings.json could not be read (${file}: ${reason}); assuming hooks off`,
+      });
+    });
+  });
+
   test("a directory at the registry path is refused as exit 4", async () => {
     await withTempDir(async (root) => {
       const local: HarnessContext = { ...ctx, projectRoot: root, cwd: root };
@@ -820,7 +868,7 @@ describe("achievedTier", () => {
   const codexLike = registryDef({
     path: (_, ctx) => join(ctx.home, ".codex", "hooks.json"),
     tierCheck: {
-      layers: (ctx) => [join(ctx.home, ".codex", "config.toml")],
+      layers: (ctx) => [{ scope: "global", path: join(ctx.home, ".codex", "config.toml") }],
       format: "toml",
       key: "features.hooks",
       demotesWhen: false,
@@ -830,7 +878,7 @@ describe("achievedTier", () => {
   const jsonCheck = registryDef({
     path: (_, ctx) => join(ctx.home, ".example", "hooks.json"),
     tierCheck: {
-      layers: (ctx) => [join(ctx.home, ".example", "settings.json")],
+      layers: (ctx) => [{ scope: "global", path: join(ctx.home, ".example", "settings.json") }],
       format: "json",
       key: "hooks.enabled",
       demotesWhen: false,
@@ -942,7 +990,7 @@ describe("achievedTier", () => {
   test.each(cases)("$name", async ({ def, config, tier, unreadable }) => {
     await withTempDir(async (home) => {
       const local: HarnessContext = { home, projectRoot: null, cwd: home, env: {} };
-      const [file] = def.hook.tierCheck?.layers(local) ?? [];
+      const file = def.hook.tierCheck?.layers(local)[0]?.path;
       if (file === undefined) throw new Error("every case declares a tier check");
       if (config !== null) {
         mkdirSync(join(file, ".."), { recursive: true });

@@ -168,18 +168,85 @@ const refusals: [string, Mutation, string][] = [
   [
     "a registry hook in a toml file",
     at(["hook", "format"], "toml"),
-    "hook.format: a registry hook is json; toml is read for tierCheck and never written",
+    "hook.format: a registry hook is json, json-with-comments or jsonc, as the vendor's parser takes; toml is read for tierCheck and never written",
   ],
   [
     "a tier check on a key zod would drop from what it parses",
     at(["hook", "tierCheck"], {
       layers: { project: [".example/settings.json"], global: ["settings.json"] },
-      format: "json",
       key: "hooks.__proto__",
       demotesWhen: false,
       unreadable: "refuses-to-start",
     }),
     "hook.tierCheck.key: a key segment cannot be __proto__",
+  ],
+  [
+    "a tier check declaring a JSON dialect of its own beside the hook's",
+    at(["hook", "tierCheck"], {
+      layers: { project: [".example/settings.json"], global: ["settings.json"] },
+      format: "json",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "skips-the-file",
+    }),
+    "hook.tierCheck.format: a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
+  ],
+  [
+    "a TOML tier check walking into the project registry file the writer edits as JSON",
+    at(["hook", "tierCheck"], {
+      layers: {
+        project: [{ kind: "root-to-cwd", file: "hooks.json" }],
+        global: ["config.toml"],
+      },
+      format: "toml",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "refuses-to-start",
+    }),
+    "hook.tierCheck.layers.project.0: a TOML tier check cannot read hook.path.project (.example/hooks.json), the registry the writer edits as json; name the vendor's TOML config instead",
+  ],
+  [
+    "a TOML tier check reading the global registry file the writer edits as JSON",
+    at(["hook", "tierCheck"], {
+      layers: { project: [".example/config.toml"], global: ["hooks.json"] },
+      format: "toml",
+      key: "hooks.enabled",
+      demotesWhen: false,
+      unreadable: "refuses-to-start",
+    }),
+    "hook.tierCheck.layers.global.0: a TOML tier check cannot read hook.path.global (hooks.json), the registry the writer edits as json; name the vendor's TOML config instead",
+  ],
+  [
+    "a registry path with a trailing separator, a second spelling of the file a TOML layer names",
+    (spec) =>
+      at(["hook", "tierCheck"], {
+        layers: { project: [".example/hooks.json"], global: ["config.toml"] },
+        format: "toml",
+        key: "hooks.enabled",
+        demotesWhen: false,
+        unreadable: "refuses-to-start",
+      })(at(["hook", "path", "project"], ".example/hooks.json/")(spec)),
+    "hook.path.project: a path has no leading, trailing or doubled / and no . segment; write .example/hooks.json",
+  ],
+  [
+    "a global registry path with a trailing separator",
+    at(["hook", "path", "global"], "hooks.json/"),
+    "hook.path.global: a path has no leading, trailing or doubled / and no . segment; write hooks.json",
+  ],
+  [
+    "a registry path with a trailing backslash",
+    at(["hook", "path", "project"], ".example/hooks.json\\"),
+    "hook.path.project: a path is spelled with / separators, never \\",
+  ],
+  [
+    "a registry path spelled from ./",
+    at(["hook", "path", "global"], "./hooks.json"),
+    "hook.path.global: a path has no leading, trailing or doubled / and no . segment; write hooks.json",
+  ],
+  [
+    "a rules directory with a doubled separator",
+    at(["targets", "project", "dir"], ".example//rules"),
+    "targets.project.dir: a path has no leading, trailing or doubled / and no . segment; write .example/rules",
   ],
   [
     "a per-scope budget that names no scope",
@@ -307,7 +374,7 @@ const refusals: [string, Mutation, string][] = [
       path: "docs/./hooks.md",
       claims: ["SessionStart"],
     }),
-    "verifiedAgainst.sources.0.path: a repository path has no empty or . segment",
+    "verifiedAgainst.sources.0.path: a path has no leading, trailing or doubled / and no . segment; write docs/hooks.md",
   ],
   [
     "a repository file whose path climbs out",
@@ -368,4 +435,15 @@ test.each(refusals)("refuses %s and names the field", (_, mutate, expected) => {
   const result = parseHarnessSpec(mutate(base()));
   if (result.ok) throw new Error("expected a refusal");
   expect(result.issues.some((issue) => issue.startsWith(expected))).toBe(true);
+});
+
+// The whole list is pinned: a root check that no longer runs ahead of `RelPath` would also tell the
+// author to write `.`, and the shared `some` above would still pass.
+test("a repository file whose path collapses to the root is refused once, as a missing file", () => {
+  const source = { kind: "file", repo: "example/agent", ref: "main", path: "./", claims: ["x"] };
+  const result = parseHarnessSpec(at(["verifiedAgainst", "sources", "0"], source)(base()));
+  if (result.ok) throw new Error("expected a refusal");
+  expect(result.issues).toEqual([
+    "verifiedAgainst.sources.0.path: a repository path names a file, not the root",
+  ]);
 });

@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import { z } from "zod";
 import {
   HARNESS_ID_PATTERN,
@@ -8,8 +8,9 @@ import {
   type UserHarnessId,
 } from "../contracts/harness-id.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
+import type { JsonDialect } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ByteBudget, ConfigFormat, HookStdout, UnreadableLayer } from "./contract.ts";
+import type { ByteBudget, HookStdout, UnreadableLayer } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -44,7 +45,7 @@ function completeEnum<T extends string>() {
 
 const MarkersEnum = completeEnum<Markers>()(["stripped", "counted"]);
 const ExpansionEnum = completeEnum<ExpansionSyntax>()(["at-import", "none"]);
-const ConfigFormatEnum = completeEnum<ConfigFormat>()(["json", "toml"]);
+const JsonDialectEnum = completeEnum<JsonDialect>()(["json", "json-with-comments", "jsonc"]);
 const UnreadableLayerEnum = completeEnum<UnreadableLayer>()(["skips-the-file", "refuses-to-start"]);
 const HookStdoutEnum = completeEnum<HookStdout>()([
   "plain",
@@ -80,17 +81,28 @@ function stringsIn(value: unknown): string[] {
   return [];
 }
 
-// Every path in a spec is joined under a root the strategies assert against, so a path that is
-// absolute, climbs out, or carries a NUL is refused here with the other shape errors instead of
-// failing at write time. `.` names the root itself.
-const RelPath = z
-  .string()
-  .min(1, { error: "expected a relative path" })
-  .refine((value) => !isAbsolute(value) && !value.startsWith("~"), {
-    error: "expected a path relative to the scope root",
-  })
-  .refine((value) => !value.includes("\0"), { error: "a path cannot contain NUL" })
-  .refine((value) => !value.split(/[\\/]/).includes(".."), { error: "a path cannot contain .." });
+// Every path in a spec is joined under a root the strategies assert against, and compared with
+// other spec paths as text, so one spelling is admitted: segments joined by `/`, none empty, `.`
+// or `..`. `hooks.json/` and `hooks.json` name one file, and the first spelling slipped past
+// `refuseTomlLayerOnRegistry` to let the writer edit as JSON what the probe read as TOML. `.`
+// alone names the root itself.
+function relPathIssue(value: string): string | undefined {
+  if (value === "") return "expected a relative path";
+  if (isAbsolute(value) || value.startsWith("~"))
+    return "expected a path relative to the scope root";
+  if (value.includes("\0")) return "a path cannot contain NUL";
+  if (value.includes("\\")) return "a path is spelled with / separators, never \\";
+  if (value.split("/").includes("..")) return "a path cannot contain ..";
+  const spelled = posix.join(value, ".");
+  if (spelled !== value)
+    return `a path has no leading, trailing or doubled / and no . segment; write ${spelled}`;
+  return undefined;
+}
+
+const RelPath = z.string().check((ctx) => {
+  const message = relPathIssue(ctx.value);
+  if (message !== undefined) ctx.issues.push({ code: "custom", input: ctx.value, message });
+});
 
 // The global root may also be spelled with a leading `~/`; it is relative to HOME either way.
 export function homeRelative(value: string): string {
@@ -213,27 +225,47 @@ const Detect = z
     }
   });
 
-// `layers` lists, per scope and in the harness's own precedence order, the config files it reads
-// the key from; the walk takes the project list, then the global one. A project entry may instead
-// name a file the harness reads in every directory from the project root down to the one the
-// session runs in, the nearest first. `unreadable` is the vendor's own behavior on a broken
-// layer, which no file states. zod drops a `__proto__` key from what it parses, so a check on
-// that segment could never read it and is refused here.
+// zod drops a `__proto__` key from what it parses, so a check on that segment could never read it.
+const KeyPath = z
+  .string()
+  .min(1)
+  .refine((value) => !value.split(".").includes("__proto__"), {
+    error: "a key segment cannot be __proto__",
+  });
+// A walked layer is the file as read in every directory from the session's up to the project root.
 const WalkLayer = z.strictObject({ kind: z.literal("root-to-cwd"), file: RelPath });
 const TierCheck = z.strictObject({
+  // Per scope, in the harness's own precedence order; the walk takes project, then global.
   layers: z.strictObject({
     project: z.array(z.union([RelPath, WalkLayer])).min(1),
     global: z.array(RelPath).min(1),
   }),
-  format: ConfigFormatEnum,
-  key: z
-    .string()
-    .min(1)
-    .refine((value) => !value.split(".").includes("__proto__"), {
-      error: "a key segment cannot be __proto__",
-    }),
+  // Only a TOML layer names its dialect, a JSON layer reads in `hook.format`;
+  // `refuseTomlLayerOnRegistry` keeps a TOML layer off the registry file.
+  format: z
+    .literal("toml", {
+      error:
+        "a tier check in a JSON dialect reads as hook.format and declares no format; remove tierCheck.format, or write toml for a TOML config",
+    })
+    .optional(),
+  key: KeyPath,
   demotesWhen: z.json(),
+  // The vendor's own behavior on a broken layer, which no file states.
   unreadable: UnreadableLayerEnum,
+  // The user-layer table that marks a directory, the mark that trusts it and every mark the vendor
+  // accepts, for a harness that applies a project layer only when trusted.
+  projectTrust: z
+    .strictObject({
+      table: KeyPath,
+      key: KeyPath,
+      trusted: z.string().min(1),
+      accepted: z.array(z.string().min(1)).min(1),
+    })
+    .refine((trust) => trust.accepted.includes(trust.trusted), {
+      error: "the trusted mark is one of the accepted marks",
+      path: ["trusted"],
+    })
+    .optional(),
 });
 
 function refuseUnknownPlaceholders(
@@ -251,12 +283,16 @@ function refuseUnknownPlaceholders(
   }
 }
 
+type TierCheckSpec = z.infer<typeof TierCheck>;
+
 const RegistryHook = z
   .strictObject({
     kind: z.literal("registry"),
     path: perScope(RelPath),
-    format: z.literal("json", {
-      error: "a registry hook is json; toml is read for tierCheck and never written",
+    // The dialect the vendor's parser takes: a construct outside it is refused, never written.
+    format: z.enum(JsonDialectEnum.options, {
+      error:
+        "a registry hook is json, json-with-comments or jsonc, as the vendor's parser takes; toml is read for tierCheck and never written",
     }),
     eventPath: z.array(z.string().min(1)).min(1),
     grouped: z.boolean(),
@@ -284,7 +320,36 @@ const RegistryHook = z
     for (const text of stringsIn(handlerTemplate)) {
       refuseUnknownPlaceholders(ctx, text, ["handlerTemplate"]);
     }
+    refuseTomlLayerOnRegistry(ctx, ctx.value);
   });
+
+// A TOML tier check is the one way a layer is parsed in another dialect than the registry, so the
+// registry file itself is refused as a layer: the writer would edit it as JSON while the probe read
+// the same bytes as TOML and called them unreadable. A walked layer is read in every directory up
+// to the project root, so it reaches the registry whenever the registry path ends with its file.
+// The comparison is textual because `RelPath` admits one spelling per path.
+function refuseTomlLayerOnRegistry(
+  ctx: { issues: z.core.$ZodRawIssue[] },
+  hook: { path: { project: string; global: string }; format: string; tierCheck?: TierCheckSpec },
+): void {
+  if (hook.tierCheck?.format !== "toml") return;
+  for (const scope of ["project", "global"] as const) {
+    const registry = hook.path[scope];
+    hook.tierCheck.layers[scope].forEach((layer, index) => {
+      const reaches =
+        typeof layer === "string"
+          ? layer === registry
+          : registry === layer.file || registry.endsWith(`/${layer.file}`);
+      if (!reaches) return;
+      ctx.issues.push({
+        code: "custom",
+        input: layer,
+        path: ["tierCheck", "layers", scope, index],
+        message: `a TOML tier check cannot read hook.path.${scope} (${hook.path[scope]}), the registry the writer edits as ${hook.format}; name the vendor's TOML config instead`,
+      });
+    });
+  }
+}
 
 const FileHook = z
   .strictObject({
@@ -376,9 +441,17 @@ const Ref = z
   .string()
   .regex(URL_SAFE, { error: "expected a branch, tag, or commit" })
   .refine(plainSegments, { error: "a ref has no empty, . or .. segment" });
-const FilePath = RelPath.refine((value) => URL_SAFE.test(value), {
-  error: "a repository path carries only letters, digits, and ._/-",
-}).refine(plainSegments, { error: "a repository path has no empty or . segment" });
+// The root check runs before `RelPath` so a path that collapses to the root (`./`) is told it needs
+// a file rather than told to write `.`.
+const FilePath = z
+  .string()
+  .refine((value) => value.split("/").some((segment) => segment !== "" && segment !== "."), {
+    error: "a repository path names a file, not the root",
+  })
+  .pipe(RelPath)
+  .refine((value) => URL_SAFE.test(value), {
+    error: "a repository path carries only letters, digits, and ._/-",
+  });
 const Note = z.string().min(1).optional();
 
 const VerifiedSourceField = z.discriminatedUnion("kind", [

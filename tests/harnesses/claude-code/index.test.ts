@@ -13,7 +13,9 @@ import {
   planHookRegistryWrite,
 } from "../../../src/harnesses/hook-writer.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
+import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { outcome } from "../../shared/outcome.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { exampleContext as ctx } from "../context.ts";
@@ -283,7 +285,10 @@ describe("claude-code", () => {
       null,
       trailingComma,
       on,
-      { file: "project/.claude/settings.json", reason: "PropertyNameExpected at offset 28" },
+      {
+        file: "project/.claude/settings.json",
+        reason: "a trailing comma at line 1, column 27; Claude Code reads strict JSON",
+      },
       { project: "unreadable", global: 1 },
     ],
     [
@@ -291,7 +296,10 @@ describe("claude-code", () => {
       null,
       on,
       commented,
-      { file: "home/.claude/settings.json", reason: "InvalidCommentToken at offset 0" },
+      {
+        file: "home/.claude/settings.json",
+        reason: "a comment at line 1, column 1; Claude Code reads strict JSON",
+      },
       { project: 1, global: "unreadable" },
     ],
   ];
@@ -322,6 +330,35 @@ describe("claude-code", () => {
               : { tier: reading, unreadable: null },
           );
         }
+      });
+    },
+  );
+
+  // Claude Code reads its settings as strict JSON and skips a file holding a comment or a trailing
+  // comma, so a hook registered into one would never load: the writer refuses the file naming the
+  // construct, where it sits and who forbids it, and leaves the bytes alone.
+  const strictOffences: [string, string, string][] = [
+    ["a trailing comma", '{\n  "model": "opus",\n}\n', "a trailing comma at line 2, column 18"],
+    ["a line comment", '// mine\n{ "model": "opus" }\n', "a comment at line 1, column 1"],
+    ["a block comment", '{ "model": /* keep */ "opus" }\n', "a comment at line 1, column 12"],
+  ];
+
+  test.each(strictOffences)(
+    "a settings.json holding %s is refused, never written",
+    (_, text, construct) => {
+      const def = claudeCode;
+      if (!hasHook(def, "registry")) throw new Error("the hook is a registry entry");
+      const verdict = outcome(() =>
+        planHookRegistryWrite({ def, scope: "project", ctx, wanted: true, currentText: text }),
+      );
+      expect(verdict).toMatchObject({
+        kind: "threw",
+        error: {
+          name: "MaximsError",
+          code: ExitCode.DestinationWriteFailed,
+          message: `cannot edit ${join(ctx.projectRoot ?? "", ".claude", "settings.json")}: ${construct}; Claude Code reads strict JSON`,
+          hint: "fix the file by hand, then run maxims sync",
+        },
       });
     },
   );

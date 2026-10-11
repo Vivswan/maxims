@@ -956,10 +956,18 @@ test("a retained reader from a project rooted at the home directory is probed wi
         stdout: "plain",
         async: true,
         tierCheck: {
-          layers: (ctx) =>
-            [ctx.projectRoot, ctx.home]
-              .filter((root): root is string => root !== null)
-              .map((root) => join(root, FIXTURE_DIR, "settings.json")),
+          layers: (ctx) => [
+            ...(ctx.projectRoot === null
+              ? []
+              : [
+                  {
+                    scope: "project" as const,
+                    path: join(ctx.projectRoot, FIXTURE_DIR, "settings.json"),
+                    dir: ctx.projectRoot,
+                  },
+                ]),
+            { scope: "global" as const, path: join(ctx.home, FIXTURE_DIR, "settings.json") },
+          ],
           format: "json",
           key: "disableAllHooks",
           demotesWhen: true,
