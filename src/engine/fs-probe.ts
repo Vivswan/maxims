@@ -1,8 +1,8 @@
 import { statSync } from "node:fs";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import { withScratchDir } from "../util/scratch.ts";
 import type { SymlinkSupport } from "./types.ts";
 
 // Only "nothing is there" reads as absent; a path that cannot be looked at (a parent without
@@ -22,16 +22,15 @@ export function destinationUnresolvable(error: unknown): boolean {
 // Whether this process may create symlinks, learned by creating one in a scratch directory that
 // is removed on every path. The scratch lives under the OS temp dir, not the maxims home, so a
 // dry run that asks creates nothing under the home.
-export async function probeSymlinkSupport(): Promise<SymlinkSupport> {
-  const dir = await mkdtemp(join(tmpdir(), "maxims-symlink-"));
-  try {
-    await symlink("target", join(dir, "link"));
-    return { ok: true };
-  } catch (cause) {
-    const code = cause instanceof Error && "code" in cause ? String(cause.code) : "";
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    return { ok: false, reason: code === "" ? detail : `${code}: ${detail}` };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+export function probeSymlinkSupport(): Promise<SymlinkSupport> {
+  return withScratchDir("maxims-symlink-", async (dir) => {
+    try {
+      await symlink("target", join(dir, "link"));
+      return { ok: true };
+    } catch (cause) {
+      const code = cause instanceof Error && "code" in cause ? String(cause.code) : "";
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      return { ok: false, reason: code === "" ? detail : `${code}: ${detail}` };
+    }
+  });
 }

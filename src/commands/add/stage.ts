@@ -1,6 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import type { Console } from "../../console/contract.ts";
 import { found, notAMemory, STRINGS, selected } from "../../console/strings.ts";
 import type { SourceFrom } from "../../contracts/source.ts";
@@ -14,6 +12,7 @@ import type { Select, State } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
 import { compareCodeUnits } from "../../util/order.ts";
+import { withScratchDir } from "../../util/scratch.ts";
 import { loadIntentFor, peekIntent } from "../frame/cli-context.ts";
 import { installedAtOtherScope, installedElsewhere } from "../frame/lookup.ts";
 import type { CommandContext } from "../frame/options.ts";
@@ -120,32 +119,31 @@ async function fetchTree(request: AddRequest, io: CliIo, console: Console): Prom
     return { sha: "store", memoryPath: request.memoryPath, files: tree.files };
   }
   const local = request.from.type === "local";
-  const tempDir = mkdtempSync(join(tmpdir(), "maxims-add-"));
-  const spinner = console.spinner(local ? STRINGS.readingDirectory : STRINGS.cloning);
-  try {
-    const resolver = io.resolvers(request.from);
-    const result = await resolver.fetch(request.from, {
-      memoryPath: request.memoryPath,
-      fullDepth: request.fullDepth,
-      tempDir,
-      auth: request.auth,
-    });
-    spinner.stop(local ? STRINGS.directoryRead : STRINGS.cloned);
-    return { sha: result.sha, memoryPath: result.memoryPath, files: result.files };
-  } catch (error) {
-    spinner.fail(local ? STRINGS.directoryUnreadable : STRINGS.cloneFailed);
-    if (error instanceof MaximsError) throw error;
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new MaximsError(
-      ExitCode.SourceUnresolvable,
-      `cannot fetch ${describeSource(request.from)}: ${detail}`,
-      {
-        cause: error,
-      },
-    );
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  return withScratchDir("maxims-add-", async (tempDir) => {
+    const spinner = console.spinner(local ? STRINGS.readingDirectory : STRINGS.cloning);
+    try {
+      const resolver = io.resolvers(request.from);
+      const result = await resolver.fetch(request.from, {
+        memoryPath: request.memoryPath,
+        fullDepth: request.fullDepth,
+        tempDir,
+        auth: request.auth,
+      });
+      spinner.stop(local ? STRINGS.directoryRead : STRINGS.cloned);
+      return { sha: result.sha, memoryPath: result.memoryPath, files: result.files };
+    } catch (error) {
+      spinner.fail(local ? STRINGS.directoryUnreadable : STRINGS.cloneFailed);
+      if (error instanceof MaximsError) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new MaximsError(
+        ExitCode.SourceUnresolvable,
+        `cannot fetch ${describeSource(request.from)}: ${detail}`,
+        {
+          cause: error,
+        },
+      );
+    }
+  });
 }
 
 type Scan = { memories: Memory[]; recorded: Memory[]; internalHidden: number };
