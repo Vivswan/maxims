@@ -19,7 +19,7 @@ import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { fakeResolvers, treeDigest, writeSource } from "../engine/fakes.ts";
+import { fakeResolvers, fetchedFacts, treeDigest, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import {
@@ -95,6 +95,9 @@ test("add records intent and the fetch, lays the store entry, then syncs once wi
         "prefer-timeouts-to-hangs",
         "tests-before-the-fix",
       ]);
+      // The record a commit writes is the record a refresh computes for the same tree: hashed any
+      // other way here, the next fetched revision's diff would report every memory changed.
+      expect(entry.fetched?.memories).toEqual((await fetchedFacts(RULES, entry.addedAt)).memories);
       expect(readState(scenario).hooks).toEqual({ global: ["claude-code", "codex"] });
       const store = join(scenario.home, "store", "octocat", "rules", "memories");
       expect(existsSync(join(store, "tests-before-the-fix.md"))).toBe(true);

@@ -3,17 +3,12 @@ import { parseGitSha } from "../../contracts/git-sha.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import { isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import { harnessContext } from "../../engine/context.ts";
-import { swapStoreEntry } from "../../engine/fetch.ts";
+import { memoryFacts, swapStoreEntry } from "../../engine/fetch.ts";
 import { prunedHooks, withHooks } from "../../engine/hooks.ts";
 import type { CliIo, SyncOptions, SyncPreview, SyncReport } from "../../engine/types.ts";
 import { HOOK_COMMAND } from "../../harnesses/contract.ts";
 import { MCP_SERVER_COMMAND } from "../../harnesses/mcp-stub/register.ts";
-import {
-  contentHashOf,
-  type Memory,
-  type MemoryName,
-  parseContentHash,
-} from "../../memory/contract.ts";
+import { type Memory, type MemoryName, parseContentHash } from "../../memory/contract.ts";
 import { materializeLocal } from "../../sources/local.ts";
 import type { TreeFile } from "../../sources/tree.ts";
 import type { UserConfig } from "../../state/config.ts";
@@ -266,12 +261,7 @@ function buildEntry(
     ...(request.review ? { review: true as const } : {}),
   };
   const from = request.from;
-  const fetchedMemories = Object.fromEntries(
-    memories.map((memory) => [
-      memory.name,
-      { content: contentHashOf(memory.raw), description: contentHashOf(memory.description) },
-    ]),
-  );
+  const fetchedMemories = memoryFacts(memories);
   if (from.type === "local") {
     if (isLiveLocal(from)) return { intent: { from, ...base }, addedAt };
     const sha = parseContentHash(tree.sha);
