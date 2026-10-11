@@ -300,21 +300,14 @@ async function hookAnswer(
   return { artifact: plan.changes, claims, wanted, notices: noticesOf(plan.notice) };
 }
 
-// The stub server entry, its file's link judged first as the registry's is, whatever the hook's
-// answer. Hooks and servers kept in one file are planned as one change over the hook's text,
-// since a second change of that file from its old text would land after the first and take the
-// hook back out. The servers file is one with a change by its leaf or by the file its link
-// reaches, since an edit lands behind the link. By what the hook's answer holds:
+// Hooks and servers kept in one file are planned as one change over the hook's text: a second
+// change of that file from its old text would land after the first and take the hook back out.
+// Where the hook's answer is a failure:
 //
-//   a change of the servers file   the entry rides in that change, notice included
-//   nothing, the hook refused at   no servers change: the refusal names the file, and a second
-//   the servers file's own path    read through the refused link would fail again, worded
-//                                  differently (the paths are matched as declared, under
-//                                  `resolvedThere`'s tolerance: a hook folder nobody can resolve
-//                                  failed the hook alone, not the servers file)
-//   anything else                  the write it needs, if any, edits the file where its bytes
-//                                  live; a settled file behind a link out of the root costs
-//                                  nothing
+//   refused at the servers file's own path   no servers change: a second read through the refused
+//                                            link would fail again, worded differently
+//   anywhere else                            the servers change on its own: a hook folder nobody
+//                                            can resolve failed the hook alone, never this file
 async function mcpAnswer(
   def: HarnessDefinition,
   scope: Scope,

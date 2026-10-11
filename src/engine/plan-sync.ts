@@ -254,6 +254,12 @@ export async function planSync(
 
 type Refusal = { key: string; said: Notices; failure: SyncFailure | null };
 
+// A rule file kept as it is this run: a harness's, which the file's render counts as a reader, or
+// a `-o` source's, which has no reader and is kept by its real path alone.
+type Retained =
+  | { key: string; kind: "harness"; target: HarnessTarget }
+  | { key: string; kind: "out"; realKey: string };
+
 type Attempt = {
   builder: PlanBuilder;
   notices: Notices;
@@ -452,10 +458,10 @@ async function planInstall(
   const hookRun = extras.verb === "sync" && options.quiet;
   const agents = widenedAgents(options.agents, refreshed);
   const explicit = options.agents ?? [];
-  // Targets this run renders no block for although their source is still installed: a readable
-  // source's harness outside the filter, or an unreadable source's. Wherever the file is visited,
-  // the block is kept and the harness counted among the readers, since a file is written whole.
-  const retained: { key: string; target: HarnessTarget }[] = [];
+  // Rule files this run renders no block into although their source is still installed, kept for
+  // the sweep and the link judgment. A harness file is written whole, so wherever it is visited
+  // the block is kept and the harness counted among its readers; a `-o` file has no reader to count.
+  const retained: Retained[] = [];
   let memories = 0;
 
   for (const work of works) {
@@ -496,7 +502,7 @@ async function planInstall(
     };
     if (intent.rule) {
       for (const target of resolved.targets) {
-        if (!agentsAllowed(agents, target.def.id)) retained.push({ key, target });
+        if (!agentsAllowed(agents, target.def.id)) retained.push({ key, kind: "harness", target });
       }
     }
     for (const skipped of targets.skipped) {
@@ -615,16 +621,25 @@ async function planInstall(
     }
   }
 
-  // An unreadable source keeps its files: its rule files stay off the sweep's list and the
-  // bodies directories it writes to are left alone. Its harnesses are resolved like a readable
-  // source's, so one whose config folder is absent stays unreachable for the hook planner too.
+  // An unreadable source keeps its files: its rule files stay off the sweep's list and are owned
+  // whole, the `-o` file included, and the bodies directories it writes to are left alone. Its
+  // harnesses are resolved like a readable source's, so one whose config folder is absent stays
+  // unreachable for the hook planner too.
   for (const source of read.unreadable) {
-    const scope = source.entry.intent.destination.scope;
+    const { intent } = source.entry;
     for (const dir of bodiesDirsFor(source.entry, ctx, io, undefined)) unsweepable.add(dir.id);
-    if (scope === "out") continue;
-    const slug = sourceSlug(source.entry.intent.from);
+    const slug = sourceSlug(intent.from);
+    if (intent.destination.scope === "out") {
+      if (!intent.rule) continue;
+      const realKey = realKeyOf(outRuleFile(intent.destination.path, slug));
+      planned.add(realKey);
+      keepBlock(source.key, realKey);
+      retained.push({ key: source.key, kind: "out", realKey });
+      continue;
+    }
+    const scope = intent.destination.scope;
     const resolved = resolveTargets({
-      intent: source.entry.intent,
+      intent,
       scope,
       sourceSlug: slug,
       ctx,
@@ -635,11 +650,11 @@ async function planInstall(
     for (const skipped of resolved.skipped) {
       if (skipped.kind === "unreachable") unreachable.add(`${skipped.id}@${scope}`);
     }
-    if (!source.entry.intent.rule) continue;
+    if (!intent.rule) continue;
     for (const target of resolved.targets) {
       planned.add(target.realKey);
       keepBlock(source.key, target.realKey);
-      retained.push({ key: source.key, target });
+      retained.push({ key: source.key, kind: "harness", target });
     }
   }
   // Where another project's root has files this run reaches (a project rooted at the home
@@ -673,7 +688,7 @@ async function planInstall(
       for (const target of resolved.targets) {
         planned.add(target.realKey);
         keepBlock(key, target.realKey);
-        retained.push({ key, target });
+        retained.push({ key, kind: "harness", target });
       }
     }
   }
@@ -681,7 +696,9 @@ async function planInstall(
   addSharedFilesWithOrphans(files, scopes, ctx, io, agents);
   // Every file this run visits is registered by now, the orphan visit included; a file no source
   // renders and no orphan strip reaches is not visited, and its blocks stay as they are.
-  for (const { key, target } of retained) {
+  for (const kept of retained) {
+    if (kept.kind !== "harness") continue;
+    const { key, target } = kept;
     const rendered = files.get(target.realKey);
     if (rendered?.kind !== "harness") continue;
     keepBlock(key, target.realKey);
@@ -921,14 +938,12 @@ function addReaders(
 // that file would take the edit and cut off the reader whose link passes it. Whole-owned: the
 // rule files this run renders, and those it keeps for a harness `-a` leaves out, an unreadable
 // source, or another project.
-function linkJudge(
-  files: ReadonlyMap<string, RuleFile>,
-  retained: readonly { target: HarnessTarget }[],
-): LinkJudge {
+function linkJudge(files: ReadonlyMap<string, RuleFile>, retained: readonly Retained[]): LinkJudge {
   const whole = new Set<string>();
   for (const file of files.values()) if (ownedWhole(file)) whole.add(fileIdentity(file));
-  for (const { target } of retained) {
-    if (target.target.kind === "rules-dir") whole.add(target.realKey);
+  for (const kept of retained) {
+    if (kept.kind === "out") whole.add(kept.realKey);
+    else if (kept.target.target.kind === "rules-dir") whole.add(kept.target.realKey);
   }
   return (link, keys = []) => {
     for (const hop of followLinks(link).hops) {

@@ -24,12 +24,14 @@ import { sourceSlug } from "../../src/engine/slug.ts";
 import type { FetchIntent, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
+import type { State } from "../../src/state/schema.ts";
 import { lstatOrNullSync } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
   daysAgo,
   entryFor,
+  type FakeIo,
   FIXTURE_DIR,
   fakeIo,
   fakeResolvers,
@@ -1804,6 +1806,84 @@ describe("what a refused or departed source leaves behind", () => {
       expect(readlinkSync(shared)).toBe(outFile);
     });
   });
+
+  // A `-o` source held this run, unreadable or refused by admission, keeps its rule file whole, as
+  // a rules-dir source's kept file is. The kept `-o` file was once retained for the sweep alone
+  // and left off the link judgment: a shared file linked at it was edited through the link over
+  // the kept rules, with no refusal naming the link. The readable `-o` shape above is the control.
+  type AtProject = { destination: { scope: "project"; root: string } };
+  const heldOut: [
+    string,
+    {
+      rivals: (dir: string, atProject: AtProject) => State["sources"];
+      hold: (source: string, io: FakeIo, ruleFile: string, written: string) => Promise<void>;
+    },
+  ][] = [
+    [
+      "unreadable",
+      {
+        rivals: () => ({}),
+        hold: async (source) => {
+          rmSync(source, { recursive: true });
+        },
+      },
+    ],
+    [
+      "refused by collision",
+      {
+        rivals: (dir, atProject) => {
+          const owner = writeSource(join(dir, "owner"), { alpha: { description: "Alpha." } });
+          return { [owner]: entryFor(localFrom(owner), atProject) };
+        },
+        hold: async (source, io, ruleFile, written) => {
+          writeFileSync(
+            join(source, "memories", "alpha.md"),
+            memoryFile("alpha", { description: "Rival alpha." }),
+          );
+          // The control: the grown source is the one refused, and its file is the one kept.
+          const collision = await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
+          expect(collision.message).toBe(`${source}: name collision on alpha`);
+          expect(readFileSync(ruleFile, "utf8")).toBe(written);
+        },
+      },
+    ],
+  ];
+  test.each(heldOut)(
+    "a shared file linked at the kept rule file of a -o source %s is refused, nothing written",
+    async (_label, { rivals, hold }) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const atProject = { destination: { scope: "project" as const, root: project } };
+        const out = join(project, "out");
+        const held = writeSource(join(dir, "held"), { beta: { description: "Beta." } });
+        const entries = {
+          ...rivals(dir, atProject),
+          [held]: entryFor(localFrom(held, true), { destination: { scope: "out", path: out } }),
+        };
+        writeState(home, stateWith(entries));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const ruleFile = join(out, `maxims-${sourceSlug(localFrom(held, true))}.md`);
+        const written = readFileSync(ruleFile, "utf8");
+        await hold(held, io, ruleFile, written);
+        const shared = join(project, "FIXTURE.md");
+        symlinkSync(ruleFile, shared);
+        const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+        writeState(
+          home,
+          stateWith({
+            ...entries,
+            [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
+          }),
+        );
+        const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+        expect(error.message).toContain(
+          `cannot edit ${shared}: it is a symlink to ${ruleFile}, a rule file maxims owns whole`,
+        );
+        expect(readFileSync(ruleFile, "utf8")).toBe(written);
+        expect(readlinkSync(shared)).toBe(ruleFile);
+      });
+    },
+  );
 
   test.each(linkOrders)(
     "a shared file linked at a rule file maxims owns whole is refused, nothing written: %s",
