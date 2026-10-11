@@ -290,7 +290,7 @@ test("a block at the dsh line passes the budget and one byte past it is refused"
   const target = dsh.targets.project;
   if (target?.kind !== "shared-block") throw new Error("dsh reads an AGENTS.md block");
   const frame =
-    "<!-- maxims:begin @example-user/doctrine sha=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
+    "<!-- maxims:begin @example-user/doctrine sha=1 version=1 -->\n\n<!-- maxims:end @example-user/doctrine -->\n";
   const atLine = frame.replace("\n\n", `\n${"x".repeat(64_512 - frame.length)}\n`);
   const path = sharedBlockPath({ def: dsh, target, scope: "project", ctx });
   const budget = (content: string) => assertWithinBudget(dsh, "project", path, content);

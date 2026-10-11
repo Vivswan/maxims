@@ -79,7 +79,7 @@ For Claude Code with `-g`, four things land on disk. Other harnesses differ only
 The rule file for that install, cut to two of its four rule lines, with illustrative hashes. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
 
 ```markdown
-<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 -->
+<!-- maxims:begin @Octocat/rules sha=77769dc1e2b3a4c5d6e7f8091a2b3c4d5e6f7089 version=1 -->
 <!-- managed by maxims: @Octocat/rules - edits will be overwritten -->
 <!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->
 - Keep every commit to one change - a reviewer reads a small diff in one pass (detail: /home/user/.agents/maxims/store/octocat/rules/memories/commit-small-and-often.md, 0f0f0f0)

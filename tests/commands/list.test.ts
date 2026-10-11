@@ -3,10 +3,11 @@
 // after the collision it resolved is gone, a lock entry this machine never installed), and a
 // `--json` document that hides any of those behind pre-rendered strings.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
+import { sourceSlug } from "../../src/engine/slug.ts";
 import type { ListReport, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { opencode } from "../../src/harnesses/opencode/spec.ts";
@@ -30,7 +31,8 @@ import {
   writeSource,
   writeState,
 } from "../engine/fakes.ts";
-import { TWO_MEMORIES, world } from "../engine/world.ts";
+import { globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { CHMOD_DENIES } from "../shared/platform.ts";
 import { NOW } from "../shared/sync_support.ts";
 
 const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "none" };
@@ -325,6 +327,72 @@ describe("list", () => {
             against: olderKey,
           },
         ]);
+      });
+    },
+  );
+
+  // Every source's rule files are read the way sync reads them, so a marker the grammar refuses
+  // is named by file and line once whether the source still reads or not: an unreadable source's
+  // names come from that file, and a readable source's file is the one sync holds.
+  test.each([
+    { source: "an unreadable", readable: false },
+    { source: "a readable", readable: true },
+  ])(
+    "$source source's rule file behind a refused marker is reported, not passed over",
+    async ({ readable }) => {
+      await world(async (w) => {
+        const live = writeSource(join(w.dir, "live"), TWO_MEMORIES);
+        writeState(w.home, stateWith({ [live]: entryFor(localFrom(live, true)) }));
+        const io = fakeIo({ ...w, cwd: w.dir });
+        await runSync(SYNC, io);
+        if (!readable) rmSync(live, { recursive: true });
+        const rulesFile = globalRulesFile(w.userHome, sourceSlug(localFrom(live, true)));
+        const stripped = readFileSync(rulesFile, "utf8").replace(" version=1 -->", " -->");
+        writeFileSync(rulesFile, stripped);
+        const marker = /^<!-- maxims:begin .* -->$/m.exec(stripped)?.[0];
+        const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+        const held = [
+          `maxims: ${rulesFile}: the marker ${JSON.stringify(marker)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`,
+          "maxims: delete the block from that line through its maxims:end line, then run sync, which writes it afresh",
+        ];
+        expect(report.notices.filter((line) => held.includes(line))).toEqual(held);
+      });
+    },
+  );
+
+  // What would drift silently: list running the reservation's bodies scan, whose stop protects a
+  // write list never makes.
+  test.skipIf(!CHMOD_DENIES).each([
+    { installed: "another project", here: false },
+    { installed: "this project", here: true },
+  ])(
+    "a readable source installed for $installed is listed when this project's bodies folder cannot be listed",
+    async ({ here }) => {
+      await world(async (w) => {
+        const root = here ? w.project : join(w.dir, "elsewhere");
+        if (!here) mkdirSync(join(root, ".git"), { recursive: true });
+        const source = writeSource(join(w.dir, "theirs"), TWO_MEMORIES);
+        writeState(
+          w.home,
+          stateWith({
+            [source]: entryFor(localFrom(source), { destination: { scope: "project", root } }),
+          }),
+        );
+        seedStore(w.home, localFrom(source), source);
+        const io = fakeIo({ ...w, cwd: w.project });
+        if (here) await runSync(SYNC, io);
+        const unlistable = join(w.project, ".agents", "memories");
+        mkdirSync(unlistable, { recursive: true });
+        chmodSync(unlistable, 0o000);
+        try {
+          const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+          expect(report.sources.map((listed) => [listed.key, listed.project?.here])).toEqual([
+            [source, here],
+          ]);
+          expect(report.notices.filter((line) => line.includes("marker"))).toEqual([]);
+        } finally {
+          chmodSync(unlistable, 0o700);
+        }
       });
     },
   );

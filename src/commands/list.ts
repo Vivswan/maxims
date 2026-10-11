@@ -7,7 +7,7 @@ import {
   harnessContext,
   loadContext,
 } from "../engine/context.ts";
-import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
+import { noDefinitionReason, realKeyOf, resolveTargets } from "../engine/destination.ts";
 import { DAY_MS } from "../engine/fetch.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { hookStatus, hookStatusText } from "../engine/hooks.ts";
@@ -15,11 +15,13 @@ import {
   installedHere,
   isFetchedEntry,
   readInstalledTree,
+  retainedBlockNames,
   retainedNames,
   shortSha,
   staleness,
 } from "../engine/plan-sync.ts";
 import { readProjectLock } from "../engine/project-lock-read.ts";
+import type { RuleFileHeld } from "../engine/rules.ts";
 import { disabledNames, selectMemories } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
 import type {
@@ -84,6 +86,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
   const report = emptyReport(ctx);
   if (ctx.configIssue !== null) report.notices.push(`maxims: ${ctx.configIssue}`);
   const loaded: (Loaded & { tree: Awaited<ReturnType<typeof readInstalledTree>> })[] = [];
+  const heldKeys = new Set<string>();
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined) continue;
@@ -91,16 +94,28 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       report.notices.push(`maxims: ${key}: ${line}`),
     );
-    const upstream: MemoryName[] =
-      tree.kind === "tree"
-        ? selectMemories({
-            memories: tree.tree.memories,
-            intent: entry.intent,
-            installInternal: ctx.installInternal,
-            disabled: new Set(),
-            detailPath: () => "",
-          }).ownedUpstreamNames
-        : await retainedNames(key, entry, ctx, io);
+    // The bodies scan stops a run to protect a write; list writes nothing, so a readable source
+    // skips it and only an unreadable one's bodies are read for its names.
+    const hold = (held: RuleFileHeld): void => {
+      const realKey = realKeyOf(held.path);
+      if (heldKeys.has(realKey)) return;
+      heldKeys.add(realKey);
+      report.notices.push(`maxims: ${held.message}`);
+      if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
+    };
+    let upstream: MemoryName[];
+    if (tree.kind === "tree") {
+      retainedBlockNames(key, entry, ctx, io, hold);
+      upstream = selectMemories({
+        memories: tree.tree.memories,
+        intent: entry.intent,
+        installInternal: ctx.installInternal,
+        disabled: new Set(),
+        detailPath: () => "",
+      }).ownedUpstreamNames;
+    } else {
+      upstream = await retainedNames(key, entry, ctx, io, hold);
+    }
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
   // An unreadable source's names are already local (its selection and renames applied), so

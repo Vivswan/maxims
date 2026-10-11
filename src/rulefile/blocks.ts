@@ -1,5 +1,5 @@
 import { type MemoryName, memoryStem, parseMemoryName } from "../memory/contract.ts";
-import { markdownLines, parseBlocks } from "./block.ts";
+import { type HeldSpan, heldBlockSpans, markdownLines, parseBlocks } from "./block.ts";
 
 // A managed block as a rule file holds it: the source it belongs to and the local names of the
 // rule lines it carries, read back from each line's detail path.
@@ -9,9 +9,26 @@ export type RuleBlock = {
 };
 
 export function parseRuleBlocks(text: string): RuleBlock[] {
-  return parseBlocks(text).blocks.map((block) => ({
-    source: block.source,
-    names: parseRuleLines(text.slice(block.start, block.end)).map((line) => line.name),
+  return namedBlocks(text, parseBlocks(text).blocks);
+}
+
+// The blocks of a file a refused marker holds (`heldBlockSpans`), one per source with the names
+// of every block of that source: a file this run cannot refresh keeps each loaded, so each stays
+// reserved while the hold stands.
+export function heldRuleBlocks(text: string): RuleBlock[] {
+  const bySource = new Map<string, Set<MemoryName>>();
+  for (const block of namedBlocks(text, heldBlockSpans(text))) {
+    const names = bySource.get(block.source) ?? new Set<MemoryName>();
+    for (const name of block.names) names.add(name);
+    bySource.set(block.source, names);
+  }
+  return [...bySource].map(([source, names]) => ({ source, names: [...names] }));
+}
+
+function namedBlocks(text: string, spans: readonly HeldSpan[]): RuleBlock[] {
+  return spans.map((span) => ({
+    source: span.source,
+    names: parseRuleLines(text.slice(span.start, span.end)).map((line) => line.name),
   }));
 }
 

@@ -3,6 +3,7 @@ import { actsHere, type EngineContext, loadContext } from "../engine/context.ts"
 import { prunedHooks } from "../engine/hooks.ts";
 import type { SourceTree } from "../engine/memories.ts";
 import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "../engine/plan-sync.ts";
+import type { RuleFileHeld } from "../engine/rules.ts";
 import { selectMemories } from "../engine/select.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "../engine/types.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
@@ -249,9 +250,15 @@ async function resolveRemoval(
 // live directory, and when neither can be read, the local names its retained rules still hold
 // (the recorded fetch through the selection and renames, and the retained blocks on disk), so a
 // source whose files are gone is still found by the names it installed and told apart from a name
-// nobody provides.
+// nobody provides. A retained block the grammar refuses may hold the name asked for: the removal
+// is refused by that file before anything is recorded.
 async function readInstalled(state: State, ctx: EngineContext, io: EngineIo): Promise<Installed[]> {
   const installed: Installed[] = [];
+  const hold = (held: RuleFileHeld): never => {
+    throw new MaximsError(ExitCode.DestinationWriteFailed, held.message, {
+      ...(held.hint === undefined ? {} : { hint: held.hint }),
+    });
+  };
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined || !actsHere(entry, ctx)) continue;
@@ -263,7 +270,7 @@ async function readInstalled(state: State, ctx: EngineContext, io: EngineIo): Pr
     const tree = read.kind === "tree" ? read.tree : null;
     const pairs =
       tree === null
-        ? (await retainedNames(key, entry, ctx, io)).map((localName) => ({
+        ? (await retainedNames(key, entry, ctx, io, hold)).map((localName) => ({
             upstreamName: localName,
             localName,
             hash: null,

@@ -71,9 +71,26 @@ Codex's `config.toml` is only read, for its hooks flag, and is never refused: a 
 !  maxims: edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry
 ```
 
-**What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it. maxims holds the file instead: nothing in it changes, and every other file refreshes.
+**What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it.
+
+maxims holds the file instead: nothing in it changes, the sources whose block in it this run writes or removes stay at last-good, and any other source refreshes.
 
 **What to do:** open the file, delete or edit the stray `maxims:begin` and `maxims:end` lines the message names, then run `sync`; the block leaves with that run.
+
+## Exit 4: a block's marker carries no version, or another one
+
+**What you see:** `sync` exits 4 with these two lines naming the file and the marker line; the sources with a block in the held file, on disk or rendered this run, stay at last-good, and any other source refreshes.
+
+A hook run exits 0 and writes the same two lines without the `!` prefix, which reach the session where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
+
+```text
+!  maxims: /home/user/AGENTS.md: the marker "<!-- maxims:begin @you/notes sha=3f2a9c1e -->" carries no version; this maxims writes version 1 and cannot refresh the block it opens
+!  maxims: delete the block from that line through its maxims:end line, then run sync, which writes it afresh
+```
+
+**What it means:** the [rule file section](harnesses.md#the-rule-file) owns the marker grammar and its version. The block behind that marker can be neither refreshed nor removed, so the file is held rather than given a second block or stripped of yours. A newer version names the upgrade in the hint.
+
+**What to do:** open the file, delete the block from that `maxims:begin` line through its `maxims:end` line, then run `sync`; the block is written afresh.
 
 ## Exit 3: nothing resolved to install
 

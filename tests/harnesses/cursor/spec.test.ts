@@ -15,7 +15,7 @@ import { srcPath } from "../../shared/src_path.ts";
 import { exampleContext as ctx } from "../context.ts";
 
 const block =
-  "<!-- maxims:begin @example-user/doctrine sha=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
+  "<!-- maxims:begin @example-user/doctrine sha=1 version=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
 const rulePath = "/home/user/project/.cursor/rules/maxims-example-user-doctrine.mdc";
 
 const alwaysOn = [

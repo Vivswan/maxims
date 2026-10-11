@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, type Stats, statSync } from "node:fs";
+import { readdirSync, type Stats, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   type HarnessDefinition,
@@ -11,8 +11,10 @@ import { chooseSelfRefreshSource } from "../harnesses/strategies/once-per-target
 import { assertWithinBudget, planRulesDirWrite } from "../harnesses/strategies/rules-dir.ts";
 import { planSharedBlockRemove } from "../harnesses/strategies/shared-block.ts";
 import {
+  MarkerRefused,
   markdownLines,
   ownLineMatcher,
+  type ParsedBlock,
   parseBlocks,
   renderBlock,
   replaceBlock,
@@ -20,7 +22,7 @@ import {
 import { parseRuleLines, ruleLineName } from "../rulefile/blocks.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import type { ExpansionSyntax, Markers, RuleLine, Staleness } from "../rulefile/types.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, lstatOrNullSync } from "../util/change.ts";
 import { MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -70,19 +72,24 @@ export type RuleFileOptions = {
 
 const EMPTY_PLAN: RuleFilePlan = { writes: [], removals: [], notices: [], tokens: [] };
 
-// A removal the grammar refuses (`stripBlock`) holds the file whole, since only the user can edit
-// the stray markers. Not a `MaximsError`: a catch that classifies write failures must not take
-// the hold for one.
+// A removal the grammar refuses (`stripBlock`), or a marker it does not read (`MarkerRefused`),
+// holds the file whole, since only the user can edit the lines. Not a `MaximsError`: a catch that
+// classifies write failures must not take the hold for one. A refused removal leaves the rules
+// current and fails only the verb that asked for it; a refused marker leaves a block no run can
+// refresh, so it names the file and fails every verb.
 export class RuleFileHeld extends Error {
   readonly hint: string | undefined;
+  readonly fails: "remove" | "every verb";
 
   constructor(
     readonly path: string,
     refusal: MaximsError,
   ) {
-    super(refusal.message);
+    const foreign = refusal instanceof MarkerRefused;
+    super(foreign ? `${path}: ${refusal.message}` : refusal.message);
     this.name = "RuleFileHeld";
     this.hint = refusal.hint;
+    this.fails = foreign ? "every verb" : "remove";
   }
 }
 
@@ -91,6 +98,18 @@ export class RuleFileHeld extends Error {
 // no rule line (every memory of its source disabled at this scope) is rendered by nobody: a
 // rules-dir file holding it leaves, and a shared file loses it like a block whose source left.
 export async function planRuleFile(
+  file: RuleFile,
+  options: RuleFileOptions,
+): Promise<RuleFilePlan> {
+  try {
+    return await planReadableRuleFile(file, options);
+  } catch (error) {
+    if (error instanceof MarkerRefused) throw new RuleFileHeld(file.path, error);
+    throw error;
+  }
+}
+
+async function planReadableRuleFile(
   file: RuleFile,
   options: RuleFileOptions,
 ): Promise<RuleFilePlan> {
@@ -106,10 +125,10 @@ export async function planRuleFile(
       notices: [`maxims: ${file.path} is a symlink; managed blocks are not written through links`],
     };
   }
-  const { linked, current, rendering, gone, rendered, unreadable } = drawn;
+  const { linked, current, spans, rendering, gone, rendered, unreadable } = drawn;
   for (const line of unreadable) notices.push(`maxims: ${line}`);
   for (const { block, text } of rendered) {
-    notices.push(...blockChangeNotices(file.path, block, text, current));
+    notices.push(...blockChangeNotices(file.path, block, text, current, spans));
   }
   const writes: Change[] = [];
   const removals: Change[] = [];
@@ -193,6 +212,9 @@ export async function planRuleFile(
 type RenderedFile = {
   linked: boolean;
   current: string | null;
+  // The blocks the file holds, read once by the scanner here: a marker it refuses holds the file
+  // before any branch below writes or deletes it, since a whole-file write never reads it again.
+  spans: ParsedBlock[];
   rendering: Rendering;
   gone: BlockRequest[];
   rendered: { block: BlockRequest; text: string }[];
@@ -206,11 +228,12 @@ type RenderedFile = {
 // at its path reads as absent and the write that replaces it is planned even when the linked
 // content matches.
 async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
-  const linked = isSymlink(file.path);
+  const linked = lstatOrNullSync(file.path)?.isSymbolicLink() ?? false;
   if (linked && file.kind === "harness" && file.targets[0]?.target.kind === "shared-block") {
     return null;
   }
   const current = linked ? null : readIfPresent(file.path);
+  const spans = current === null ? [] : parseBlocks(current).blocks;
   const rendering = renderingFor(file);
   const live = file.blocks.filter((block) => block.lines.length > 0);
   const gone = file.blocks.filter((block) => block.lines.length === 0);
@@ -233,7 +256,15 @@ async function renderRuleFile(file: RuleFile): Promise<RenderedFile | null> {
       selfRefresh: block.key === selfRefresh,
     }),
   }));
-  return { linked, current, rendering, gone, rendered, unreadable: probed?.unreadable ?? [] };
+  return {
+    linked,
+    current,
+    spans,
+    rendering,
+    gone,
+    rendered,
+    unreadable: probed?.unreadable ?? [],
+  };
 }
 
 // Whether a run has anything to do in a file it cannot write: a block some source renders here,
@@ -250,7 +281,7 @@ export async function changingBlocks(file: RuleFile): Promise<string[]> {
   const drawn = await renderRuleFile(file);
   if (drawn === null) return [];
   const current = drawn.current ?? "";
-  const spans = parseBlocks(current).blocks;
+  const spans = drawn.spans;
   return drawn.rendered
     .filter(({ block, text }) => {
       const span = spans.find((candidate) => candidate.source === block.key);
@@ -317,9 +348,10 @@ function blockChangeNotices(
   block: BlockRequest,
   rendered: string,
   current: string | null,
+  spans: readonly ParsedBlock[],
 ): string[] {
   if (current === null || block.refreshed) return [];
-  const span = parseBlocks(current).blocks.find((candidate) => candidate.source === block.key);
+  const span = spans.find((candidate) => candidate.source === block.key);
   if (span === undefined) return [];
   const onDisk = current.slice(span.start, span.end);
   if (onDisk === rendered) return [];
@@ -364,6 +396,9 @@ export type RulesDirSweepInput = {
   // A directory or file that exists but cannot be inspected is reported here rather than passed
   // over as absent, so a removal that could not finish says so.
   warn: (line: string) => void;
+  // A file behind a marker the grammar refuses is left where it is and held, so the run says so
+  // and fails like any held file.
+  hold: (held: RuleFileHeld) => void;
 };
 
 // Rule files maxims wrote for an intent that no longer derives them: a file in a rules directory
@@ -389,14 +424,14 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
       const orphans = names.filter((name) => {
         const path = join(dir, name);
         if (input.planned.has(realKeyOf(path))) return false;
-        let text: string | null;
         try {
-          text = regularFileText(path);
+          const text = regularFileText(path);
+          return text !== null && claimedByMaxims(text);
         } catch (error) {
-          input.warn(describe(error));
+          if (error instanceof MarkerRefused) input.hold(new RuleFileHeld(path, error));
+          else input.warn(describe(error));
           return false;
         }
-        return text !== null && claimedByMaxims(text);
       });
       if (orphans.length === 0) continue;
       const realDir = realpathOfExistingPrefix(dir);
@@ -414,18 +449,11 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
 }
 
 // A file at a name maxims derives is ours to remove only while it carries a managed block; the
-// user may keep a file of their own at that name once the rules that wrote it are gone.
+// user may keep a file of their own at that name once the rules that wrote it are gone. A block
+// behind a marker the grammar refuses is nobody's to remove: the read throws `MarkerRefused`, and
+// the sweep holds the file where it is.
 export function claimedByMaxims(text: string): boolean {
   return parseBlocks(text).blocks.length > 0;
-}
-
-function isSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch (cause) {
-    if (isAbsent(cause)) return false;
-    throw cannotInspect(path, cause);
-  }
 }
 
 // The text of the file at a derived rule-file name, read through a link, for the reads that take

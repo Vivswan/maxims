@@ -1,7 +1,8 @@
-import { z } from "zod";
+import { util, z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { compareCodeUnits } from "../util/order.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
+import { CURRENT_BLOCK_VERSION } from "./migrations/block-ladder.ts";
 import {
   type BlockInput,
   type ExpansionSyntax,
@@ -14,9 +15,98 @@ import {
 const DESCRIPTION_MAX_CHARS = 300;
 const ELLIPSIS = "...";
 
+// The one spelling of each marker: the renderer fills the template and the scanner matches the
+// pattern derived from it. The version is the begin marker's last field so that a reader of any
+// version finds it before judging the rest (migrations/block-ladder.ts).
+const BEGIN_MARKER = "<!-- maxims:begin {source} sha={sha} version={version} -->";
+// The end marker carries no version and is spelled alike by every version: it is the line that
+// names a block whose begin marker this maxims refuses (`heldBlockSpans`).
+const END_MARKER = "<!-- maxims:end {source} -->";
+const FIELD = /\{(\w+)\}/g;
+type MarkerFields = Readonly<Record<string, string>>;
+
+function fieldOf(fields: MarkerFields, name: string): string {
+  const value = fields[name];
+  if (value === undefined) throw new Error(`no value for the marker field ${name}`);
+  return value;
+}
+
+function fillMarker(template: string, fields: MarkerFields): string {
+  return template.replace(FIELD, (_, name: string) => fieldOf(fields, name));
+}
+
 // dotAll: a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
-const BEGIN_LINE = /^<!-- maxims:begin (.+) sha=(\S+) -->$/s;
-const END_LINE = /^<!-- maxims:end (.+) -->$/s;
+function markerPattern(template: string, fields: MarkerFields): RegExp {
+  const body = template
+    .split(FIELD)
+    .map((part, index) => (index % 2 === 1 ? fieldOf(fields, part) : util.escapeRegex(part)))
+    .join("");
+  return new RegExp(`^${body}$`, "s");
+}
+
+const VERSION = String(CURRENT_BLOCK_VERSION);
+const BEGIN_LINE = markerPattern(BEGIN_MARKER, { source: "(.+)", sha: "(\\S+)", version: VERSION });
+const END_LINE = markerPattern(END_MARKER, { source: "(.+)" });
+const BEGIN_OPENER = BEGIN_MARKER.slice(0, BEGIN_MARKER.indexOf("{"));
+const MARKER_CLOSER = BEGIN_MARKER.slice(BEGIN_MARKER.lastIndexOf("}") + 1);
+const VERSION_FIELD = new RegExp(
+  `${util.escapeRegex(literalBefore(BEGIN_MARKER, "version"))}(\\d+)$`,
+);
+
+// The text the template writes just before a field, so a reader of that field alone spells it once.
+function literalBefore(template: string, field: string): string {
+  const parts = template.split(FIELD);
+  const literal = parts[parts.indexOf(field) - 1];
+  if (literal === undefined) throw new Error(`no field ${field} in the marker template`);
+  return literal;
+}
+
+// A begin marker of another version opens a block this maxims can neither refresh nor remove,
+// and only the user deletes it: the caller holds the file and says which line.
+export class MarkerRefused extends MaximsError {
+  constructor(
+    readonly marker: string,
+    readonly version: string | null,
+  ) {
+    const carries = version === null ? "no version" : `version ${version}`;
+    const refresh =
+      "delete the block from that line through its maxims:end line, then run sync, which writes it afresh";
+    const newer = version !== null && Number(version) > CURRENT_BLOCK_VERSION;
+    super(
+      ExitCode.DestinationWriteFailed,
+      `the marker ${JSON.stringify(marker)} carries ${carries}; this maxims writes version ${VERSION} and cannot refresh the block it opens`,
+      { hint: newer ? `upgrade maxims, or ${refresh}` : refresh },
+    );
+    this.name = "MarkerRefused";
+  }
+}
+
+// The marker lines among a file's comment lines; every other comment is text between them.
+// A begin marker of another version is `foreign`, never text, since text would leave its block
+// beside a fresh one. The version is the marker's last field in every version, so it is read
+// before the rest and judged as the token the renderer writes (`01` is another version).
+type MarkerLine =
+  | { kind: "begin"; source: string; sha: string }
+  | { kind: "foreign"; text: string; version: string | null }
+  | { kind: "end"; source: string };
+
+function markerLine(line: MarkdownLine): MarkerLine | null {
+  if (line.kind !== "comment") return null;
+  const { text } = line;
+  const begin = BEGIN_LINE.exec(text);
+  if (begin !== null) return { kind: "begin", source: begin[1], sha: begin[2] };
+  if (
+    text.length >= BEGIN_OPENER.length + MARKER_CLOSER.length &&
+    text.startsWith(BEGIN_OPENER) &&
+    text.endsWith(MARKER_CLOSER)
+  ) {
+    const version = VERSION_FIELD.exec(text.slice(0, -MARKER_CLOSER.length))?.[1] ?? null;
+    if (version !== VERSION) return { kind: "foreign", text, version };
+  }
+  const end = END_LINE.exec(text);
+  return end === null ? null : { kind: "end", source: end[1] };
+}
+
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
 
 // A staleness notice's `since` is a fetch record's timestamp; the validator the state schema
@@ -36,14 +126,14 @@ export function renderBlock(input: BlockInput): string {
   const { source, sha, expands } = input;
   assertMarkerField("source", source);
   assertMarkerField("sha", sha);
-  const lines = [`<!-- maxims:begin ${source} sha=${sha} -->`];
+  const lines = [fillMarker(BEGIN_MARKER, { source, sha, version: VERSION })];
   if (input.markers === "stripped") lines.push(...provenanceLines(source));
   if (input.stale !== undefined) {
     lines.push(staleLine(source, input.stale, expands));
     if (input.selfRefresh) lines.push(SELF_REFRESH_LINE);
   }
   for (const line of input.lines) lines.push(renderRuleLine(line, expands));
-  lines.push(`<!-- maxims:end ${source} -->`);
+  lines.push(fillMarker(END_MARKER, { source }));
   const block = `${lines.join("\n")}\n`;
   return input.frontmatter === undefined ? block : withNewline(input.frontmatter) + block;
 }
@@ -701,6 +791,28 @@ export function parseBlocks(fileText: string): ParsedBlocks {
   return { blocks, warnings };
 }
 
+export type HeldSpan = Pick<ParsedBlock, "source" | "start" | "end">;
+
+// The blocks of a file this run holds, named by their end markers: a begin marker of any version
+// pairs with the very next marker line when that is an end, since the version read refuses a
+// foreign begin before its fields are known. Every pair is returned, a hand-duplicated source's
+// later blocks included, since a held file keeps them all loaded; nothing is refreshed through them.
+export function heldBlockSpans(fileText: string): HeldSpan[] {
+  const spans: HeldSpan[] = [];
+  let start: number | null = null;
+  for (const line of markdownLines(fileText)) {
+    const marker = markerLine(line);
+    if (marker === null) continue;
+    if (marker.kind !== "end") {
+      start = line.start;
+      continue;
+    }
+    if (start !== null) spans.push({ source: marker.source, start, end: line.end });
+    start = null;
+  }
+  return spans;
+}
+
 // Every well-formed pair in document order, a hand-duplicated source's later pairs included.
 function blockSpans(fileText: string): ParsedBlock[] {
   const spans: ParsedBlock[] = [];
@@ -715,19 +827,23 @@ function blockSpans(fileText: string): ParsedBlock[] {
 function markerPairing(): (line: MarkdownLine) => ParsedBlock | null {
   let pending: Pick<ParsedBlock, "source" | "sha" | "start"> | null = null;
   return (line) => {
-    if (line.kind !== "comment") return null;
-    const begin = BEGIN_LINE.exec(line.text);
-    if (begin !== null) {
-      pending = { source: begin[1], sha: begin[2], start: line.start };
-      return null;
+    const marker = markerLine(line);
+    if (marker === null) return null;
+    switch (marker.kind) {
+      case "begin":
+        pending = { source: marker.source, sha: marker.sha, start: line.start };
+        return null;
+      case "foreign":
+        throw new MarkerRefused(marker.text, marker.version);
+      case "end": {
+        const span =
+          pending !== null && pending.source === marker.source
+            ? { ...pending, end: line.end }
+            : null;
+        pending = null;
+        return span;
+      }
     }
-    if (!END_LINE.test(line.text)) return null;
-    const span =
-      pending !== null && line.text === `<!-- maxims:end ${pending.source} -->`
-        ? { ...pending, end: line.end }
-        : null;
-    pending = null;
-    return span;
   };
 }
 
