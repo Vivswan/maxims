@@ -14,8 +14,8 @@ export const spec = {
   tier: 1,
   // The code sources read the `v1` release branch, since `dev` is OpenCode 2.0, whose plugin API
   // (`@opencode/plugin`) and `plugins` key differ from the 1.x contract this spec states. The docs
-  // pages read `dev`, the published site's source, so the day they document 2.0 the import claim
-  // on the plugins page drifts.
+  // pages read `dev`, the published site's source, so once the old import line leaves the plugins
+  // page the claim there drifts.
   verifiedAgainst: {
     date: "2026-10-10",
     sources: [
