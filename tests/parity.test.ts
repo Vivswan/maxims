@@ -28,7 +28,7 @@ import { ExitCode } from "../src/util/exit-codes.ts";
 import { VERSION } from "../src/version.ts";
 import { FIXTURES, runCli, type Scenario, withScenario } from "./cli/harness.ts";
 
-const SKILLS = join(FIXTURES, "skills");
+const RULES = join(FIXTURES, "rules");
 
 // `rm` is documented only by an example line, which names no verb, so the mapping is a decision.
 const EXAMPLE_ONLY_ALIASES: Record<string, string> = { rm: "remove" };
@@ -104,23 +104,20 @@ test("-s, --skill <skills> has the counterpart -m, --memory <names> with the com
   await withScenario({}, async (scenario) => {
     const two = await runCli(scenario, [
       "add",
-      SKILLS,
+      RULES,
       "-m",
-      "gate-exit-conditions-the-merge,skip-unfit-skills",
+      "commit-small-and-often,tests-before-the-fix",
       "--list",
     ]);
     expect({ code: two.code, stderr: two.stderr }).toEqual({ code: 0, stderr: "" });
-    expect(listedNames(two.stdout)).toEqual([
-      "gate-exit-conditions-the-merge",
-      "skip-unfit-skills",
-    ]);
-    const star = await runCli(scenario, ["add", SKILLS, "-m", "*", "--list"]);
+    expect(listedNames(two.stdout)).toEqual(["commit-small-and-often", "tests-before-the-fix"]);
+    const star = await runCli(scenario, ["add", RULES, "-m", "*", "--list"]);
     expect({ code: star.code, stderr: star.stderr }).toEqual({ code: 0, stderr: "" });
     expect(listedNames(star.stdout)).toEqual([
-      "gate-exit-conditions-the-merge",
-      "no-sleep-waiting-on-subagents",
-      "rubber-duck-before-every-commit",
-      "skip-unfit-skills",
+      "commit-small-and-often",
+      "never-retry-without-a-cap",
+      "prefer-timeouts-to-hangs",
+      "tests-before-the-fix",
     ]);
   });
 });
@@ -170,7 +167,7 @@ const USAGE_ERRORS: [string, string[], string][] = [
   ["a missing source", ["add"], " ERROR  Missing required argument: source\n"],
   [
     "--all with named memories",
-    ["add", "@a/b", "--all", "-m", "skip-unfit-skills"],
+    ["add", "@a/b", "--all", "-m", "tests-before-the-fix"],
     " ERROR  Cannot combine --all with specific memory names.\n",
   ],
 ];

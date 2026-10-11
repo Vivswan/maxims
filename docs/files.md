@@ -12,11 +12,11 @@ Everything maxims owns lives under one directory, and this page is that tree: wh
 ```text
 ~/.agents/maxims/                       # or $MAXIMS_HOME
 |-- store/
-|   |-- vivswan/skills/                 # a GitHub source: store/<owner>/<repo>, lower-cased, laid out like the source
+|   |-- octocat/rules/                 # a GitHub source: store/<owner>/<repo>, lower-cased, laid out like the source
 |   |   `-- memories/                   # the folder --from names, memories/ by default
-|   |       |-- rubber-duck-before-every-commit.md
+|   |       |-- prefer-timeouts-to-hangs.md
 |   |       `-- ...
-|   |-- vivswan/skills@v2-fb04dcb6/     # the same repo pinned: <repo>@<ref, unsafe characters folded to -, cut at 40>-<8 hex of the ref>; a separate source
+|   |-- octocat/rules@v2-fb04dcb6/     # the same repo pinned: <repo>@<ref, unsafe characters folded to -, cut at 40>-<8 hex of the ref>; a separate source
 |   |-- _github/ghe.example.com/acme/rules/ # a GitHub Enterprise source: _github/<host>/<owner>/<repo>
 |   |-- _git/git.example.com/team/rules/ # any other git remote: _git/<host>[_<port>]/<path without .git>
 |   `-- _local/memories-a3f1c8d2/       # a local source: _local/<basename>-<8 hex of the absolute path>

@@ -1,26 +1,26 @@
 |
 o   claude-code  Agent detected - installing non-interactively
 |
-o  Source: https://github.com/Vivswan/skills.git
+o  Source: https://github.com/Octocat/rules.git
 o  Repository cloned
 o  Found 4 memories
-o  First source from github.com/vivswan
-   https://github.com/Vivswan/skills.git
-   commit a8d5fe2, not pinned (tracks HEAD)
+o  First source from github.com/octocat
+   https://github.com/Octocat/rules.git
+   commit 3701003, not pinned (tracks HEAD)
    4 memories
 |
 o  Memories to install
-   Vivswan Skills -> ~/.claude/rules/maxims-vivswan-skills.md
+   Octocat Rules -> ~/.claude/rules/maxims-octocat-rules.md
 |
-|    gate-exit-conditions-the-merge
+|    commit-small-and-often
 |
-|      Never chain a merge in the same command as reading a gate log - condition
-|      the merge on the gate's exit code
+|      Keep every commit to one change - a reviewer reads a small diff in one
+|      pass
 |
 |    ... 3 more
 |
 o  Installed 4 memories, 4 rule lines (~N tokens)
 o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
-!  ~N tokens in <HOME>/.claude/rules/maxims-vivswan-skills.md
+!  ~N tokens in <HOME>/.claude/rules/maxims-octocat-rules.md
 !  maxims: registered the maxims hook in <HOME>/.claude/settings.json
 |

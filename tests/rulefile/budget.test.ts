@@ -9,14 +9,14 @@ import type { BlockInput } from "../../src/rulefile/types.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 
 const INPUT: BlockInput = {
-  source: "@Vivswan/skills",
+  source: "@Octocat/rules",
   sha: "3f2a9c1e",
   lines: [
     {
-      name: "rubber-duck-before-every-commit" as MemoryName,
-      description: "Codex rubber-duck review before EVERY commit",
+      name: "prefer-timeouts-to-hangs" as MemoryName,
+      description: "A timeout on EVERY call that leaves the process",
       detailPath:
-        "/home/user/.agents/maxims/store/vivswan/skills/memories/rubber-duck-before-every-commit.md",
+        "/home/user/.agents/maxims/store/octocat/rules/memories/prefer-timeouts-to-hangs.md",
       shortHash: "a1b2c3d",
     },
   ],

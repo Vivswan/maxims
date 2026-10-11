@@ -4,8 +4,8 @@ import type { SourceFrom } from "../contracts/source.ts";
 import { type MemoryTree, readMemoryTree, type TreeScope } from "../sources/tree.ts";
 import { canonicalSourceKey, type State } from "../state/schema.ts";
 
-// GitHub names are case-insensitive, so `@vivswan/skills` finds the entry recorded as
-// `@Vivswan/skills`; every other key matches as typed.
+// GitHub names are case-insensitive, so `@octocat/rules` finds the entry recorded as
+// `@Octocat/rules`; every other key matches as typed.
 export function findSourceKey(state: State, key: string): string | null {
   if (Object.hasOwn(state.sources, key)) return key;
   const folded = foldGithubKey(key);

@@ -10,10 +10,10 @@ group: Guides
 ## Sharing a source
 
 ```bash
-npx -y @vivswan/maxims add @Vivswan/skills -p --rule --share   # install at project scope and share
-npx -y @vivswan/maxims share @Vivswan/skills                    # share a source already installed at project scope
-npx -y @vivswan/maxims unshare @Vivswan/skills                  # take it out of the lock, keep it installed
-npx -y @vivswan/maxims remove @Vivswan/skills                   # take it out of state and out of the lock
+npx -y @vivswan/maxims add @Octocat/rules -p --rule --share   # install at project scope and share
+npx -y @vivswan/maxims share @Octocat/rules                    # share a source already installed at project scope
+npx -y @vivswan/maxims unshare @Octocat/rules                  # take it out of the lock, keep it installed
+npx -y @vivswan/maxims remove @Octocat/rules                   # take it out of state and out of the lock
 ```
 
 | verb | state | the lock |

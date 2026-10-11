@@ -135,7 +135,7 @@ test("1: add --dry-run prints the plan and writes nothing, not even state", asyn
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
     const out = join(dir, "out");
-    const source = fixtureRepo(dir, "skills");
+    const source = fixtureRepo(dir, "rules");
     const before = snapshot(home.root);
     const run = ok(
       await runMaxims(bundle, home, [
@@ -352,7 +352,7 @@ test("5: list --json is one document showing the rename and the stale source", a
     const home = makeHome(dir);
     const installed = await installDotfiles(bundle, dir, home, [
       "--rename",
-      "gate-exit-conditions-the-merge=merge-gate",
+      "commit-small-and-often=small-commits",
     ]);
     ok(installed.run);
     const state = readState(home);
@@ -373,16 +373,16 @@ test("5: list --json is one document showing the rename and the stale source", a
     expect(source?.stale).toEqual({ since: expect.any(String), kind: "missing", days: 8 });
     expect(source?.renames).toEqual([
       {
-        upstreamName: "gate-exit-conditions-the-merge",
-        localName: "merge-gate",
+        upstreamName: "commit-small-and-often",
+        localName: "small-commits",
         verdict: "unneeded",
         against: null,
       },
     ]);
     expect(source?.memories).toEqual([
       {
-        upstreamName: "gate-exit-conditions-the-merge",
-        localName: "merge-gate",
+        upstreamName: "commit-small-and-often",
+        localName: "small-commits",
         shortHash: expect.stringMatching(/^[0-9a-f]{7}$/),
         disabled: false,
       },
@@ -404,7 +404,7 @@ test("6: init scaffolds a memory that passes the contract", async () => {
 test("7: a project install writes under the project and nothing under the user home", async () => {
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
-    const source = fixtureRepo(dir, "skills");
+    const source = fixtureRepo(dir, "rules");
     mkdirSync(join(home.project, ".claude"));
     ok(
       await runMaxims(bundle, home, ["add", source, "-p", "--rule", "-a", "claude-code", "-y"], {
@@ -423,15 +423,15 @@ test("7: a project install writes under the project and nothing under the user h
       link: false,
     });
     expect(ruleDescriptions(readFileSync(ruleFile, "utf8")).sort()).toEqual(
-      fixtureDescriptions("skills").sort(),
+      fixtureDescriptions("rules").sort(),
     );
     const bodies = join(home.project, ".agents", "memories");
     const store = storePathFor(home.maximsHome, { type: "local", path: source });
     for (const name of [
-      "gate-exit-conditions-the-merge",
-      "no-sleep-waiting-on-subagents",
-      "rubber-duck-before-every-commit",
-      "skip-unfit-skills",
+      "commit-small-and-often",
+      "never-retry-without-a-cap",
+      "prefer-timeouts-to-hangs",
+      "tests-before-the-fix",
     ]) {
       const link = join(bodies, `${name}.md`);
       expect(resolve(bodies, readlinkSync(link))).toBe(join(store, "memories", `${name}.md`));

@@ -33,8 +33,8 @@ describe("extractWikilinks", () => {
 });
 
 describe("resolveWikilinks", () => {
-  const INSTALLED = new Set(["already-installed", "gate-exit-conditions-the-merge-dotfiles"]);
-  const RENAME = { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" };
+  const INSTALLED = new Set(["already-installed", "commit-small-and-often-dotfiles"]);
+  const RENAME = { "commit-small-and-often": "commit-small-and-often-dotfiles" };
 
   const cases: {
     title: string;
@@ -47,8 +47,8 @@ describe("resolveWikilinks", () => {
       title: "resolves within the install set, among installed names, and through the rename map",
       incoming: [
         memory("one", "links [[two]] and [[already-installed]]"),
-        memory("two", "links [[gate-exit-conditions-the-merge]] by its upstream name"),
-        memory("three", "links [[gate-exit-conditions-the-merge-dotfiles]] by its local name"),
+        memory("two", "links [[commit-small-and-often]] by its upstream name"),
+        memory("three", "links [[commit-small-and-often-dotfiles]] by its local name"),
       ],
       installed: INSTALLED,
       rename: RENAME,
@@ -57,11 +57,8 @@ describe("resolveWikilinks", () => {
     {
       title: "an incoming memory renamed in this install satisfies links to either of its names",
       incoming: [
-        memory("gate-exit-conditions-the-merge", "the renamed one"),
-        memory(
-          "user",
-          "[[gate-exit-conditions-the-merge]] and [[gate-exit-conditions-the-merge-dotfiles]]",
-        ),
+        memory("commit-small-and-often", "the renamed one"),
+        memory("user", "[[commit-small-and-often]] and [[commit-small-and-often-dotfiles]]"),
       ],
       installed: new Set(),
       rename: RENAME,

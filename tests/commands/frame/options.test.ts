@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { VERSION } from "../../../src/version.ts";
 import { FIXTURES, runCli, snapshot, withScenario } from "../../cli/harness.ts";
 
-const SKILLS = join(FIXTURES, "skills");
+const RULES = join(FIXTURES, "rules");
 
 // A refusal at the door reaches no engine runner.
 const NO_ENGINE_CALLS = { sync: [], remove: [], list: [], mcpServe: 0 };
@@ -17,7 +17,7 @@ const refusals: [string, string[], string][] = [
   ["scope with out", ["add", "@a/b", "-g", "-o", "x"], "two destinations given"],
   [
     "all with a @name suffix",
-    ["add", "@a/b@skip-unfit-skills", "--all"],
+    ["add", "@a/b@tests-before-the-fix", "--all"],
     "Cannot combine --all with specific memory names.",
   ],
   ["link on github", ["add", "@a/b", "--link"], "--link applies to a local directory"],
@@ -81,7 +81,7 @@ const refusals: [string, string[], string][] = [
   ["show with out", ["show", "x", "-o", "dir"], "unknown option: -o"],
   ["show two scopes", ["show", "x", "-g", "-p"], "two destinations given"],
   ["show with nothing installed", ["show", "x"], "x is not installed"],
-  ["yes on disable", ["disable", "skip-unfit-skills", "-y"], "unknown option: -y"],
+  ["yes on disable", ["disable", "tests-before-the-fix", "-y"], "unknown option: -y"],
   ["extra word on remove", ["remove", "@a/b", "@a/c", "-y"], "unexpected argument: @a/c"],
   [
     "extra word on config unset",
@@ -124,7 +124,7 @@ const jsonRefusals: [string, string[], string][] = [
   ],
   [
     "remove --all with -m",
-    ["remove", "--all", "-m", "skip-unfit-skills", "--json"],
+    ["remove", "--all", "-m", "tests-before-the-fix", "--json"],
     "Cannot combine --all with specific memory names.",
   ],
 ];
@@ -161,7 +161,7 @@ const VERBS = [
 test.each(VERBS.map((verb) => [verb] as const))(
   "%s --help prints usage before any I/O and changes nothing",
   async (verb) => {
-    await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+    await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
       const before = await snapshot(scenario.root);
       const run = await runCli(scenario, [verb, "@a/b", "-y", "--help"]);
       expect(run.code).toBe(0);
@@ -246,23 +246,23 @@ test.each(aliases)("alias %s resolves to %s", async (alias, verb) => {
 
 // The same selection spelled four ways reaches the state file as one list.
 const selectionSpellings: [string, string[]][] = [
-  ["comma list", ["-m", "gate-exit-conditions-the-merge,skip-unfit-skills"]],
-  ["repetition", ["-m", "gate-exit-conditions-the-merge", "-m", "skip-unfit-skills"]],
-  ["equals form", ["--memory=gate-exit-conditions-the-merge", "--memory=skip-unfit-skills"]],
-  ["mixed", ["--memory", "gate-exit-conditions-the-merge", "-m", "skip-unfit-skills"]],
-  ["attached short value", ["-mgate-exit-conditions-the-merge", "-mskip-unfit-skills"]],
+  ["comma list", ["-m", "commit-small-and-often,tests-before-the-fix"]],
+  ["repetition", ["-m", "commit-small-and-often", "-m", "tests-before-the-fix"]],
+  ["equals form", ["--memory=commit-small-and-often", "--memory=tests-before-the-fix"]],
+  ["mixed", ["--memory", "commit-small-and-often", "-m", "tests-before-the-fix"]],
+  ["attached short value", ["-mcommit-small-and-often", "-mtests-before-the-fix"]],
 ];
 
 test.each(selectionSpellings)("%s composes into one selection", async (_name, flags) => {
-  await withScenario({ github: { "a/b": SKILLS } }, async (scenario) => {
+  await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", ...flags]);
     expect(run.code).toBe(0);
     const state = JSON.parse(readFileSync(join(scenario.home, "state.json"), "utf8")) as {
       sources: Record<string, { intent: { select: string[] } }>;
     };
     expect(state.sources["@a/b"]?.intent.select).toEqual([
-      "gate-exit-conditions-the-merge",
-      "skip-unfit-skills",
+      "commit-small-and-often",
+      "tests-before-the-fix",
     ]);
   });
 });

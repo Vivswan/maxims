@@ -43,12 +43,12 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
   "writtenBy": "maxims@0.4.1",
   "hooks": { "global": ["claude-code", "codex"], "project": { "/home/user/project": ["codex"] } },
   "sources": {
-    "@Vivswan/skills": {
+    "@Octocat/rules": {
       "intent": {
-        "from": { "type": "github", "repo": "Vivswan/skills", "ref": "HEAD" },
+        "from": { "type": "github", "repo": "Octocat/rules", "ref": "HEAD" },
         "auth": false,
-        "select": ["gate-exit-conditions-the-merge", "rubber-duck-before-every-commit"],
-        "rename": { "gate-exit-conditions-the-merge": "gate-exit-conditions-the-merge-dotfiles" },
+        "select": ["commit-small-and-often", "prefer-timeouts-to-hangs"],
+        "rename": { "commit-small-and-often": "commit-small-and-often-dotfiles" },
         "rule": true,
         "destination": { "scope": "global" },
         "copy": false,
@@ -61,7 +61,7 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
         "sha": "fc675572711b0a1c9e00000000000000000000aa",
         "memoryPath": "memories",
         "memories": {
-          "rubber-duck-before-every-commit": {
+          "prefer-timeouts-to-hangs": {
             "content": "sha256:9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a1c9f2a",
             "description": "sha256:11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd11cd"
           }
@@ -72,8 +72,8 @@ Storing "it is installed" beside "it should be installed" creates two fields tha
     }
   },
   "disabled": {
-    "global": ["gate-exit-conditions-the-merge-dotfiles"],
-    "project": { "/home/user/project": ["rubber-duck-before-every-commit"] }
+    "global": ["commit-small-and-often-dotfiles"],
+    "project": { "/home/user/project": ["prefer-timeouts-to-hangs"] }
   }
 }
 ```

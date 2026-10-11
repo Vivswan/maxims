@@ -1,13 +1,13 @@
 |
-o  Source: https://github.com/Vivswan/skills.git
+o  Source: https://github.com/Octocat/rules.git
 o  Repository cloned
 o  Found 4 memories
 |
 o  Available Memories
-|    gate-exit-conditions-the-merge
-|    no-sleep-waiting-on-subagents
-|    rubber-duck-before-every-commit
-|    skip-unfit-skills
+|    commit-small-and-often
+|    never-retry-without-a-cap
+|    prefer-timeouts-to-hangs
+|    tests-before-the-fix
 |
 o  Run without --list to install
 

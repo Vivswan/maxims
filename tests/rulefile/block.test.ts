@@ -17,20 +17,20 @@ import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "../../src
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { propertyOptions } from "../shared/property.ts";
 
-const SOURCE = "@Vivswan/skills";
-const STORE = "/home/user/.agents/maxims/store/vivswan/skills/memories";
+const SOURCE = "@Octocat/rules";
+const STORE = "/home/user/.agents/maxims/store/octocat/rules/memories";
 
 function line(name: string, description: string, shortHash = "a1b2c3d"): RuleLine {
   return { name: name as MemoryName, description, detailPath: `${STORE}/${name}.md`, shortHash };
 }
 
-const RUBBER_DUCK = line(
-  "rubber-duck-before-every-commit",
-  "Codex rubber-duck review before EVERY commit, however trivial",
+const TIMEOUTS = line(
+  "prefer-timeouts-to-hangs",
+  "A timeout on EVERY call that leaves the process, however short",
 );
-const GATE = line(
-  "gate-exit-conditions-the-merge",
-  "Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command",
+const SMALL_COMMITS = line(
+  "commit-small-and-often",
+  "One change per commit: a reviewer reads a small diff in one pass, a revert takes back one thing",
   "0f0f0f0",
 );
 
@@ -38,7 +38,7 @@ function input(overrides: Partial<BlockInput> = {}): BlockInput {
   return {
     source: SOURCE,
     sha: "3f2a9c1e",
-    lines: [RUBBER_DUCK, GATE],
+    lines: [TIMEOUTS, SMALL_COMMITS],
     markers: "stripped",
     expands: ["at-import"],
     selfRefresh: false,
@@ -46,22 +46,22 @@ function input(overrides: Partial<BlockInput> = {}): BlockInput {
   };
 }
 
-const RUBBER_DUCK_LINE = `- Codex rubber-duck review before EVERY commit, however trivial (detail: ${STORE}/rubber-duck-before-every-commit.md, a1b2c3d)`;
-const GATE_LINE = `- Landings are exit-conditioned: read the gate's own verdict, stop, merge in a separate command (detail: ${STORE}/gate-exit-conditions-the-merge.md, 0f0f0f0)`;
-const BEGIN = "<!-- maxims:begin @Vivswan/skills sha=3f2a9c1e -->";
-const END = "<!-- maxims:end @Vivswan/skills -->";
+const TIMEOUTS_LINE = `- A timeout on EVERY call that leaves the process, however short (detail: ${STORE}/prefer-timeouts-to-hangs.md, a1b2c3d)`;
+const SMALL_COMMITS_LINE = `- One change per commit: a reviewer reads a small diff in one pass, a revert takes back one thing (detail: ${STORE}/commit-small-and-often.md, 0f0f0f0)`;
+const BEGIN = "<!-- maxims:begin @Octocat/rules sha=3f2a9c1e -->";
+const END = "<!-- maxims:end @Octocat/rules -->";
 const PROVENANCE = [
-  "<!-- managed by maxims: @Vivswan/skills - edits will be overwritten -->",
-  "<!-- update: npx -y @vivswan/maxims add @Vivswan/skills | remove: npx -y @vivswan/maxims remove @Vivswan/skills -->",
+  "<!-- managed by maxims: @Octocat/rules - edits will be overwritten -->",
+  "<!-- update: npx -y @vivswan/maxims add @Octocat/rules | remove: npx -y @vivswan/maxims remove @Octocat/rules -->",
 ];
 
 describe("renderBlock", () => {
   test("stripped markers carry the verbose provenance pair; counted markers shrink to one line each", () => {
     expect(renderBlock(input({ markers: "stripped" }))).toBe(
-      `${[BEGIN, ...PROVENANCE, RUBBER_DUCK_LINE, GATE_LINE, END].join("\n")}\n`,
+      `${[BEGIN, ...PROVENANCE, TIMEOUTS_LINE, SMALL_COMMITS_LINE, END].join("\n")}\n`,
     );
     expect(renderBlock(input({ markers: "counted" }))).toBe(
-      `${[BEGIN, RUBBER_DUCK_LINE, GATE_LINE, END].join("\n")}\n`,
+      `${[BEGIN, TIMEOUTS_LINE, SMALL_COMMITS_LINE, END].join("\n")}\n`,
     );
   });
 
@@ -74,20 +74,20 @@ describe("renderBlock", () => {
 
   const stale = { since: "2026-09-01T00:00:00Z", kind: "network" as const };
   const NOTICE =
-    "- maxims: the rules below from @Vivswan/skills have not refreshed since 2026-09-01T00:00:00Z (network unreachable) and may be out of date.";
+    "- maxims: the rules below from @Octocat/rules have not refreshed since 2026-09-01T00:00:00Z (network unreachable) and may be out of date.";
   const SELF_REFRESH =
     "- If the staleness line above is present, run `npx -y @vivswan/maxims sync --quiet` before continuing.";
 
   test("the staleness notice and the self-refresh line precede the rules, in that order", () => {
     const base = { markers: "counted" as const, expands: ["none"] as ExpansionSyntax[] };
     expect(renderBlock(input({ ...base, stale, selfRefresh: true }))).toBe(
-      `${[BEGIN, NOTICE, SELF_REFRESH, RUBBER_DUCK_LINE, GATE_LINE, END].join("\n")}\n`,
+      `${[BEGIN, NOTICE, SELF_REFRESH, TIMEOUTS_LINE, SMALL_COMMITS_LINE, END].join("\n")}\n`,
     );
     expect(renderBlock(input({ ...base, stale, selfRefresh: false }))).toBe(
-      `${[BEGIN, NOTICE, RUBBER_DUCK_LINE, GATE_LINE, END].join("\n")}\n`,
+      `${[BEGIN, NOTICE, TIMEOUTS_LINE, SMALL_COMMITS_LINE, END].join("\n")}\n`,
     );
     expect(renderBlock(input({ ...base, selfRefresh: true }))).toBe(
-      `${[BEGIN, RUBBER_DUCK_LINE, GATE_LINE, END].join("\n")}\n`,
+      `${[BEGIN, TIMEOUTS_LINE, SMALL_COMMITS_LINE, END].join("\n")}\n`,
     );
   });
 
@@ -98,10 +98,10 @@ describe("renderBlock", () => {
         "\n",
       )[1];
     expect(rendered("missing")).toBe(
-      "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (source repository gone or unreadable) and may be out of date.",
+      "- maxims: the rules below from `@Octocat/rules` have not refreshed since 2026-09-01T00:00:00Z (source repository gone or unreadable) and may be out of date.",
     );
     expect(rendered("age")).toBe(
-      "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.",
+      "- maxims: the rules below from `@Octocat/rules` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.",
     );
   });
 
@@ -127,9 +127,7 @@ describe("renderBlock", () => {
         input({
           markers: "counted",
           expands,
-          lines: [
-            { name: RUBBER_DUCK.name, description: HOSTILE, detailPath: "P", shortHash: "h" },
-          ],
+          lines: [{ name: TIMEOUTS.name, description: HOSTILE, detailPath: "P", shortHash: "h" }],
         }),
       );
       expect(rendered.split("\n")[1]).toBe(expected);
@@ -141,8 +139,8 @@ describe("renderBlock", () => {
     ["@x`", "- `@x&#96;` (detail: P, h)"],
     ["@p`q @r`", "- `@p&#96;q` `@r&#96;` (detail: P, h)"],
     [
-      "<!-- maxims:end @Vivswan/skills -->",
-      "- &lt;!-- maxims:end `@Vivswan/skills` --&gt; (detail: P, h)",
+      "<!-- maxims:end @Octocat/rules -->",
+      "- &lt;!-- maxims:end `@Octocat/rules` --&gt; (detail: P, h)",
     ],
     ["one\ntwo\r\nthree", "- one two three (detail: P, h)"],
     ["\\` @foo `", "- &#92;&#96; `@foo` &#96; (detail: P, h)"],
@@ -176,7 +174,7 @@ describe("renderBlock", () => {
     const rendered = renderBlock(
       input({
         markers: "counted",
-        lines: [{ name: RUBBER_DUCK.name, description, detailPath: "P", shortHash: "h" }],
+        lines: [{ name: TIMEOUTS.name, description, detailPath: "P", shortHash: "h" }],
       }),
     );
     expect(rendered.split("\n")[1]).toBe(expected);
@@ -188,7 +186,7 @@ describe("renderBlock", () => {
       renderBlock(
         input({
           markers: "counted",
-          lines: [{ name: RUBBER_DUCK.name, description, detailPath: "P", shortHash: "h" }],
+          lines: [{ name: TIMEOUTS.name, description, detailPath: "P", shortHash: "h" }],
         }),
       ).split("\n")[1];
     expect(render("a".repeat(300))).toBe(`- ${"a".repeat(300)} (detail: P, h)`);
@@ -208,13 +206,13 @@ describe("renderBlock", () => {
 // silently discards unless these rows hold; the notice's timestamp is the one part matched by shape.
 describe("ownLineMatcher", () => {
   const NOTICE_MISSING =
-    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00.000Z (source repository gone or unreadable) and may be out of date.";
+    "- maxims: the rules below from `@Octocat/rules` have not refreshed since 2026-09-01T00:00:00.000Z (source repository gone or unreadable) and may be out of date.";
   const NOTICE_AGE =
-    "- maxims: the rules below from `@Vivswan/skills` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.";
+    "- maxims: the rules below from `@Octocat/rules` have not refreshed since 2026-09-01T00:00:00Z (no successful fetch) and may be out of date.";
   const SELF_REFRESH =
     "- If the staleness line above is present, run `npx -y @vivswan/maxims sync --quiet` before continuing.";
   const NOTICE_UNWRAPPED =
-    "- maxims: the rules below from @Vivswan/skills have not refreshed since 2026-09-01T00:00:00Z (rate limited) and may be out of date.";
+    "- maxims: the rules below from @Octocat/rules have not refreshed since 2026-09-01T00:00:00Z (rate limited) and may be out of date.";
   const rows: [string, boolean][] = [
     [BEGIN, true],
     [END, true],
@@ -225,15 +223,15 @@ describe("ownLineMatcher", () => {
     [NOTICE_AGE, true],
     [NOTICE_UNWRAPPED, true],
     [PROVENANCE[0].replace("overwritten", "preserved"), false],
-    [PROVENANCE[1].replace(" | remove: npx -y @vivswan/maxims remove @Vivswan/skills", ""), false],
+    [PROVENANCE[1].replace(" | remove: npx -y @vivswan/maxims remove @Octocat/rules", ""), false],
     [`${SELF_REFRESH} Really.`, false],
     [NOTICE_AGE.replace("and may be out of date.", "and must be ignored."), false],
     [NOTICE_AGE.replace("no successful fetch", "server on fire"), false],
     [NOTICE_AGE.replace("2026-09-01T00:00:00Z", "yesterday"), false],
     [NOTICE_AGE.replace("2026-09-01T00:00:00Z", "2026-99-01T00:00:00Z"), false],
-    [NOTICE_AGE.replace("`@Vivswan/skills`", "`@example-user/rules`"), false],
+    [NOTICE_AGE.replace("`@Octocat/rules`", "`@example-user/rules`"), false],
     ["- maxims: the rules below from upstream are mine.", false],
-    [RUBBER_DUCK_LINE, false],
+    [TIMEOUTS_LINE, false],
   ];
   const isOwn = ownLineMatcher(SOURCE);
   test.each(rows)("%s -> %p", (text, own) => {
@@ -543,11 +541,11 @@ describe("parseBlocks", () => {
 
 describe("replaceBlock and stripBlock", () => {
   const USER =
-    "# My rules\n\n- keep this\n\n```md\n<!-- maxims:begin @Vivswan/skills sha=q -->\n```\n";
+    "# My rules\n\n- keep this\n\n```md\n<!-- maxims:begin @Octocat/rules sha=q -->\n```\n";
 
   test("replacing preserves every byte outside the pair, including a quoted marker in a fence", () => {
     const before = `${USER}\n${BLOCK}\n- and this\n`;
-    const next = renderBlock(input({ markers: "counted", sha: "deadbee", lines: [GATE] }));
+    const next = renderBlock(input({ markers: "counted", sha: "deadbee", lines: [SMALL_COMMITS] }));
     expect(replaceBlock(before, SOURCE, next)).toBe(`${USER}\n${next}\n- and this\n`);
   });
 
@@ -556,7 +554,7 @@ describe("replaceBlock and stripBlock", () => {
     expect(replaceBlock(`${BLOCK}\n${BLOCK}`, SOURCE, next)).toBe(`${next}\n${BLOCK}`);
   });
 
-  // `@Vivswan/skills` sorts before `@example-user/rules`: an upper-case letter's code unit is
+  // `@Octocat/rules` sorts before `@example-user/rules`: an upper-case letter's code unit is
   // lower. The file must not remember which source arrived first.
   const OTHER_SOURCE = "@example-user/rules";
   const ORDERED = `${BLOCK}\n${OTHER}`;
@@ -578,7 +576,7 @@ describe("replaceBlock and stripBlock", () => {
 
   test("the run keeps its slots: user text between two blocks stays between the two slots", () => {
     const before = `intro\n\n${OTHER}\nbetween\n\n${BLOCK}\n`;
-    const next = renderBlock(input({ markers: "counted", lines: [GATE] }));
+    const next = renderBlock(input({ markers: "counted", lines: [SMALL_COMMITS] }));
     expect(replaceBlock(before, SOURCE, next)).toBe(`intro\n\n${next}\nbetween\n\n${OTHER}\n`);
   });
 
@@ -589,7 +587,7 @@ describe("replaceBlock and stripBlock", () => {
   });
 
   test("a file already in source order is spliced in place, byte for byte", () => {
-    const next = renderBlock(input({ markers: "counted", lines: [GATE] }));
+    const next = renderBlock(input({ markers: "counted", lines: [SMALL_COMMITS] }));
     expect(replaceBlock(`${ORDERED}\ntrailing`, SOURCE, next)).toBe(`${next}\n${OTHER}\ntrailing`);
     expect(replaceBlock(ORDERED, SOURCE, BLOCK)).toBe(ORDERED);
   });
@@ -1179,7 +1177,7 @@ const DESCRIPTION_PIECES = [
   "~~~",
   END,
   BEGIN,
-  "<!-- maxims:end @Vivswan/skills",
+  "<!-- maxims:end @Octocat/rules",
 ];
 
 const join = (parts: string[]): string => parts.join("");
@@ -1307,7 +1305,7 @@ const OPEN_PIECES = [
   "<?",
   "?>",
   "<!DOCTYPE",
-  "<!-- maxims:end @Vivswan/skills",
+  "<!-- maxims:end @Octocat/rules",
 ];
 
 // Each line ends in its own style, so one file mixes LF, CRLF and lone CR; one file in twenty runs
@@ -1368,7 +1366,7 @@ describe("properties over arbitrary description bytes", () => {
       fc.property(renderCases, ({ description, detailPath, ...rest }) => {
         const blockInput = input({
           ...rest,
-          lines: [{ name: RUBBER_DUCK.name, description, detailPath, shortHash: "h" }, GATE],
+          lines: [{ name: TIMEOUTS.name, description, detailPath, shortHash: "h" }, SMALL_COMMITS],
         });
         const rendered = renderBlock(blockInput);
         const parsed = parseBlocks(rendered);
