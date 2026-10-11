@@ -360,6 +360,54 @@ describe("list", () => {
     },
   );
 
+  // What would drift silently: `list` resolving a project entry's rule files against the project
+  // the listing runs in rather than the entry's own. Outside any project the resolution refuses
+  // (`scopeRoot`); inside another project it reads that project's shared file and holds it for an
+  // entry that does not act there.
+  test.each([
+    { listedFrom: "outside any project", inProject: false },
+    { listedFrom: "another project", inProject: true },
+  ])(
+    "a readable source installed for another project is listed from $listedFrom without reading this project's rule files",
+    async ({ inProject }) => {
+      await world(async (w) => {
+        // This project's shared file, left behind a refused marker by a source since removed.
+        const left = writeSource(join(w.dir, "left"), TWO_MEMORIES);
+        writeState(
+          w.home,
+          stateWith({
+            [left]: entryFor(localFrom(left, true), {
+              harnesses: ["codex"],
+              destination: { scope: "project", root: w.project },
+            }),
+          }),
+        );
+        await runSync(SYNC, fakeIo({ ...w, cwd: w.project }));
+        const shared = join(w.project, "FIXTURE.md");
+        writeFileSync(shared, readFileSync(shared, "utf8").replace(" version=1 -->", " -->"));
+        const elsewhere = join(w.dir, "elsewhere");
+        mkdirSync(join(elsewhere, ".git"), { recursive: true });
+        const theirs = writeSource(join(w.dir, "theirs"), TWO_MEMORIES);
+        writeState(
+          w.home,
+          stateWith({
+            [theirs]: entryFor(localFrom(theirs), {
+              harnesses: ["claude-code", "codex"],
+              destination: { scope: "project", root: elsewhere },
+            }),
+          }),
+        );
+        seedStore(w.home, localFrom(theirs), theirs);
+        const io = fakeIo({ ...w, cwd: inProject ? w.project : w.dir });
+        const report = await runList({ quiet: false, dryRun: false, json: true }, io);
+        expect(report.sources.map((listed) => [listed.key, listed.project?.here])).toEqual([
+          [theirs, false],
+        ]);
+        expect(report.notices.filter((line) => line.includes("marker"))).toEqual([]);
+      });
+    },
+  );
+
   // What would drift silently: list running the reservation's bodies scan, whose stop protects a
   // write list never makes.
   test.skipIf(!CHMOD_DENIES).each([
