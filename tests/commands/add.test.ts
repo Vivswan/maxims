@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { sourceOwner } from "../../src/commands/add/plan.ts";
+import { sourceOwner, sourceTitle } from "../../src/commands/add/plan.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
@@ -547,6 +547,24 @@ const owners: [string, SourceFrom, string | null][] = [
 
 test.each(owners)("the owner of a %s", (_name, from, owner) => {
   expect(sourceOwner(from)).toBe(owner);
+});
+
+// Regression rows: the title of these two spellings was once "" and "Rules.GIT".
+const titles: [string, SourceFrom, string][] = [
+  [
+    "trailing slash after .git",
+    { type: "git", url: "https://git.example.com/team/rules.git/", ref: "HEAD" },
+    "Rules",
+  ],
+  [
+    "upper-case .GIT suffix",
+    { type: "git", url: "https://git.example.com/team/rules.GIT", ref: "HEAD" },
+    "Rules",
+  ],
+];
+
+test.each(titles)("the title of a git remote with a %s", (_name, from, title) => {
+  expect(sourceTitle(from)).toBe(title);
 });
 
 test("--list shows a source whose install would collide", async () => {

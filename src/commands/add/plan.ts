@@ -8,7 +8,12 @@ import {
   STRINGS,
 } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
-import { DEFAULT_GIT_REF, parseRemote, type SourceFrom } from "../../contracts/source.ts";
+import {
+  DEFAULT_GIT_REF,
+  parseRemote,
+  type SourceFrom,
+  stripGitSuffix,
+} from "../../contracts/source.ts";
 import { harnessContext } from "../../engine/context.ts";
 import { disabledNames } from "../../engine/select.ts";
 import { sourceSlug } from "../../engine/slug.ts";
@@ -203,18 +208,14 @@ function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): st
   return [...new Set(lines)].join("\n");
 }
 
-// `Octocat/rules` reads as `Octocat Rules` on the plan screen, as `skills` titles a source.
+// `Octocat/rules` reads as `Octocat Rules` on the plan screen, as `skills` titles a source. A git
+// remote titles by its repository segment, read the way the store path and the owner read it.
 export function sourceTitle(from: SourceFrom): string {
   const raw =
     from.type === "github"
       ? from.repo.split("/")
       : from.type === "git"
-        ? [
-            from.url
-              .replace(/\.git$/, "")
-              .split(/[/:]/)
-              .pop() ?? from.url,
-          ]
+        ? [stripGitSuffix(parseRemote(from.url)?.segments.at(-1) ?? from.url)]
         : [basename(from.path)];
   return raw
     .flatMap((part) => part.split(/[-_]+/))
