@@ -1,9 +1,10 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Zed reads exactly one project instruction file, and only at the worktree root. Its paths.rs
-// honours `$XDG_CONFIG_HOME` on Linux and FreeBSD only and fixes `~/.config/zed` on macOS; the
-// `globalRoot` below honours the variable on every platform.
+// Zed reads exactly one project instruction file, and only at the worktree root. On Windows it
+// asks for the RoamingAppData known folder, which maxims cannot look up, so `%APPDATA%` stands in
+// and a re-pointed `APPDATA` moves maxims's root alone. A set `FLATPAK_XDG_CONFIG_HOME` is taken
+// as it is; only `XDG_CONFIG_HOME` passes through the dirs crate, which drops a relative value.
 export const spec = {
   id: "zed",
   displayName: "Zed",
@@ -29,11 +30,20 @@ export const spec = {
         claims: [
           'home_dir().join(".config").join(APP_NAME_LOWERCASE)',
           'dirs::config_dir().expect("failed to determine XDG_CONFIG_HOME directory")',
-          'cfg!(any(target_os = "linux", target_os = "freebsd")) { if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME")',
+          '.expect("failed to determine RoamingAppData directory")',
+          'cfg!(any(target_os = "linux", target_os = "freebsd")) { if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME") { flatpak_xdg_config.into() } else {',
           "AGENTS.md",
           "settings.json",
         ],
-        note: "XDG_CONFIG_HOME on Linux and FreeBSD, ~/.config/zed on macOS",
+        note: "FLATPAK_XDG_CONFIG_HOME then XDG_CONFIG_HOME on Linux and FreeBSD, RoamingAppData on Windows, ~/.config/zed on macOS",
+      },
+      {
+        kind: "file",
+        repo: "dirs-dev/dirs-rs",
+        ref: "main",
+        path: "src/lin.rs",
+        claims: ['env::var_os("XDG_CONFIG_HOME").and_then(dirs_sys::is_absolute_path)'],
+        note: "a relative $XDG_CONFIG_HOME is dropped, as the XDG Base Directory spec requires",
       },
       {
         kind: "file",
@@ -51,9 +61,10 @@ export const spec = {
         claims: [
           "- macOS: `~/.config/zed/settings.json`",
           "- Linux: `~/.config/zed/settings.json` (or `$XDG_CONFIG_HOME/zed/settings.json`)",
+          "- Windows: `%APPDATA%\\Zed\\settings.json`",
           ".zed/settings.json",
         ],
-        note: "settings.json under ~/.config/zed, with $XDG_CONFIG_HOME given for Linux alone",
+        note: "settings.json under ~/.config/zed, $XDG_CONFIG_HOME/zed on Linux, %APPDATA%\\Zed on Windows",
       },
       {
         kind: "file",
@@ -75,7 +86,17 @@ export const spec = {
   },
   globalRoot: {
     default: ".config/zed",
-    env: { name: "XDG_CONFIG_HOME", subdir: "zed", platforms: ["linux", "freebsd"] },
+    env: [
+      {
+        name: [
+          { name: "FLATPAK_XDG_CONFIG_HOME" },
+          { name: "XDG_CONFIG_HOME", absoluteOnly: true },
+        ],
+        subdir: "zed",
+        platforms: ["linux", "freebsd"],
+      },
+      { name: "APPDATA", subdir: "Zed", platforms: ["win32"], absoluteOnly: true },
+    ],
   },
   targets: {
     project: {

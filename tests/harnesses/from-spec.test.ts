@@ -184,6 +184,27 @@ test("the global root joins the env override with its subdirectory and strips ~/
   expect(
     whole.globalRoot?.({ home, projectRoot: null, cwd: home, env: { EXAMPLE_HOME: "custom" } }),
   ).toBe(join(process.cwd(), "custom"));
+  // Zed under Flatpak takes `FLATPAK_XDG_CONFIG_HOME` as it is while the dirs crate drops a
+  // relative `XDG_CONFIG_HOME`, so the absolute rule is the variable's, not the list's.
+  const ordered = toDefinition(
+    specOf({
+      ...rendering,
+      globalRoot: {
+        default: "~/.config/example",
+        env: {
+          name: [{ name: "FIRST_ROOT" }, { name: "SECOND_ROOT", absoluteOnly: true }],
+          subdir: "example",
+        },
+      },
+    }),
+  );
+  const under = (env: Record<string, string>) =>
+    ordered.globalRoot?.({ home, projectRoot: null, cwd: home, env });
+  expect(under({ FIRST_ROOT: "first", SECOND_ROOT: xdg })).toBe(
+    join(process.cwd(), "first", "example"),
+  );
+  expect(under({ SECOND_ROOT: xdg })).toBe(resolve("/xdg/example"));
+  expect(under({ SECOND_ROOT: "second" })).toBe(resolve("/home/user/.config/example"));
   expect(
     def.mcp?.path("project", { home, projectRoot: resolve("/p"), cwd: resolve("/p"), env: {} }),
   ).toBeNull();

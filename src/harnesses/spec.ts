@@ -204,8 +204,7 @@ const SharedBlockTarget = z
 const Target = z.discriminatedUnion("kind", [RulesDirTarget, SharedBlockTarget]);
 
 // `platforms` names where the vendor reads the variable, as `process.platform` spells them; left
-// out, the variable is read everywhere. Zed resolves `$XDG_CONFIG_HOME` on Linux and FreeBSD and
-// fixes `~/.config/zed` on macOS.
+// out, the variable is read everywhere.
 const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "aix",
   "android",
@@ -220,15 +219,76 @@ const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "win32",
 ]);
 
+// `absoluteOnly` says the vendor's loader drops a relative value, as the XDG Base Directory spec
+// requires of its variables, where a shell would resolve it against the working directory.
+const RootVariable = z.strictObject({
+  name: EnvName,
+  absoluteOnly: z.literal(true).optional(),
+});
+
+// Variables the vendor tries in this order, the first one set (and absolute, where it says so)
+// winning: Zed under Flatpak reads `FLATPAK_XDG_CONFIG_HOME` ahead of `XDG_CONFIG_HOME`.
+const RootVariables = nonEmpty(RootVariable).check((ctx) => {
+  const seen = new Set<string>();
+  ctx.value.forEach((variable, index) => {
+    if (seen.has(variable.name)) {
+      ctx.issues.push({
+        code: "custom",
+        input: variable.name,
+        path: [index, "name"],
+        message: `${variable.name} is already listed`,
+      });
+    }
+    seen.add(variable.name);
+  });
+});
+
+// The list branch spells out `absoluteOnly` as never-present: a union's excess-property check lets
+// an object literal carry any key some member declares, so without it a flag beside the list
+// would compile and then be refused at parse time.
+function rootEnv<P extends z.ZodType>(platforms: P) {
+  const reading = { subdir: RelPath.optional(), platforms };
+  return z.union([
+    z.strictObject({ ...RootVariable.shape, ...reading }),
+    z.strictObject({ name: RootVariables, absoluteOnly: z.never().optional(), ...reading }),
+  ]);
+}
+
+const RootEnv = rootEnv(nonEmpty(PlatformEnum).optional());
+
+export function rootVariables(entry: RootEnvSpec): readonly RootVariableSpec[] {
+  if (Array.isArray(entry.name)) return entry.name;
+  const absolute = "absoluteOnly" in entry && entry.absoluteOnly === true;
+  return [{ name: entry.name, ...(absolute ? { absoluteOnly: true } : {}) }];
+}
+
+// No platform is read through two entries, so which entry a platform compiles to is never a
+// matter of order.
+const RootEnvList = nonEmpty(rootEnv(nonEmpty(PlatformEnum))).check((ctx) => {
+  const readThrough = new Map<string, string>();
+  ctx.value.forEach((entry, index) => {
+    const names = rootVariables(entry)
+      .map((variable) => variable.name)
+      .join(", ");
+    for (const platform of entry.platforms) {
+      const earlier = readThrough.get(platform);
+      if (earlier === undefined) {
+        readThrough.set(platform, names);
+        continue;
+      }
+      ctx.issues.push({
+        code: "custom",
+        input: entry.platforms,
+        path: [index, "platforms"],
+        message: `${platform} is already read through ${earlier}`,
+      });
+    }
+  });
+});
+
 const GlobalRoot = z.strictObject({
   default: HomePath,
-  env: z
-    .strictObject({
-      name: EnvName,
-      subdir: RelPath.optional(),
-      platforms: nonEmpty(PlatformEnum).optional(),
-    })
-    .optional(),
+  env: z.union([RootEnv, RootEnvList]).optional(),
 });
 
 // `dirs` are relative to the global root, `.` being the root itself.
@@ -568,6 +628,8 @@ export type UserHarnessSpec = z.infer<typeof UserHarnessSpecSchema>;
 export type ScopedFrontmatterSpec = z.infer<typeof ScopedFrontmatter>;
 export type FrontmatterSpec = z.infer<typeof Frontmatter>;
 export type GlobalRootSpec = z.infer<typeof GlobalRoot>;
+export type RootEnvSpec = z.infer<typeof RootEnv>;
+export type RootVariableSpec = z.infer<typeof RootVariable>;
 export type TargetSpec = z.infer<typeof Target>;
 export type HookSpecData = z.infer<typeof Hook>;
 
