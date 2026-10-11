@@ -604,7 +604,7 @@ describe("followLinks", () => {
   // What would drift silently: a `..` in a target stepped lexically, so the chain reports a file
   // reached where the kernel's own open refuses to enter the folder the `..` leaves.
   test.skipIf(!CHMOD_DENIES)(
-    "a .. out of a folder that cannot be searched is exit 4 naming that folder, as the kernel refuses the open",
+    "a .. out of a sealed folder is exit 4 naming that folder, as the kernel refuses the open",
     async () => {
       await withTempDir((dir) => {
         const root = realpathSync(dir);

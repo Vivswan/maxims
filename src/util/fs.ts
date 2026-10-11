@@ -136,11 +136,7 @@ export function realKeyOf(path: string): string {
 
 // Read as the kernel reads `prefix`. Node's `realpathSync` folds a `..` before reading the link in
 // front of it, and bun's normalizes the typed path before the kernel sees it, so neither is handed
-// a `..`:
-//
-//   no root                        -> the cwd, read inside the try (macOS refuses the read itself)
-//   a run of entries between `..`  -> one `realpathSync.native` lookup
-//   a `..`                         -> `parentOf`, the step `followLinks` takes
+// a `..`. The cwd is read inside the try: under a sealed folder macOS refuses the read itself.
 //
 // A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
 // at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
