@@ -4,10 +4,12 @@ import type { HarnessSpec } from "../spec.ts";
 // Codex's two instruction loaders differ on a blank file. In its home it passes a blank
 // AGENTS.override.md over and reads AGENTS.md; in a project directory it takes the first that
 // exists and drops a blank one without falling back, so there the block belongs in the override
-// even when blank. A project layer applies only where the user config.toml marks its directory, or
-// the project root, `projects.<path>.trust_level = "trusted"`; an untrusted one is skipped whole,
-// broken or not. hooks.json goes through serde_json, which takes strict JSON: a comment or a
-// trailing comma is a file Codex warns about and skips.
+// even when blank.
+//   project .codex/config.toml   read only where the user config.toml marks its directory, or the
+//                                project root, `projects.<path>.trust_level = "trusted"`; an
+//                                untrusted layer is skipped whole, broken or not
+//   hooks.json                   serde_json, strict JSON: a comment or a trailing comma is a file
+//                                Codex warns about and skips
 export const spec = {
   id: "codex",
   displayName: "Codex",
