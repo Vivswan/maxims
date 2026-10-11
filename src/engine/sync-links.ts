@@ -1,6 +1,6 @@
-// The one judgment of a link this run edits a user-owned file through, and the kept files it
-// counts as owned whole. `planInstall` builds it once every file this run visits is registered,
-// before the render, and hands it to the hook planner.
+// The link judgment of a sync, and the kept files it counts as owned whole. `planInstall` builds
+// it once every file this run visits is registered, before the render, and hands it to the hook
+// planner.
 
 import { followLinks, realKeyOf } from "../util/fs.ts";
 import type { HarnessTarget } from "./destination.ts";
