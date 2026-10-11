@@ -1659,9 +1659,18 @@ describe("a file holding a block whose marker carries no version", () => {
   const OLD_BLOCK = `${OLD_BEGIN}\n- An old rule.\n<!-- maxims:end @old/notes -->\n`;
   const hint =
     "delete the block from that line through its maxims:end line, then run sync, which writes it afresh";
-  const refusal = (path: string): string =>
-    `${path}: the marker ${JSON.stringify(OLD_BEGIN)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`;
+  const refusal = (path: string, marker = OLD_BEGIN): string =>
+    `${path}: the marker ${JSON.stringify(marker)} carries no version; this maxims writes version 1 and cannot refresh the block it opens`;
   const aged = (text: string): string => `${OLD_BLOCK}\n${text}`;
+  // The file's own block, its marker stripped of the version field: the shape the run before the
+  // field wrote. Returns the text and the marker the refusal names.
+  const unversioned = (path: string): { text: string; marker: string } => {
+    const text = readFileSync(path, "utf8").replace(" version=1 -->", " -->");
+    writeFileSync(path, text);
+    const marker = /^<!-- maxims:begin .* -->$/m.exec(text)?.[0];
+    if (marker === undefined) throw new Error(`no begin marker in ${path}`);
+    return { text, marker };
+  };
 
   // The held file, and what the rest of the run still does: the shared file's hold lets the
   // rules-dir refresh land, while the rules-dir file's hold is that refresh. The rules-dir source
@@ -1828,4 +1837,188 @@ describe("a file holding a block whose marker carries no version", () => {
       );
     },
   );
+
+  // The bodies are copies and the source directory is gone, so the held block is the only record
+  // of the name, and a rival's body write landed under a line the held file still carries when
+  // the reservation missed it. It missed it three ways: it stopped at the refused marker, it
+  // dropped the block at a stripped-marker harness's provenance comments, and it kept a
+  // hand-duplicated source's first block alone. A held file keeps every block loaded.
+  const splitAlpha = (text: string): string => {
+    const lines = text.split("\n");
+    const marker = (prefix: string): string => {
+      const line = lines.find((candidate) => candidate.startsWith(prefix));
+      if (line === undefined) throw new Error(`no ${prefix} line`);
+      return line;
+    };
+    const alpha = marker("- Alpha.");
+    const rest = lines.filter((line) => line !== alpha).join("\n");
+    return `${rest}${marker("<!-- maxims:begin")}\n${alpha}\n${marker("<!-- maxims:end")}\n`;
+  };
+  const heldBlocks: [
+    string,
+    HarnessId,
+    (project: string, slug: string) => string,
+    (text: string) => string,
+  ][] = [
+    ["the shared file", "codex", (project) => join(project, "FIXTURE.md"), (text) => text],
+    [
+      "a rules-dir file, its markers stripped",
+      "claude-code",
+      (project, slug) => join(project, ".fixture", "rules", `maxims-${slug}.md`),
+      (text) => text,
+    ],
+    [
+      "the second of its two blocks in the shared file",
+      "codex",
+      (project) => join(project, "FIXTURE.md"),
+      splitAlpha,
+    ],
+  ];
+  test.each(heldBlocks)(
+    "an unreadable live source's held block in %s keeps owning its names: a rival shipping one collides and the copied body stays",
+    async (_label, harness, fileOf, reshape) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const live = writeSource(join(dir, "live"), {
+          alpha: { description: "Alpha." },
+          beta: { description: "Beta." },
+        });
+        const liveEntry = entryFor(localFrom(live, true), {
+          destination: { scope: "project", root: project },
+          harnesses: [harness],
+          copy: true,
+        });
+        writeState(home, stateWith({ [live]: liveEntry }));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const body = join(project, ".agents", "memories", "alpha.md");
+        const copied = readFileSync(body, "utf8");
+        const file = fileOf(project, sourceSlug(localFrom(live, true)));
+        const held = unversioned(file);
+        const text = reshape(held.text);
+        writeFileSync(file, text);
+        const { marker } = held;
+        rmSync(live, { recursive: true });
+        const rival = writeSource(join(dir, "rival"), { alpha: { description: "Rival alpha." } });
+        writeState(
+          home,
+          stateWith({
+            [live]: liveEntry,
+            [rival]: {
+              ...entryFor(localFrom(rival), {
+                destination: { scope: "project", root: project },
+                harnesses: [harness],
+              }),
+              addedAt: "2026-08-02T00:00:00.000Z",
+            },
+          }),
+        );
+        io.out.length = 0;
+        const error = await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
+        expect(error.message).toBe(`${rival}: name collision on alpha`);
+        expect(io.out.join("")).toContain(
+          `!  maxims: ${refusal(file, marker)}\n!  maxims: ${hint}\n`,
+        );
+        expect(readFileSync(body, "utf8")).toBe(copied);
+        expect(readFileSync(file, "utf8")).toBe(text);
+      });
+    },
+  );
+
+  // The held block's lines link the store entry's detail files: a refresh that drops a memory
+  // swapped the entry under the block, leaving the kept line pointing at nothing. A shared file
+  // kept as a link is never rendered through, so only the name reservation holds it.
+  const heldStores: [string, HarnessId, (userHome: string, slug: string) => string, boolean][] = [
+    ["a rules-dir file", "claude-code", (userHome, slug) => globalRulesFile(userHome, slug), false],
+    [
+      "a shared file behind a link",
+      "codex",
+      (userHome) => join(userHome, ".fixture", "FIXTURE.md"),
+      true,
+    ],
+  ];
+  test.each(heldStores)(
+    "%s held keeps its source's store copy: a refresh dropping a memory the block links is refused whole",
+    async (_label, harness, fileOf, linked) => {
+      await world(async ({ home, dir, userHome }) => {
+        const upstream = writeSource(join(dir, "upstream"), {
+          alpha: { description: "Alpha." },
+          beta: { description: "Beta." },
+        });
+        const from = githubFrom("acme/rules");
+        seedStore(home, from, upstream);
+        const facts = await fetchedFacts(upstream, daysAgo(NOW, 1), null, "a".repeat(40));
+        writeState(
+          home,
+          stateWith({ "@acme/rules": fetchedEntry(from, facts, { harnesses: [harness] }) }),
+        );
+        const fake = fakeResolvers();
+        const io = fakeIo({ home, userHome, cwd: dir, resolvers: fake.resolvers });
+        await runSync(SYNC, io);
+        const file = fileOf(userHome, sourceSlug(from));
+        const { text, marker } = unversioned(file);
+        if (linked) {
+          const aside = join(dir, "dotfiles-FIXTURE.md");
+          renameSync(file, aside);
+          symlinkSync(aside, file);
+        }
+        const dropped = writeSource(join(dir, "dropped"), { beta: { description: "Beta." } });
+        fake.set(from, { kind: "dir", dir: dropped, sha: "b".repeat(40) });
+        io.out.length = 0;
+        const error = await expectExit(
+          runSync({ ...SYNC, fetch: "force" }, io),
+          ExitCode.DestinationWriteFailed,
+        );
+        expect({ message: error.message, hint: error.hint }).toEqual({
+          message: refusal(file, marker),
+          hint,
+        });
+        expect(existsSync(join(storePathFor(home, from), "memories", "alpha.md"))).toBe(true);
+        expect(fetchedOf(home, "@acme/rules")?.sha).toBe(gitSha("a".repeat(40)));
+        expect(readFileSync(file, "utf8")).toBe(text);
+      });
+    },
+  );
+
+  // A run limited by -a requests no block in the held file, so the hold the name reservation
+  // raised is the only one: the source still owns the file and still freezes.
+  test("a live source whose held file is outside the -a filter is frozen: the body its block links survives an upstream drop", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const live = writeSource(join(dir, "live"), {
+        alpha: { description: "Alpha." },
+        beta: { description: "Beta." },
+      });
+      const entry = entryFor(localFrom(live, true), {
+        destination: { scope: "project", root: project },
+        harnesses: ["codex", "claude-code"],
+        copy: true,
+      });
+      writeState(home, stateWith({ [live]: entry }));
+      const io = fakeIo({ home, userHome, cwd: project });
+      await runSync(SYNC, io);
+      const body = join(project, ".agents", "memories", "alpha.md");
+      const copied = readFileSync(body, "utf8");
+      const shared = join(project, "FIXTURE.md");
+      const { text, marker } = unversioned(shared);
+      const rulesFile = join(
+        project,
+        ".fixture",
+        "rules",
+        `maxims-${sourceSlug(localFrom(live, true))}.md`,
+      );
+      const rulesBefore = readFileSync(rulesFile, "utf8");
+      rmSync(join(live, "memories", "alpha.md"));
+      io.out.length = 0;
+      const error = await expectExit(
+        runSync({ ...SYNC, agents: ["claude-code"] }, io),
+        ExitCode.DestinationWriteFailed,
+      );
+      expect({ message: error.message, hint: error.hint }).toEqual({
+        message: refusal(shared, marker),
+        hint,
+      });
+      expect(readFileSync(body, "utf8")).toBe(copied);
+      expect(readFileSync(rulesFile, "utf8")).toBe(rulesBefore);
+      expect(readFileSync(shared, "utf8")).toBe(text);
+    });
+  });
 });

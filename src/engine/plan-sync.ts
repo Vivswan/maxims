@@ -15,7 +15,7 @@ import {
   renamed,
 } from "../memory/contract.ts";
 import { MarkerRefused } from "../rulefile/block.ts";
-import { parseRuleBlocks, type RuleBlock } from "../rulefile/blocks.ts";
+import { heldRuleBlocks, parseRuleBlocks, type RuleBlock } from "../rulefile/blocks.ts";
 import {
   buildNameIndex,
   compareInstalled,
@@ -235,18 +235,20 @@ export async function planSync(
     for (const key of attempt.refusedFresh) refreshed.refuse(key);
     for (const key of attempt.refusedKept) held.add(key);
     // Only the refused sources' own refusals travel: an unrelated failure is found again by the
-    // next attempt, and would otherwise be reported twice.
-    const seen = new Set<SyncFailure>();
+    // next attempt, and would otherwise be reported twice. One reason shared by several sources
+    // (a held file they all render into) travels once.
+    const seen = new Set<Notices>();
     for (const refusal of attempt.refusals) {
-      if (!retry.includes(refusal.key) || seen.has(refusal.failure)) continue;
-      seen.add(refusal.failure);
+      if (!retry.includes(refusal.key) || seen.has(refusal.said)) continue;
+      seen.add(refusal.said);
       carried.absorb(refusal.said);
-      carriedFailures.push(refusal.failure);
+      if (refusal.failure !== null) carriedFailures.push(refusal.failure);
     }
   }
 }
 
-type Refusal = { key: string; said: Notices; failure: SyncFailure };
+// `failure` is null where the reason fails no verb this run.
+type Refusal = { key: string; said: Notices; failure: SyncFailure | null };
 
 type Attempt = {
   builder: PlanBuilder;
@@ -297,13 +299,18 @@ async function planInstall(
     awaitingReview.push({ key, summary: entry.pending.summary });
     notices.loud(heldForReview(key, entry.pending.summary.length));
   }
-  // A source refused whole: `said` carries its lines on the channel the reason earns.
-  const refuse = (key: string, said: Notices, failure: SyncFailure): void => {
-    notices.absorb(said);
-    failures.push(failure);
+  // A source refused whole: `said` carries its lines on the channel the reason earns, `failure`
+  // what the verb exits with, or null where the reason fails no verb this run. `record` alone
+  // is for a reason already said, a held file several sources render into.
+  const record = (key: string, said: Notices, failure: SyncFailure | null): void => {
     refusals.push({ key, said, failure });
     if (refreshed.freshTrees.has(key)) refusedFresh.push(key);
     else refusedKept.push(key);
+  };
+  const refuse = (key: string, said: Notices, failure: SyncFailure | null): void => {
+    notices.absorb(said);
+    if (failure !== null) failures.push(failure);
+    record(key, said, failure);
   };
   const read = await readTrees(refreshed, held, overlay, ctx, notices);
   const { works } = read;
@@ -322,32 +329,56 @@ async function planInstall(
   // A held file keeps its bytes: it stays planned so the sweep leaves it, and its lines go out
   // loud, since the block a session expects gone is still loaded. A hold that leaves the rules
   // current fails only the remove verb: the user asked for that removal by name, and a hook run
-  // must stay exit 0. A hold over a block no run can refresh fails every verb. One file is held
-  // once, though the name reservation, the render and the sweeps each read it.
-  const heldKeys = new Set<string>();
-  const takeHold = (hold: RuleFileHeld): void => {
+  // must stay exit 0. A hold over a block no run can refresh fails every verb.
+  //
+  // The held block's detail lines link its source's store entry, so a source with work this run
+  // is refused whole, as the byte budget refuses one, when it holds the file installed (`owner`,
+  // the reservation's read) or renders into it (`files`, the render's). The reservation comes
+  // before any block is requested; a run limited by -a, or a file behind a link, requests none.
+  const workKeys = new Set(works.map((work) => work.key));
+  const holds = new Map<string, Pick<Refusal, "said" | "failure"> & { frozen: Set<string> }>();
+  const takeHold = (hold: RuleFileHeld, owner?: string): void => {
     const realKey = realKeyOf(hold.path);
-    if (heldKeys.has(realKey)) return;
-    heldKeys.add(realKey);
-    planned.add(realKey);
-    heldFiles.push(hold.path);
-    notices.loud(`maxims: ${hold.message}`);
-    if (hold.hint !== undefined) notices.loud(`maxims: ${hold.hint}`);
-    if (extras.verb !== "remove" && hold.fails === "remove") return;
-    failures.push({
-      code: ExitCode.DestinationWriteFailed,
-      message: hold.message,
-      ...(hold.hint === undefined ? {} : { hint: hold.hint }),
-    });
+    let taken = holds.get(realKey);
+    if (taken === undefined) {
+      planned.add(realKey);
+      heldFiles.push(hold.path);
+      const said = new Notices();
+      said.loud(`maxims: ${hold.message}`);
+      if (hold.hint !== undefined) said.loud(`maxims: ${hold.hint}`);
+      const failure: SyncFailure | null =
+        extras.verb !== "remove" && hold.fails === "remove"
+          ? null
+          : {
+              code: ExitCode.DestinationWriteFailed,
+              message: hold.message,
+              ...(hold.hint === undefined ? {} : { hint: hold.hint }),
+            };
+      notices.absorb(said);
+      if (failure !== null) failures.push(failure);
+      taken = { said, failure, frozen: new Set() };
+      holds.set(realKey, taken);
+    }
+    const frozen = taken;
+    const freeze = (key: string): void => {
+      if (!workKeys.has(key) || frozen.frozen.has(key)) return;
+      frozen.frozen.add(key);
+      record(key, frozen.said, frozen.failure);
+    };
+    if (owner !== undefined) freeze(owner);
+    for (const file of files.values()) {
+      if (fileIdentity(file) !== realKey) continue;
+      for (const block of file.blocks) freeze(block.key);
+    }
   };
   // A link at a rule file's path holds nothing while this run writes or deletes the path: either
   // replaces the link and never reaches the file behind it. A link no change replaces (a hook run
   // defers its deletions) stays, its block loaded, and is held like a file. Which it is is known
   // once every file is rendered.
-  const linkedHolds: RuleFileHeld[] = [];
-  const reserveHold = (hold: RuleFileHeld): void => {
-    if (lstatOrNullSync(hold.path)?.isSymbolicLink() ?? false) linkedHolds.push(hold);
-    else takeHold(hold);
+  const linkedHolds: { hold: RuleFileHeld; owner: string }[] = [];
+  const reserveHold = (hold: RuleFileHeld, owner: string): void => {
+    if (lstatOrNullSync(hold.path)?.isSymbolicLink() ?? false) linkedHolds.push({ hold, owner });
+    else takeHold(hold, owner);
   };
   // What a source holds on disk enters the name index first, dated before every source, so a memory
   // another source newly ships under an installed name collides instead of taking the body over.
@@ -383,7 +414,7 @@ async function planInstall(
               entry,
               ctx,
               io,
-              reserveHold,
+              (held) => reserveHold(held, key),
               ambiguous,
               installedTrees.get(key) ?? null,
             ),
@@ -704,8 +735,8 @@ async function planInstall(
       each.blocks = each.blocks.filter((block) => block.key !== key);
     }
   }
-  for (const hold of linkedHolds) {
-    if (!written.has(realKeyOf(hold.path))) takeHold(hold);
+  for (const { hold, owner } of linkedHolds) {
+    if (!written.has(realKeyOf(hold.path))) takeHold(hold, owner);
   }
   // What the admitted sources publish: a source's lines are counted once, however many files
   // carry them, so the count reads as memories with a rule line, not as files times memories.
@@ -1348,7 +1379,8 @@ function bodiesDir(dir: string, root: string): BodiesDir {
 // The local names a source holds installed right now, read from what the last run left behind. A
 // copy carries no owner of its own: one whose bytes match no current memory, because the memory
 // has since changed, names no owner either, and the dedupe rule decides the name. A rule file
-// behind a marker the grammar refuses reserves no name and goes to `hold`.
+// behind a marker the grammar refuses goes to `hold` and keeps the names its blocks carry
+// (`heldRuleBlocks`).
 //   store copy read through the selection       so a hidden internal memory is left out
 //   user-scope detail paths through the renames  they name the store file under the upstream name
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
@@ -1397,9 +1429,10 @@ export async function retainedNames(
       blocks = parseRuleBlocks(text);
     } catch (error) {
       if (!(error instanceof MarkerRefused)) throw error;
-      // Reported here, where the file is read, so every verb names it.
+      // Reported here, where the file is read, so every verb names it. The held block keeps its
+      // names: a rival shipping one collides instead of writing its body under the kept line.
       hold(new RuleFileHeld(path, error));
-      continue;
+      blocks = heldRuleBlocks(text);
     }
     const block = blocks.find((candidate) => candidate.source === key);
     for (const name of block?.names ?? []) {

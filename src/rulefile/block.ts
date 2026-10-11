@@ -19,6 +19,8 @@ const ELLIPSIS = "...";
 // pattern derived from it. The version is the begin marker's last field so that a reader of any
 // version finds it before judging the rest (migrations/block-ladder.ts).
 const BEGIN_MARKER = "<!-- maxims:begin {source} sha={sha} version={version} -->";
+// The end marker carries no version and is spelled alike by every version: it is the line that
+// names a block whose begin marker this maxims refuses (`heldBlockSpans`).
 const END_MARKER = "<!-- maxims:end {source} -->";
 const FIELD = /\{(\w+)\}/g;
 type MarkerFields = Readonly<Record<string, string>>;
@@ -79,22 +81,30 @@ export class MarkerRefused extends MaximsError {
   }
 }
 
-// A begin marker the current grammar does not read is refused where it is met, never read as
-// text: text would leave its block in place beside a fresh one. The version is the marker's last
-// field in every version of the grammar, so it is read without parsing the rest, and judged as
-// the token the renderer writes (`01` is another version, not a spelling of this one); a line of
-// the current version that fails the grammar past it is text, like any line that only opens like one.
-function refuseForeignBegin(text: string): void {
+// The marker lines among a file's comment lines; every other comment is text between them.
+// A begin marker of another version is `foreign`, never text, since text would leave its block
+// beside a fresh one. The version is the marker's last field in every version, so it is read
+// before the rest and judged as the token the renderer writes (`01` is another version).
+type MarkerLine =
+  | { kind: "begin"; source: string; sha: string }
+  | { kind: "foreign"; text: string; version: string | null }
+  | { kind: "end"; source: string };
+
+function markerLine(line: MarkdownLine): MarkerLine | null {
+  if (line.kind !== "comment") return null;
+  const { text } = line;
+  const begin = BEGIN_LINE.exec(text);
+  if (begin !== null) return { kind: "begin", source: begin[1], sha: begin[2] };
   if (
-    text.length < BEGIN_OPENER.length + MARKER_CLOSER.length ||
-    !text.startsWith(BEGIN_OPENER) ||
-    !text.endsWith(MARKER_CLOSER)
+    text.length >= BEGIN_OPENER.length + MARKER_CLOSER.length &&
+    text.startsWith(BEGIN_OPENER) &&
+    text.endsWith(MARKER_CLOSER)
   ) {
-    return;
+    const version = VERSION_FIELD.exec(text.slice(0, -MARKER_CLOSER.length))?.[1] ?? null;
+    if (version !== VERSION) return { kind: "foreign", text, version };
   }
-  const version = VERSION_FIELD.exec(text.slice(0, -MARKER_CLOSER.length))?.[1] ?? null;
-  if (version === VERSION) return;
-  throw new MarkerRefused(text, version);
+  const end = END_LINE.exec(text);
+  return end === null ? null : { kind: "end", source: end[1] };
 }
 
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
@@ -781,6 +791,28 @@ export function parseBlocks(fileText: string): ParsedBlocks {
   return { blocks, warnings };
 }
 
+export type HeldSpan = Pick<ParsedBlock, "source" | "start" | "end">;
+
+// The blocks of a file this run holds, named by their end markers: a begin marker of any version
+// pairs with the very next marker line when that is an end, since the version read refuses a
+// foreign begin before its fields are known. Every pair is returned, a hand-duplicated source's
+// later blocks included, since a held file keeps them all loaded; nothing is refreshed through them.
+export function heldBlockSpans(fileText: string): HeldSpan[] {
+  const spans: HeldSpan[] = [];
+  let start: number | null = null;
+  for (const line of markdownLines(fileText)) {
+    const marker = markerLine(line);
+    if (marker === null) continue;
+    if (marker.kind !== "end") {
+      start = line.start;
+      continue;
+    }
+    if (start !== null) spans.push({ source: marker.source, start, end: line.end });
+    start = null;
+  }
+  return spans;
+}
+
 // Every well-formed pair in document order, a hand-duplicated source's later pairs included.
 function blockSpans(fileText: string): ParsedBlock[] {
   const spans: ParsedBlock[] = [];
@@ -795,20 +827,23 @@ function blockSpans(fileText: string): ParsedBlock[] {
 function markerPairing(): (line: MarkdownLine) => ParsedBlock | null {
   let pending: Pick<ParsedBlock, "source" | "sha" | "start"> | null = null;
   return (line) => {
-    if (line.kind !== "comment") return null;
-    const begin = BEGIN_LINE.exec(line.text);
-    if (begin !== null) {
-      pending = { source: begin[1], sha: begin[2], start: line.start };
-      return null;
+    const marker = markerLine(line);
+    if (marker === null) return null;
+    switch (marker.kind) {
+      case "begin":
+        pending = { source: marker.source, sha: marker.sha, start: line.start };
+        return null;
+      case "foreign":
+        throw new MarkerRefused(marker.text, marker.version);
+      case "end": {
+        const span =
+          pending !== null && pending.source === marker.source
+            ? { ...pending, end: line.end }
+            : null;
+        pending = null;
+        return span;
+      }
     }
-    refuseForeignBegin(line.text);
-    if (!END_LINE.test(line.text)) return null;
-    const span =
-      pending !== null && line.text === fillMarker(END_MARKER, { source: pending.source })
-        ? { ...pending, end: line.end }
-        : null;
-    pending = null;
-    return span;
   };
 }
 
