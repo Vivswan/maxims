@@ -12,6 +12,10 @@ export const spec = {
   id: "opencode",
   displayName: "OpenCode",
   tier: 1,
+  // The code sources read the `v1` release branch, since `dev` is OpenCode 2.0, whose plugin API
+  // (`@opencode/plugin`) and `plugins` key differ from the 1.x contract this spec states. The docs
+  // pages read `dev`, the published site's source, so the day they document 2.0 the import claim
+  // on the plugins page drifts.
   verifiedAgainst: {
     date: "2026-10-10",
     sources: [
@@ -27,7 +31,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/core/src/global.ts",
         claims: ["path.join(xdgConfig!, app)", 'const app = "opencode"', "OPENCODE_CONFIG_DIR"],
         note: "~/.config/opencode as the global root",
@@ -35,7 +39,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/opencode/src/session/instruction.ts",
         claims: [
           'const instructionFiles = [ "AGENTS.md",',
@@ -47,7 +51,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/opencode/src/config/config.ts",
         claims: [
           'ConfigPaths.files("opencode", ctx.directory, ctx.worktree)',
@@ -58,7 +62,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/opencode/src/config/paths.ts",
         claims: [`targets: [\`\${name}.jsonc\`, \`\${name}.json\`]`],
         note: "opencode.jsonc and opencode.json as the two project config names",
@@ -66,7 +70,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/opencode/src/config/plugin.ts",
         claims: ["{plugin,plugins}/*.{ts,js}"],
         note: "the plugins directory",
@@ -74,7 +78,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/sdk/js/src/gen/types.gen.ts",
         claims: ['"session.created"'],
         note: "the session.created event",
@@ -82,7 +86,7 @@ export const spec = {
       {
         kind: "file",
         repo: "anomalyco/opencode",
-        ref: "dev",
+        ref: "v1",
         path: "packages/plugin/src/index.ts",
         claims: ["event?:", "$: BunShell"],
         note: "the plugin's event hook and shell",
@@ -108,8 +112,12 @@ export const spec = {
         repo: "anomalyco/opencode",
         ref: "dev",
         path: "packages/web/src/content/docs/plugins.mdx",
-        claims: [".opencode/plugins/", "~/.config/opencode/plugins/"],
-        note: "the plugin directories",
+        claims: [
+          ".opencode/plugins/",
+          "~/.config/opencode/plugins/",
+          'import type { Plugin } from "@opencode-ai/plugin"',
+        ],
+        note: "the plugin directories and the plugin package the hook imports",
       },
     ],
   },
