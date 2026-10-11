@@ -2,7 +2,7 @@
 // naming the same set, if a tracked category runs twice a night or never (here and again inside
 // the release gate), or if a report leg stops deciding on its own category's result.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { data, Evaluator, Lexer, Parser } from "@actions/expressions";
 import type { FunctionDefinition } from "@actions/expressions/funcs/info";
@@ -19,6 +19,7 @@ type Condition = string | boolean;
 type Step = { if?: Condition; run?: string; uses?: string; with?: Record<string, string> };
 type Leg = { category: string; description: string; result: string };
 type Job = {
+  "timeout-minutes"?: number | string;
   needs?: string[];
   if?: Condition | null;
   uses?: string;
@@ -176,6 +177,29 @@ test("every tracked category has one job a night, here or in the release gate, a
     [...inline, "release-gate", "report", "report-container"].sort(),
   );
   expect(legs.map((leg) => leg.category).sort()).toEqual([...CATEGORIES].sort());
+});
+
+// GitHub's default job timeout is six hours and nothing reports its absence.
+test("every release-gate job carries its own timeout", () => {
+  const missing = Object.entries(gate.jobs)
+    .filter(([, job]) => job["timeout-minutes"] === undefined)
+    .map(([name]) => name);
+  expect(missing).toEqual([]);
+});
+
+// A second caller runs every tier twice per release with no error from GitHub. The managed
+// ci.yml is the platform's caller and is left out: it changes by sync, never here. A call names
+// the file by a local path, by this repository's coordinate with a ref, or by the `$/` shorthand.
+const CALLS_GATE = new RegExp(`(^\\./|^\\$/|/)${RegExp.escape(GATE_PATH)}(@|$)`);
+test("nightly.yml is the one repository-owned caller of the release gate", () => {
+  const callers = readdirSync(resolve(repoRoot, ".github/workflows"))
+    .filter((file) => /\.ya?ml$/.test(file) && file !== "ci.yml")
+    .flatMap((file) =>
+      Object.entries((read(`.github/workflows/${file}`) as Workflow).jobs ?? {})
+        .filter(([, job]) => CALLS_GATE.test(job.uses ?? ""))
+        .map(([name]) => `${file}:${name}`),
+    );
+  expect(callers).toEqual(["nightly.yml:release-gate"]);
 });
 
 test.each([...CATEGORIES])("the %s job runs its category through the dispatcher", (category) => {
