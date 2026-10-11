@@ -405,13 +405,10 @@ test.each(installRows)(
   },
 );
 
-// Zed's config directory moves per platform, a fact only its loader enforces: paths.rs reads
-// `$XDG_CONFIG_HOME` through the dirs crate on Linux and FreeBSD, which drops a relative value as
-// the XDG spec requires, takes RoamingAppData (`%APPDATA%\Zed`) on Windows, and fixes
-// `~/.config/zed` on macOS. The registry compiles for the platform the suite runs on, so each
-// platform's definition is compiled here. Paths and `./` values are relative to a temporary
-// directory holding `home/` and the row's directories, and `installed` is what detection says of
-// a machine with only those.
+// Where Zed's config directory sits per platform is enforced only by its loader. The registry
+// compiles for the platform the suite runs on, so each platform's definition is compiled here;
+// `./` values and the expected paths are relative to a temporary directory holding `home/` and
+// the row's directories.
 type PlatformRow = [
   label: string,
   spec: HarnessSpec,
@@ -430,6 +427,15 @@ const PER_PLATFORM: PlatformRow[] = [
     { XDG_CONFIG_HOME: "./xdg" },
     ["xdg/zed/"],
     { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
+    true,
+  ],
+  [
+    "zed under Flatpak on Linux, where paths.rs reads $FLATPAK_XDG_CONFIG_HOME ahead of $XDG_CONFIG_HOME",
+    zedSpec,
+    "linux",
+    { FLATPAK_XDG_CONFIG_HOME: "./flatpak", XDG_CONFIG_HOME: "./xdg" },
+    ["flatpak/zed/", "xdg/zed/"],
+    { rule: "flatpak/zed/AGENTS.md", hook: null, mcp: "flatpak/zed/settings.json" },
     true,
   ],
   [

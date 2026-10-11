@@ -23,6 +23,7 @@ import {
   homeRelative,
   placeholderPattern,
   placeholdersIn,
+  rootVariables,
   type ScopedFrontmatterSpec,
   type TargetSpec,
 } from "./spec.ts";
@@ -169,21 +170,26 @@ function sessionDirectory(cwd: string): string {
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
-// working directory, not against HOME. A vendor whose loader drops a relative value declares
-// `absoluteOnly`, and the default stands in for it: a root resolver has no channel to say so. A
-// variable the vendor reads on other platforms only is not consulted on this one.
+// working directory, not against HOME. A variable the vendor drops when relative, or reads on
+// other platforms only, is passed over as if unset; the default stands in with no notice, since
+// a root resolver has no channel to give one.
 function compileGlobalRoot(
   root: GlobalRootSpec,
   platform: NodeJS.Platform,
 ): (ctx: HarnessContext) => string {
   const fallback = homeRelative(root.default);
   const entries = root.env === undefined ? [] : Array.isArray(root.env) ? root.env : [root.env];
-  const env = entries.find((entry) => entry.platforms?.includes(platform) !== false);
+  const entry = entries.find((candidate) => candidate.platforms?.includes(platform) !== false);
+  const variables = entry === undefined ? [] : rootVariables(entry);
+  const subdir = entry?.subdir;
   return (ctx) => {
-    const value = env === undefined ? undefined : ctx.env[env.name];
-    if (env === undefined || value === undefined || value === "") return join(ctx.home, fallback);
-    if (env.absoluteOnly === true && !isAbsolute(value)) return join(ctx.home, fallback);
-    return env.subdir === undefined ? resolve(value) : join(resolve(value), env.subdir);
+    for (const variable of variables) {
+      const value = ctx.env[variable.name];
+      if (value === undefined || value === "") continue;
+      if (variable.absoluteOnly === true && !isAbsolute(value)) continue;
+      return subdir === undefined ? resolve(value) : join(resolve(value), subdir);
+    }
+    return join(ctx.home, fallback);
   };
 }
 

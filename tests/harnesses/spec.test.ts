@@ -117,6 +117,11 @@ const refusals: [string, Mutation, string][] = [
     "globalRoot.env.1.platforms: linux is already read through XDG_CONFIG_HOME",
   ],
   [
+    "one variable twice in a root's ordered list",
+    at(["globalRoot", "env"], { name: [{ name: "XDG_CONFIG_HOME" }, { name: "XDG_CONFIG_HOME" }] }),
+    "globalRoot.env.name.1.name: XDG_CONFIG_HOME is already listed",
+  ],
+  [
     "a scoped frontmatter whose paths key already holds a value",
     at(["targets", "project", "frontmatter", "scoped"], {
       fields: { globs: "**", alwaysApply: false },
