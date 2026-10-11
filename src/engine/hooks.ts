@@ -169,7 +169,7 @@ export async function planHooks(input: {
         const registration = mcpRegistrationAt(def, scope, harnessCtx);
         if (registration === null) return null;
         reach.add(fileId(registration.path));
-        return mcpAnswer(registration, wants.hook, hook);
+        return mcpAnswer(def, scope, harnessCtx, registration, wants.hook, hook);
       });
       const config = await attempt(wants.rules, async () => {
         const edits = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
@@ -197,7 +197,7 @@ export async function planHooks(input: {
         const registration = resolvedThere(() => mcpRegistrationAt(def, "project", there));
         if (registration === undefined || registration === null) return null;
         if (!reach.has(fileId(registration.path))) return null;
-        return mcpAnswer(registration, true, hook);
+        return mcpAnswer(def, "project", there, registration, true, hook);
       });
       for (const answer of [hook, mcp]) {
         if (answer?.claims.some((file) => reach.has(fileId(file)))) {
@@ -303,13 +303,23 @@ async function hookAnswer(
 // The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
 // the entry is then planned over the hook's planned text and rides in the hook's change, notice
 // included, since a second change of that file planned from its old text would land after the
-// first and take the hook back out.
+// first and take the hook back out. A registry whose link was refused (`hook` null, the failure
+// reported) carries no servers write either: planned from the old text, it would replace the link
+// the refusal names. The registry is matched by its declared path, since `hookPath` asserts it
+// inside the root and a hook folder linked out would fail here again, servers file apart or not.
 async function mcpAnswer(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
   registration: McpRegistration,
   wanted: boolean,
   hook: ScopeAnswer | null,
 ): Promise<ScopeAnswer> {
   const file = realKeyOf(registration.path);
+  const rides = { artifact: [], claims: [registration.path], wanted, notices: [] };
+  if (hook === null && hasHook(def, "registry") && realKeyOf(def.hook.path(scope, ctx)) === file) {
+    return rides;
+  }
   const shared = hook?.artifact.findIndex((change) => filesOf(change).includes(file)) ?? -1;
   const current = hook?.artifact[shared];
   if (hook === null || current === undefined || !carriesText(current)) {
@@ -327,7 +337,7 @@ async function mcpAnswer(
     hook.artifact[shared] = { ...current, content: write.content };
     hook.notices.push(...noticesOf(plan.notice));
   }
-  return { artifact: [], claims: [registration.path], wanted, notices: [] };
+  return rides;
 }
 
 function carriesText(change: Change): change is Extract<Change, { kind: "write" | "edit" }> {

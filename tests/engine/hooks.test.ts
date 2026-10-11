@@ -263,6 +263,66 @@ describe("the MCP server entry follows the hook intent", () => {
     },
   );
 
+  // The refusal tells the user to replace the link with a real file; a servers write of the same
+  // file, planned from its old text, would do that replacing itself, and the run's own refusal
+  // would be contradicted by what it applied.
+  test("in the hook's registry whose link is refused, no write of that file is planned beside the refusal", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const outside = join(dir, "outside.json");
+      writeFileSync(outside, '{ "theme": "dark" }\n');
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      symlinkSync(outside, registry);
+      const wanted = await plan(together, dir, home, userHome, true);
+      expect(wanted).toEqual({
+        changes: [],
+        removals: [],
+        notices: [],
+        failures: [
+          {
+            message: expect.stringContaining(
+              `cannot edit ${registry}: it is a symlink to ${outside}, outside `,
+            ),
+            hint: expect.stringContaining("then run maxims sync"),
+          },
+        ],
+      });
+      expect(readFileSync(outside, "utf8")).toBe('{ "theme": "dark" }\n');
+    });
+  });
+
+  // The servers file is matched to a refused registry by the registry's declared path alone: a
+  // containment assertion repeated inside the servers attempt would fail again where the hook's
+  // did, and take a servers file apart from the registry down with it.
+  test("a hook folder linked out of the root fails the hook alone; a servers file apart from it is still written", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      mkdirSync(join(dir, "elsewhere"));
+      symlinkSync(join(dir, "elsewhere"), join(userHome, "fixture-hooks"));
+      const registryHook = rulesDirHarness.hook;
+      if (registryHook.kind !== "registry") throw new Error("the fixture hook is a registry");
+      const hooksApart: HarnessDefinition = {
+        ...apart,
+        hook: {
+          ...registryHook,
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), "fixture-hooks", "settings.json"),
+        },
+      };
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const wanted = await plan(hooksApart, dir, home, userHome, true);
+      expect<unknown>(wanted).toEqual({
+        changes: [{ kind: "write", path: mcp, content: expect.stringContaining('"mcp-serve"') }],
+        removals: [],
+        notices: [`registered the maxims MCP server in ${mcp}`],
+        failures: [
+          {
+            message: expect.stringContaining(`refusing to write outside ${userHome}`),
+            hint: undefined,
+          },
+        ],
+      });
+    });
+  });
+
   // Each artifact is planned on its own: a servers file that cannot be read costs this run that
   // one registration, reported when it was wanted, and never the hook's own edit or removal.
   test("a servers file that cannot be read is reported when wanted and leaves the hook's plan standing", async () => {
