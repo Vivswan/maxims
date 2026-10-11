@@ -1445,7 +1445,8 @@ export function retainedBlockNames(
   io: EngineIo,
   hold: (held: RuleFileHeld, owned: boolean) => void,
 ): MemoryName[] {
-  // A source installed for another project has no rule file in this one.
+  // The files resolve against the project the run is in, not the entry's own: an entry installed
+  // for another project would read this project's shared file, or refuse outside any project.
   if (!actsHere(entry, ctx)) return [];
   const { intent } = entry;
   const names = new Set<MemoryName>();
