@@ -1,13 +1,9 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// `.claude/rules/**/*.md` loads at launch with no frontmatter, so the always-on file needs none;
-// only a path-scoped install adds the `paths:` preamble. `disableAllHooks` silences every hook,
-// ours included, and is read after settings precedence applies, so the tier check walks the
-// layers in that order: managed settings and `--settings` outrank all three and are not read.
-// Claude Code skips a settings file it cannot parse and keeps the other layers in effect, so only
-// the hook's own broken file demotes. Claude Code strips HTML comments before injection and
-// expands `@path` imports; a rule file may grow to its 4 MiB memory cap.
+// A `.claude/rules` file loads at launch with no frontmatter, so only a path-scoped install carries
+// a preamble. `disableAllHooks` is read after settings precedence applies; managed settings and
+// `--settings` outrank every file here and are not read.
 export const spec = {
   id: "claude-code",
   displayName: "Claude Code",

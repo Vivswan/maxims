@@ -1,9 +1,8 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Warp applies the ALL CAPS `AGENTS.md` at the repository root and in the current directory, and
-// a `WARP.md` beside it takes priority; global rules live in Warp Drive, not in a file. Warp has
-// no hook system, so the MCP stub carries freshness.
+// Warp applies the ALL CAPS `AGENTS.md` at the repository root and in the current directory, and a
+// `WARP.md` beside it takes priority; global rules live in Warp Drive, not in a file.
 export const spec = {
   id: "warp",
   displayName: "Warp",

@@ -1,12 +1,10 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Copilot CLI reads its user files from $COPILOT_HOME before falling back to ~/.copilot; the
-// instructions directory and the hooks directory both move with it. Without `applyTo` an
-// instructions file is path-scoped by Copilot's own matching and silently stops being
-// always-loaded, so the frontmatter is never omitted; `**` matches every file. Copilot picks `bash`
-// on POSIX and `powershell` on Windows and never falls back between them, so both carry the same
-// command or the hook is silently inert on one platform.
+// Without `applyTo` an instructions file is path-scoped by Copilot's own matching and silently
+// stops being always-loaded, so the frontmatter is never omitted. Copilot picks `bash` on POSIX and
+// `powershell` on Windows and never falls back between them, so both carry the same command or the
+// hook is silently inert on one platform.
 export const spec = {
   id: "copilot",
   displayName: "GitHub Copilot",

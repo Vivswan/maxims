@@ -1,19 +1,15 @@
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Codex resolves its home from $CODEX_HOME before falling back to ~/.codex; every user-level file
-// (AGENTS.md, hooks.json, config.toml) moves with it. Its two instruction loaders differ on a blank
-// file: in that home it reads the first of AGENTS.override.md and AGENTS.md whose trimmed content
-// is not empty, so a blank override is passed over there; in a project directory it takes the
-// first of the two that exists and drops a blank one without falling back to AGENTS.md, so there
-// the block belongs in the override even when blank. Hooks are on unless `[features] hooks =
-// false` is set; Codex layers a `.codex/config.toml` from the project root down to the directory
-// it runs in over the user config.toml, the nearest deciding, so every one of them is read for
-// that flag and never written. A project layer applies only where the user config.toml marks its
-// directory, or the project root, `projects.<path>.trust_level = "trusted"`; an untrusted one is
-// skipped whole, broken or not. Codex refuses to start on a user or trusted project config.toml it
-// cannot parse or type, so such a layer anywhere is hooks off. hooks.json goes through serde_json,
-// which takes strict JSON: a comment or a trailing comma is a file Codex warns about and skips.
+// Codex's two instruction loaders differ on a blank file. In its home it passes a blank
+// AGENTS.override.md over and reads AGENTS.md; in a project directory it takes the first that
+// exists and drops a blank one without falling back, so there the block belongs in the override
+// even when blank.
+//   project .codex/config.toml   read only where the user config.toml marks its directory, or the
+//                                project root, `projects.<path>.trust_level = "trusted"`; an
+//                                untrusted layer is skipped whole, broken or not
+//   hooks.json                   serde_json, strict JSON: a comment or a trailing comma is a file
+//                                Codex warns about and skips
 export const spec = {
   id: "codex",
   displayName: "Codex",
