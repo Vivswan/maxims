@@ -2,7 +2,8 @@
   // The shipped surface against the engines floor. `lib` is what a Node 24 binary answered to
   // `node -e` probes and `types` is @types/node on that same line, so a bun-only or newer API in
   // src/ fails here before it reaches dist/cli.js. Raising engines.node moves the `lib` line, the
-  // @types/node pin in package.json, and the node-version in .github/workflows/checks.yml.
+  // @types/node pin in package.json, every `node-version:` under .github/workflows, and the FROM
+  // tag in tests/container/Dockerfile (tests/container/image.test.ts goes red until it does).
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": ["node"],
