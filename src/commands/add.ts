@@ -616,8 +616,8 @@ function adoptRecordedKey(request: AddRequest, state: State, io: CliIo): AddRequ
   return { ...request, key: recorded, from: entry.intent.from };
 }
 
-// The sync after the commit must reach what the entries listed before as well as what they list
-// now.
+// What the commit hands the sync beyond the preview, so the sweep reaches files the new intent no
+// longer names.
 //   harnesses   those listed now and before, so a re-add that drops one takes its files with it;
 //               empty means every harness, which a manifest's disabled names call for, since a
 //               name switched off may belong to any project source

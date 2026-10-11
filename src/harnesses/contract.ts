@@ -98,7 +98,8 @@ export type HookSpec = {
 //   plain                                        stdout becomes context (Claude Code, Codex)
 //   json:additionalContext                       Copilot, at the top level of the one JSON object
 //   json:hookSpecificOutput.additionalContext    Claude Code, Gemini and Devin, beside the event
-//   json:contextModification, additional_context Cline's and Cursor's own keys
+//   json:contextModification                     Cline's own key
+//   json:additional_context                      Cursor's own key
 export type HookStdout =
   | "plain"
   | "json:additionalContext"
