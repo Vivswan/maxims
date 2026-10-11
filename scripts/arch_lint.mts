@@ -202,7 +202,7 @@ function isFile(path: string): boolean {
   return existsSync(path) && statSync(path).isFile();
 }
 
-/** The file `specifier` names from `importer`. Bun.resolveSync takes a directory: handed the importer file itself, it finds nothing. */
+/** Bun.resolveSync takes a directory: handed the importer file itself, it finds nothing. */
 export function resolveImport(importer: string, specifier: string): string {
   try {
     return Bun.resolveSync(specifier, dirname(importer));
