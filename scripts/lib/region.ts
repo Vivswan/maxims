@@ -1,12 +1,40 @@
 import { readPage } from "./page.ts";
 
-// The name is spliced into a regex unescaped, so only regex-literal characters are admitted.
-const REGION_NAME = /^[a-z0-9-]+$/;
+export interface RegionMarker {
+  readonly kind: "BEGIN" | "END";
+  readonly name: string;
+}
 
-/** A marker is a line of its own (up to three spaces in); one quoted mid-line or under `> ` is page text. */
-function markerPattern(kind: "BEGIN" | "END", name: string): RegExp {
+// A name is spliced into the pattern unescaped, so only regex-literal characters are admitted.
+const NAME = "[a-z0-9-]+";
+const REGION_NAME = new RegExp(`^${NAME}$`);
+
+/**
+ * The marker grammar, owned here for the renderers that splice a region and the checks that skip
+ * one. A marker is a line of its own (up to three spaces in); one quoted mid-line or under `> ` is
+ * page text.
+ *
+ *   <!-- BEGIN GENERATED: name (hint) -->
+ *   <!-- END GENERATED: name -->
+ */
+function markerPattern(kind: RegionMarker["kind"], name: string, flags = ""): RegExp {
   const hint = kind === "BEGIN" ? String.raw`(?: \([^)\n]*\))?` : "";
-  return new RegExp(`^ {0,3}<!-- ${kind} GENERATED: ${name}${hint} -->[ \\t]*\\r?$`, "gm");
+  return new RegExp(
+    String.raw`^ {0,3}<!-- ${kind} GENERATED: (${name})${hint} -->[ \t]*\r?$`,
+    flags,
+  );
+}
+
+const MARKER_LINES = (["BEGIN", "END"] as const).map(
+  (kind) => [kind, markerPattern(kind, NAME)] as const,
+);
+
+export function parseMarker(line: string): RegionMarker | null {
+  for (const [kind, pattern] of MARKER_LINES) {
+    const name = pattern.exec(line)?.[1];
+    if (name !== undefined) return { kind, name };
+  }
+  return null;
 }
 
 /** Exactly one BEGIN then one END for `name`, else a throw naming the counts: a second marker pair would splice into the wrong one silently. */
@@ -23,8 +51,8 @@ export function regionBounds(text: string, name: string): { bodyStart: number; b
     // Indented code is quoted text as much as a fence is.
     return lineText !== undefined && !/^( {4}|\t)/.test(lineText);
   };
-  const begins = [...text.matchAll(markerPattern("BEGIN", name))].filter(live);
-  const ends = [...text.matchAll(markerPattern("END", name))].filter(live);
+  const begins = [...text.matchAll(markerPattern("BEGIN", name, "gm"))].filter(live);
+  const ends = [...text.matchAll(markerPattern("END", name, "gm"))].filter(live);
   const [begin] = begins;
   const [end] = ends;
   if (begin === undefined || end === undefined || begins.length !== 1 || ends.length !== 1) {

@@ -36,6 +36,7 @@ import type { Event, Token, TokenizeContext } from "micromark-util-types";
 import { isInside } from "../src/util/fs.ts";
 import { parseArgv, positiveInteger, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
+import { parseMarker, type RegionMarker } from "./lib/region.ts";
 import { captureOrThrow } from "./lib/spawn.ts";
 
 export const DEFAULT_MAX_WORDS = 70;
@@ -143,12 +144,7 @@ function decodeCharacterReference(reference: string): string {
 /** An `id` or `name` attribute inside a tag opening; text that merely spells one renders no anchor. */
 const TAG_ID = /<[a-zA-Z][^<>]*?\s(?:id|name)="([^"]+)"/g;
 
-/** Only the documented marker comment, with its name, opens or closes a generated region. */
-const REGION_MARKER = /^\s*<!-- (BEGIN|END) GENERATED: (\S+)/;
-
-interface Marker {
-  readonly kind: "BEGIN" | "END";
-  readonly name: string;
+interface Marker extends RegionMarker {
   readonly start: number;
   readonly end: number;
 }
@@ -249,10 +245,8 @@ const COLLECTED = new Set([
 const SINKS = new Set(["image", "resource", "reference", "definition", "htmlText"]);
 
 const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
-  const m = REGION_MARKER.exec(context.sliceSerialize(token));
-  const kind = m?.[1];
-  if (kind !== "BEGIN" && kind !== "END") return [];
-  return [{ kind, name: m?.[2] ?? "", start: token.start.line, end: token.end.line }];
+  const marker = parseMarker(context.sliceSerialize(token));
+  return marker === null ? [] : [{ ...marker, start: token.start.line, end: token.end.line }];
 };
 
 export function scanPage(text: string): Scan {
