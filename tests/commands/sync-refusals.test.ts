@@ -1838,11 +1838,8 @@ describe("a file holding a block whose marker carries no version", () => {
     },
   );
 
-  // The bodies are copies and the source directory is gone, so the held block is the only record
-  // of the name, and a rival's body write landed under a line the held file still carries when
-  // the reservation missed it. It missed it three ways: it stopped at the refused marker, it
-  // dropped the block at a stripped-marker harness's provenance comments, and it kept a
-  // hand-duplicated source's first block alone. A held file keeps every block loaded.
+  // The bodies are copies and the source directory is gone, so a held block is the only record of
+  // its names.
   const splitAlpha = (text: string): string => {
     const lines = text.split("\n");
     const marker = (prefix: string): string => {
@@ -1980,45 +1977,73 @@ describe("a file holding a block whose marker carries no version", () => {
   );
 
   // A run limited by -a requests no block in the held file, so the hold the name reservation
-  // raised is the only one: the source still owns the file and still freezes.
-  test("a live source whose held file is outside the -a filter is frozen: the body its block links survives an upstream drop", async () => {
-    await world(async ({ home, dir, userHome, project }) => {
-      const live = writeSource(join(dir, "live"), {
-        alpha: { description: "Alpha." },
-        beta: { description: "Beta." },
+  // raised is the only one, and the reservation reads every file the source's intent names,
+  // the filtered harness's included.
+  const outsideFilter: [
+    string,
+    (own: { text: string; marker: string }) => { text: string; marker: string },
+    { alphaRule: boolean; alphaBody: "kept" | "swept" },
+  ][] = [
+    ["its own block", (own) => own, { alphaRule: true, alphaBody: "kept" }],
+    [
+      "only another source's block",
+      () => ({ text: OLD_BLOCK, marker: OLD_BEGIN }),
+      { alphaRule: false, alphaBody: "swept" },
+    ],
+  ];
+  test.each(outsideFilter)(
+    "a held file outside the -a filter carrying %s holds the run, and freezes the live source only with its own block",
+    async (_label, fileOf, expected) => {
+      await world(async ({ home, dir, userHome, project }) => {
+        const live = writeSource(join(dir, "live"), {
+          alpha: { description: "Alpha." },
+          beta: { description: "Beta." },
+        });
+        const entry = entryFor(localFrom(live, true), {
+          destination: { scope: "project", root: project },
+          harnesses: ["codex", "claude-code"],
+          copy: true,
+        });
+        writeState(home, stateWith({ [live]: entry }));
+        const io = fakeIo({ home, userHome, cwd: project });
+        await runSync(SYNC, io);
+        const body = join(project, ".agents", "memories", "alpha.md");
+        const copied = readFileSync(body, "utf8");
+        const shared = join(project, "FIXTURE.md");
+        const { text, marker } = fileOf(unversioned(shared));
+        writeFileSync(shared, text);
+        const rulesFile = join(
+          project,
+          ".fixture",
+          "rules",
+          `maxims-${sourceSlug(localFrom(live, true))}.md`,
+        );
+        rmSync(join(live, "memories", "alpha.md"));
+        io.out.length = 0;
+        const error = await expectExit(
+          runSync({ ...SYNC, agents: ["claude-code"] }, io),
+          ExitCode.DestinationWriteFailed,
+        );
+        const line = `!  maxims: ${refusal(shared, marker)}\n!  maxims: ${hint}\n`;
+        expect({
+          message: error.message,
+          hint: error.hint,
+          held: io.out.join("").includes(line),
+          alphaRule: readFileSync(rulesFile, "utf8").includes("- Alpha."),
+          alphaBody: !existsSync(body)
+            ? "swept"
+            : readFileSync(body, "utf8") === copied
+              ? "kept"
+              : "changed",
+          shared: readFileSync(shared, "utf8") === text ? "kept" : "changed",
+        }).toEqual({
+          message: refusal(shared, marker),
+          hint,
+          held: true,
+          shared: "kept",
+          ...expected,
+        });
       });
-      const entry = entryFor(localFrom(live, true), {
-        destination: { scope: "project", root: project },
-        harnesses: ["codex", "claude-code"],
-        copy: true,
-      });
-      writeState(home, stateWith({ [live]: entry }));
-      const io = fakeIo({ home, userHome, cwd: project });
-      await runSync(SYNC, io);
-      const body = join(project, ".agents", "memories", "alpha.md");
-      const copied = readFileSync(body, "utf8");
-      const shared = join(project, "FIXTURE.md");
-      const { text, marker } = unversioned(shared);
-      const rulesFile = join(
-        project,
-        ".fixture",
-        "rules",
-        `maxims-${sourceSlug(localFrom(live, true))}.md`,
-      );
-      const rulesBefore = readFileSync(rulesFile, "utf8");
-      rmSync(join(live, "memories", "alpha.md"));
-      io.out.length = 0;
-      const error = await expectExit(
-        runSync({ ...SYNC, agents: ["claude-code"] }, io),
-        ExitCode.DestinationWriteFailed,
-      );
-      expect({ message: error.message, hint: error.hint }).toEqual({
-        message: refusal(shared, marker),
-        hint,
-      });
-      expect(readFileSync(body, "utf8")).toBe(copied);
-      expect(readFileSync(rulesFile, "utf8")).toBe(rulesBefore);
-      expect(readFileSync(shared, "utf8")).toBe(text);
-    });
-  });
+    },
+  );
 });

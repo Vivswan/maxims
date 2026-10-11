@@ -247,7 +247,6 @@ export async function planSync(
   }
 }
 
-// `failure` is null where the reason fails no verb this run.
 type Refusal = { key: string; said: Notices; failure: SyncFailure | null };
 
 type Attempt = {
@@ -332,9 +331,9 @@ async function planInstall(
   // must stay exit 0. A hold over a block no run can refresh fails every verb.
   //
   // The held block's detail lines link its source's store entry, so a source with work this run
-  // is refused whole, as the byte budget refuses one, when it holds the file installed (`owner`,
-  // the reservation's read) or renders into it (`files`, the render's). The reservation comes
-  // before any block is requested; a run limited by -a, or a file behind a link, requests none.
+  // is refused whole, like an over-budget one, when it has a block in the file (`owner`, set only
+  // then by the reservation's read) or renders into it (`files`, the render's). The reservation
+  // precedes every block request; a run limited by -a, or a file behind a link, requests none.
   const workKeys = new Set(works.map((work) => work.key));
   const holds = new Map<string, Pick<Refusal, "said" | "failure"> & { frozen: Set<string> }>();
   const takeHold = (hold: RuleFileHeld, owner?: string): void => {
@@ -375,8 +374,8 @@ async function planInstall(
   // replaces the link and never reaches the file behind it. A link no change replaces (a hook run
   // defers its deletions) stays, its block loaded, and is held like a file. Which it is is known
   // once every file is rendered.
-  const linkedHolds: { hold: RuleFileHeld; owner: string }[] = [];
-  const reserveHold = (hold: RuleFileHeld, owner: string): void => {
+  const linkedHolds: { hold: RuleFileHeld; owner: string | undefined }[] = [];
+  const reserveHold = (hold: RuleFileHeld, owner: string | undefined): void => {
     if (lstatOrNullSync(hold.path)?.isSymbolicLink() ?? false) linkedHolds.push({ hold, owner });
     else takeHold(hold, owner);
   };
@@ -414,7 +413,7 @@ async function planInstall(
               entry,
               ctx,
               io,
-              (held) => reserveHold(held, key),
+              (held, owned) => reserveHold(held, owned ? key : undefined),
               ambiguous,
               installedTrees.get(key) ?? null,
             ),
@@ -1378,18 +1377,19 @@ function bodiesDir(dir: string, root: string): BodiesDir {
 
 // The local names a source holds installed right now, read from what the last run left behind. A
 // copy carries no owner of its own: one whose bytes match no current memory, because the memory
-// has since changed, names no owner either, and the dedupe rule decides the name. A rule file
-// behind a marker the grammar refuses goes to `hold` and keeps the names its blocks carry
-// (`heldRuleBlocks`).
+// has since changed, names no owner either, and the dedupe rule decides the name.
 //   store copy read through the selection       so a hidden internal memory is left out
 //   user-scope detail paths through the renames  they name the store file under the upstream name
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
+//   a marker the grammar refuses                 the file goes to `hold`, owned only with a block
+//                                                of the source's in it; its blocks keep their names
+//                                                (`heldRuleBlocks`)
 export async function retainedNames(
   key: string,
   entry: SourceEntry,
   ctx: EngineContext,
   io: EngineIo,
-  hold: (held: RuleFileHeld) => void,
+  hold: (held: RuleFileHeld, owned: boolean) => void,
   ambiguous: ReadonlySet<ContentHash> = new Set(),
   installedSnapshot?: SourceTree | null,
 ): Promise<MemoryName[]> {
@@ -1425,16 +1425,19 @@ export async function retainedNames(
     const text = regularFileText(path);
     if (text === null) continue;
     let blocks: RuleBlock[];
+    let refused: MarkerRefused | null = null;
     try {
       blocks = parseRuleBlocks(text);
     } catch (error) {
       if (!(error instanceof MarkerRefused)) throw error;
-      // Reported here, where the file is read, so every verb names it. The held block keeps its
-      // names: a rival shipping one collides instead of writing its body under the kept line.
-      hold(new RuleFileHeld(path, error));
+      refused = error;
       blocks = heldRuleBlocks(text);
     }
     const block = blocks.find((candidate) => candidate.source === key);
+    // Reported here, where the file is read, so every verb names it; the source owns the hold
+    // only with a block in the file, since the hold freezes its owner. The held block keeps its
+    // names: a rival shipping one collides instead of writing its body under the kept line.
+    if (refused !== null) hold(new RuleFileHeld(path, refused), block !== undefined);
     for (const name of block?.names ?? []) {
       names.add(upstreamPaths ? renamed(intent.rename, name) : name);
     }
