@@ -36,6 +36,7 @@ import {
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND,
+  HOOK_TIMEOUT_SECONDS,
   hookSpecFor,
   type Scope,
   scopeRoot,
@@ -45,10 +46,11 @@ import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import {
   freshRegistry,
   hasHook,
+  hookPath,
   planHookOnly,
   rewriteHookRegistry,
 } from "../../src/harnesses/hook-writer.ts";
-import { rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
+import { mcpRegistrationAt, rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import * as fsUtil from "../../src/util/fs.ts";
@@ -1344,6 +1346,131 @@ describe("both scopes resolving to one registry", () => {
             message: `cannot edit ${linked}: it is a symlink to ${global}, outside ${project}`,
             hint: expect.stringContaining("then run maxims sync"),
           },
+        ],
+      });
+    });
+  });
+
+  // Home as the project root puts the global servers file inside the project, so Devin's project
+  // hook registry may be linked to it; the wanted entry beside the stale one keeps only itself.
+  test("Devin's project hook registry linked to the global servers file holding a stale entry: the hook lands and the entry leaves in one edit", async () => {
+    await world(async ({ home, userHome }) => {
+      if (!hasHook(devin, "registry")) throw new Error("Devin's hook is a registry");
+      mkdirSync(join(userHome, ".git"));
+      const io = fakeIo({ home, userHome, cwd: userHome, harnesses: [devin] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const harnessCtx = harnessContext(ctx);
+      const registry = hookPath(devin, "project", harnessCtx);
+      const servers = mcpRegistrationAt(devin, "global", harnessCtx);
+      const projectServers = mcpRegistrationAt(devin, "project", harnessCtx);
+      if (servers === null || projectServers === null) throw new Error("Devin declares servers");
+      for (const file of [registry, servers.path]) mkdirSync(dirname(file), { recursive: true });
+      const stale = rewriteServers({ registration: servers, wanted: true, currentText: null });
+      if (stale === null) throw new Error("expected the servers text");
+      writeFileSync(servers.path, stale.text);
+      symlinkSync(servers.path, registry);
+      const plan = await planHooks({
+        ctx,
+        harnesses: [devin],
+        agents: undefined,
+        wants: (_id, scope: Scope) => ({
+          hook: scope === "project",
+          rules: false,
+          unreachable: false,
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      const parsed = (change: Change): unknown[] => [
+        change.kind,
+        change.path,
+        change.kind === "edit" ? change.target : null,
+        "content" in change ? JSON.parse(change.content) : null,
+      ];
+      const handler = { type: "command", command: HOOK_COMMAND, timeout: HOOK_TIMEOUT_SECONDS };
+      const server = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
+      expect([plan.changes.map(parsed), plan.removals, plan.failures, plan.notices]).toEqual([
+        [
+          [
+            "edit",
+            registry,
+            servers.path,
+            { mcpServers: {}, hooks: { SessionStart: [{ hooks: [handler] }] } },
+          ],
+          ["edit", projectServers.path, projectServers.path, { mcpServers: { maxims: server } }],
+        ],
+        [],
+        [],
+        [
+          `registered the maxims hook in ${registry}`,
+          `removed the maxims MCP server from ${servers.path}`,
+          `registered the maxims MCP server in ${projectServers.path}`,
+        ],
+      ]);
+    });
+  });
+
+  // A file hook is maxims's own file, written whole: a servers file of the other scope linked to it
+  // holds no entry of the user's to remove, and the removal edit, applied after the hook's write,
+  // would replace the hook with JSON. Home as the project root puts the file inside both roots.
+  test("a global servers file linked to the wanted project file hook: its removal is dropped, the hook written", async () => {
+    await world(async ({ home, userHome }) => {
+      if (!hasHook(sharedBlockHarness, "file")) throw new Error("the fixture hook is a file");
+      mkdirSync(join(userHome, ".git"));
+      const folderOf = (scope: Scope) => (scope === "project" ? ".fixture-project" : FIXTURE_DIR);
+      const perScope: HarnessDefinition = {
+        ...sharedBlockHarness,
+        hook: {
+          ...sharedBlockHarness.hook,
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), folderOf(scope), "hooks", "start"),
+        },
+        mcp: {
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), folderOf(scope), "mcp.json"),
+          serversPath: ["mcpServers"],
+        },
+      };
+      const hookFile = join(userHome, ".fixture-project", "hooks", "start");
+      const projectServers = join(userHome, ".fixture-project", "mcp.json");
+      const globalServers = join(userHome, FIXTURE_DIR, "mcp.json");
+      mkdirSync(dirname(hookFile), { recursive: true });
+      writeFileSync(hookFile, '{ "mcpServers": { "maxims": { "command": "old" } } }\n');
+      symlinkSync(hookFile, globalServers);
+      const io = fakeIo({ home, userHome, cwd: userHome, harnesses: [perScope] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [perScope],
+        agents: undefined,
+        wants: (_id, scope: Scope) => ({
+          hook: scope === "project",
+          rules: false,
+          unreachable: false,
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect<unknown>(plan).toEqual({
+        changes: [
+          {
+            kind: "write",
+            path: hookFile,
+            content: expect.stringContaining(HOOK_COMMAND),
+            mode: 0o755,
+          },
+          {
+            kind: "edit",
+            path: projectServers,
+            target: projectServers,
+            content: expect.stringContaining('"mcp-serve"'),
+          },
+        ],
+        removals: [],
+        failures: [],
+        notices: [
+          `wrote the maxims hook to ${hookFile}`,
+          `registered the maxims MCP server in ${projectServers}`,
         ],
       });
     });

@@ -533,7 +533,9 @@ function fileId(path: string): string {
 // The unwanted scope's removal applies last, and dsh's bridge is one file for both scopes: a
 // project-only install must not delete for the global scope the hook it wrote. Per harness, since
 // another harness's entry in a shared file is never this one's to keep. A file matches by where a
-// change lands:
+// change lands; a registry rewrite is dropped only for a file a wanted plain answer writes or
+// claims (a file hook, dsh's bridge: maxims's own, written whole), since the entry a wanted rewrite
+// owns is skipped by entry and every other entry of the leaving scope must go:
 //   a registry      -> its destination, the file behind every link to it
 //   a wanted change -> its leaf, and the file it lands in
 //   a claim         -> its leaf, plus the file behind it when no wanted change writes the leaf (a
@@ -542,18 +544,8 @@ function fileId(path: string): string {
 //                      claim's chain is dropped too
 function admitted(answers: readonly ScopeAnswer[]): ScopeAnswer[] {
   const wanted = answers.filter((answer) => answer.wanted);
-  const touched = new Set(
-    wanted.flatMap((answer) => [
-      ...answer.changes.flatMap(filesOf),
-      ...(answer.rewrite === null ? [] : [answer.rewrite.file.key]),
-    ]),
-  );
-  const kept = new Set(touched);
-  for (const claim of wanted.flatMap((answer) => answer.claims)) {
-    const key = realKeyOf(claim);
-    kept.add(key);
-    if (!touched.has(key)) kept.add(fileId(claim));
-  }
+  const kept = filesKept(wanted);
+  const held = filesKept(wanted.filter((answer) => answer.rewrite === null));
   const keeps = (change: Change): boolean =>
     filesOf(change).some((file) => kept.has(file)) || kept.has(fileId(change.path));
   return answers.filter(
@@ -561,7 +553,23 @@ function admitted(answers: readonly ScopeAnswer[]): ScopeAnswer[] {
       answer.wanted ||
       !(
         answer.changes.some(keeps) ||
-        (answer.rewrite !== null && kept.has(answer.rewrite.file.key))
+        (answer.rewrite !== null && held.has(answer.rewrite.file.key))
       ),
   );
+}
+
+function filesKept(answers: readonly ScopeAnswer[]): Set<string> {
+  const touched = new Set(
+    answers.flatMap((answer) => [
+      ...answer.changes.flatMap(filesOf),
+      ...(answer.rewrite === null ? [] : [answer.rewrite.file.key]),
+    ]),
+  );
+  const kept = new Set(touched);
+  for (const claim of answers.flatMap((answer) => answer.claims)) {
+    const key = realKeyOf(claim);
+    kept.add(key);
+    if (!touched.has(key)) kept.add(fileId(claim));
+  }
+  return kept;
 }
