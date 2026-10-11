@@ -1018,7 +1018,7 @@ test("doctor reports a file behind a marker the grammar refuses as that file's r
     writeFileSync(shared, held);
     mkdirSync(join(scenario.cwd, ".cursor", "rules"), { recursive: true });
     writeFileSync(rulesFile, `${CURSOR_FRONTMATTER}${block("@a/b", ["tests-before-the-fix"])}`);
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, ["doctor", "--expect", "tests-before-the-fix"]);
     expect(run.code).toBe(1);
     expect(run.stdout.split("\n").slice(0, 3)).toEqual([
@@ -1028,7 +1028,7 @@ test("doctor reports a file behind a marker the grammar refuses as that file's r
       `ok  cursor: ${rulesFile}`,
       `x   expect tests-before-the-fix: no rule line in ${shared}`,
     ]);
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
     const json = await runCli(scenario, ["doctor", "--json"]);
     expect(json.code).toBe(1);
     const body = JSON.parse(json.stdout) as {
