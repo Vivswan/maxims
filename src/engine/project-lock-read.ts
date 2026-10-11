@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { DEFAULT_GIT_REF, type SourceFrom } from "../contracts/source.ts";
 import {
   type LockSource,
@@ -64,18 +64,18 @@ export async function readProjectLock(
 }
 
 // A lock entry's source as state records it: the pin becomes the ref, a relative local path is
-// anchored at the project root, must stay inside it (the lock is shared with people who have only
-// the checkout), and is recorded by its real path like every local source.
+// read from the project root as the kernel reads it (a `..` after a linked folder steps out of the
+// folder the link reached), must stay inside the root (the lock is shared with people who have
+// only the checkout), and is recorded by its real path like every local source.
 export function sourceFromLock(source: LockSource, projectRoot: string): SourceFrom {
   if (source.from.type === "local") {
-    const typed = resolve(projectRoot, source.from.path);
-    if (!insideProject(projectRoot, typed)) {
+    const path = realpathOfExistingPrefix(source.from.path, projectRoot);
+    if (!insideProject(projectRoot, path)) {
       throw new MaximsError(
         ExitCode.Usage,
         `manifest source ${source.from.path} leaves the project root`,
       );
     }
-    const path = realpathOfExistingPrefix(typed);
     return source.from.live === true
       ? { type: "local", path, live: true }
       : { type: "local", path };

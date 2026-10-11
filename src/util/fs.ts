@@ -123,8 +123,11 @@ export function isInside(root: string, path: string): boolean {
 // rest appended as typed. Only "nothing is there" stops the walk; a prefix that exists but cannot
 // be inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
-export function realpathOfExistingPrefix(path: string): string {
-  return realpathOfPrefix(path, path);
+//
+// A relative `path` is read from `from`, the cwd when none is given, never folded first: a `..`
+// is a step the walk takes from the real folder before it.
+export function realpathOfExistingPrefix(path: string, from?: string): string {
+  return realpathOfPrefix(path, path, from);
 }
 
 // The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
@@ -138,17 +141,25 @@ export function realKeyOf(path: string): string {
 // front of it, and bun's normalizes the typed path before the kernel sees it, so neither is handed
 // a `..`. The cwd is read inside the try: under a sealed folder macOS refuses the read itself.
 //
+// A relative prefix takes its anchor's names in front of its own, so the anchor is walked like the
+// rest and its own missing tail is kept as typed.
+//
 // A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
 // at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
 // cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
-function realpathOfPrefix(prefix: string, asked: string): string {
+function realpathOfPrefix(prefix: string, asked: string, from?: string): string {
   const links = linksOf(process.platform);
-  const { root, names } = links.parts(prefix);
+  let { root, names } = links.parts(prefix);
   let at = root;
   let index = 0;
   try {
-    at = resolve(root === "" ? process.cwd() : root);
-    at = realpathSync.native(at);
+    if (root === "") {
+      const anchor = links.parts(resolve(from ?? process.cwd()));
+      root = anchor.root;
+      names = [...anchor.names, ...names];
+      at = root;
+    }
+    at = realpathSync.native(resolve(root));
     while (index < names.length) {
       const rest = names.slice(index);
       if (rest[0] === "..") {
