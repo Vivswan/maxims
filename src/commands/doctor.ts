@@ -3,12 +3,14 @@ import type { HarnessId } from "../contracts/harness-id.ts";
 import { actsHere, harnessContext } from "../engine/context.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { type HookStatus, hookStatus, hookStatusText } from "../engine/hooks.ts";
+import { RuleFileHeld } from "../engine/rules.ts";
 import { disabledNames } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
 import { findSourceKey } from "../engine/source-key.ts";
 import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName, renamed } from "../memory/contract.ts";
+import { MarkerRefused } from "../rulefile/block.ts";
 import { parseRuleBlocks, type RuleBlock } from "../rulefile/blocks.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import { ExitCode } from "../util/exit-codes.ts";
@@ -33,12 +35,12 @@ type Finding = { kind: "ok" | "warn" | "fail"; text: string };
 // `--paths` filter (`path-scope`). Null when the writer puts none there.
 type Preamble = { ok: true } | { ok: false; lost: "always-on" | "path-scope" } | null;
 
-type RuleFileReport = {
-  source: string;
-  path: string;
-  present: boolean;
-  preamble: Preamble;
-};
+// A file behind a marker the grammar refuses is held whole, blocks unread: its row is the hold's
+// own words, the ones sync prints, with no `present` to judge.
+type RuleFileReport = { source: string; path: string } & (
+  | { held: null; present: boolean; preamble: Preamble }
+  | { held: { message: string; hint: string | null } }
+);
 
 type HarnessReport = {
   id: HarnessId;
@@ -182,12 +184,17 @@ async function checkHarness(
     );
     if (path === null) continue;
     const blocks = ruleBlocks(path);
-    ruleFiles.push({
-      source: key,
-      path,
-      present: (blocks ?? []).some((block) => block.source === key),
-      preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
-    });
+    ruleFiles.push(
+      blocks instanceof RuleFileHeld
+        ? { source: key, path, held: { message: blocks.message, hint: blocks.hint ?? null } }
+        : {
+            source: key,
+            path,
+            held: null,
+            present: (blocks ?? []).some((block) => block.source === key),
+            preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
+          },
+    );
   }
   const hook = await hookStatus(
     def,
@@ -201,10 +208,17 @@ async function checkHarness(
   return { id: def.id, scope, ruleFiles, hook, tier };
 }
 
-// Null when the file is absent; an empty list when it exists but carries no managed block.
-function ruleBlocks(path: string): RuleBlock[] | null {
+// Null when the file is absent; an empty list when it exists but carries no managed block; the
+// hold when a marker in it is one the grammar refuses, since the parser then reads no block of it.
+function ruleBlocks(path: string): RuleBlock[] | null | RuleFileHeld {
   const text = readIfPresent(path);
-  return text === null ? null : parseRuleBlocks(text);
+  if (text === null) return null;
+  try {
+    return parseRuleBlocks(text);
+  } catch (error) {
+    if (error instanceof MarkerRefused) return new RuleFileHeld(path, error);
+    throw error;
+  }
 }
 
 // The preamble the rules-dir writer puts before the block, fences included, and the file must open
@@ -240,7 +254,9 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
   }
   for (const [path, files] of byPath) {
     const shown = tildify(path, userHome);
+    const held = files.find((file) => file.held !== null)?.held ?? null;
     const failed = files.flatMap((file) => {
+      if (file.held !== null) return [];
       if (!file.present) {
         return def.targets[report.scope]?.kind === "shared-block"
           ? [`${shown} has no block for ${file.source}`]
@@ -255,6 +271,10 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
       }
       return [];
     });
+    // One hold per file, however many sources share it: the hint sits where the hook row puts its fix.
+    if (held !== null) {
+      failed.push(held.hint === null ? held.message : `${held.message} (${held.hint})`);
+    }
     for (const what of failed) findings.push({ kind: "fail", text: `${prefix} ${what}` });
     if (failed.length === 0) findings.push({ kind: "ok", text: `${prefix} ${shown}` });
   }
@@ -329,13 +349,15 @@ async function checkExpect(
 }
 
 // A rule line's detail path names the store file at user scope, so it carries the upstream name
-// and goes through the rename map; at project scope it names the body, already local.
+// and goes through the rename map; at project scope it names the body, already local. A held file
+// has no line anyone read, so it is missing the line like an absent file.
 function hasRuleLine(
-  blocks: RuleBlock[] | null,
+  blocks: RuleBlock[] | null | RuleFileHeld,
   source: string,
   entry: SourceEntry,
   name: MemoryName,
 ): boolean {
+  if (blocks instanceof RuleFileHeld) return false;
   const local = (upstream: MemoryName): MemoryName =>
     entry.intent.destination.scope === "global" ? renamed(entry.intent.rename, upstream) : upstream;
   return (blocks ?? []).some((b) => b.source === source && b.names.some((n) => local(n) === name));

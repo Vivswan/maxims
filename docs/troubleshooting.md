@@ -83,6 +83,8 @@ maxims holds the file instead: nothing in it changes, the sources whose block in
 
 A hook run exits 0 and writes the same two lines without the `!` prefix, which reach the session where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
 
+[`doctor`](check.md#doctor-what-each-harness-loads) reports the file as one `x` row carrying the same words, checks every other file, and exits 1 as it does for any `x` row.
+
 ```text
 !  maxims: /home/user/AGENTS.md: the marker "<!-- maxims:begin @you/notes sha=3f2a9c1e -->" carries no version; this maxims writes version 1 and cannot refresh the block it opens
 !  maxims: delete the block from that line through its maxims:end line, then run sync, which writes it afresh
