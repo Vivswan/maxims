@@ -31,8 +31,7 @@ function registration(dir: string, file: string, serversPath: string[]): McpRegi
   return { root: dir, path: assertInsideRoot(dir, join(dir, file)), serversPath };
 }
 
-// The planner's own path to a servers file: the read, then the rewrite over what it found. `null`
-// is a file already saying what the intent wants; the text otherwise.
+// The planner's own two steps for a servers file, so a row pins what sync plans.
 async function plan(registration: McpRegistration, wanted: boolean): Promise<string | null> {
   const currentText = await readConfigText(registration.path);
   return rewriteServers({ registration, wanted, currentText })?.text ?? null;

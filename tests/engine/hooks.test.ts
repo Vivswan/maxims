@@ -22,8 +22,13 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
-import { type EngineContext, loadContext } from "../../src/engine/context.ts";
-import { type HarnessWants, type HooksPlan, planHooks } from "../../src/engine/hooks.ts";
+import { type EngineContext, harnessContext, loadContext } from "../../src/engine/context.ts";
+import {
+  type HarnessWants,
+  type HooksPlan,
+  hookStatus,
+  planHooks,
+} from "../../src/engine/hooks.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
@@ -37,7 +42,12 @@ import {
 } from "../../src/harnesses/contract.ts";
 import { devin } from "../../src/harnesses/devin/spec.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
-import { freshRegistry } from "../../src/harnesses/hook-writer.ts";
+import {
+  freshRegistry,
+  hasHook,
+  planHookOnly,
+  rewriteHookRegistry,
+} from "../../src/harnesses/hook-writer.ts";
 import { rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -328,9 +338,8 @@ describe("the MCP server entry follows the hook intent", () => {
     });
   });
 
-  // The servers file is matched to a refused registry by the registry's declared path alone: a
-  // containment assertion repeated inside the servers attempt would fail again where the hook's
-  // did, and take a servers file apart from the registry down with it.
+  // The servers attempt resolves its own file and never the hook's, so the hook path's containment
+  // failure is the hook's alone and a servers file apart from the registry is still edited.
   test("a hook folder linked out of the root fails the hook alone; a servers file apart from it is still written", async () => {
     await world(async ({ home, userHome, dir }) => {
       mkdirSync(join(dir, "elsewhere"));
@@ -361,10 +370,10 @@ describe("the MCP server entry follows the hook intent", () => {
     });
   });
 
-  // Matching the servers file to the refused registry resolves the registry's declared path once
-  // more; a folder on the way that cannot be searched is the hook's failure, reported once, and
-  // not the servers file's. Both rows name the hook's declared path: which component the kernel
-  // refuses differs by platform (`realKeyOf` owns that), and the plan does not.
+  // A folder on the way to the hook registry that cannot be searched fails the hook's own read,
+  // reported once, and never the servers file's, which resolves its own path alone. Both rows name
+  // the hook's declared path: which component the kernel refuses differs by platform (`realKeyOf`
+  // owns that), and the plan does not.
   const sealedHookFolders: [string, (hookFolder: string) => string][] = [
     ["an ancestor of the hook folder", dirname],
     ["the hook folder itself", (hookFolder) => hookFolder],
@@ -641,8 +650,7 @@ describe("two harnesses declared at one file", () => {
   };
   const server = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
   const group = { hooks: [{ type: "command", command: HOOK_COMMAND }] };
-  // Every row pins the whole plan: each change as [kind, path, target, parsed content], then the
-  // removals the same way, the failures and the notices.
+  // Every row pins the whole plan, never a field of it.
   const parsed = (change: Change): unknown[] => [
     change.kind,
     change.path,
@@ -1232,6 +1240,135 @@ describe("both scopes resolving to one registry", () => {
       });
     });
   }
+
+  // One file reached by two harnesses, one of them through a link out of its root: each altering
+  // rewrite mints its own edit, so the refusal does not depend on which harness altered the file
+  // first.
+  const orders: [string, boolean][] = [
+    ["the global harness first", true],
+    ["the project harness first", false],
+  ];
+  test.each(orders)(
+    "a project servers file linked to the global one, another harness wanting the global file, %s: the project entry is refused",
+    async (_label, globalFirst) => {
+      await world(async ({ home, userHome, project }) => {
+        const global = join(userHome, FIXTURE_DIR, "mcp.json");
+        const linked = join(project, FIXTURE_DIR, "mcp.json");
+        writeFileSync(global, "{}\n");
+        symlinkSync(global, linked);
+        const atGlobal: HarnessDefinition = { ...apart, hook: { kind: "none" } };
+        const atProject: HarnessDefinition = {
+          ...serversIn("mcp.json", ["context_servers"]),
+          id: "codex",
+          hook: { kind: "none" },
+        };
+        const defs = globalFirst ? [atGlobal, atProject] : [atProject, atGlobal];
+        const io = fakeIo({ home, userHome, cwd: project, harnesses: defs });
+        const ctx = await loadContext(io, { readHookStdin: false });
+        const plan = await planHooks({
+          ctx,
+          harnesses: defs,
+          agents: undefined,
+          wants: (id, scope: Scope) => {
+            const own: Scope = id === atGlobal.id ? "global" : "project";
+            return { hook: scope === own, rules: false, unreachable: scope !== own };
+          },
+          elsewhere: () => [],
+          judgeLink: () => undefined,
+        });
+        const server = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
+        expect<unknown>(plan).toEqual({
+          changes: [{ kind: "edit", path: global, target: global, content: expect.any(String) }],
+          removals: [],
+          notices: [`registered the maxims MCP server in ${global}`],
+          failures: [
+            {
+              message: `cannot edit ${linked}: it is a symlink to ${global}, outside ${project}`,
+              hint: expect.stringContaining("then run maxims sync"),
+            },
+          ],
+        });
+        const [edit] = plan.changes;
+        if (edit?.kind !== "edit") throw new Error("expected the global edit");
+        expect(JSON.parse(edit.content)).toEqual({ mcpServers: { maxims: server } });
+      });
+    },
+  );
+
+  // The intent says the entry leaves, and the file holding it is reached through a link the edit
+  // refuses: the removal that cannot happen is this run's failure, wanted or not, or the entry
+  // stays installed with nothing said.
+  test("a project servers file linked out of the project root, the entry to leave behind it: the refusal is reported", async () => {
+    await world(async ({ home, userHome, project }) => {
+      const hookless: HarnessDefinition = { ...apart, hook: { kind: "none" } };
+      const global = join(userHome, FIXTURE_DIR, "mcp.json");
+      const linked = join(project, FIXTURE_DIR, "mcp.json");
+      const current = rewriteServers({
+        registration: {
+          root: userHome,
+          path: assertInsideRoot(userHome, global),
+          serversPath: ["mcpServers"],
+        },
+        wanted: true,
+        currentText: null,
+      });
+      if (current === null) throw new Error("expected the servers text");
+      writeFileSync(global, current.text);
+      symlinkSync(global, linked);
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [hookless] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [hookless],
+        agents: undefined,
+        wants: (_id, scope: Scope) => ({
+          hook: false,
+          rules: false,
+          unreachable: scope !== "project",
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect<unknown>(plan).toEqual({
+        changes: [],
+        removals: [],
+        notices: [],
+        failures: [
+          {
+            message: `cannot edit ${linked}: it is a symlink to ${global}, outside ${project}`,
+            hint: expect.stringContaining("then run maxims sync"),
+          },
+        ],
+      });
+    });
+  });
+
+  // list and doctor judge the hook through planHookOnly, so a hook settled behind a project
+  // registry linked out of the project root reads current there, as sync plans nothing for it.
+  test("a hook settled behind a project registry linked out of the project root is current for list and doctor", async () => {
+    await world(async ({ home, userHome, project }) => {
+      if (!hasHook(rulesDirHarness, "registry")) throw new Error("the fixture hook is a registry");
+      const global = join(userHome, FIXTURE_DIR, "settings.json");
+      const linked = join(project, FIXTURE_DIR, "settings.json");
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [rulesDirHarness] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const harnessCtx = harnessContext(ctx);
+      const fresh = rewriteHookRegistry({
+        def: rulesDirHarness,
+        scope: "project",
+        ctx: harnessCtx,
+        wanted: true,
+        currentText: null,
+      });
+      if (fresh === null) throw new Error("expected the fresh registry");
+      writeFileSync(global, fresh.text);
+      symlinkSync(global, linked);
+      const state = stateWith({}, { project: { [project]: ["claude-code"] } });
+      expect(
+        await hookStatus(rulesDirHarness, "project", state, project, harnessCtx, planHookOnly),
+      ).toBe("current");
+    });
+  });
 
   // A home that is itself a repository makes the two scopes' hook registries one file while a
   // definition naming its servers file per scope keeps two: the one registry is then edited once

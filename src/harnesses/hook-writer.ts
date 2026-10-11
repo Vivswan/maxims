@@ -141,14 +141,14 @@ export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite 
 }
 
 // A registry is the user's file, edited where its bytes live: a link at the path is followed, and
-// one nothing can follow is refused before any text is planned over it.
+// one nothing can follow is refused by name when the file must change, as the sync planner refuses
+// it, so `list` and `doctor` call a settled hook behind such a link current.
 export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
+  const rewrite = rewriteHookRegistry(input);
+  if (rewrite === null) return { changes: [] };
   const path = hookPath(input.def, input.scope, input.ctx);
   const edit = editInPlace(scopeRoot(input.def, input.scope, input.ctx), path);
-  const rewrite = rewriteHookRegistry(input);
-  return rewrite === null
-    ? { changes: [] }
-    : { changes: [edit(rewrite.text)], notice: rewrite.notice };
+  return { changes: [edit(rewrite.text)], notice: rewrite.notice };
 }
 
 // The registry file a hook lands in when none exists. A quirk that keeps a registry-shaped file

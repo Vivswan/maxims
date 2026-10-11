@@ -157,7 +157,7 @@ export async function planHooks(input: {
   const harnessCtx = harnessContext(ctx);
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
   const files = new RegistryFiles(input.judgeLink);
-  const admittedAnswers: ScopeAnswer[] = [];
+  const perHarness: ScopeAnswer[][] = [];
   // Reported once, and only when this run must edit the registry (one it wants nothing from may
   // be unreadable for reasons of its own). A rewrite's failure is keyed by its file: each rewrite
   // of a shared file names it by its own path.
@@ -231,25 +231,46 @@ export async function planHooks(input: {
         }
       }
     }
-    admittedAnswers.push(...admitted(answers));
+    perHarness.push(answers);
   }
-  // Wanted rewrites land first, and an unwanted rewrite of an entry a wanted one owns is skipped:
-  // two harnesses at one event or servers key share the entry, which stays for the one wanting it.
   const applied = new Set<ScopeAnswer>();
   const owned = new Set<string>();
   const entryKey = (rewrite: Rewrite): string => `${rewrite.file.key}\0${rewrite.entry}`;
-  for (const wanted of [true, false]) {
-    for (const answer of admittedAnswers) {
-      const { rewrite } = answer;
-      if (answer.wanted !== wanted) continue;
-      if (!wanted && rewrite !== null && owned.has(entryKey(rewrite))) continue;
-      if (rewrite !== null) {
-        const apply = async () => rewrite.file.rewrite(rewrite, wanted);
-        if ((await attempt(wanted, apply, rewrite.file)) === null) continue;
-        if (wanted) owned.add(entryKey(rewrite));
+  // A file that does not parse is this run's failure when it wants the entry there; a file that
+  // must change behind a link the edit refuses is its failure whatever the intent, or the entry
+  // stays where the intent says it should not with nothing said.
+  const apply = async (answer: ScopeAnswer): Promise<void> => {
+    const { rewrite } = answer;
+    if (rewrite !== null) {
+      const { file } = rewrite;
+      const planned = await attempt(
+        answer.wanted,
+        async () => ({ text: file.plan(rewrite) }),
+        file,
+      );
+      if (planned === null) return;
+      if (planned.text !== null) {
+        const { text } = planned;
+        const alter = async () => file.alter(rewrite, text, answer.wanted);
+        if ((await attempt(true, alter, file)) === null) return;
       }
-      applied.add(answer);
+      if (answer.wanted) owned.add(entryKey(rewrite));
     }
+    applied.add(answer);
+  };
+  // Wanted rewrites land first, and an unwanted rewrite of an entry a wanted one owns is skipped:
+  // two harnesses at one event or servers key share the entry, which stays for the one wanting it.
+  // A wanted answer whose rewrite was refused claims nothing, so the other scope's removal stands.
+  for (const answers of perHarness) {
+    for (const answer of answers) if (answer.wanted) await apply(answer);
+  }
+  const admittedAnswers = perHarness.flatMap((answers) =>
+    admitted(answers.filter((answer) => !answer.wanted || applied.has(answer))),
+  );
+  for (const answer of admittedAnswers) {
+    if (answer.wanted) continue;
+    if (answer.rewrite !== null && owned.has(entryKey(answer.rewrite))) continue;
+    await apply(answer);
   }
   const changes: Change[] = [];
   const removals: Change[] = [];
@@ -285,11 +306,12 @@ type ScopeAnswer = {
 };
 
 // `entry` is the slot in the file, the identity two harnesses collide on when their registries are
-// one file.
+// one file. `edit` is minted when the rewrite alters the file: a settled file behind a link the
+// edit would refuse (out of the root, dangling) costs nothing.
 type Rewrite = {
   file: RegistryFile;
   entry: string;
-  edit: (content: string) => Change;
+  edit: () => (content: string) => Change;
   plan: (currentText: string | null) => RegistryRewrite | null;
 };
 
@@ -322,17 +344,28 @@ class RegistryFiles {
 
   constructor(private readonly judgeLink: LinkJudge) {}
 
+  // Judged first, so a chain through a rule file maxims owns whole is refused whatever the read
+  // would find.
   async at(root: string, path: RootedPath): Promise<Pick<Rewrite, "file" | "edit">> {
     this.judgeLink(path);
-    const edit = editInPlace(root, path);
-    // The destination is the same whatever the content.
-    const key = destinationOf(edit(""));
+    const key = fileId(path);
     let file = this.files.get(key);
     if (file === undefined) {
-      file = new RegistryFile(key, await readConfigText(path));
+      file = new RegistryFile(key, await readThrough(root, path));
       this.files.set(key, file);
     }
-    return { file, edit };
+    return { file, edit: () => editInPlace(root, path) };
+  }
+}
+
+// A link the edit cannot follow (to a directory, looped) fails the read too; the edit's refusal
+// names the link and the fix, so it speaks first.
+async function readThrough(root: string, path: RootedPath): Promise<string | null> {
+  try {
+    return await readConfigText(path);
+  } catch (error) {
+    if (registryFailure(error)) editInPlace(root, path);
+    throw error;
   }
 }
 
@@ -341,8 +374,10 @@ class RegistryFiles {
 // defers removals, and an entry a harness wants must not wait on another harness's leaving.
 class RegistryFile {
   // `edit` is the first altering rewrite's, so the change is addressed at the path that first altered
-  // the file.
-  private altered: { text: string; edit: Rewrite["edit"]; wanted: boolean } | null = null;
+  // the file; every altering rewrite still mints its own, so a refused path is refused whatever
+  // altered the file before it.
+  private altered: { text: string; edit: (content: string) => Change; wanted: boolean } | null =
+    null;
   readonly notices: string[] = [];
 
   constructor(
@@ -350,12 +385,16 @@ class RegistryFile {
     private readonly original: string | null,
   ) {}
 
-  rewrite(rewrite: Rewrite, wanted: boolean): void {
-    const rewritten = rewrite.plan(this.altered?.text ?? this.original);
-    if (rewritten === null) return;
+  // `null` when the file already says what the rewrite wants.
+  plan(rewrite: Rewrite): RegistryRewrite | null {
+    return rewrite.plan(this.altered?.text ?? this.original);
+  }
+
+  alter(rewrite: Rewrite, rewritten: RegistryRewrite, wanted: boolean): void {
+    const edit = rewrite.edit();
     this.altered = {
       text: rewritten.text,
-      edit: this.altered?.edit ?? rewrite.edit,
+      edit: this.altered?.edit ?? edit,
       wanted: wanted || this.altered?.wanted === true,
     };
     this.notices.push(rewritten.notice);
