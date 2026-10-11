@@ -45,14 +45,13 @@ import {
   refuseLinksThroughRuleFiles,
   unhandledRetained,
 } from "./sync-links.ts";
-import { isFetchedEntry, type Refreshed, widenedAgents } from "./sync-refresh.ts";
+import { isFetchedEntry, type Refreshed, recordedCopies, widenedAgents } from "./sync-refresh.ts";
 import { INSTALLED_FIRST, retainedNames } from "./sync-retained.ts";
 import {
   addReaders,
   addSharedFilesWithOrphans,
   detailPathFor,
   fileIdentity,
-  groupTargets,
   harnessFile,
   newestBlock,
   removedOutRuleFiles,
@@ -259,11 +258,10 @@ export async function planInstall(
   // A regular file in a bodies directory is ours when its bytes match a memory this run knows:
   // the trees read now, the previous fetch facts (a copy written before upstream changed), and
   // what the caller just removed.
-  const knownCopies = new Set<ContentHash>(extras.removedCopies);
-  for (const entry of Object.values(extras.previousState.sources)) {
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    for (const facts of Object.values(fetched?.memories ?? {})) knownCopies.add(facts.content);
-  }
+  const knownCopies = new Set<ContentHash>([
+    ...extras.removedCopies,
+    ...recordedCopies(Object.values(extras.previousState.sources)),
+  ]);
   const symlink = await io.symlinkSupport();
   const hookRun = extras.verb === "sync" && options.quiet;
   const agents = widenedAgents(options.agents, refreshed);
@@ -400,7 +398,7 @@ export async function planInstall(
         lines: linesFor((_memory, local) => outDetailPath(local)),
       });
     }
-    for (const group of groupTargets(targets.targets)) {
+    for (const group of Map.groupBy(targets.targets, (target) => target.realKey).values()) {
       const [first] = group;
       if (first === undefined) continue;
       requests.push({
