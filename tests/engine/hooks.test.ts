@@ -341,21 +341,13 @@ describe("the MCP server entry follows the hook intent", () => {
 
   // Matching the servers file to the refused registry resolves the registry's declared path once
   // more; a folder on the way that cannot be searched is the hook's failure, reported once, and
-  // not the servers file's. The hook folder itself sealed is the control: resolving stops at its
-  // parent, so only an ancestor sealed reaches the match.
-  const sealedHookFolders: [
-    string,
-    (hookFolder: string) => string,
-    (hookFolder: string) => string,
-  ][] = [
-    ["an ancestor of the hook folder", dirname, (hookFolder) => hookFolder],
-    [
-      "the hook folder itself",
-      (hookFolder) => hookFolder,
-      (hookFolder) => join(hookFolder, "settings.json"),
-    ],
+  // not the servers file's. Both rows name the hook's declared path: which component the kernel
+  // refuses differs by platform (`realKeyOf` owns that), and the plan does not.
+  const sealedHookFolders: [string, (hookFolder: string) => string][] = [
+    ["an ancestor of the hook folder", dirname],
+    ["the hook folder itself", (hookFolder) => hookFolder],
   ];
-  for (const [label, sealedAt, inspected] of sealedHookFolders) {
+  for (const [label, sealedAt] of sealedHookFolders) {
     test.skipIf(!CHMOD_DENIES)(
       `${label} cannot be searched: the hook fails alone and a servers file apart from it is still written`,
       async () => {
@@ -383,7 +375,9 @@ describe("the MCP server entry follows the hook intent", () => {
               notices: [`registered the maxims MCP server in ${mcp}`],
               failures: [
                 {
-                  message: expect.stringContaining(`cannot inspect ${inspected(hookFolder)}:`),
+                  message: expect.stringContaining(
+                    `cannot inspect ${join(hookFolder, "settings.json")}:`,
+                  ),
                   hint: undefined,
                 },
               ],

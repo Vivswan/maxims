@@ -99,7 +99,7 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
   const realCandidate =
     resolved === resolvedRoot || dirname(resolved) === resolved
       ? realpathOfExistingPrefix(resolved)
-      : join(realpathOfExistingPrefix(dirname(resolved)), basename(resolved));
+      : realKeyOf(resolved);
   if (!isInside(realRoot, realCandidate)) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
@@ -123,17 +123,31 @@ export function isInside(root: string, path: string): boolean {
 // inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
 export function realpathOfExistingPrefix(path: string): string {
-  let prefix = path;
+  return realpathOfPrefix(path, path);
+}
+
+// The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
+// because the final entry is what a write replaces (a leaf that is a symlink becomes the real
+// file), while two spellings of the directory above it are one place.
+export function realKeyOf(path: string): string {
+  return join(realpathOfPrefix(dirname(path), path), basename(path));
+}
+
+// A failure to look names `asked`, the entry the caller asked about, never the prefix the walk
+// was at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
+// cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
+function realpathOfPrefix(prefix: string, asked: string): string {
+  let at = prefix;
   const tail: string[] = [];
   for (;;) {
     try {
-      return join(realpathSync(prefix), ...tail.reverse());
+      return join(realpathSync(at), ...tail.reverse());
     } catch (cause) {
-      if (!isAbsent(cause)) throw cannotInspect(prefix, cause);
-      const parent = dirname(prefix);
-      if (parent === prefix) return path;
-      tail.push(basename(prefix));
-      prefix = parent;
+      if (!isAbsent(cause)) throw cannotInspect(asked, cause);
+      const parent = dirname(at);
+      if (parent === at) return prefix;
+      tail.push(basename(at));
+      at = parent;
     }
   }
 }

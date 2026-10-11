@@ -32,10 +32,11 @@ import {
   isSymlink,
   type RootedPath,
   readIfPresent,
+  realKeyOf,
   realpathOfExistingPrefix,
 } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { type HarnessTarget, realKeyOf } from "./destination.ts";
+import type { HarnessTarget } from "./destination.ts";
 import type { HarnessFilter } from "./types.ts";
 
 export type BlockRequest = {

@@ -1808,9 +1808,8 @@ describe("what a refused or departed source leaves behind", () => {
   });
 
   // A `-o` source held this run, unreadable or refused by admission, keeps its rule file whole, as
-  // a rules-dir source's kept file is. The kept `-o` file was once retained for the sweep alone
-  // and left off the link judgment: a shared file linked at it was edited through the link over
-  // the kept rules, with no refusal naming the link. The readable `-o` shape above is the control.
+  // a rules-dir source's kept file is: a shared file linked at it is refused by name, never edited
+  // through the link over the kept rules. The readable `-o` shape above is the control.
   type AtProject = { destination: { scope: "project"; root: string } };
   const heldOut: [
     string,

@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { type HarnessId, isBuiltInHarnessId } from "../contracts/harness-id.ts";
 import {
   type HarnessContext,
@@ -14,7 +14,7 @@ import { rulesDirPath } from "../harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../harnesses/strategies/shared-block.ts";
 import type { SourceIntent } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { followLinks, type RootedPath, realpathOfExistingPrefix } from "../util/fs.ts";
+import { followLinks, type RootedPath, realKeyOf } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import type { HarnessFilter } from "./types.ts";
 
@@ -150,11 +150,4 @@ export function destinationConflict(
     return scope === "project" ? `${def.displayName}: ${folder} does not exist` : null;
   }
   return `${def.displayName}: ${folder} is a file, not the directory ${target.dir} needs`;
-}
-
-// The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
-// because the final entry is what a write replaces (a leaf that is a symlink becomes the real
-// file), while two spellings of the directory above it are one place.
-export function realKeyOf(path: string): string {
-  return join(realpathOfExistingPrefix(dirname(path)), basename(path));
 }

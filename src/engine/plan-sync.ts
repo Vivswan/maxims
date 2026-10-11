@@ -37,13 +37,14 @@ import {
   isInside,
   isSymlink,
   type RootedPath,
+  realKeyOf,
   realpathOfExistingPrefix,
 } from "../util/fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../util/home.ts";
 import { compareCodeUnits } from "../util/order.ts";
 import { inStore, planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { type HarnessTarget, realKeyOf, resolveTargets } from "./destination.ts";
+import { type HarnessTarget, resolveTargets } from "./destination.ts";
 import { DAY_MS, type FetchedEntry, refreshSource, storeEntryPresent } from "./fetch.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
 import { hookedAt, type LinkJudge, planHooks } from "./hooks.ts";
@@ -260,6 +261,10 @@ type Retained =
   | { key: string; kind: "harness"; target: HarnessTarget }
   | { key: string; kind: "out"; realKey: string };
 
+function unhandledRetained(kept: never): Error {
+  return new Error(`unhandled retained kind ${String(kept)}`);
+}
+
 type Attempt = {
   builder: PlanBuilder;
   notices: Notices;
@@ -459,7 +464,7 @@ async function planInstall(
   const agents = widenedAgents(options.agents, refreshed);
   const explicit = options.agents ?? [];
   // Rule files this run renders no block into although their source is still installed, kept for
-  // the sweep and the link judgment. A harness file is written whole, so wherever it is visited
+  // the sweep and the link judgment. A rules-dir file is written whole, so wherever it is visited
   // the block is kept and the harness counted among its readers; a `-o` file has no reader to count.
   const retained: Retained[] = [];
   let memories = 0;
@@ -621,8 +626,8 @@ async function planInstall(
     }
   }
 
-  // An unreadable source keeps its files: its rule files stay off the sweep's list and are owned
-  // whole, the `-o` file included, and the bodies directories it writes to are left alone. Its
+  // An unreadable source keeps its files: its rule files stay off the sweep's list, its rules-dir
+  // files and `-o` file are owned whole, and the bodies directories it writes to are left alone. Its
   // harnesses are resolved like a readable source's, so one whose config folder is absent stays
   // unreachable for the hook planner too.
   for (const source of read.unreadable) {
@@ -697,12 +702,19 @@ async function planInstall(
   // Every file this run visits is registered by now, the orphan visit included; a file no source
   // renders and no orphan strip reaches is not visited, and its blocks stay as they are.
   for (const kept of retained) {
-    if (kept.kind !== "harness") continue;
-    const { key, target } = kept;
-    const rendered = files.get(target.realKey);
-    if (rendered?.kind !== "harness") continue;
-    keepBlock(key, target.realKey);
-    addReaders(rendered, [target], key);
+    switch (kept.kind) {
+      case "out":
+        break;
+      case "harness": {
+        const rendered = files.get(kept.target.realKey);
+        if (rendered?.kind !== "harness") break;
+        keepBlock(kept.key, kept.target.realKey);
+        addReaders(rendered, [kept.target], kept.key);
+        break;
+      }
+      default:
+        throw unhandledRetained(kept);
+    }
   }
   const judgeLink = linkJudge(files, retained);
   refuseLinksThroughRuleFiles(files, judgeLink);
@@ -935,15 +947,21 @@ function addReaders(
 
 // The one judgment of a link this run edits a user-owned file through, a shared file's or a
 // registry's: a hop that is a rule file maxims owns whole is refused by name, since written whole
-// that file would take the edit and cut off the reader whose link passes it. Whole-owned: the
-// rule files this run renders, and those it keeps for a harness `-a` leaves out, an unreadable
-// source, or another project.
+// that file would take the edit and cut off the reader whose link passes it.
 function linkJudge(files: ReadonlyMap<string, RuleFile>, retained: readonly Retained[]): LinkJudge {
   const whole = new Set<string>();
   for (const file of files.values()) if (ownedWhole(file)) whole.add(fileIdentity(file));
   for (const kept of retained) {
-    if (kept.kind === "out") whole.add(kept.realKey);
-    else if (kept.target.target.kind === "rules-dir") whole.add(kept.target.realKey);
+    switch (kept.kind) {
+      case "out":
+        whole.add(kept.realKey);
+        break;
+      case "harness":
+        if (kept.target.target.kind === "rules-dir") whole.add(kept.target.realKey);
+        break;
+      default:
+        throw unhandledRetained(kept);
+    }
   }
   return (link, keys = []) => {
     for (const hop of followLinks(link).hops) {

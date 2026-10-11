@@ -21,6 +21,7 @@ import {
   isAbsent,
   type LinkChain,
   type RootedPath,
+  realKeyOf,
   realpathOfExistingPrefix,
   writeFileAtomic,
 } from "../../src/util/fs.ts";
@@ -253,26 +254,31 @@ describe("realpathOfExistingPrefix", () => {
     });
   });
 
-  test.skipIf(!CHMOD_DENIES)(
-    "a prefix that exists but cannot be inspected is exit 4, never the lexical path",
-    async () => {
+  // The kernels disagree on which component a sealed folder fails at (macOS's realpath refuses
+  // the folder it cannot open, Linux's the entry inside it); each resolver names the entry it was
+  // asked about on both, never the lexical path and never the folder.
+  const sealedResolvers: [string, (path: string) => string][] = [
+    ["realpathOfExistingPrefix", realpathOfExistingPrefix],
+    ["realKeyOf", realKeyOf],
+  ];
+  test.skipIf(!CHMOD_DENIES).each(sealedResolvers)(
+    "%s: a folder on the way that cannot be searched is exit 4 naming the entry asked about",
+    async (_name, resolver) => {
       await withTempDir((dir) => {
         const locked = join(dir, "locked");
         mkdirSync(join(locked, "child"), { recursive: true });
-        const probed = join(locked, "child", "leaf.md");
+        const asked = join(locked, "child", "leaf.md");
         chmodSync(locked, 0o000);
         try {
-          let caught: unknown;
-          try {
-            realpathOfExistingPrefix(probed);
-          } catch (error) {
-            caught = error;
-          }
-          expect(caught).toBeInstanceOf(MaximsError);
-          expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
-          expect((caught as MaximsError).message).toMatch(
-            new RegExp(`^cannot inspect ${probed.replaceAll("\\", "\\\\")}: EACCES`),
-          );
+          expect(outcome(() => resolver(asked))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(
+                new RegExp(`^cannot inspect ${asked.replaceAll("\\", "\\\\")}: EACCES`),
+              ),
+            }),
+          });
         } finally {
           chmodSync(locked, 0o755);
         }
