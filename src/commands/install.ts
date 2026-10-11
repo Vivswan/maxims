@@ -17,17 +17,10 @@ import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { LockSource } from "../state/project-lock.ts";
 import { canonicalSourceKey } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import {
-  type AddRequest,
-  commitAdd,
-  hookWanted,
-  type PreparedAdd,
-  planAdd,
-  registeredLines,
-  type StagedAdd,
-  stageAdd,
-  syncCommitted,
-} from "./add.ts";
+import { commitAdd, registeredLines, syncCommitted } from "./add/commit.ts";
+import { type PreparedAdd, planAdd } from "./add/plan.ts";
+import { type AddRequest, hookWanted } from "./add/request.ts";
+import { type StagedAdd, stageAdd } from "./add/stage.ts";
 import { effectiveNames, knownHarnessIds, sourcesHere, tildify } from "./frame/lookup.ts";
 import {
   type Command,

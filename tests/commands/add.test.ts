@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { sourceOwner } from "../../src/commands/add.ts";
+import { sourceOwner } from "../../src/commands/add/plan.ts";
 import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";

@@ -27,6 +27,9 @@ const HEAVY = [
   "diff",
 ];
 
+// Imports point from the add verb's entry into its phase files, never back, so a root reaching a
+// phase directly never visits the entry. The whole folder is the sentinel, read from disk so a new
+// phase file cannot slip out of the list.
 const HOOK_PATH_EXCLUDES = [
   "sources/github/ladder.ts",
   "sources/github/index.ts",
@@ -34,7 +37,7 @@ const HOOK_PATH_EXCLUDES = [
   "sources/git/index.ts",
   "console/clack.ts",
   "console/rename.ts",
-  "commands/add.ts",
+  ...new Bun.Glob("commands/add/*.ts").scanSync({ cwd: SRC }),
   "commands/update.ts",
 ].map((path) => resolve(SRC, path));
 
@@ -111,6 +114,11 @@ const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
     "commands/show.ts",
     { packages: ["diff"], modules: [] },
   ],
+  [
+    "a non-index add phase",
+    "commands/add/stage.ts",
+    { packages: [], modules: ["commands/add/stage.ts"] },
+  ],
 ];
 
 test.each(CONTROLS)("the check names what a walk from %s carries", (_name, root, expected) => {
@@ -177,7 +185,13 @@ test("the probe names what an add fetching a git remote evaluates", async () => 
       code: 2,
       packages: ["debug", "simple-git", "tar"],
       modules: [
-        "commands/add.ts",
+        "commands/add/commit.ts",
+        "commands/add/harnesses.ts",
+        "commands/add/index.ts",
+        "commands/add/plan.ts",
+        "commands/add/request.ts",
+        "commands/add/stage.ts",
+        "commands/add/validate.ts",
         "console/rename.ts",
         "sources/git/index.ts",
         "sources/github/index.ts",

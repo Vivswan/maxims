@@ -1,7 +1,7 @@
 import { wasNotDisabled } from "../console/strings.ts";
 import type { ScopeAt } from "../state/scoped.ts";
 import { applyChanges } from "../util/change.ts";
-import { syncCommitted } from "./add.ts";
+import { syncCommitted } from "./add/commit.ts";
 import { loadIntentFor, updateIntent, withDisabled } from "./frame/cli-context.ts";
 import { resolveMemoryName } from "./frame/lookup.ts";
 import {

@@ -4,7 +4,7 @@ import type { HarnessFilter } from "../engine/types.ts";
 import type { State } from "../state/schema.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { admitIntent, syncCommitted } from "./add.ts";
+import { admitIntent, syncCommitted } from "./add/commit.ts";
 import { loadIntentFor, updateIntent } from "./frame/cli-context.ts";
 import { framed } from "./frame/engine-io.ts";
 import {

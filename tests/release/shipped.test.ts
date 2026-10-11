@@ -57,7 +57,7 @@ describe("the shipped surface covers the packaging", () => {
   test("every module and the manifest the bundle's entry reaches", () => {
     const graph = importGraph(bundleEntry());
     expect(graph).toContain("package.json");
-    expect(graph).toContain("src/commands/add.ts");
+    expect(graph).toContain("src/commands/add/index.ts");
     expect(graph.filter((path) => !isShipped(path))).toEqual([]);
   });
 
