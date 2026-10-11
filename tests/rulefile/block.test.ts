@@ -729,9 +729,9 @@ describe("replaceBlock and stripBlock", () => {
     ],
     [
       "a stray pair in CRLF endings around the second of two blocks",
-      `${BLOCK}\r\n${STRAY_BEGIN.replace("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replace("\n", "\r\n")}`,
+      `${BLOCK}\r\n${STRAY_BEGIN.replaceAll("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replaceAll("\n", "\r\n")}`,
       SOURCE,
-      `\r\n${STRAY_BEGIN.replace("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replace("\n", "\r\n")}`,
+      `\r\n${STRAY_BEGIN.replaceAll("\n", "\r\n")}KEEP ME\r\n${OTHER}\r\n${STRAY_END.replaceAll("\n", "\r\n")}`,
     ],
   ];
   const keys = (text: string): string[] => parseBlocks(text).blocks.map((block) => block.source);
