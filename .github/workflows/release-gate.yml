@@ -3,14 +3,11 @@
 # and the two drift checks against the vendors' docs and the upstream skills CLI. Two callers run the same text:
 #
 #   nightly.yml       -> every night; its report legs file one issue per tier off the outputs below
-#   the managed ci.yml -> the release-please PR alone, inside the all-green gate
+#   the managed ci.yml -> the release-please PR and a manual dispatch, inside the all-green gate
 #
-# No inputs: a caller runs every tier. One output per tier carries that tier's own result, because `needs` reports
-# a called workflow as one result for all its jobs and the nightly files one issue per tier. A tier that hits its
-# timeout reports `cancelled`, so a caller counts anything but `success` as red.
-#
-# Nothing here needs a secret or a scope past contents: read; the ceiling is the caller's and every job narrows
-# itself to that.
+# One output per tier, because `needs` reports a called workflow as one result for all its jobs and the nightly
+# files one issue per tier. A tier that hits its timeout reports `cancelled`, so a caller counts anything but
+# `success` as red.
 
 name: Release Gate
 

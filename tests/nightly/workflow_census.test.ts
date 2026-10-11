@@ -42,8 +42,7 @@ const report = workflow.jobs.report;
 const legs = report?.strategy?.matrix.include ?? [];
 const tiers = Object.keys(gate.jobs);
 
-// The job that runs a tracked category: the gate's when the gate declares it, the nightly's own
-// otherwise. A category declared in both is caught by the census below, not hidden here.
+// A category declared in both files is caught by the census below, not hidden by this preference.
 const tierJob = (category: string): Job | undefined =>
   gate.jobs[category] ?? workflow.jobs[category];
 
