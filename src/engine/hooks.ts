@@ -344,6 +344,12 @@ function landsIn(change: Extract<Change, { kind: "write" | "edit" }>): string {
   return change.kind === "edit" ? change.target : change.path;
 }
 
+function filesOf(change: Change): string[] {
+  const files = [realKeyOf(change.path)];
+  if (carriesText(change)) files.push(realKeyOf(landsIn(change)));
+  return files;
+}
+
 function noticesOf(notice: string | undefined): string[] {
   return notice === undefined ? [] : [notice];
 }
@@ -354,18 +360,18 @@ function fileId(path: string): string {
   return realpathOfExistingPrefix(path);
 }
 
-// One file can be reached from both scopes: dsh mounts its bridge under the global root whatever
-// the install scope, and a home directory that is itself a repository makes the project and the
-// global registry one file. A project-only install would then write the hook for the project scope
-// and delete it again for the global scope, the deletion applied last. A removal touching any file
-// a wanted answer claims is dropped whole, its companion edits (the patch row) included. The claim
-// covers files the wanted answer leaves alone: on a settled registry the wanted scope has nothing
-// to write while the unwanted scope still finds our entry to remove. Files are matched by
-// `realKeyOf`, the fold's identity, and a claim no wanted change touches covers the file behind
-// it too: a leaf that is a link stays one, so the file behind it is the registration; a change at
-// the leaf replaces the link with a real file, so the file behind it is another file and its
-// removal stands. A removal is matched by its leaf and by the file behind it, so a write at a link
-// partway along a kept claim's chain is dropped as well.
+// One file can be reached from both scopes (dsh mounts its bridge under the global root whatever
+// the install scope; a home that is a repository makes the project and the global registry one
+// file), and the unwanted scope's removal applies last. A removal of a file a wanted answer
+// claims is dropped whole, patch row included. What a claim covers, by `realKeyOf`:
+//
+//   a wanted change             its leaf, and the file it lands in (an edit's target)
+//   a claim no change touches   its leaf, and the file behind it: the link stays, so that file is
+//                               the registration the unwanted scope would remove
+//   a claim a write touches     its leaf only: the write replaces the link, so the file behind it
+//                               is another file and its removal stands
+//   a removal                   matched by its leaf and by the file behind it, so a write at a
+//                               link partway along a kept claim's chain is dropped too
 function reconcileScopes(
   answers: readonly ScopeAnswer[],
 ): Pick<HooksPlan, "changes" | "removals" | "notices"> {
@@ -373,10 +379,8 @@ function reconcileScopes(
   const removals: Change[] = [];
   const notices: string[] = [];
   const wanted = answers.filter((answer) => answer.wanted);
-  const touched = new Set(
-    wanted.flatMap((answer) => answer.artifact.map((c) => realKeyOf(c.path))),
-  );
-  const kept = new Set<string>();
+  const touched = new Set(wanted.flatMap((answer) => answer.artifact.flatMap(filesOf)));
+  const kept = new Set(touched);
   for (const claim of wanted.flatMap((answer) => answer.claims)) {
     const key = realKeyOf(claim);
     kept.add(key);

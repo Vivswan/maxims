@@ -24,6 +24,7 @@ import { loadContext } from "../../src/engine/context.ts";
 import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
+import { codex } from "../../src/harnesses/codex/spec.ts";
 import {
   type HarnessContext,
   type HarnessDefinition,
@@ -470,6 +471,70 @@ describe("both scopes resolving to one registry", () => {
       writeState(home, stateWith({ [source]: entry }));
       await runSync(SYNC, io);
       expect(readFileSync(settings, "utf8")).not.toContain(HOOK_COMMAND);
+    });
+  });
+
+  // Codex's project registry is `.codex/hooks.json` under the project root and its global one
+  // `$CODEX_HOME/hooks.json`, so a home that is a repository, a `$CODEX_HOME` under it, and a
+  // `~/.codex/hooks.json` linked to the file there make the project edit land in the very file the
+  // global removal names. Applied last, that removal would erase the hook on every sync.
+  test("a project-scoped source whose linked registry lands in the global registry file keeps its hook", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      mkdirSync(join(userHome, ".git"));
+      const codexHome = join(userHome, "dotfiles", "codex");
+      mkdirSync(codexHome, { recursive: true });
+      const backing = join(codexHome, "hooks.json");
+      const stale = {
+        type: "command",
+        command: `${HOOK_COMMAND} --agent x`,
+        timeout: 20,
+        async: true,
+        statusMessage: "Syncing maxims",
+      };
+      writeFileSync(
+        backing,
+        `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [stale] }] } }, null, 2)}\n`,
+      );
+      mkdirSync(join(userHome, ".codex"));
+      const link = join(userHome, ".codex", "hooks.json");
+      symlinkSync(backing, link);
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: userHome },
+        harnesses: ["codex"],
+      });
+      writeState(home, stateWith({ [source]: entry }, { project: { [userHome]: ["codex"] } }));
+      const env = { CODEX_HOME: codexHome };
+      const ctx = await loadContext(fakeIo({ home, userHome, cwd: userHome, env }), {
+        readHookStdin: false,
+      });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [codex],
+        agents: undefined,
+        wants: (_id, scope: Scope) => ({
+          hook: scope === "project",
+          rules: false,
+          unreachable: false,
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect<unknown[]>(plan.changes).toEqual([
+        {
+          kind: "edit",
+          path: link,
+          target: backing,
+          content: expect.stringContaining(HOOK_COMMAND),
+        },
+      ]);
+      expect(plan.removals).toEqual([]);
+      const io = fakeIo({ home, userHome, cwd: userHome, env, harnesses: [codex] });
+      await runSync(SYNC, io);
+      const text = readFileSync(backing, "utf8");
+      expect([text.includes(HOOK_COMMAND), text.includes("--agent x")]).toEqual([true, false]);
+      expect(readlinkSync(link)).toBe(backing);
+      expect((await runSync(SYNC, io)).changed).toEqual([]);
     });
   });
 
