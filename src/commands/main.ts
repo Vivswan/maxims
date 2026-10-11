@@ -216,11 +216,20 @@ type Invocation = {
 // Only whole argv words count, never letters inside a short group or an attached value
 // (`-mprivacy` selects a memory, it does not ask for the version), and the verb is the first word
 // that is not a flag; the flags a verb may precede are all booleans.
-const SCAN_WORDS = new Map<string, keyof Omit<Invocation, "verb" | "rest">>([
-  ["--help", "help"],
-  ["-h", "help"],
-  ["--version", "version"],
-  ["-v", "version"],
+//
+// Not in GLOBAL_FLAGS: the scan consumes these before any verb loads, so no verb parses them.
+const HELP_FLAGS = [
+  { name: "help", short: "h", kind: "boolean", summary: "show help" },
+  { name: "version", short: "v", kind: "boolean", summary: "print the version" },
+] as const satisfies readonly FlagSpec[];
+
+type ScanFlag = keyof Omit<Invocation, "verb" | "rest">;
+
+const SCAN_WORDS = new Map<string, ScanFlag>([
+  ...HELP_FLAGS.flatMap((flag): [string, ScanFlag][] => [
+    [`--${flag.name}`, flag.name],
+    [`-${flag.short}`, flag.name],
+  ]),
   ["--quiet", "quiet"],
   ["--json", "json"],
   ["--dry-run", "dryRun"],
@@ -433,12 +442,6 @@ function verbHelp(command: Command): string {
   lines.push("Global options:", ...flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS]));
   return `${lines.join("\n")}\n`;
 }
-
-// Listed in help only; `scan` recognizes them before any table is consulted.
-const HELP_FLAGS: readonly FlagSpec[] = [
-  { name: "help", short: "h", kind: "boolean", summary: "show help" },
-  { name: "version", short: "v", kind: "boolean", summary: "print the version" },
-];
 
 function flagLines(flags: readonly FlagSpec[]): string[] {
   const rendered = flags.map((flag) => {
