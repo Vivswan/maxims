@@ -2,7 +2,7 @@
 // firing (two destinations, --json without -y, --all with names), an alias that stops resolving,
 // `--flag=value` or comma lists that stop composing, or `--help` that starts touching the disk.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERSION } from "../../../src/version.ts";
 import { treeDigest } from "../../engine/fakes.ts";
@@ -179,6 +179,17 @@ test("the digest changes when an empty directory appears", async () => {
   await withScenario({}, async (scenario) => {
     const before = treeDigest(scenario.root);
     mkdirSync(join(scenario.root, "control"));
+    expect(treeDigest(scenario.root)).not.toBe(before);
+  });
+});
+
+// A digest blind to file bytes would pass every writes-nothing assertion in these suites.
+test("the digest changes when a file's bytes change at the same path and length", async () => {
+  await withScenario({}, async (scenario) => {
+    const control = join(scenario.root, "control.md");
+    writeFileSync(control, "aaa");
+    const before = treeDigest(scenario.root);
+    writeFileSync(control, "bbb");
     expect(treeDigest(scenario.root)).not.toBe(before);
   });
 });
