@@ -1380,10 +1380,8 @@ function bodiesDir(dir: string, root: string): BodiesDir {
 // has since changed, names no owner either, and the dedupe rule decides the name.
 //   store copy read through the selection       so a hidden internal memory is left out
 //   user-scope detail paths through the renames  they name the store file under the upstream name
+//   its blocks' names                            `retainedBlockNames`, which raises the hold
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
-//   a marker the grammar refuses                 the file goes to `hold`, owned only with a block
-//                                                of the source's in it; its blocks keep their names
-//                                                (`heldRuleBlocks`)
 export async function retainedNames(
   key: string,
   entry: SourceEntry,
@@ -1420,9 +1418,38 @@ export async function retainedNames(
       }
     }
   }
-  // A source installed for another project has no rule file and no body in this one; `readTrees`
-  // skips it before sync reads anything, and `list` reads every entry.
+  for (const name of retainedBlockNames(key, entry, ctx, io, hold)) names.add(name);
+  // A source installed for another project has no body in this one; `readTrees` skips it before
+  // sync reads anything, and `list` reads every entry.
   if (!actsHere(entry, ctx)) return [...names];
+  const entryReal = inStore(ctx.paths.store, storeEntry);
+  const own = new Set(
+    (installed?.memories ?? [])
+      .map((memory) => memory.memory.contentHash)
+      .filter((hash) => !ambiguous.has(hash)),
+  );
+  for (const dir of bodiesDirsFor(entry, ctx, io, undefined)) {
+    for (const name of installedBodies(dir.dir, entryReal, own)) names.add(name);
+  }
+  return [...names];
+}
+
+// The names the source's block in each of its rule files carries. A marker the grammar refuses
+// reaches `hold` from this one read on every verb; `list` reads this alone for a readable source.
+// The source owns the hold only with a block of its own in the file, since the hold freezes its
+// owner. The held block keeps its names (`heldRuleBlocks`): a rival shipping one collides instead
+// of writing its body under the kept line.
+export function retainedBlockNames(
+  key: string,
+  entry: SourceEntry,
+  ctx: EngineContext,
+  io: EngineIo,
+  hold: (held: RuleFileHeld, owned: boolean) => void,
+): MemoryName[] {
+  // A source installed for another project has no rule file in this one.
+  if (!actsHere(entry, ctx)) return [];
+  const { intent } = entry;
+  const names = new Set<MemoryName>();
   const upstreamPaths = intent.destination.scope === "global";
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = regularFileText(path);
@@ -1437,22 +1464,10 @@ export async function retainedNames(
       blocks = heldRuleBlocks(text);
     }
     const block = blocks.find((candidate) => candidate.source === key);
-    // Reported here, where the file is read, so every verb names it; the source owns the hold
-    // only with a block in the file, since the hold freezes its owner. The held block keeps its
-    // names: a rival shipping one collides instead of writing its body under the kept line.
     if (refused !== null) hold(new RuleFileHeld(path, refused), block !== undefined);
     for (const name of block?.names ?? []) {
       names.add(upstreamPaths ? renamed(intent.rename, name) : name);
     }
-  }
-  const entryReal = inStore(ctx.paths.store, storeEntry);
-  const own = new Set(
-    (installed?.memories ?? [])
-      .map((memory) => memory.memory.contentHash)
-      .filter((hash) => !ambiguous.has(hash)),
-  );
-  for (const dir of bodiesDirsFor(entry, ctx, io, undefined)) {
-    for (const name of installedBodies(dir.dir, entryReal, own)) names.add(name);
   }
   return [...names];
 }

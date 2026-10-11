@@ -15,11 +15,13 @@ import {
   installedHere,
   isFetchedEntry,
   readInstalledTree,
+  retainedBlockNames,
   retainedNames,
   shortSha,
   staleness,
 } from "../engine/plan-sync.ts";
 import { readProjectLock } from "../engine/project-lock-read.ts";
+import type { RuleFileHeld } from "../engine/rules.ts";
 import { disabledNames, selectMemories } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
 import type {
@@ -92,26 +94,29 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       report.notices.push(`maxims: ${key}: ${line}`),
     );
-    // Sync reads every source's rule files through `retainedNames` and reports a refused marker
-    // there; list reads them the same way, so a readable source's held file is named too. Two
-    // sources may share one file: its lines are said once.
-    const retained = await retainedNames(key, entry, ctx, io, (held) => {
+    // Sync reports a refused marker where it reads the file; list reads every source's rule
+    // files the same way. A readable source's names come from its tree, so only an unreadable
+    // one's bodies are read: list writes nothing a stop at an unlistable bodies folder protects.
+    const hold = (held: RuleFileHeld): void => {
       const realKey = realKeyOf(held.path);
       if (heldKeys.has(realKey)) return;
       heldKeys.add(realKey);
       report.notices.push(`maxims: ${held.message}`);
       if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
-    });
-    const upstream: MemoryName[] =
-      tree.kind === "tree"
-        ? selectMemories({
-            memories: tree.tree.memories,
-            intent: entry.intent,
-            installInternal: ctx.installInternal,
-            disabled: new Set(),
-            detailPath: () => "",
-          }).ownedUpstreamNames
-        : retained;
+    };
+    let upstream: MemoryName[];
+    if (tree.kind === "tree") {
+      retainedBlockNames(key, entry, ctx, io, hold);
+      upstream = selectMemories({
+        memories: tree.tree.memories,
+        intent: entry.intent,
+        installInternal: ctx.installInternal,
+        disabled: new Set(),
+        detailPath: () => "",
+      }).ownedUpstreamNames;
+    } else {
+      upstream = await retainedNames(key, entry, ctx, io, hold);
+    }
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
   // An unreadable source's names are already local (its selection and renames applied), so

@@ -360,34 +360,36 @@ describe("list", () => {
     },
   );
 
-  // Sync never reads a source installed for another project, so list's read of every entry must
-  // not either: this project's bodies folder is not that source's, and one this project cannot
-  // list would otherwise stop the listing.
-  test.skipIf(!CHMOD_DENIES)(
-    "a readable source installed for another project is listed without reading this project's bodies folder",
-    async () => {
+  // What would drift silently: list running the reservation's bodies scan, whose stop protects a
+  // write list never makes.
+  test.skipIf(!CHMOD_DENIES).each([
+    { installed: "another project", here: false },
+    { installed: "this project", here: true },
+  ])(
+    "a readable source installed for $installed is listed when this project's bodies folder cannot be listed",
+    async ({ here }) => {
       await world(async (w) => {
-        const elsewhere = join(w.dir, "elsewhere");
-        mkdirSync(join(elsewhere, ".git"), { recursive: true });
+        const root = here ? w.project : join(w.dir, "elsewhere");
+        if (!here) mkdirSync(join(root, ".git"), { recursive: true });
         const source = writeSource(join(w.dir, "theirs"), TWO_MEMORIES);
         writeState(
           w.home,
           stateWith({
-            [source]: entryFor(localFrom(source), {
-              destination: { scope: "project", root: elsewhere },
-            }),
+            [source]: entryFor(localFrom(source), { destination: { scope: "project", root } }),
           }),
         );
         seedStore(w.home, localFrom(source), source);
+        const io = fakeIo({ ...w, cwd: w.project });
+        if (here) await runSync(SYNC, io);
         const unlistable = join(w.project, ".agents", "memories");
         mkdirSync(unlistable, { recursive: true });
         chmodSync(unlistable, 0o000);
         try {
-          const io = fakeIo({ ...w, cwd: w.project });
           const report = await runList({ quiet: false, dryRun: false, json: true }, io);
           expect(report.sources.map((listed) => [listed.key, listed.project?.here])).toEqual([
-            [source, false],
+            [source, here],
           ]);
+          expect(report.notices.filter((line) => line.includes("marker"))).toEqual([]);
         } finally {
           chmodSync(unlistable, 0o700);
         }
