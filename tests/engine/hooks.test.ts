@@ -22,8 +22,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
-import { loadContext } from "../../src/engine/context.ts";
-import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
+import { type EngineContext, loadContext } from "../../src/engine/context.ts";
+import { type HarnessWants, type HooksPlan, planHooks } from "../../src/engine/hooks.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { claudeCode } from "../../src/harnesses/claude-code/spec.ts";
 import { codex } from "../../src/harnesses/codex/spec.ts";
@@ -36,8 +36,8 @@ import {
 } from "../../src/harnesses/contract.ts";
 import { devin } from "../../src/harnesses/devin/spec.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
-import { planMcpRegistration } from "../../src/harnesses/mcp-stub/register.ts";
-import { applyChanges } from "../../src/util/change.ts";
+import { rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
+import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import * as fsUtil from "../../src/util/fs.ts";
 import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
@@ -596,6 +596,29 @@ describe("the MCP server entry follows the hook intent", () => {
       expect(unwanted.failures).toEqual([]);
     });
   });
+
+  // The hook and the servers entry each name the file by their own path, so a failure told apart
+  // by its message would print the one file twice.
+  test("a registry linked at a servers file that does not parse is reported once, by the hook's path", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      writeFileSync(mcp, "{ oops");
+      symlinkSync(mcp, registry);
+      const wanted = await plan(apart, dir, home, userHome, true);
+      expect(wanted).toEqual({
+        changes: [],
+        removals: [],
+        notices: [],
+        failures: [
+          {
+            message: `cannot edit ${registry}: it is not valid JSON`,
+            hint: "fix the file by hand, then run maxims sync",
+          },
+        ],
+      });
+    });
+  });
 });
 
 // Two user-defined harnesses may declare one file: a settings file both read their hooks from
@@ -617,43 +640,59 @@ describe("two harnesses declared at one file", () => {
   };
   const server = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
   const group = { hooks: [{ type: "command", command: HOOK_COMMAND }] };
-  const shared: [string, HarnessDefinition[], string, unknown][] = [
+  // Every row pins the whole plan: each change as [kind, path, target, parsed content], then the
+  // removals the same way, the failures and the notices.
+  const parsed = (change: Change): unknown[] => [
+    change.kind,
+    change.path,
+    change.kind === "edit" ? change.target : null,
+    "content" in change ? JSON.parse(change.content) : null,
+  ];
+  const whole = (plan: HooksPlan): unknown[] => [
+    plan.changes.map(parsed),
+    plan.removals.map(parsed),
+    plan.failures,
+    plan.notices,
+  ];
+  const plan = (ctx: EngineContext, defs: HarnessDefinition[], wanted: (id: string) => boolean) =>
+    planHooks({
+      ctx,
+      harnesses: defs,
+      agents: undefined,
+      wants: (id, scope: Scope) => ({
+        hook: wanted(id),
+        rules: false,
+        unreachable: scope !== "global",
+      }),
+      elsewhere: () => [],
+      judgeLink: () => undefined,
+    });
+  const shared: [string, HarnessDefinition[], string, unknown, string][] = [
     [
       "two servers files declared at one file under two keys",
       [hookless("claude-code", ["mcpServers"]), hookless("codex", ["context_servers"])],
       "mcp.json",
       { mcpServers: { maxims: server }, context_servers: { maxims: server } },
+      "MCP server",
     ],
     [
       "two hook registries declared at one file under two events",
       [hookedAt("claude-code", "SessionStart"), hookedAt("codex", "Start")],
       "settings.json",
       { hooks: { SessionStart: [group], Start: [group] } },
+      "hook",
     ],
   ];
   test.each(shared)(
     "%s: the file gets one edit holding both",
-    async (_label, defs, file, holds) => {
+    async (_label, defs, file, holds, registered) => {
       await world(async ({ home, userHome, dir }) => {
         const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
         const ctx = await loadContext(io, { readHookStdin: false });
-        const planned = await planHooks({
-          ctx,
-          harnesses: defs,
-          agents: undefined,
-          wants: (_id, scope: Scope) => ({
-            hook: true,
-            rules: false,
-            unreachable: scope !== "global",
-          }),
-          elsewhere: () => [],
-          judgeLink: () => undefined,
-        });
+        const planned = await plan(ctx, defs, () => true);
         const path = join(userHome, FIXTURE_DIR, file);
-        expect<unknown[]>(planned.changes.map((change) => change.path)).toEqual([path]);
-        const [edit] = planned.changes;
-        if (edit?.kind !== "edit") throw new Error("expected the one edit");
-        expect(JSON.parse(edit.content)).toEqual(holds);
+        const notice = `registered the maxims ${registered} in ${path}`;
+        expect(whole(planned)).toEqual([[["edit", path, path, holds]], [], [], [notice, notice]]);
       });
     },
   );
@@ -666,39 +705,28 @@ describe("two harnesses declared at one file", () => {
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
       const ctx = await loadContext(io, { readHookStdin: false });
       const path = join(userHome, FIXTURE_DIR, "settings.json");
-      const plan = (wanted: string[]) =>
-        planHooks({
-          ctx,
-          harnesses: defs,
-          agents: undefined,
-          wants: (id, scope: Scope) => ({
-            hook: wanted.includes(id),
-            rules: false,
-            unreachable: scope !== "global",
-          }),
-          elsewhere: () => [],
-          judgeLink: () => undefined,
-        });
-      const both = await plan(["claude-code", "codex"]);
+      const registered = `registered the maxims hook in ${path}`;
+      const both = await plan(ctx, defs, () => true);
+      expect(whole(both)).toEqual([
+        [["edit", path, path, { hooks: { SessionStart: [group], Start: [group] } }]],
+        [],
+        [],
+        [registered, registered],
+      ]);
       const [installed] = both.changes;
       if (installed?.kind !== "edit") throw new Error("expected the one edit");
       writeFileSync(path, installed.content);
-      const one = await plan(["claude-code"]);
-      const parsed = (change: { kind: string; path: string; content?: string }) => [
-        change.kind,
-        change.path,
-        change.content === undefined ? null : JSON.parse(change.content),
-      ];
-      expect<unknown[]>([one.changes, one.removals.map(parsed), one.failures]).toEqual([
+      const one = await plan(ctx, defs, (id) => id === "claude-code");
+      expect(whole(one)).toEqual([
         [],
-        [["edit", path, { hooks: { SessionStart: [group] } }]],
+        [["edit", path, path, { hooks: { SessionStart: [group] } }]],
         [],
+        [`removed the maxims hook from ${path}`],
       ]);
       const [removal] = one.removals;
       if (removal?.kind !== "edit") throw new Error("expected the one removal edit");
       writeFileSync(path, removal.content);
-      const settled = await plan(["claude-code"]);
-      expect([settled.changes, settled.removals, settled.failures]).toEqual([[], [], []]);
+      expect(whole(await plan(ctx, defs, (id) => id === "claude-code"))).toEqual([[], [], [], []]);
     });
   });
 
@@ -710,30 +738,17 @@ describe("two harnesses declared at one file", () => {
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
       const ctx = await loadContext(io, { readHookStdin: false });
       const path = join(userHome, FIXTURE_DIR, "settings.json");
-      const plan = () =>
-        planHooks({
-          ctx,
-          harnesses: defs,
-          agents: undefined,
-          wants: (id, scope: Scope) => ({
-            hook: id === "claude-code",
-            rules: false,
-            unreachable: scope !== "global",
-          }),
-          elsewhere: () => [],
-          judgeLink: () => undefined,
-        });
-      const installing = await plan();
-      const [installed] = installing.changes;
-      if (installed?.kind !== "edit") throw new Error("expected the one edit");
-      expect([JSON.parse(installed.content), installing.removals, installing.notices]).toEqual([
-        { hooks: { SessionStart: [group] } },
+      const installing = await plan(ctx, defs, (id) => id === "claude-code");
+      expect(whole(installing)).toEqual([
+        [["edit", path, path, { hooks: { SessionStart: [group] } }]],
+        [],
         [],
         [`registered the maxims hook in ${path}`],
       ]);
+      const [installed] = installing.changes;
+      if (installed?.kind !== "edit") throw new Error("expected the one edit");
       writeFileSync(path, installed.content);
-      const settled = await plan();
-      expect([settled.changes, settled.removals, settled.notices]).toEqual([[], [], []]);
+      expect(whole(await plan(ctx, defs, (id) => id === "claude-code"))).toEqual([[], [], [], []]);
     });
   });
 
@@ -756,21 +771,17 @@ describe("two harnesses declared at one file", () => {
       ];
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
       const ctx = await loadContext(io, { readHookStdin: false });
-      const planned = await planHooks({
-        ctx,
-        harnesses: defs,
-        agents: undefined,
-        wants: (id, scope: Scope) => ({
-          hook: id !== "claude-code",
-          rules: false,
-          unreachable: scope !== "global",
-        }),
-        elsewhere: () => [],
-        judgeLink: () => undefined,
-      });
-      expect([planned.changes.map((change) => basename(change.path)), planned.removals]).toEqual([
-        ["settings.json", "other.json"],
+      const planned = await plan(ctx, defs, (id) => id !== "claude-code");
+      const settings = join(userHome, FIXTURE_DIR, "settings.json");
+      const otherPath = join(userHome, FIXTURE_DIR, "other.json");
+      expect(whole(planned)).toEqual([
+        [
+          ["edit", settings, settings, { hooks: { SessionStart: [group] } }],
+          ["edit", otherPath, otherPath, { hooks: { SessionStart: [group] } }],
+        ],
         [],
+        [],
+        [`registered the maxims hook in ${settings}`, `registered the maxims hook in ${otherPath}`],
       ]);
     });
   });
@@ -783,33 +794,23 @@ describe("two harnesses declared at one file", () => {
       const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
       const ctx = await loadContext(io, { readHookStdin: false });
       const path = join(userHome, FIXTURE_DIR, "mcp.json");
-      const plan = (wanted: string[]) =>
-        planHooks({
-          ctx,
-          harnesses: defs,
-          agents: undefined,
-          wants: (id, scope: Scope) => ({
-            hook: wanted.includes(id),
-            rules: false,
-            unreachable: scope !== "global",
-          }),
-          elsewhere: () => [],
-          judgeLink: () => undefined,
-        });
-      const [installed] = (await plan(["claude-code", "codex"])).changes;
+      const registered = `registered the maxims MCP server in ${path}`;
+      const both = await plan(ctx, defs, () => true);
+      expect(whole(both)).toEqual([
+        [["edit", path, path, { "mcp/one": { maxims: server }, mcp: { one: { maxims: server } } }]],
+        [],
+        [],
+        [registered, registered],
+      ]);
+      const [installed] = both.changes;
       if (installed?.kind !== "edit") throw new Error("expected the one edit");
-      expect(JSON.parse(installed.content)).toEqual({
-        "mcp/one": { maxims: server },
-        mcp: { one: { maxims: server } },
-      });
       writeFileSync(path, installed.content);
-      const one = await plan(["claude-code"]);
-      expect<unknown[]>([
-        one.changes,
-        one.removals.map((change) =>
-          change.kind === "edit" ? JSON.parse(change.content) : change,
-        ),
-      ]).toEqual([[], [{ "mcp/one": { maxims: server }, mcp: { one: {} } }]]);
+      expect(whole(await plan(ctx, defs, (id) => id === "claude-code"))).toEqual([
+        [],
+        [["edit", path, path, { "mcp/one": { maxims: server }, mcp: { one: {} } }]],
+        [],
+        [`removed the maxims MCP server from ${path}`],
+      ]);
     });
   });
 });
@@ -1189,7 +1190,7 @@ describe("both scopes resolving to one registry", () => {
         const hookless: HarnessDefinition = { ...apart, hook: { kind: "none" } };
         const global = join(userHome, FIXTURE_DIR, "mcp.json");
         const linked = join(project, FIXTURE_DIR, "mcp.json");
-        const [current] = planMcpRegistration({
+        const current = rewriteServers({
           registration: {
             root: userHome,
             path: assertInsideRoot(userHome, global),
@@ -1197,15 +1198,15 @@ describe("both scopes resolving to one registry", () => {
           },
           wanted: true,
           currentText: null,
-        }).changes;
-        if (current?.kind !== "edit") throw new Error("expected the servers edit");
+        });
+        if (current === null) throw new Error("expected the servers text");
         const backing = join(userHome, "dotfiles", "mcp.json");
         if (chained) {
           mkdirSync(join(userHome, "dotfiles"));
-          writeFileSync(backing, textBehind(current.content));
+          writeFileSync(backing, textBehind(current.text));
           symlinkSync(backing, global);
         } else {
-          writeFileSync(global, textBehind(current.content));
+          writeFileSync(global, textBehind(current.text));
         }
         symlinkSync(global, linked);
         const io = fakeIo({ home, userHome, cwd: project, harnesses: [hookless] });

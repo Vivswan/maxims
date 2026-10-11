@@ -1,19 +1,12 @@
 import { isDeepStrictEqual } from "node:util";
 import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
-import { editInPlace } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
-import {
-  appendChild,
-  assertParses,
-  readConfigText,
-  removeChild,
-  replaceValue,
-} from "../../util/jsonc.ts";
+import { appendChild, assertParses, removeChild, replaceValue } from "../../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../../util/package.ts";
 import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
-import type { HookPlan, RegistryRewrite } from "../hook-writer.ts";
+import type { RegistryRewrite } from "../hook-writer.ts";
 
 const MCP_SERVER_KEY = "maxims";
 const [command, ...packageArgs] = PACKAGE_ARGV;
@@ -37,16 +30,6 @@ export function mcpRegistrationAt(
   return { root, path: assertInsideRoot(root, path), serversPath: def.mcp.serversPath };
 }
 
-// Reads the servers file and hands the text to the pure planner, the way `planHookOnly` does for a
-// hook registry.
-export async function planMcpOnly(
-  registration: McpRegistration,
-  wanted: boolean,
-): Promise<HookPlan> {
-  const currentText = await readConfigText(registration.path);
-  return planMcpRegistration({ registration, wanted, currentText });
-}
-
 export type McpRegistrationInput = {
   registration: McpRegistration;
   wanted: boolean;
@@ -63,17 +46,6 @@ export function rewriteServers(input: McpRegistrationInput): RegistryRewrite | n
     text: planned.text,
     notice: `${verb} the maxims MCP server ${verb === "removed" ? "from" : "in"} ${path}`,
   };
-}
-
-// The servers file is the user's, edited where its bytes live like a hook registry: a link at the
-// path is followed, and one nothing can follow is refused before any text is planned over it.
-export function planMcpRegistration(input: McpRegistrationInput): HookPlan {
-  const { root, path } = input.registration;
-  const edit = editInPlace(root, path);
-  const rewrite = rewriteServers(input);
-  return rewrite === null
-    ? { changes: [] }
-    : { changes: [edit(rewrite.text)], notice: rewrite.notice };
 }
 
 type Edit = { text: string; verb: "registered" | "updated" | "removed" };

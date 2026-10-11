@@ -10,15 +10,15 @@ import { devin } from "../../../src/harnesses/devin/spec.ts";
 import {
   type McpRegistration,
   mcpRegistrationAt,
-  planMcpOnly,
+  rewriteServers,
 } from "../../../src/harnesses/mcp-stub/register.ts";
 import { pi } from "../../../src/harnesses/pi/spec.ts";
 import { HARNESSES } from "../../../src/harnesses/registry.ts";
 import { warp } from "../../../src/harnesses/warp/spec.ts";
 import { zed } from "../../../src/harnesses/zed/spec.ts";
-import type { Change } from "../../../src/util/change.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
+import { readConfigText } from "../../../src/util/jsonc.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -31,8 +31,11 @@ function registration(dir: string, file: string, serversPath: string[]): McpRegi
   return { root: dir, path: assertInsideRoot(dir, join(dir, file)), serversPath };
 }
 
-async function plan(registry: McpRegistration, wanted: boolean): Promise<Change[]> {
-  return (await planMcpOnly(registry, wanted)).changes;
+// The planner's own path to a servers file: the read, then the rewrite over what it found. `null`
+// is a file already saying what the intent wants; the text otherwise.
+async function plan(registration: McpRegistration, wanted: boolean): Promise<string | null> {
+  const currentText = await readConfigText(registration.path);
+  return rewriteServers({ registration, wanted, currentText })?.text ?? null;
 }
 
 async function roundTrip(
@@ -41,14 +44,12 @@ async function roundTrip(
 ): Promise<{ added: string; removed: string }> {
   const registry = registration(dir, "mcp.json", ["mcpServers"]);
   writeFileSync(registry.path, initial);
-  const added = await plan(registry, true);
-  const addedText = added[0]?.kind === "edit" ? added[0].content : initial;
+  const addedText = (await plan(registry, true)) ?? initial;
   writeFileSync(registry.path, addedText);
-  expect(await plan(registry, true)).toEqual([]);
-  const removed = await plan(registry, false);
-  const removedText = removed[0]?.kind === "edit" ? removed[0].content : addedText;
+  expect(await plan(registry, true)).toBeNull();
+  const removedText = (await plan(registry, false)) ?? addedText;
   writeFileSync(registry.path, removedText);
-  expect(await plan(registry, false)).toEqual([]);
+  expect(await plan(registry, false)).toBeNull();
   return { added: addedText, removed: removedText };
 }
 
@@ -84,7 +85,7 @@ test("an entry spelled in another key order is current", async () => {
       registry.path,
       '{"mcpServers":{"maxims":{"args":["-y","@vivswan/maxims","mcp-serve"],"command":"npx"}}}\n',
     );
-    expect(await plan(registry, true)).toEqual([]);
+    expect(await plan(registry, true)).toBeNull();
   });
 });
 
@@ -94,14 +95,7 @@ test("a comma inside a comment beside our entry is not taken for the separator",
   await withTempDir(async (dir) => {
     const registry = registration(dir, "mcp.json", ["mcpServers"]);
     writeFileSync(registry.path, '{"mcpServers":{"maxims":{} /* keep, note */,"other":{}}}\n');
-    expect(await plan(registry, false)).toEqual([
-      {
-        kind: "edit",
-        path: registry.path,
-        target: registry.path,
-        content: '{"mcpServers":{ /* keep, note */"other":{}}}\n',
-      },
-    ]);
+    expect(await plan(registry, false)).toBe('{"mcpServers":{ /* keep, note */"other":{}}}\n');
   });
 });
 
@@ -127,10 +121,8 @@ test.each(creations)("%s gains exactly one nested entry", async (_, existing, ex
   await withTempDir(async (dir) => {
     const registry = registration(dir, "new.json", ["mcp", "servers"]);
     if (existing !== null) writeFileSync(registry.path, existing);
-    expect(await plan(registry, true)).toEqual([
-      { kind: "edit", path: registry.path, target: registry.path, content: expected },
-    ]);
-    expect(await plan(registry, false)).toEqual([]);
+    expect(await plan(registry, true)).toBe(expected);
+    expect(await plan(registry, false)).toBeNull();
   });
 });
 
@@ -248,10 +240,8 @@ test.each(declared)(
         if (registry === null) continue;
         mkdirSync(dirname(registry.path), { recursive: true });
         writeFileSync(registry.path, "{}\n");
-        const changes = await plan(registry, true);
-        const [change] = changes;
-        gained[scope] =
-          change?.kind === "edit" && changes.length === 1 ? JSON.parse(change.content) : changes;
+        const text = await plan(registry, true);
+        gained[scope] = text === null ? null : JSON.parse(text);
       }
       expect(gained).toEqual(written);
     });
