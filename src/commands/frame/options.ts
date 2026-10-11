@@ -18,10 +18,8 @@ export type FlagSpec = {
   summary: string;
 };
 
-// Flags every verb accepts, keyed by the `GlobalFlags` field each one sets: the key is the one
-// place the argv spelling meets the field name, and main.ts reads its pre-verb scan words from it.
-// `--help` and `--version` are not here: they are recognized on the raw argv before any verb
-// loads, from HELP_FLAGS in main.ts.
+// main.ts derives its pre-verb scan words from these keys. `--help` and `--version` stay in its
+// HELP_FLAGS because they are read from the raw argv before any verb loads.
 export const GLOBALS = {
   quiet: {
     name: "quiet",
@@ -39,7 +37,6 @@ export const GLOBALS = {
 
 export type GlobalFlags = { [K in keyof typeof GLOBALS]: boolean };
 
-// The help and parse order is the declaration order above.
 export const GLOBAL_FLAGS: readonly FlagSpec[] = Object.values(GLOBALS);
 
 export const FLAGS = {
