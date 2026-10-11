@@ -19,7 +19,7 @@ import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { fakeResolvers, writeSource } from "../engine/fakes.ts";
+import { fakeResolvers, treeDigest, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import {
@@ -29,7 +29,6 @@ import {
   realEngineBundle,
   runCli,
   type Scenario,
-  snapshot,
   withScenario,
   writeConfig,
   writeState,
@@ -128,11 +127,11 @@ test("a refusal from the admission plan leaves nothing written", async () => {
   await withScenario(
     { github: { "a/b": RULES }, refuse: { code: 8, message: "over the 6000-byte limit" } },
     async (scenario) => {
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["add", "@a/b", "-g", "--rule", "-a", "codex"]);
       expect(run.code).toBe(8);
       expect(run.stderr).toBe(" ERROR  over the 6000-byte limit\n");
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
       expect(scenario.engine.calls.sync).toHaveLength(1);
       scenario.options.refuse = undefined;
       expect((await runCli(scenario, ["add", "@a/b", "-g", "--rule", "-a", "codex"])).code).toBe(0);
@@ -291,12 +290,12 @@ test.each(nothingWritten)(
           ]);
           expect(first.code).toBe(0);
         }
-        const before = await snapshot(scenario.root);
+        const before = treeDigest(scenario.root);
         const syncCalls = scenario.engine.calls.sync.length;
         const run = await runCli(scenario, argv);
         expect(run.code).toBe(code);
         expect(run.stderr).toContain(` ERROR  ${message}`);
-        expect(await snapshot(scenario.root)).toBe(before);
+        expect(treeDigest(scenario.root)).toBe(before);
         expect(scenario.engine.calls.sync.length).toBe(syncCalls);
       },
     );
@@ -337,7 +336,7 @@ test("--allow-hidden lets the hidden character through and --rename resolves a k
 
 test("--list prints every name, warns on ignored flags, and never writes or syncs", async () => {
   await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, ["add", "@a/b", "--list", "--rule", "-y"]);
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("!  --rule is ignored with --list\n");
@@ -349,7 +348,7 @@ test("--list prints every name, warns on ignored flags, and never writes or sync
       "|    tests-before-the-fix",
     ]);
     expect(run.stdout.endsWith("|\no  Run without --list to install\n\n")).toBe(true);
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
     expect(scenario.engine.calls.sync).toEqual([]);
   });
 });
@@ -395,7 +394,7 @@ test("a source without --rule installs past the cap, since it publishes no rule 
 // and the frame carry the same rows, so a CI job and a reader see one judgment.
 test("a risky description earns ! lines and json warnings; --strict refuses it with nothing written", async () => {
   await withScenario({ github: { "a/r": RISKY } }, async (scenario) => {
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const strict = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "--strict"]);
     expect(strict.code).toBe(3);
     expect(strict.stdout).toContain(
@@ -404,7 +403,7 @@ test("a risky description earns ! lines and json warnings; --strict refuses it w
     expect(strict.stderr).toBe(
       " ERROR  fetch-helper: shell-pipe: curl piped into sh at column 25 (and 1 more)\nTip: drop --strict to install anyway\n",
     );
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
     const json = await runCli(scenario, ["add", "@a/r", "-g", "-a", "codex", "-y", "--json"]);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toMatchObject({
@@ -945,7 +944,7 @@ test("add --dry-run into an -o folder prints one truthful plan", async () => {
   await withScenario({ loadEngine }, async (scenario) => {
     const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
     const out = join(scenario.root, "team-rules");
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, [
       "add",
       source,
@@ -964,7 +963,7 @@ test("add --dry-run into an -o folder prints one truthful plan", async () => {
     expect(lines.filter((line) => line.startsWith("write "))).not.toEqual([]);
     expect(run.stdout).toMatch(/^o {2}Would install 2 memories, 2 rule lines \(~\d+ tokens\)$/m);
     expect(run.stdout).not.toContain("Installed ");
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
   });
 });
 
@@ -1204,7 +1203,7 @@ test("--quiet turns every failure into exit 0 with one log line", async () => {
 test("--dry-run shows the plan, hands the engine the would-be state, and creates nothing, not even the maxims home", async () => {
   await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     rmSync(scenario.home, { recursive: true, force: true });
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--rule", "--dry-run"]);
     expect([run.code, run.stderr]).toEqual([0, ""]);
     expect(run.stdout).toContain("write   ");
@@ -1220,7 +1219,7 @@ test("--dry-run shows the plan, hands the engine the would-be state, and creates
       ),
     ).toBe(true);
     expect(existsSync(scenario.home)).toBe(false);
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
   });
 });
 
@@ -1388,7 +1387,7 @@ test("a long pinned ref still yields a rules-file stem a filesystem accepts", as
 
 test("a --pin the state schema refuses is a usage error naming the flag, and nothing is written", async () => {
   await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, [
       "add",
       "@a/b",
@@ -1402,7 +1401,7 @@ test("a --pin the state schema refuses is a usage error naming the flag, and not
     expect(run.code).toBe(1);
     expect(run.stderr).toBe(' ERROR  --pin "release-->v1": a ref cannot contain -->\n');
     expect(scenario.fetches).toEqual([]);
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
   });
 });
 
@@ -1439,14 +1438,14 @@ test.each(unstorableTreeRefs)(
   "a /tree/<ref> the state schema refuses is a usage error without a --pin, and nothing is written: %s",
   async (url, reason) => {
     await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["add", url, "-g", "-a", "codex", "-y"]);
       expect({ code: run.code, stderr: run.stderr }).toEqual({
         code: 1,
         stderr: ` ERROR  ${JSON.stringify(url)}: ${reason}\n`,
       });
       expect(scenario.fetches).toEqual([]);
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   },
 );
@@ -1565,23 +1564,23 @@ const CORRUPT_STATE = {
 test("add --dry-run refuses a corrupt state file and add --list warns, both leaving it in place", async () => {
   await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
     writeState(scenario, CORRUPT_STATE);
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     const dry = await runCli(scenario, ["add", "@a/b", "-g", "-a", "codex", "--dry-run"]);
     expect(dry.code).toBe(1);
     expect(dry.stderr).toBe(
       " ERROR  state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
     );
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
     const listed = await runCli(scenario, ["add", "@a/b", "--list"]);
     expect(listed.code).toBe(0);
     expect(listed.stdout).toContain(
       "!  state.json is corrupt: sources.@a/b.intent: Invalid input: expected object, received undefined; run maxims sync to quarantine it\n",
     );
     expect(listed.stdout).toContain("|    tests-before-the-fix\n");
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
     expect((await runCli(scenario, ["link", "@a/b", "-a", "claude-code", "--dry-run"])).code).toBe(
       1,
     );
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
   });
 });

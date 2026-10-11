@@ -13,6 +13,7 @@ import {
   fakeResolvers,
   githubFrom,
   memoryName,
+  treeDigest,
   writeSource,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
@@ -21,7 +22,6 @@ import {
   realEngineBundle,
   runCli,
   type Scenario,
-  snapshot,
   withScenario,
   writeState,
 } from "./fake-engine.ts";
@@ -66,7 +66,7 @@ async function shownSource(scenario: Scenario, ...argv: string[]): Promise<Docum
 test("a held source prints its facts, the three line groups, the bodies and their diffs", async () => {
   await reviewedScenario(async (scenario, fake) => {
     await hold(scenario, fake);
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     const run = await runCli(scenario, ["show", KEY]);
     expect([run.code, run.stderr]).toEqual([0, ""]);
     expect(run.stdout).toMatch(
@@ -139,7 +139,7 @@ test("a held source prints its facts, the three line groups, the bodies and thei
     expect(held.bodies[0]?.diff).toContain("+Push, then review.");
     expect(held.sha).not.toBe(document.sha);
     // Reading the hold changed nothing: no lock, no log line, the pending tree as it was.
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
   });
 });
 

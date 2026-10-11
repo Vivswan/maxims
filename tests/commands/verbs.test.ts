@@ -31,7 +31,7 @@ import { renderBlock } from "../../src/rulefile/block.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
-import { fakeResolvers, memoryName, writeSource } from "../engine/fakes.ts";
+import { fakeResolvers, memoryName, treeDigest, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import {
@@ -43,7 +43,6 @@ import {
   runCli,
   type Scenario,
   type ScenarioOptions,
-  snapshot,
   withScenario,
   writeConfig,
   writeState,
@@ -365,9 +364,9 @@ test("config set/get/unset round-trips through the schema and refuses bad values
     );
     expect((await runCli(scenario, ["config", "unset", "rule"])).code).toBe(0);
     expect((await runCli(scenario, ["config", "get", "rule"])).stdout).toBe("");
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     expect((await runCli(scenario, ["config", "set", "yes", "true", "--dry-run"])).code).toBe(0);
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
     writeFileSync(homePaths(scenario.home).config, "{ not json");
     const broken = await runCli(scenario, ["config", "get"]);
     expect(broken.code).toBe(4);
@@ -575,10 +574,10 @@ test("install --strict refuses a manifest entry with a risky description before 
         },
       }),
     );
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     const strict = await runCli(scenario, ["install", "--strict"]);
     expect(strict.code).toBe(3);
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
     expect(scenario.engine.calls.sync).toEqual([]);
     const run = await runCli(scenario, ["install", "-y", "--json"]);
     expect(run.code).toBe(0);
@@ -813,7 +812,7 @@ test.each(unDisablingRefreshes)(
       const rule = join(scenario.userHome, ".codex", "AGENTS.md");
       expect(readFileSync(rule, "utf8")).not.toContain("curl");
       mutate(source);
-      const before = await snapshot(scenario.userHome);
+      const before = treeDigest(scenario.userHome);
       const refused = await runCli(scenario, [
         "update",
         source,
@@ -828,7 +827,7 @@ test.each(unDisablingRefreshes)(
         code: 3,
         message: expect.stringContaining("fetch-helper: shell-pipe: curl piped into sh"),
       });
-      expect(await snapshot(scenario.userHome)).toBe(before);
+      expect(treeDigest(scenario.userHome)).toBe(before);
       expect(readFileSync(rule, "utf8")).not.toContain("curl");
       const sources = (readState(scenario) as { sources: Record<string, { intent: object }> })
         .sources;
@@ -900,7 +899,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
       const stamp = homePaths(scenario.home).lastSync;
       writeFileSync(stamp, "2026-09-20T11:56:00.000Z\n");
       utimesSync(stamp, new Date("2026-09-17T11:56:00.000Z"), new Date("2026-09-17T11:56:00.000Z"));
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, [
         "doctor",
         "--expect",
@@ -929,7 +928,7 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
             join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
           ),
       );
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
       writeFileSync(
         join(scenario.cwd, ".cursor", "rules", "maxims-a-b.mdc"),
         `${CURSOR_FRONTMATTER}${block("@a/b", ["commit-small-and-often", "tests-before-the-fix"])}`,
@@ -1415,10 +1414,10 @@ test("install --json with no manifest emits one document, and a bad entry record
         sources: { "@a/b": entry("a/b", "*"), "@a/d": entry("a/d", ["ghost"]) },
       };
       writeFileSync(join(scenario.cwd, ".agents", "maxims.lock"), JSON.stringify(manifest));
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["install"]);
       expect(run.code).toBe(3);
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
       expect(scenario.engine.calls.sync).toEqual([]);
     },
   );
@@ -1478,7 +1477,7 @@ test.each(dryRunPlans)(
   async ({ args, planned, expected }) => {
     await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
       await installRules(scenario);
-      const before = await snapshot(scenario.home);
+      const before = treeDigest(scenario.home);
       for (const json of [false, true]) {
         const calls = scenario.engine.calls.sync.length;
         const run = await runCli(scenario, [...args, "--dry-run", ...(json ? ["--json"] : [])]);
@@ -1488,7 +1487,7 @@ test.each(dryRunPlans)(
         for (const call of synced) {
           expect([call.dryRun, planned(call.preview)]).toEqual([true, expected]);
         }
-        expect(await snapshot(scenario.home)).toBe(before);
+        expect(treeDigest(scenario.home)).toBe(before);
       }
     });
   },
@@ -1533,7 +1532,7 @@ test("pins differing only in case are different sources, and update --rename is 
         ])
       ).code,
     ).toBe(0);
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     const collides = await runCli(scenario, [
       "update",
       "@a/d",
@@ -1544,7 +1543,7 @@ test("pins differing only in case are different sources, and update --rename is 
     expect(collides.stderr).toBe(
       " ERROR  tests-before-the-fix is owned by @a/b#v1\nTip: --rename tests-before-the-fix=<new>\n",
     );
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
   });
 });
 
@@ -1635,11 +1634,11 @@ test("install refuses a batch whose entries would land on one local name", async
         join(scenario.cwd, ".agents", "maxims.lock"),
         JSON.stringify({ version: 1, sources: { "@a/b": entry("a/b"), "@a/d": entry("a/d") } }),
       );
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["install"]);
       expect(run.code).toBe(6);
       expect(run.stderr).toContain("commit-small-and-often is owned by @a/");
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     },
   );
 });
@@ -1902,7 +1901,7 @@ test.skipIf(WINDOWS)(
         join(scenario.cwd, unnameable, "memories", "arrow-rule.md"),
         "---\nname: arrow-rule\ndescription: Ours\n---\n",
       );
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, [
         "add",
         `./${unnameable}`,
@@ -1913,7 +1912,7 @@ test.skipIf(WINDOWS)(
       ]);
       expect(run.code).toBe(1);
       expect(run.stderr).toContain("a path cannot contain -->");
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   },
 );
@@ -1976,11 +1975,11 @@ test.each(persistingInvocations)(
   async (_name, argv) => {
     await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
       await installRules(scenario);
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, argv);
       expect(run.code).toBe(1);
       expect(existsSync(homePaths(scenario.home).config)).toBe(false);
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   },
 );
@@ -2163,7 +2162,7 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
       writtenBy: "x",
       sources: { "@a/b": {} },
     });
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     const run = await runCli(scenario, ["doctor"]);
     expect(run.code).toBe(0);
     const line =
@@ -2180,7 +2179,7 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
       { kind: "warn", text: line },
       { kind: "warn", text: "never synced" },
     ]);
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
   });
 });
 
