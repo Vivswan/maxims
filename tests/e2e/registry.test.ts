@@ -362,11 +362,9 @@ describe.each(missingScope)("%s has no %s target", (_id, scope, def) => {
   });
 });
 
-// node's `realpathSync` folds `..` lexically where the kernel does not. The row pins the pair that
-// let the fold erase a hook under node, with no spy: a scope identity read by `realpathSync` and a
-// removal matched by its leaf alone; either half on its own still keeps the hook. The project
-// scope's removal names the stray `~/hooks.json`, misses the global file it edits through the link,
-// and erases the settled hook. Windows folds as node does and is not under test here.
+// node's `realpathSync` folds `..` lexically where the kernel does not, so under node the project
+// scope's removal named the stray `~/hooks.json` and erased the hook settled behind the link. The
+// bundle runs as shipped, no spy. Windows folds as node does and is not under test here.
 test.skipIf(process.platform === "win32")(
   "a settled codex hook survives a sync when its project registry is a link whose target holds .. after a linked folder",
   async () => {

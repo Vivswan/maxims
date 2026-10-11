@@ -47,7 +47,7 @@ test("sync registers the stub where the hook is wanted, settles on the second ru
 
     const preview = await runSync({ ...SYNC, dryRun: true }, io);
     expect<unknown[]>(preview.plan.changes.filter((change) => change.path === servers)).toEqual([
-      { kind: "write", path: servers, content: REGISTERED },
+      { kind: "edit", path: servers, target: servers, content: REGISTERED },
     ]);
     expect(readFileSync(servers, "utf8")).toBe(SEEDED);
 

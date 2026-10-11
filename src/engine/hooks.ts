@@ -169,7 +169,7 @@ export async function planHooks(input: {
         const registration = mcpRegistrationAt(def, scope, harnessCtx);
         if (registration === null) return null;
         reach.add(fileId(registration.path));
-        return mcpAnswer(def, scope, harnessCtx, registration, wants.hook, hook);
+        return mcpAnswer(def, scope, harnessCtx, registration, wants.hook, hook, input.judgeLink);
       });
       const config = await attempt(wants.rules, async () => {
         const edits = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
@@ -197,7 +197,7 @@ export async function planHooks(input: {
         const registration = resolvedThere(() => mcpRegistrationAt(def, "project", there));
         if (registration === undefined || registration === null) return null;
         if (!reach.has(fileId(registration.path))) return null;
-        return mcpAnswer(def, "project", there, registration, true, hook);
+        return mcpAnswer(def, "project", there, registration, true, hook, input.judgeLink);
       });
       for (const answer of [hook, mcp]) {
         if (answer?.claims.some((file) => reach.has(fileId(file)))) {
@@ -300,13 +300,21 @@ async function hookAnswer(
   return { artifact: plan.changes, claims, wanted, notices: noticesOf(plan.notice) };
 }
 
-// The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
-// the entry is then planned over the hook's planned text and rides in the hook's change, notice
-// included, since a second change of that file planned from its old text would land after the
-// first and take the hook back out. A registry whose link was refused (`hook` null, the failure
-// reported) carries no servers write either: planned from the old text, it would replace the link
-// the refusal names. The registry is matched by its declared path, since `hookPath` asserts it
-// inside the root and a hook folder linked out would fail here again, servers file apart or not.
+// The stub server entry, its file's link judged first as the registry's is, whatever the hook's
+// answer. Hooks and servers kept in one file are planned as one change over the hook's text,
+// since a second change of that file from its old text would land after the first and take the
+// hook back out. The servers file is one with a change by its leaf or by the file its link
+// reaches, since an edit lands behind the link. By what the hook's answer holds:
+//
+//   a change of the servers file   the entry rides in that change, notice included
+//   nothing, the hook refused at   no servers change: the refusal names the file, and a second
+//   the servers file's own path    read through the refused link would fail again, worded
+//                                  differently (the paths are matched as declared, under
+//                                  `resolvedThere`'s tolerance: a hook folder nobody can resolve
+//                                  failed the hook alone, not the servers file)
+//   anything else                  the write it needs, if any, edits the file where its bytes
+//                                  live; a settled file behind a link out of the root costs
+//                                  nothing
 async function mcpAnswer(
   def: HarnessDefinition,
   scope: Scope,
@@ -314,18 +322,30 @@ async function mcpAnswer(
   registration: McpRegistration,
   wanted: boolean,
   hook: ScopeAnswer | null,
+  judgeLink: LinkJudge,
 ): Promise<ScopeAnswer> {
-  const file = realKeyOf(registration.path);
+  judgeLink(registration.path);
+  const leaf = realKeyOf(registration.path);
   const rides = { artifact: [], claims: [registration.path], wanted, notices: [] };
-  if (hook === null && hasHook(def, "registry") && realKeyOf(def.hook.path(scope, ctx)) === file) {
+  if (
+    hook === null &&
+    hasHook(def, "registry") &&
+    resolvedThere(() => realKeyOf(def.hook.path(scope, ctx))) === leaf
+  ) {
     return rides;
   }
-  const shared = hook?.artifact.findIndex((change) => filesOf(change).includes(file)) ?? -1;
+  const identities = new Set([leaf, fileId(registration.path)]);
+  const shared =
+    hook?.artifact.findIndex((change) => filesOf(change).some((file) => identities.has(file))) ??
+    -1;
   const current = hook?.artifact[shared];
   if (hook === null || current === undefined || !carriesText(current)) {
     const plan = await planMcpOnly(registration, wanted);
+    const root = scopeRoot(def, scope, ctx);
     return {
-      artifact: plan.changes,
+      artifact: plan.changes.map((change) =>
+        change.kind === "write" ? editInPlace(root, registration.path)(change.content) : change,
+      ),
       claims: [registration.path],
       wanted,
       notices: noticesOf(plan.notice),

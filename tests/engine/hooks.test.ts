@@ -34,10 +34,11 @@ import {
 } from "../../src/harnesses/contract.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import { planMcpRegistration } from "../../src/harnesses/mcp-stub/register.ts";
+import { applyChanges } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import * as fsUtil from "../../src/util/fs.ts";
 import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
-import { WINDOWS } from "../shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
   configEditHarness,
@@ -54,7 +55,8 @@ import {
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "./world.ts";
 
 // The registry write's content is the hook writer's; this test pins only which changes appear:
-// the config entry is a write of a file maxims owns, the registry an edit of the user's file.
+// the config entry is a write of a file maxims owns, the registry and the servers file edits of
+// the user's files.
 const configWrite = (config: string): unknown => ({
   kind: "write",
   path: config,
@@ -65,6 +67,12 @@ const registryWrite = (registry: string): unknown => ({
   path: registry,
   target: registry,
   content: expect.stringContaining(HOOK_COMMAND),
+});
+const serversWrite = (servers: string, behind = servers): unknown => ({
+  kind: "edit",
+  path: servers,
+  target: behind,
+  content: expect.stringContaining('"mcp-serve"'),
 });
 
 const cases: [string, HarnessWants, (config: string, registry: string) => unknown[]][] = [
@@ -152,20 +160,17 @@ describe("the MCP server entry follows the hook intent", () => {
       const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
       const registry = join(userHome, FIXTURE_DIR, "settings.json");
       const wanted = await plan(apart, dir, home, userHome, true);
-      expect<unknown[]>(wanted.changes).toEqual([
-        registryWrite(registry),
-        { kind: "write", path: mcp, content: expect.stringContaining('"mcp-serve"') },
-      ]);
+      expect<unknown[]>(wanted.changes).toEqual([registryWrite(registry), serversWrite(mcp)]);
       expect(wanted.notices).toEqual([
         `registered the maxims hook in ${registry}`,
         `registered the maxims MCP server in ${mcp}`,
       ]);
       const [, written] = wanted.changes;
-      if (written?.kind !== "write") throw new Error("expected the servers write");
+      if (written?.kind !== "edit") throw new Error("expected the servers edit");
       writeFileSync(mcp, written.content);
       const unwanted = await plan(apart, dir, home, userHome, false);
       expect<unknown[]>(unwanted.removals).toEqual([
-        { kind: "write", path: mcp, content: '{\n  "mcpServers": {}\n}\n' },
+        { kind: "edit", path: mcp, target: mcp, content: '{\n  "mcpServers": {}\n}\n' },
       ]);
       expect(unwanted.notices).toEqual([`removed the maxims MCP server from ${mcp}`]);
     });
@@ -220,32 +225,43 @@ describe("the MCP server entry follows the hook intent", () => {
   });
 
   // The registry's edit lands in the file behind its link, so the one file the two entries share
-  // may be named by the leaf (both declared at a registry linked into a dotfiles checkout) or by
-  // the file behind it (a registry linked at the servers file). Either way a servers write planned
-  // from the file's old text would land after the edit and take the hook back out.
-  const linkedRegistry: [string, HarnessDefinition, (userHome: string) => string][] = [
+  // may be named by the leaf (both declared at a registry linked into a dotfiles checkout), by the
+  // file behind the registry's link (a registry linked at the servers file), or by the file behind
+  // the servers file's link (a servers file linked at the registry). Either way a servers change
+  // planned from the file's old text would land after the edit and take the hook back out.
+  const linkedRegistry: [
+    string,
+    HarnessDefinition,
+    (userHome: string, registry: string, mcp: string) => { behind: string; link: string },
+  ][] = [
     [
       "both declared at a registry linked into a dotfiles checkout",
       together,
-      (userHome) => {
+      (userHome, registry) => {
         mkdirSync(join(userHome, "dotfiles"));
-        return join(userHome, "dotfiles", "settings.json");
+        return { behind: join(userHome, "dotfiles", "settings.json"), link: registry };
       },
     ],
     [
       "a registry linked at the servers file",
       apart,
-      (userHome) => join(userHome, FIXTURE_DIR, "mcp.json"),
+      (_userHome, registry, mcp) => ({ behind: mcp, link: registry }),
+    ],
+    [
+      "a servers file linked at the registry",
+      apart,
+      (_userHome, registry, mcp) => ({ behind: registry, link: mcp }),
     ],
   ];
   test.each(linkedRegistry)(
     "%s: the entry rides in the edit behind the link",
     async (_label, def, plant) => {
       await world(async ({ home, userHome, dir }) => {
-        const behind = plant(userHome);
         const registry = join(userHome, FIXTURE_DIR, "settings.json");
+        const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+        const { behind, link } = plant(userHome, registry, mcp);
         writeFileSync(behind, '{ "theme": "dark" }\n');
-        symlinkSync(behind, registry);
+        symlinkSync(behind, link);
         const wanted = await plan(def, dir, home, userHome, true);
         expect<unknown[]>(wanted.changes).toEqual([
           {
@@ -310,7 +326,7 @@ describe("the MCP server entry follows the hook intent", () => {
       const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
       const wanted = await plan(hooksApart, dir, home, userHome, true);
       expect<unknown>(wanted).toEqual({
-        changes: [{ kind: "write", path: mcp, content: expect.stringContaining('"mcp-serve"') }],
+        changes: [serversWrite(mcp)],
         removals: [],
         notices: [`registered the maxims MCP server in ${mcp}`],
         failures: [
@@ -322,6 +338,150 @@ describe("the MCP server entry follows the hook intent", () => {
       });
     });
   });
+
+  // Matching the servers file to the refused registry resolves the registry's declared path once
+  // more; a folder on the way that cannot be searched is the hook's failure, reported once, and
+  // not the servers file's. The hook folder itself sealed is the control: resolving stops at its
+  // parent, so only an ancestor sealed reaches the match.
+  const sealedHookFolders: [
+    string,
+    (hookFolder: string) => string,
+    (hookFolder: string) => string,
+  ][] = [
+    ["an ancestor of the hook folder", dirname, (hookFolder) => hookFolder],
+    [
+      "the hook folder itself",
+      (hookFolder) => hookFolder,
+      (hookFolder) => join(hookFolder, "settings.json"),
+    ],
+  ];
+  for (const [label, sealedAt, inspected] of sealedHookFolders) {
+    test.skipIf(!CHMOD_DENIES)(
+      `${label} cannot be searched: the hook fails alone and a servers file apart from it is still written`,
+      async () => {
+        await world(async ({ home, userHome, dir }) => {
+          const hookFolder = join(userHome, "locked", "fixture-hooks");
+          mkdirSync(hookFolder, { recursive: true });
+          const registryHook = rulesDirHarness.hook;
+          if (registryHook.kind !== "registry") throw new Error("the fixture hook is a registry");
+          const hooksApart: HarnessDefinition = {
+            ...apart,
+            hook: {
+              ...registryHook,
+              path: (scope: Scope, ctx: HarnessContext) =>
+                join(scopeRoot({}, scope, ctx), "locked", "fixture-hooks", "settings.json"),
+            },
+          };
+          const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+          const sealed = sealedAt(hookFolder);
+          chmodSync(sealed, 0o000);
+          try {
+            const wanted = await plan(hooksApart, dir, home, userHome, true);
+            expect<unknown>(wanted).toEqual({
+              changes: [serversWrite(mcp)],
+              removals: [],
+              notices: [`registered the maxims MCP server in ${mcp}`],
+              failures: [
+                {
+                  message: expect.stringContaining(`cannot inspect ${inspected(hookFolder)}:`),
+                  hint: undefined,
+                },
+              ],
+            });
+          } finally {
+            chmodSync(sealed, 0o700);
+          }
+        });
+      },
+    );
+  }
+
+  // The servers file's link is judged whatever the hook's answer: a chain that reaches the hook's
+  // file through a rule file maxims owns whole would otherwise ride in the hook's edit unjudged,
+  // and the rules write would then replace the rule file under the servers link.
+  test("a servers file linked through a rule file maxims owns whole to the registry is refused, nothing written", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entries = { [source]: entryFor(localFrom(source)) };
+      writeState(home, stateWith(entries));
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [apart] });
+      await runSync(SYNC, io);
+      const ruleFile = globalRulesFile(userHome, sourceSlug(localFrom(source)));
+      const registry = join(userHome, FIXTURE_DIR, "settings.json");
+      const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+      writeFileSync(registry, '{ "theme": "dark" }\n');
+      rmSync(ruleFile);
+      symlinkSync(registry, ruleFile);
+      symlinkSync(ruleFile, mcp);
+      writeState(home, stateWith(entries, { global: ["claude-code"] }));
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(
+        `cannot edit ${mcp}: it is a symlink to ${ruleFile}, a rule file maxims owns whole`,
+      );
+      expect(readFileSync(registry, "utf8")).toBe('{ "theme": "dark" }\n');
+      expect([readlinkSync(ruleFile), readlinkSync(mcp)]).toEqual([registry, ruleFile]);
+    });
+  });
+
+  // With the hook settled, or kept in a file of its own, the servers entry is the only change of
+  // the servers file, and a servers file the user keeps as a link is edited where the link points:
+  // written at the leaf, the link would be replaced by a plain file.
+  const serversBehindALink: [
+    string,
+    HarnessDefinition,
+    (registry: string, mcp: string) => string,
+    (registry: string, mcp: string, behind: string) => { changes: unknown[]; notices: string[] },
+  ][] = [
+    [
+      "the hook settled in a registry linked into a dotfiles checkout",
+      together,
+      (registry) => registry,
+      (registry, _mcp, behind) => ({
+        changes: [serversWrite(registry, behind)],
+        notices: [`registered the maxims MCP server in ${registry}`],
+      }),
+    ],
+    [
+      "a servers file apart from the registry, linked into a dotfiles checkout",
+      apart,
+      (_registry, mcp) => mcp,
+      (registry, mcp, behind) => ({
+        changes: [registryWrite(registry), serversWrite(mcp, behind)],
+        notices: [
+          `registered the maxims hook in ${registry}`,
+          `registered the maxims MCP server in ${mcp}`,
+        ],
+      }),
+    ],
+  ];
+  test.each(serversBehindALink)(
+    "%s: the entry is edited into the file behind the link, and the link survives",
+    async (_label, def, linkOf, expected) => {
+      await world(async ({ home, userHome, dir }) => {
+        const registry = join(userHome, FIXTURE_DIR, "settings.json");
+        const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
+        const [settledHook] = (await plan(apart, dir, home, userHome, true)).changes;
+        if (settledHook?.kind !== "edit") throw new Error("expected the registry edit");
+        const link = linkOf(registry, mcp);
+        mkdirSync(join(userHome, "dotfiles"));
+        const behind = join(userHome, "dotfiles", basename(link));
+        writeFileSync(behind, link === registry ? settledHook.content : '{ "theme": "dark" }\n');
+        symlinkSync(behind, link);
+        const wanted = await plan(def, dir, home, userHome, true);
+        expect<unknown>(wanted).toEqual({
+          ...expected(registry, mcp, behind),
+          removals: [],
+          failures: [],
+        });
+        await applyChanges({ changes: wanted.changes, notices: [] }, { dryRun: false });
+        expect(readlinkSync(link)).toBe(behind);
+        const text = readFileSync(behind, "utf8");
+        expect(text).toContain('"mcp-serve"');
+        expect(text).toContain(link === registry ? HOOK_COMMAND : '"theme": "dark"');
+        expect((await plan(def, dir, home, userHome, true)).changes).toEqual([]);
+      });
+    },
+  );
 
   // Each artifact is planned on its own: a servers file that cannot be read costs this run that
   // one registration, reported when it was wanted, and never the hook's own edit or removal.
@@ -673,30 +833,50 @@ describe("both scopes resolving to one registry", () => {
     );
   }
 
-  // The writer replaces a link at the leaf with a real file, so a project servers file linked to
-  // the global one becomes its own file on the project write and the global file keeps whatever
-  // it held: compared by the resolved leaf the two are one file and the global removal is dropped.
-  // Settled, nothing writes the leaf, the link stays, and the file behind it is the project's
-  // registration: compared by the leaf alone the global removal stands and takes it away, and so
-  // does a removal at a link partway along the chain, which the resolved leaf does not name.
-  const behindTheLink: [string, (current: string) => string, boolean, object[], object[]][] = [
+  // A project servers file linked to the global one is the user's link, and the project's write
+  // would land out of the project root: it is refused by name, nothing replaces the link, and the
+  // global scope's removal stands. Settled, nothing writes the leaf, the link stays, and the file
+  // behind it is the project's registration: compared by the leaf alone the global removal would
+  // take it away, and so would a removal at a link partway along the chain.
+  const behindTheLink: [
+    string,
+    (current: string) => string,
+    boolean,
+    object[],
+    object[],
+    object[],
+  ][] = [
     [
-      "a stale entry behind the link is written apart, and the global entry still leaves",
+      "a stale entry behind the link is refused out of the project root, and the global entry still leaves",
       () => '{\n  "mcpServers": {\n    "maxims": {\n      "command": "old"\n    }\n  }\n}\n',
       false,
-      [{ kind: "write", content: expect.stringContaining('"mcp-serve"') }],
-      [{ kind: "write", content: '{\n  "mcpServers": {}\n}\n' }],
+      [],
+      [{ kind: "edit", content: '{\n  "mcpServers": {}\n}\n' }],
+      [
+        {
+          message: expect.stringMatching(/^cannot edit .*: it is a symlink to .*, outside /),
+          hint: expect.stringContaining("then run maxims sync"),
+        },
+      ],
     ],
-    ["the current entry behind the link is settled and stays", (current) => current, false, [], []],
+    [
+      "the current entry behind the link is settled and stays",
+      (current) => current,
+      false,
+      [],
+      [],
+      [],
+    ],
     [
       "the current entry behind a chain of links, the global file a link itself, stays",
       (current) => current,
       true,
       [],
       [],
+      [],
     ],
   ];
-  for (const [label, textBehind, chained, changes, removals] of behindTheLink) {
+  for (const [label, textBehind, chained, changes, removals, failures] of behindTheLink) {
     test(`a project servers file linked to the global one: ${label}`, async () => {
       await world(async ({ home, userHome, project }) => {
         const hookless: HarnessDefinition = {
@@ -740,7 +920,10 @@ describe("both scopes resolving to one registry", () => {
           judgeLink: () => undefined,
         });
         expect<unknown[]>(plan.changes).toEqual(changes.map((c) => ({ ...c, path: linked })));
-        expect<unknown[]>(plan.removals).toEqual(removals.map((c) => ({ ...c, path: global })));
+        expect<unknown[]>(plan.removals).toEqual(
+          removals.map((c) => ({ ...c, path: global, target: global })),
+        );
+        expect<unknown[]>(plan.failures).toEqual(failures);
       });
     });
   }

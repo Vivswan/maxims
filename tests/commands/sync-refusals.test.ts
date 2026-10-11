@@ -1836,6 +1836,53 @@ describe("what a refused or departed source leaves behind", () => {
     },
   );
 
+  // A source admission refuses keeps the rule file it installed before, and that file stays
+  // maxims's whole. The refusing attempt is discarded and the source planned again held, as an
+  // unreadable one is, so its kept rule file reaches the link judgment: a shared file linked at
+  // it is refused as one linked at a rendered rule file is, never edited through the link over
+  // the kept rules.
+  test("a shared file linked at the kept rule file of a source refused by collision is refused, nothing written", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const atProject = { destination: { scope: "project" as const, root: project } };
+      const owner = writeSource(join(dir, "owner"), { alpha: { description: "Alpha." } });
+      const kept = writeSource(join(dir, "kept"), { beta: { description: "Beta." } });
+      const entries = {
+        [owner]: entryFor(localFrom(owner), atProject),
+        [kept]: entryFor(localFrom(kept, true), atProject),
+      };
+      writeState(home, stateWith(entries));
+      const io = fakeIo({ home, userHome, cwd: project });
+      await runSync(SYNC, io);
+      const slug = sourceSlug(localFrom(kept, true));
+      const ruleFile = join(project, ".fixture", "rules", `maxims-${slug}.md`);
+      const written = readFileSync(ruleFile, "utf8");
+      writeFileSync(
+        join(kept, "memories", "alpha.md"),
+        memoryFile("alpha", { description: "Rival alpha." }),
+      );
+      // The control: the grown source is the one refused, and its file is the one kept.
+      const collision = await expectExit(runSync(SYNC, io), ExitCode.NameCollision);
+      expect(collision.message).toBe(`${kept}: name collision on alpha`);
+      expect(readFileSync(ruleFile, "utf8")).toBe(written);
+      const shared = join(project, "FIXTURE.md");
+      symlinkSync(ruleFile, shared);
+      const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+      writeState(
+        home,
+        stateWith({
+          ...entries,
+          [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
+        }),
+      );
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect(error.message).toContain(
+        `cannot edit ${shared}: it is a symlink to ${ruleFile}, a rule file maxims owns whole`,
+      );
+      expect(readFileSync(ruleFile, "utf8")).toBe(written);
+      expect(readlinkSync(shared)).toBe(ruleFile);
+    });
+  });
+
   // A reader no source brings (`AGENTS.md -> .claude/rules/maxims-x.md`, the user pointing one
   // harness at another's rendered rules) reaches the rule file by a link nothing holds: the sync
   // that retires the source deletes the file and leaves the link dangling. It is refused by name
