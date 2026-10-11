@@ -5,7 +5,7 @@
 //   other, or two scopes resolving to one registry undoing each other run after run
 // - a registry kept as a symlink into a dotfiles checkout replaced by a regular file, or edited
 //   through a link at a rule file maxims owns whole
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -18,7 +18,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { runSync } from "../../src/commands/sync.ts";
 import { loadContext } from "../../src/engine/context.ts";
 import { type HarnessWants, planHooks } from "../../src/engine/hooks.ts";
@@ -35,7 +35,9 @@ import {
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import { planMcpRegistration } from "../../src/harnesses/mcp-stub/register.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import * as fsUtil from "../../src/util/fs.ts";
 import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
+import { WINDOWS } from "../shared/platform.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
   configEditHarness,
@@ -537,6 +539,86 @@ describe("both scopes resolving to one registry", () => {
       expect((await runSync(SYNC, io)).changed).toEqual([]);
     });
   });
+
+  // One file for both scopes again, the link's target holding a `..` after a linked folder. The
+  // kernel enters `jump` and lands in `$CODEX_HOME/hooks.json`; node's `realpathSync` folds
+  // `jump/..` away first and names a stray `~/hooks.json`, so the unwanted scope's removal misses
+  // the wanted file and, applied last, erases a settled hook:
+  //
+  //   global wanted    the project removal's own leaf is misread
+  //   project wanted   the wanted claim's leaf is misread
+  //
+  // bun's `realpathSync` reads as the kernel does, so node's fold (`node >= 24` is supported) is
+  // driven through the seam both identities read. Windows folds as node does: nothing to drive.
+  for (const wanted of ["global", "project"] as const) {
+    test.skipIf(WINDOWS)(
+      `a settled registry keeps its hook when the ${wanted} scope wants it: node's realpathSync folds .. lexically where the kernel does not`,
+      async () => {
+        await world(async ({ home, userHome, dir }) => {
+          mkdirSync(join(userHome, ".git"));
+          const codexHome = join(userHome, "dotfiles", "codex");
+          mkdirSync(join(codexHome, "sub"), { recursive: true });
+          const backing = join(codexHome, "hooks.json");
+          writeFileSync(backing, "{}\n");
+          const stray = join(userHome, "hooks.json");
+          writeFileSync(stray, "{}\n");
+          symlinkSync(join(codexHome, "sub"), join(userHome, "jump"));
+          mkdirSync(join(userHome, ".codex"));
+          const link = join(userHome, ".codex", "hooks.json");
+          const typed = ["..", "jump", "..", "hooks.json"].join(sep);
+          symlinkSync(typed, link);
+          const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+          const entry = entryFor(localFrom(source), {
+            harnesses: ["codex"],
+            ...(wanted === "project" ? { destination: { scope: wanted, root: userHome } } : {}),
+          });
+          const hooks =
+            wanted === "global"
+              ? { global: ["codex" as const] }
+              : { project: { [userHome]: ["codex" as const] } };
+          writeState(home, stateWith({ [source]: entry }, hooks));
+          const env = { CODEX_HOME: codexHome };
+          const io = fakeIo({ home, userHome, cwd: userHome, env, harnesses: [codex] });
+          await runSync(SYNC, io);
+          const settled = readFileSync(backing, "utf8");
+          expect(settled).toContain(HOOK_COMMAND);
+          const kernel = fsUtil.realpathOfExistingPrefix;
+          const asNodeFolds = (path: string): string =>
+            fsUtil.isSymlink(path)
+              ? asNodeFolds(resolve(dirname(path), readlinkSync(path)))
+              : kernel(path);
+          const folded = spyOn(fsUtil, "realpathOfExistingPrefix").mockImplementation(asNodeFolds);
+          try {
+            expect([asNodeFolds(link), readFileSync(link, "utf8")]).toEqual([stray, settled]);
+            const ctx = await loadContext(fakeIo({ home, userHome, cwd: userHome, env }), {
+              readHookStdin: false,
+            });
+            const plan = await planHooks({
+              ctx,
+              harnesses: [codex],
+              agents: undefined,
+              wants: (_id, scope: Scope) => ({
+                hook: scope === wanted,
+                rules: false,
+                unreachable: false,
+              }),
+              elsewhere: () => [],
+              judgeLink: () => undefined,
+            });
+            expect([plan.changes, plan.removals]).toEqual([[], []]);
+            expect((await runSync(SYNC, io)).changed).toEqual([]);
+            expect([
+              readFileSync(backing, "utf8"),
+              readlinkSync(link),
+              readFileSync(stray, "utf8"),
+            ]).toEqual([settled, typed, "{}\n"]);
+          } finally {
+            folded.mockRestore();
+          }
+        });
+      },
+    );
+  }
 
   // The writer replaces a link at the leaf with a real file, so a project servers file linked to
   // the global one becomes its own file on the project write and the global file keeps whatever

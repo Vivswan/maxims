@@ -16,7 +16,7 @@ import type { State } from "../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../state/scoped.ts";
 import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
+import { assertInsideRoot, followLinks } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { destinationConflict, realKeyOf } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
@@ -349,9 +349,13 @@ function noticesOf(notice: string | undefined): string[] {
 }
 
 // One file under two spellings (a home reached through a symlink, a project root recorded by its
-// real path) is one file to reconcile.
+// real path, a registry kept as a link) is one file to reconcile. The leaf is walked as the kernel
+// walks it, the way an edit finds its target, never through `realpathSync`: node's folds a `..` in
+// a link's target before reading the folder link ahead of it (`hooks.json -> ../jump/../hooks.json`
+// with `jump` a link), and names another file.
 function fileId(path: string): string {
-  return realpathOfExistingPrefix(path);
+  const chain = followLinks(path);
+  return realKeyOf(chain.kind === "reached" ? chain.end : path);
 }
 
 // One file can be reached from both scopes (dsh mounts its bridge under the global root whatever
@@ -364,8 +368,8 @@ function fileId(path: string): string {
 //                               the registration the unwanted scope would remove
 //   a claim a write touches     its leaf only: the write replaces the link, so the file behind it
 //                               is another file and its removal stands
-//   a removal                   matched by its leaf and by the file behind it, so a write at a
-//                               link partway along a kept claim's chain is dropped too
+//   a removal                   its leaf, the file it lands in, and the file behind its leaf, so a
+//                               write at a link partway along a kept claim's chain is dropped too
 function reconcileScopes(
   answers: readonly ScopeAnswer[],
 ): Pick<HooksPlan, "changes" | "removals" | "notices"> {
@@ -380,10 +384,11 @@ function reconcileScopes(
     kept.add(key);
     if (!touched.has(key)) kept.add(fileId(claim));
   }
-  const keeps = (path: string): boolean => kept.has(realKeyOf(path)) || kept.has(fileId(path));
+  const keeps = (change: Change): boolean =>
+    filesOf(change).some((file) => kept.has(file)) || kept.has(fileId(change.path));
   for (const answer of answers) {
     if (answer.wanted) changes.push(...answer.artifact);
-    else if (answer.artifact.some((change) => keeps(change.path))) continue;
+    else if (answer.artifact.some(keeps)) continue;
     else removals.push(...answer.artifact);
     notices.push(...answer.notices);
   }
