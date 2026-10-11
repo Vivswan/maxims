@@ -1380,7 +1380,7 @@ function bodiesDir(dir: string, root: string): BodiesDir {
 // has since changed, names no owner either, and the dedupe rule decides the name.
 //   store copy read through the selection       so a hidden internal memory is left out
 //   user-scope detail paths through the renames  they name the store file under the upstream name
-//   its blocks' names                            `retainedBlockNames`, which raises the hold
+//   its blocks' names                            `retainedBlockNames`
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
 export async function retainedNames(
   key: string,
@@ -1434,11 +1434,10 @@ export async function retainedNames(
   return [...names];
 }
 
-// The names the source's block in each of its rule files carries. A marker the grammar refuses
-// reaches `hold` from this one read on every verb; `list` reads this alone for a readable source.
-// The source owns the hold only with a block of its own in the file, since the hold freezes its
-// owner. The held block keeps its names (`heldRuleBlocks`): a rival shipping one collides instead
-// of writing its body under the kept line.
+// The one read that raises a hold for a refused marker, on every verb. The source owns the hold
+// only with a block of its own in the file, since the hold freezes its owner. The held block keeps
+// its names (`heldRuleBlocks`): a rival shipping one collides instead of writing its body under
+// the kept line.
 export function retainedBlockNames(
   key: string,
   entry: SourceEntry,

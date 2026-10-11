@@ -94,9 +94,8 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       report.notices.push(`maxims: ${key}: ${line}`),
     );
-    // Sync reports a refused marker where it reads the file; list reads every source's rule
-    // files the same way. A readable source's names come from its tree, so only an unreadable
-    // one's bodies are read: list writes nothing a stop at an unlistable bodies folder protects.
+    // The bodies scan stops a run to protect a write; list writes nothing, so a readable source
+    // skips it and only an unreadable one's bodies are read for its names.
     const hold = (held: RuleFileHeld): void => {
       const realKey = realKeyOf(held.path);
       if (heldKeys.has(realKey)) return;
