@@ -17,7 +17,7 @@ const unclosed: [where: string, markdown: string, text: (string | undefined)[], 
     { line: 0, end: 1, mermaid: true, body: "graph TD" },
   ],
   [
-    "at the end of the page hides every line after its opener",
+    "at the end of the page ends on the page's last line, loses exactly one final line ending from its body, and hides every line after its opener",
     "# Top\n\n```mermaid\ngraph TD\n# Not a heading\n",
     ["# Top", "", undefined, undefined, undefined, undefined],
     { line: 2, end: 5, mermaid: true, body: "graph TD\n# Not a heading" },
@@ -51,16 +51,10 @@ const vendor: [where: string, markdown: string, fences: Fence[], text: (string |
     [undefined, undefined, undefined, ""],
   ],
   [
-    "an unclosed fence whose last line has no newline",
+    "an unclosed fence loses only a final line ending the page has: with none, the body stays whole and the fence ends on the page's last line",
     "```\na\nb",
     [{ line: 0, end: 2, mermaid: false, body: "a\nb" }],
     [undefined, undefined, undefined],
-  ],
-  [
-    "an unclosed fence whose last line has a newline",
-    "```\na\nb\n",
-    [{ line: 0, end: 3, mermaid: false, body: "a\nb" }],
-    [undefined, undefined, undefined, undefined],
   ],
   [
     "indented code is page text, not a fence",
@@ -75,7 +69,7 @@ const vendor: [where: string, markdown: string, fences: Fence[], text: (string |
     [undefined, undefined, undefined, undefined, ""],
   ],
   [
-    "a BOM before the first fence hides nothing",
+    "one leading BOM shifts no position: the fence after it is found and the heading after that is page text",
     "\uFEFF```mermaid\ngraph TD\n```\n# Next\n",
     [{ line: 0, end: 2, mermaid: true, body: "graph TD" }],
     [undefined, undefined, undefined, "# Next", ""],

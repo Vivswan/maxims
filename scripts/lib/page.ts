@@ -15,9 +15,9 @@ export interface Fence {
 const MERMAID_INFO = /^\s*mermaid\s*$/;
 
 /**
- * The opener's text after the marker is judged whole, `lang` and `meta` rejoined: "mermaid title"
- * quotes a diagram, it is not one. Indented code arrives as the same `code` node and stays page
- * text: its position starts at the indentation, a fence's at its marker.
+ * The opener's text after the marker is judged whole: "mermaid title" quotes a diagram, it is not
+ * one. Indented code arrives as the same `code` node and stays page text: its position starts at
+ * the indentation, a fence's at its marker.
  */
 function fences(markdown: string, lines: readonly string[]): Fence[] {
   const found: Fence[] = [];
@@ -57,7 +57,7 @@ export function readPage(markdown: string): Page {
   // micromark reads LF, CRLF, and a lone CR alike, and a node's value keeps the page's own
   // endings: normalizing before the parse keeps a CR beside an LF across a stripped `> ` prefix
   // from merging into one CRLF. micromark also skips one leading BOM and counts every position
-  // from the next character, so the lines skip that same one and the parser sees the rest.
+  // from the next character.
   const source = markdown.replace(/\r\n?/g, "\n");
   const lines = (source.startsWith("\uFEFF") ? source.slice(1) : source).split("\n");
   const all = fences(source, lines);
