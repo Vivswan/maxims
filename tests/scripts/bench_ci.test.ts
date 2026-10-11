@@ -68,7 +68,6 @@ const frame = {
 
 type PathMs = [sync: number, add: number];
 
-// A runner with no noise at all: every cold start of a path takes the same time on a side.
 const steady =
   (ms: Record<SideName, PathMs>): Sampler =>
   (side, argv) =>
@@ -246,9 +245,7 @@ const falseFailures: FalseFailure[] = [
   },
 ];
 
-// The runner replayed under another schedule: the starts are handed out in profile order to
-// whichever side asks, one cursor per timed path. `headCost` scales the head's starts for a
-// bundle that is slower in truth.
+// The runner replayed under another schedule: start times belong to slot order, not side.
 function replay(profile: number[], headCost: number): Sampler {
   const cursors = new Map<string, number>();
   return (side, argv) => {

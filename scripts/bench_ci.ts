@@ -159,7 +159,6 @@ function series(samples: number[]): Series {
 const figure = (s: Series): number =>
   round(s.kept.reduce((sum, ms) => sum + ms, 0) / s.kept.length);
 
-// Every timed path paired, or the heads alone with the reason the base yields no delta.
 type Timed = { paths: Record<SideName, Series>[] } | { heads: Series[]; notComparable: string };
 
 // The pair swaps order every run: with the base always first, the head drew the cooler second
