@@ -197,8 +197,8 @@ const WINDOWS_LINKS: LinkSemantics = {
 };
 
 // No path holding a `..` is handed to realpathSync, which folds it before looking at the links
-// before it. Every path returned is built on real folders, so `editInPlace` can hold the end
-// against a real root.
+// before it. Every hop of a followed chain is built on real folders, so `editInPlace` can hold the
+// end of one against a real root; a path that is no link is returned as given.
 export function followLinks(path: string, platform: NodeJS.Platform = process.platform): LinkChain {
   const links = platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
   const hops: string[] = [];

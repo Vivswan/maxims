@@ -303,20 +303,14 @@ async function hookAnswer(
 // The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
 // the entry is then planned over the hook's planned text and rides in the hook's change, notice
 // included, since a second change of that file planned from its old text would land after the
-// first and take the hook back out. The hook's change names its file by the leaf and, for an
-// edit, by the file behind the leaf's link; the entry's file is matched under either name.
+// first and take the hook back out.
 async function mcpAnswer(
   registration: McpRegistration,
   wanted: boolean,
   hook: ScopeAnswer | null,
 ): Promise<ScopeAnswer> {
   const file = realKeyOf(registration.path);
-  const shared =
-    hook?.artifact.findIndex(
-      (change) =>
-        carriesText(change) &&
-        (realKeyOf(change.path) === file || realKeyOf(landsIn(change)) === file),
-    ) ?? -1;
+  const shared = hook?.artifact.findIndex((change) => filesOf(change).includes(file)) ?? -1;
   const current = hook?.artifact[shared];
   if (hook === null || current === undefined || !carriesText(current)) {
     const plan = await planMcpOnly(registration, wanted);
