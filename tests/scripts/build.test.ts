@@ -87,18 +87,6 @@ function linkToReal(dir: string): void {
   symlinkSync(join(dir, "real"), join(dir, "link"));
 }
 
-// Every entry below a directory, links included and not followed, so a write through a symlink
-// shows up once, under its real name, and a dangling link is listed rather than descended into.
-function entriesOf(dir: string, prefix = ""): string[] {
-  const entries: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const name = join(prefix, entry.name);
-    entries.push(name);
-    if (entry.isDirectory()) entries.push(...entriesOf(join(dir, entry.name), name));
-  }
-  return entries.sort();
-}
-
 test.each(invocations)(
   "bun scripts/build.ts with %s writes an executable single-file bundle that runs under node",
   async (_name, invocation) => {
@@ -237,14 +225,14 @@ test.each(usageErrors)(
   async (_name, args, fragments) => {
     await withTempDir((dir) => {
       const argv = args(dir);
-      const before = entriesOf(dir);
+      const before = readdirSync(dir, { recursive: true }).sort();
       const build = runBuild(argv, dir);
       expect(build.exitCode).toBe(2);
       expect(build.stdout.toString()).toBe("");
       const stderr = build.stderr.toString();
       for (const fragment of fragments(dir)) expect(stderr).toContain(fragment);
       expect(stderr.endsWith(USAGE)).toBe(true);
-      expect(entriesOf(dir)).toEqual(before);
+      expect(readdirSync(dir, { recursive: true }).sort()).toEqual(before);
     });
   },
 );
