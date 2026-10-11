@@ -16,7 +16,7 @@ import {
   swapStoreEntry,
   withoutPending,
 } from "../engine/fetch.ts";
-import { isFetchedEntry } from "../engine/plan-sync.ts";
+import { isFetchedEntry } from "../engine/sync-refresh.ts";
 import type { CliIo } from "../engine/types.ts";
 import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";

@@ -2,9 +2,12 @@ import { agentsOnMemory, memories, notInstalled, STRINGS } from "../console/stri
 import { actsHere, type EngineContext, loadContext } from "../engine/context.ts";
 import { prunedHooks } from "../engine/hooks.ts";
 import type { SourceTree } from "../engine/memories.ts";
-import { isFetchedEntry, planSync, readInstalledTree, retainedNames } from "../engine/plan-sync.ts";
+import { planSync } from "../engine/plan-sync.ts";
 import type { RuleFileHeld } from "../engine/rules.ts";
 import { selectMemories } from "../engine/select.ts";
+import { isFetchedEntry } from "../engine/sync-refresh.ts";
+import { retainedNames } from "../engine/sync-retained.ts";
+import { readInstalledTree } from "../engine/sync-trees.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "../engine/types.ts";
 import { type ContentHash, type MemoryName, parseMemoryName } from "../memory/contract.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
