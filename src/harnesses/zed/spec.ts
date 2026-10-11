@@ -10,7 +10,7 @@ export const spec = {
   displayName: "Zed",
   tier: 2,
   verifiedAgainst: {
-    date: "2026-10-10",
+    date: "2026-10-11",
     sources: [
       {
         kind: "file",
@@ -63,8 +63,9 @@ export const spec = {
           "- Linux: `~/.config/zed/settings.json` (or `$XDG_CONFIG_HOME/zed/settings.json`)",
           "- Windows: `%APPDATA%\\Zed\\settings.json`",
           ".zed/settings.json",
+          "The syntax is JSON with support for `//` comments.",
         ],
-        note: "settings.json under ~/.config/zed, $XDG_CONFIG_HOME/zed on Linux, %APPDATA%\\Zed on Windows",
+        note: "settings.json under ~/.config/zed, $XDG_CONFIG_HOME/zed on Linux, %APPDATA%\\Zed on Windows, read as JSON with comments",
       },
       {
         kind: "file",
@@ -124,6 +125,7 @@ export const spec = {
   mcp: {
     path: { project: ".zed/settings.json", global: "settings.json" },
     serversPath: ["context_servers"],
+    format: "jsonc",
   },
   fixtures: { config: "settings.json" },
 } satisfies HarnessSpec;

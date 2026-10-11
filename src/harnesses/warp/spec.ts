@@ -52,7 +52,13 @@ export const spec = {
   hook: { kind: "none" },
   // Global servers auto-spawn when Warp starts. A project `.warp/.mcp.json` exists too, but its
   // servers never auto-spawn and need a manual toggle each session, so a stub there syncs nothing.
-  mcp: { path: { project: null, global: ".warp/.mcp.json" }, serversPath: ["mcpServers"] },
+  // Warp is closed source and its MCP page says nothing of comments or trailing commas, so the
+  // file is edited as JSONC, which refuses nothing a stricter reader would take.
+  mcp: {
+    path: { project: null, global: ".warp/.mcp.json" },
+    serversPath: ["mcpServers"],
+    format: "jsonc",
+  },
   fixtures: { config: "mcp.json" },
 } satisfies HarnessSpec;
 

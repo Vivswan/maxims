@@ -793,13 +793,22 @@ describe("planHookWrite composes the hook with the definition's config edit", ()
       kind: "custom",
       reconcile: async (scope, _ctx, spec, wanted) => {
         seen.push({ scope, wanted, command: [spec.command, ...spec.args].join(" ") });
-        return wanted ? [{ kind: "write", path: hookFile, content: "hook\n" }] : [];
+        return {
+          changes: wanted ? [{ kind: "write", path: hookFile, content: "hook\n" }] : [],
+          rewrites: [],
+        };
       },
     },
-    configEdit: async (_scope, _ctx, wanted) =>
-      wanted
-        ? [{ kind: "write", path: configFile, content: "{}\n" }]
-        : [{ kind: "delete", path: configFile }],
+    // The config is read off a path nothing is at, so the rewrite sees no text: wanted, it
+    // creates the file; unwanted, there is nothing to take the entry out of.
+    configEdit: async (_scope, _ctx, wanted) => [
+      {
+        root: projectRoot,
+        path: configFile,
+        entry: ["entry"],
+        rewrite: (text) => (wanted && text === null ? { text: "{}\n" } : null),
+      },
+    ],
   };
 
   const intents: [string, Scope, boolean, Change[]][] = [
@@ -809,10 +818,10 @@ describe("planHookWrite composes the hook with the definition's config edit", ()
       true,
       [
         { kind: "write", path: hookFile, content: "hook\n" },
-        { kind: "write", path: configFile, content: "{}\n" },
+        { kind: "edit", path: configFile, target: configFile, content: "{}\n" },
       ],
     ],
-    ["both unwanted", "project", false, [{ kind: "delete", path: configFile }]],
+    ["both unwanted", "project", false, []],
   ];
 
   test.each(intents)(

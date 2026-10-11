@@ -123,6 +123,7 @@ export const fixtureZed: HarnessDefinition = {
     path: (scope, ctx) =>
       join(scopeRoot({}, scope, ctx), scope === "global" ? "settings.json" : ".zed/settings.json"),
     serversPath: ["context_servers"],
+    format: "jsonc",
   },
   markers: "counted",
   expands: [],

@@ -18,7 +18,8 @@ import { warp } from "../../../src/harnesses/warp/spec.ts";
 import { zed } from "../../../src/harnesses/zed/spec.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
-import { readConfigText } from "../../../src/util/jsonc.ts";
+import { JSONC, readConfigText } from "../../../src/util/jsonc.ts";
+import { asyncOutcome } from "../../shared/outcome.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -28,7 +29,7 @@ const ENTRY =
   '"maxims": {\n      "command": "npx",\n      "args": [\n        "-y",\n        "@vivswan/maxims",\n        "mcp-serve"\n      ]\n    }';
 
 function registration(dir: string, file: string, serversPath: string[]): McpRegistration {
-  return { root: dir, path: assertInsideRoot(dir, join(dir, file)), serversPath };
+  return { root: dir, path: assertInsideRoot(dir, join(dir, file)), serversPath, reader: JSONC };
 }
 
 async function plan(registration: McpRegistration, wanted: boolean): Promise<string | null> {
@@ -181,14 +182,23 @@ test.skipIf(!CHMOD_DENIES)(
 // Each harness starts servers from a key of its own (Zed's `context_servers`, Amp's dotted
 // `amp.mcpServers`), so a declaration naming another key plans a file the harness parses and
 // ignores. The object is spelled per row: the key the file gains is pinned, not the declaration.
+// `comments` is the vendor's own parser: Pi loads the file with `JSON.parse`, so a comment is
+// refused by name rather than edited into a file Pi would then drop whole; Amp, Devin and Zed
+// document comments. Warp documents neither, so its `jsonc` is maxims's tolerant default, not a
+// vendor fact, and the dialect row leaves it out.
 const SERVER = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
-const declared: { def: HarnessDefinition; written: Partial<Record<Scope, unknown>> }[] = [
+const declared: {
+  def: HarnessDefinition;
+  written: Partial<Record<Scope, unknown>>;
+  comments: "accepted" | "refused" | "unverified";
+}[] = [
   {
     def: amp,
     written: {
       project: { "amp.mcpServers": { maxims: SERVER } },
       global: { "amp.mcpServers": { maxims: SERVER } },
     },
+    comments: "accepted",
   },
   {
     def: devin,
@@ -196,6 +206,7 @@ const declared: { def: HarnessDefinition; written: Partial<Record<Scope, unknown
       project: { mcpServers: { maxims: SERVER } },
       global: { mcpServers: { maxims: SERVER } },
     },
+    comments: "accepted",
   },
   {
     def: pi,
@@ -203,14 +214,16 @@ const declared: { def: HarnessDefinition; written: Partial<Record<Scope, unknown
       project: { mcpServers: { maxims: SERVER } },
       global: { mcpServers: { maxims: SERVER } },
     },
+    comments: "refused",
   },
-  { def: warp, written: { global: { mcpServers: { maxims: SERVER } } } },
+  { def: warp, written: { global: { mcpServers: { maxims: SERVER } } }, comments: "unverified" },
   {
     def: zed,
     written: {
       project: { context_servers: { maxims: SERVER } },
       global: { context_servers: { maxims: SERVER } },
     },
+    comments: "accepted",
   },
 ];
 
@@ -221,6 +234,12 @@ test("every harness that declares an MCP registry has a row in the table", () =>
       .sort(),
   ).toEqual(declared.map(({ def }) => def.id).sort());
 });
+
+function perScope<T>(def: HarnessDefinition, value: T): Partial<Record<Scope, T>> {
+  const ctx = { home: "/home/user", projectRoot: "/home/user/p", cwd: "/home/user/p", env: {} };
+  const scopes = (["project", "global"] as const).filter((scope) => def.mcp?.path(scope, ctx));
+  return Object.fromEntries(scopes.map((scope) => [scope, value]));
+}
 
 test.each(declared)(
   "$def.id: an empty config in each scope that has one gains the entry under the key the harness reads",
@@ -242,6 +261,49 @@ test.each(declared)(
         gained[scope] = text === null ? null : JSON.parse(text);
       }
       expect(gained).toEqual(written);
+    });
+  },
+);
+
+// The comment sits at line 3, column 5 of the file as written here; the refusal names it so the
+// user can take it out, and names the vendor so they know who would skip the file.
+test.each(declared.filter((row) => row.comments !== "unverified"))(
+  "$def.id: a comment in the servers map is $comments, as the vendor's parser takes it",
+  async ({ def, comments }) => {
+    await withTempDir(async (dir) => {
+      const ctx = {
+        home: join(dir, "home"),
+        projectRoot: join(dir, "project"),
+        cwd: join(dir, "project"),
+        env: {},
+      };
+      const [key] = def.mcp?.serversPath ?? [];
+      const seen: Partial<Record<Scope, unknown>> = {};
+      for (const scope of ["project", "global"] as const) {
+        const registry = mcpRegistrationAt(def, scope, ctx);
+        if (registry === null) continue;
+        mkdirSync(dirname(registry.path), { recursive: true });
+        writeFileSync(registry.path, `{\n  ${JSON.stringify(key)}: {\n    // keep\n  }\n}\n`);
+        const verdict = await asyncOutcome(() => plan(registry, true));
+        seen[scope] =
+          verdict.kind === "threw"
+            ? { refused: verdict.error instanceof Error ? verdict.error.message : verdict.error }
+            : {
+                keepsComment: verdict.value?.includes("// keep") ?? false,
+                registers: verdict.value?.includes('"mcp-serve"') ?? false,
+              };
+      }
+      const expected =
+        comments === "refused"
+          ? {
+              refused: expect.stringMatching(
+                new RegExp(
+                  `^cannot edit .*: a comment at line 3, column 5; ${RegExp.escape(def.displayName)} reads strict JSON$`,
+                ),
+              ),
+            }
+          : { keepsComment: true, registers: true };
+      expect(seen).toEqual(perScope(def, expected));
     });
   },
 );

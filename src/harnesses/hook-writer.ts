@@ -30,6 +30,7 @@ import {
   type AchievedTier,
   type ConfigFormat,
   type ConfigLayer,
+  type ConfigRewrite,
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND_PREFIX,
@@ -37,6 +38,7 @@ import {
   hookSpecFor,
   type ProjectTrust,
   type RegistryHook,
+  type RegistryRewrite,
   type Scope,
   scopeRoot,
   type TierLayer,
@@ -71,7 +73,19 @@ export async function planHookWrite(
 ): Promise<HookPlan> {
   const hook = await planHookOnly(input);
   const config = (await input.def.configEdit?.(input.scope, input.ctx, input.wanted)) ?? [];
-  return { changes: [...hook.changes, ...config], notice: hook.notice };
+  return { changes: [...hook.changes, ...(await mintRewrites(config))], notice: hook.notice };
+}
+
+// A quirk's rewrites as one edit each over the file as it is on disk, for a verb that plans one
+// harness alone (`list` and `doctor` judging a hook). The sync planner holds a text per file and
+// mints its own edits, so a file two artifacts reach is edited once there.
+export async function mintRewrites(rewrites: readonly ConfigRewrite[]): Promise<Change[]> {
+  const changes: Change[] = [];
+  for (const { root, path, rewrite } of rewrites) {
+    const planned = rewrite(await readConfigText(path));
+    if (planned !== null) changes.push(editInPlace(root, path)(planned.text));
+  }
+  return changes;
 }
 
 // Reads the registry or artifact the shape names and hands the text to the pure planner, so the
@@ -91,7 +105,8 @@ export async function planHookOnly(
   }
   if (hasHook(def, "custom")) {
     const spec = hookSpecFor(def);
-    return { changes: await def.hook.reconcile(intent.scope, intent.ctx, spec, intent.wanted) };
+    const plan = await def.hook.reconcile(intent.scope, intent.ctx, spec, intent.wanted);
+    return { changes: [...plan.changes, ...(await mintRewrites(plan.rewrites))] };
   }
   return { changes: [] };
 }
@@ -100,11 +115,6 @@ export type RegistryWriteInput = HookIntent & {
   def: HarnessWithHook<"registry">;
   currentText: string | null;
 };
-
-// The text a registry rewrite leaves and the word for what it did; `null` when the file already
-// says what the intent wants. The engine applies rewrites of one file in turn and mints the one
-// edit itself, so a rewrite names no destination.
-export type RegistryRewrite = { text: string; notice: string };
 
 export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite | null {
   const path = hookPath(input.def, input.scope, input.ctx);

@@ -13,7 +13,7 @@ export const spec = {
   displayName: "Pi",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-11",
     sources: [
       {
         kind: "file",
@@ -70,8 +70,8 @@ export const spec = {
         repo: "earendil-works/pi",
         ref: "main",
         path: "packages/coding-agent/src/extensions/mcp/config.ts",
-        claims: ["mcpServers", "mcp.json"],
-        note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json",
+        claims: ["mcpServers", "mcp.json", 'parsed = JSON.parse(readFileSync(path, "utf8"));'],
+        note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json, read with JSON.parse, so a comment or a trailing comma fails the whole file",
       },
       {
         kind: "schema",
@@ -122,7 +122,11 @@ export const spec = {
     executable: false,
     stdout: "none",
   },
-  mcp: { path: { project: ".pi/mcp.json", global: "mcp.json" }, serversPath: ["mcpServers"] },
+  mcp: {
+    path: { project: ".pi/mcp.json", global: "mcp.json" },
+    serversPath: ["mcpServers"],
+    format: "json",
+  },
 } satisfies HarnessSpec;
 
 export const pi = toDefinition(spec);

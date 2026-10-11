@@ -10,7 +10,7 @@ import {
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { JsonDialect } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
-import type { ByteBudget, HookStdout, UnreadableLayer } from "./contract.ts";
+import type { ByteBudget, HookStdout, Scope, UnreadableLayer } from "./contract.ts";
 
 // The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
 // name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
@@ -478,6 +478,12 @@ const ByteBudgetField = z.union([ByteCount, PerScopeBudget]);
 const Mcp = z.strictObject({
   path: perScope(RelPath.nullable()),
   serversPath: z.array(z.string().min(1)).min(1),
+  // The dialect the vendor's parser takes, as for a registry hook: a servers file holding a
+  // construct outside it is refused by name, never edited into a file the vendor would skip.
+  format: z.enum(JsonDialectEnum.options, {
+    error:
+      "a servers file is json, json-with-comments or jsonc, as the vendor's parser takes; declare the dialect the vendor documents, or jsonc where it documents none",
+  }),
 });
 
 // A tuple with a rest element is non-empty by type, so a definition carries a first source, claim
@@ -598,6 +604,47 @@ function requireATarget(ctx: {
   }
 }
 
+type DeclaredFiles = {
+  targets: Record<Scope, z.infer<typeof Target> | null>;
+  hook: HookSpecData;
+  mcp?: z.infer<typeof Mcp>;
+};
+
+// One owner per file at a scope: a shared rule file is edited as markdown, a registry and a
+// servers file as JSON, so a path declared for two of them is a file two planners write over each
+// other (the servers map replaced a rule file's block in one plan). The rule file is any the block
+// may land in, the default or a precedence fallback that exists first. Compared as text because
+// `RelPath` admits one spelling per path.
+function requireOneOwnerPerFile(ctx: {
+  value: DeclaredFiles;
+  issues: z.core.$ZodRawIssue[];
+}): void {
+  const { targets, hook, mcp } = ctx.value;
+  const refuse = (path: PropertyKey[], input: unknown, message: string) =>
+    ctx.issues.push({ code: "custom", input, path, message });
+  for (const scope of ["project", "global"] as const) {
+    const target = targets[scope];
+    const ruleFiles =
+      target?.kind === "shared-block" ? [target.file, ...(target.precedence ?? [])] : [];
+    const hookFile = hook.kind === "none" ? null : hook.path[scope];
+    const servers = mcp?.path[scope] ?? null;
+    if (hookFile !== null && ruleFiles.includes(hookFile)) {
+      refuse(
+        ["hook", "path", scope],
+        hookFile,
+        `${hookFile} is the rule file targets.${scope} writes a block into; declare the hook apart from it`,
+      );
+    }
+    if (servers !== null && ruleFiles.includes(servers)) {
+      refuse(
+        ["mcp", "path", scope],
+        servers,
+        `${servers} is the rule file targets.${scope} writes a block into; declare the servers file apart from it`,
+      );
+    }
+  }
+}
+
 // Fixtures name files under the built-in folder, so only a shipped spec may declare them.
 export const HarnessSpecSchema = z
   .strictObject({
@@ -606,7 +653,8 @@ export const HarnessSpecSchema = z
       .strictObject({ config: FixtureName.optional(), hookStdin: FixtureName.optional() })
       .optional(),
   })
-  .check(requireATarget);
+  .check(requireATarget)
+  .check(requireOneOwnerPerFile);
 
 // A user-defined id is minted by `parseUserHarnessId`, so a spec that parses cannot name a
 // built-in harness; the message says which refusal it was, since both fail the same predicate.
@@ -621,7 +669,8 @@ const UserHarnessIdField = z.custom<UserHarnessId>(
 );
 export const UserHarnessSpecSchema = z
   .strictObject({ ...SPEC_SHAPE, id: UserHarnessIdField })
-  .check(requireATarget);
+  .check(requireATarget)
+  .check(requireOneOwnerPerFile);
 
 export type HarnessSpec = z.infer<typeof HarnessSpecSchema>;
 export type UserHarnessSpec = z.infer<typeof UserHarnessSpecSchema>;

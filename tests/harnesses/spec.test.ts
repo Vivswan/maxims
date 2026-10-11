@@ -187,6 +187,34 @@ const refusals: [string, Mutation, string][] = [
     "hook.format: a registry hook is json, json-with-comments or jsonc, as the vendor's parser takes; toml is read for tierCheck and never written",
   ],
   [
+    "a servers file without a dialect",
+    at(["mcp"], { path: { project: null, global: "mcp.json" }, serversPath: ["mcpServers"] }),
+    "mcp.format: a servers file is json, json-with-comments or jsonc, as the vendor's parser takes; declare the dialect the vendor documents, or jsonc where it documents none",
+  ],
+  [
+    "a registry hook declared at the global rule file",
+    at(["hook", "path", "global"], "AGENTS.md"),
+    "hook.path.global: AGENTS.md is the rule file targets.global writes a block into; declare the hook apart from it",
+  ],
+  [
+    "a servers file declared at the global rule file",
+    at(["mcp"], {
+      path: { project: null, global: "AGENTS.md" },
+      serversPath: ["mcpServers"],
+      format: "jsonc",
+    }),
+    "mcp.path.global: AGENTS.md is the rule file targets.global writes a block into; declare the servers file apart from it",
+  ],
+  [
+    "a servers file declared at a precedence fallback the block may land in",
+    at(["mcp"], {
+      path: { project: null, global: "RULES.md" },
+      serversPath: ["mcpServers"],
+      format: "jsonc",
+    }),
+    "mcp.path.global: RULES.md is the rule file targets.global writes a block into; declare the servers file apart from it",
+  ],
+  [
     "a tier check on a key zod would drop from what it parses",
     at(["hook", "tierCheck"], {
       layers: { project: [".example/settings.json"], global: ["settings.json"] },

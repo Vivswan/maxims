@@ -137,15 +137,36 @@ export const sharedBlockHarness: HarnessDefinition = {
 };
 
 export const FIXTURE_CONFIG_CONTENT = '{"instructions":["rules"]}\n';
+export const FIXTURE_CONFIG_EMPTIED = "{}\n";
 
-// The rules-dir fixture with a config entry its rules directory needs, reconciled like a hook.
+// The rules-dir fixture with a config entry its rules directory needs, reconciled like a hook: a
+// rewrite of the user's `config.json` under the home, listing the rules when wanted and emptying
+// the file when not, so a config too goes through the planner's one edit per file.
 export const configEditHarness: HarnessDefinition = {
   ...rulesDirHarness,
   configEdit: async (_scope, ctx, wanted) => {
     const path = assertInsideRoot(ctx.home, join(ctx.home, FIXTURE_DIR, "config.json"));
-    return wanted
-      ? [{ kind: "write", path, content: FIXTURE_CONFIG_CONTENT }]
-      : [{ kind: "delete", path }];
+    const rewrite = (text: string | null) => {
+      const next = wanted ? FIXTURE_CONFIG_CONTENT : text === null ? null : FIXTURE_CONFIG_EMPTIED;
+      return next === null || next === text ? null : { text: next };
+    };
+    return [{ root: ctx.home, path, entry: ["instructions"], rewrite }];
+  },
+};
+
+// The rules-dir fixture with a custom hook that plans the same hooks-file write on every run, as
+// dsh's bridge does: a change the plan carries and the apply lands nothing with.
+export const rewritingHookHarness: HarnessDefinition = {
+  ...rulesDirHarness,
+  hook: {
+    kind: "custom",
+    reconcile: async (_scope, ctx, _spec, wanted) => {
+      const path = assertInsideRoot(ctx.home, join(ctx.home, FIXTURE_DIR, "hooks.json"));
+      return {
+        changes: wanted ? [{ kind: "write", path, content: FIXTURE_CONFIG_CONTENT }] : [],
+        rewrites: [],
+      };
+    },
   },
 };
 
@@ -428,5 +449,6 @@ export const mcpHarness: HarnessDefinition = {
   mcp: {
     path: (scope, ctx) => join(scopeRoot({}, scope, ctx), FIXTURE_MCP_FILE),
     serversPath: ["mcpServers"],
+    format: "jsonc",
   },
 };

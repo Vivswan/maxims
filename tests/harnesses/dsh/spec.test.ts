@@ -17,9 +17,10 @@ import { dirname, join } from "node:path";
 import { hookSpecFor } from "../../../src/harnesses/contract.ts";
 import { BRIDGE_ROW_ID } from "../../../src/harnesses/dsh/quirks.ts";
 import { dsh } from "../../../src/harnesses/dsh/spec.ts";
+import { mintRewrites } from "../../../src/harnesses/hook-writer.ts";
 import { assertWithinBudget } from "../../../src/harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../../src/harnesses/strategies/shared-block.ts";
-import { applyChanges } from "../../../src/util/change.ts";
+import { applyChanges, type Change } from "../../../src/util/change.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { asyncOutcome, outcome } from "../../shared/outcome.ts";
@@ -30,7 +31,13 @@ import { exampleContext as ctx } from "../context.ts";
 const fixture = readFileSync(srcPath("harnesses", "dsh", "fixtures", "config.yml"), "utf8");
 const spec = hookSpecFor(dsh);
 if (dsh.hook.kind !== "custom") throw new Error("dsh mounts a bridge through a custom hook");
-const reconcileBridge = dsh.hook.reconcile;
+const { reconcile } = dsh.hook;
+// The bridge as the changes it comes to: its own files, then the patch rewrite minted over the
+// file on disk, as `list` and `doctor` judge it.
+const reconcileBridge = async (...args: Parameters<typeof reconcile>): Promise<Change[]> => {
+  const plan = await reconcile(...args);
+  return [...plan.changes, ...(await mintRewrites(plan.rewrites))];
+};
 const rooted = (root: string, ...parts: string[]) => assertInsideRoot(root, join(root, ...parts));
 
 function contextFor(home: string) {

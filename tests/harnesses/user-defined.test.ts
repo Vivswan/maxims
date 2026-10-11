@@ -143,7 +143,10 @@ test.each(refusals)(
 // dialect the hook writer did not, so the writer kept a construct the probe called unreadable. A
 // trailing separator was a second spelling of the registry file, past that check's text compare.
 // A per-hook `debounceMs` was declared and never read: the one `sync --quiet` stamp debounces
-// every hook, so an entry carrying it was promising a window nothing kept.
+// every hook, so an entry carrying it was promising a window nothing kept. A servers file without
+// a dialect was edited as JSONC whatever its vendor read, so a comment went into a file Pi drops.
+// A servers file declared at the rule file was two planners writing one path, the servers map
+// replacing the block in one plan.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
@@ -174,10 +177,20 @@ const oldShapes: [string, string, string][] = [
     "hook.path.project: a path has no leading, trailing or doubled / and no . segment; write .acme/settings.json",
   ],
   ["hook.debounceMs", "corrupt-hook-debounce-ms.json", 'hook: Unrecognized key: "debounceMs"'],
+  [
+    "mcp without a format",
+    "corrupt-mcp-without-format.json",
+    "mcp.format: a servers file is json, json-with-comments or jsonc, as the vendor's parser takes; declare the dialect the vendor documents, or jsonc where it documents none",
+  ],
+  [
+    "mcp.path at the rule file",
+    "corrupt-mcp-path-at-rule-file.json",
+    "mcp.path.project: AGENTS.md is the rule file targets.project writes a block into; declare the servers file apart from it",
+  ],
 ];
 
 test.each(oldShapes)(
-  "an entry in the old %s shape is refused naming what it lacks",
+  "an entry in the %s shape is refused naming what it lacks",
   async (_, fixtureName, expected) => {
     await withTempDir(async (home) => {
       const fixture = srcPath("harnesses", "fixtures", fixtureName);

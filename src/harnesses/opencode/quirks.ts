@@ -1,6 +1,5 @@
 import { join } from "node:path";
-import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
-import { type Change, editInPlace } from "../../util/change.ts";
+import { findNodeAtLocation, getNodeValue, type Node } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
@@ -11,7 +10,7 @@ import {
   readConfigFile,
   removeChild,
 } from "../../util/jsonc.ts";
-import { type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
+import { type ConfigRewrite, type HarnessContext, type Scope, scopeRoot } from "../contract.ts";
 
 // OpenCode reads only AGENTS.md by default and never expands `@file`, so the per-source rule
 // files load only when `opencode.json` lists them. One glob over the rules directory covers every
@@ -28,44 +27,57 @@ const CONFIG_NAMES = ["opencode.jsonc", "opencode.json"] as const;
 
 type ConfigFile = ConfigRead & { path: RootedPath };
 
-export function configEdit(scope: Scope, ctx: HarnessContext, wanted: boolean): Promise<Change[]> {
+export function configEdit(
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+): Promise<ConfigRewrite[]> {
   return scope === "project"
     ? reconcileInstructions(scopeRoot({}, scope, ctx), wanted)
     : Promise.resolve([]);
 }
 
+// Which file to rewrite is decided from the files on disk; the rewrite itself runs over the text
+// the sync planner holds, so a settled config plans nothing and one another harness's registry
+// is linked at takes both edits in one.
 export async function reconcileInstructions(
   projectRoot: string,
   wanted: boolean,
-): Promise<Change[]> {
+): Promise<ConfigRewrite[]> {
   const files = await readConfigs(projectRoot);
   if (!wanted) {
-    return files.flatMap((file) =>
-      file.text === null
-        ? []
-        : editIfChanged(projectRoot, file, editInstructions(file.text, file.path, false)),
-    );
+    return files
+      .filter((file) => file.text !== null && hasEntry(file.text, file.path))
+      .map((file) => rewriteOf(projectRoot, file.path, false));
   }
-  const listed = files.map((file) => file.text !== null && hasEntry(file.text, file.path));
-  if (listed.includes(true)) return [];
+  // Every file is read for the entry, since OpenCode loads both: one that does not parse is
+  // refused however the other reads.
+  const listed = files
+    .map((file) => file.text !== null && hasEntry(file.text, file.path))
+    .includes(true);
+  if (listed) return [];
   // The entry goes into a file that is on disk, blank or not: a blank `opencode.jsonc` beside no
   // `opencode.json` is filled rather than left for OpenCode to choke on next to a new file.
   const target = files.find((file) => file.present) ?? files[files.length - 1];
   if (target === undefined) return [];
-  const next =
-    target.text === null
-      ? jsonDocument({ instructions: [INSTRUCTIONS_GLOB] })
-      : editInstructions(target.text, target.path, true);
-  return editIfChanged(projectRoot, target, next);
+  return [rewriteOf(projectRoot, target.path, true)];
 }
 
-// The config is the user's file, so the edit lands where its bytes live and a link at the path
-// stays; the edit is minted only once the text must change, so a settled config behind a link the
-// edit would refuse costs nothing.
-function editIfChanged(projectRoot: string, file: ConfigFile, next: string): Change[] {
-  if (next === file.text) return [];
-  assertParses(next, file.path);
-  return [editInPlace(projectRoot, file.path)(next)];
+function rewriteOf(projectRoot: string, path: RootedPath, wanted: boolean): ConfigRewrite {
+  return {
+    root: projectRoot,
+    path,
+    entry: ["instructions"],
+    rewrite: (text) => {
+      if (text === null) {
+        return wanted ? { text: jsonDocument({ instructions: [INSTRUCTIONS_GLOB] }) } : null;
+      }
+      const next = editInstructions(text, path, wanted);
+      if (next === text) return null;
+      assertParses(next, path);
+      return { text: next };
+    },
+  };
 }
 
 async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
@@ -78,22 +90,29 @@ async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
 }
 
 function hasEntry(text: string, path: string): boolean {
-  const instructions = findNodeAtLocation(assertParses(text, path), ["instructions"]);
+  const instructions = instructionsOf(assertParses(text, path), path);
   return (instructions?.children ?? []).some((child) => getNodeValue(child) === INSTRUCTIONS_GLOB);
 }
 
-function editInstructions(text: string, path: string, wanted: boolean): string {
-  const root = assertParses(text, path);
+// The key as OpenCode reads it, or `undefined` for a file without it; any other value is the
+// user's error, refused by name on the way in and on the way out alike.
+function instructionsOf(root: Node, path: string): Node | undefined {
   const instructions = findNodeAtLocation(root, ["instructions"]);
-  if (instructions === undefined) {
-    if (!wanted) return text;
-    return appendChild(text, root, "instructions", [INSTRUCTIONS_GLOB]);
-  }
-  if (instructions.type !== "array") {
+  if (instructions !== undefined && instructions.type !== "array") {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
       `${path}: "instructions" is not an array; left untouched`,
     );
+  }
+  return instructions;
+}
+
+function editInstructions(text: string, path: string, wanted: boolean): string {
+  const root = assertParses(text, path);
+  const instructions = instructionsOf(root, path);
+  if (instructions === undefined) {
+    if (!wanted) return text;
+    return appendChild(text, root, "instructions", [INSTRUCTIONS_GLOB]);
   }
   const entry = (instructions.children ?? []).find(
     (child) => getNodeValue(child) === INSTRUCTIONS_GLOB,

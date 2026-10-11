@@ -61,6 +61,7 @@ const cases: [name: string, def: HarnessDefinition, row: string][] = [
       mcp: {
         path: (scope, ctx) => (scope === "global" ? `${ctx.home}/mcp.json` : null),
         serversPath: [],
+        format: "jsonc",
       },
     },
     "| `cursor` | Example | 2 | `RULES.md` block, written into the first existing of `A.md`, `RULES.md` | none | B | none | - | `~/mcp.json` | counted | project 12,000 bytes, global 6,000 bytes |",

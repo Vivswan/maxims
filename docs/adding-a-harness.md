@@ -26,7 +26,7 @@ Every path is relative to its scope root: the project root for a project install
 | `detect` | `{ dirs, env? }`: directories under the global root, or variables, that mean installed |
 | `hook` | `{ kind: "none" }`, a `registry` entry, or a whole `file`; see below |
 | `scopeFrontmatter` | for a rules directory whose always-on form needs no preamble but a `--paths` install does |
-| `mcp` | `{ path, serversPath }`: the MCP config per scope and its servers map's key path |
+| `mcp` | `{ path, serversPath, format }`: MCP config per scope, its servers key path, its dialect |
 | `fixtures` | built-in folders only: `config` and `hookStdin` file names under `fixtures/` |
 
 `globalRoot.env` is one variable, or a list of variables that each name their `platforms`, no platform in two of them. A variable takes an optional `subdir` appended to its value and an optional `platforms` list (`process.platform` names such as `linux`) outside which it is not read.
@@ -76,6 +76,10 @@ It walks `layers.project`, then `layers.global`, each list in the order it gives
 - **A key no layer sets** leaves the declared tier.
 
 A `file` hook is `{ kind: "file", path, contentTemplate, executable, stdout }`: a whole file maxims owns, such as a plugin or an executable script.
+
+`mcp.format` is the servers file's dialect, as `hook.format` is the registry's: `json`, `json-with-comments`, or `jsonc`, whichever the vendor's own parser takes. Pi loads `mcp.json` with `JSON.parse`, so a comment there is refused by name; Zed documents comments.
+
+One file has one owner per scope: a servers file or a hook declared at the rule file, a precedence fallback included, is refused when the spec is parsed.
 
 Placeholders render from the hook command. A value that is exactly one placeholder keeps that placeholder's JSON type, so `"{{async}}"` becomes the boolean `async` flag and `"{{timeoutMs}}"` a number; anywhere else the text is spliced in.
 
