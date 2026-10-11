@@ -18,25 +18,29 @@ export type FlagSpec = {
   summary: string;
 };
 
-export type GlobalFlags = {
-  quiet: boolean;
-  dryRun: boolean;
-  json: boolean;
-  verbose: boolean;
-};
-
-// Flags every verb accepts. `--help` and `--version` are not here: they are recognized on the raw
-// argv before any verb loads, from HELP_FLAGS in main.ts.
-export const GLOBAL_FLAGS: readonly FlagSpec[] = [
-  { name: "quiet", kind: "boolean", summary: "one line of output and fail-soft (the hook's mode)" },
-  { name: "dry-run", kind: "boolean", summary: "print the plan and write nothing" },
-  { name: "json", kind: "boolean", summary: "emit one JSON document instead of the frame" },
-  {
+// Flags every verb accepts, keyed by the `GlobalFlags` field each one sets: the key is the one
+// place the argv spelling meets the field name, and main.ts reads its pre-verb scan words from it.
+// `--help` and `--version` are not here: they are recognized on the raw argv before any verb
+// loads, from HELP_FLAGS in main.ts.
+export const GLOBALS = {
+  quiet: {
+    name: "quiet",
+    kind: "boolean",
+    summary: "one line of output and fail-soft (the hook's mode)",
+  },
+  dryRun: { name: "dry-run", kind: "boolean", summary: "print the plan and write nothing" },
+  json: { name: "json", kind: "boolean", summary: "emit one JSON document instead of the frame" },
+  verbose: {
     name: "verbose",
     kind: "boolean",
     summary: "unfold the add and install plan to every one-liner",
   },
-];
+} as const satisfies Record<string, FlagSpec>;
+
+export type GlobalFlags = { [K in keyof typeof GLOBALS]: boolean };
+
+// The help and parse order is the declaration order above.
+export const GLOBAL_FLAGS: readonly FlagSpec[] = Object.values(GLOBALS);
 
 export const FLAGS = {
   global: { name: "global", short: "g", kind: "boolean", summary: "the user scope" },
@@ -240,12 +244,11 @@ export function commonOptions(global: GlobalFlags): CommonOptions {
 }
 
 export function globalFlags(args: Args): GlobalFlags {
-  const [quiet, dryRun, json, verbose] = GLOBAL_FLAGS;
   return {
-    quiet: quiet !== undefined && args.flag(quiet),
-    dryRun: dryRun !== undefined && args.flag(dryRun),
-    json: json !== undefined && args.flag(json),
-    verbose: verbose !== undefined && args.flag(verbose),
+    quiet: args.flag(GLOBALS.quiet),
+    dryRun: args.flag(GLOBALS.dryRun),
+    json: args.flag(GLOBALS.json),
+    verbose: args.flag(GLOBALS.verbose),
   };
 }
 

@@ -17,6 +17,7 @@ import {
   FLAGS,
   type FlagSpec,
   GLOBAL_FLAGS,
+  GLOBALS,
   globalFlags,
   parseVerbArgs,
   usage,
@@ -225,14 +226,16 @@ const HELP_FLAGS = [
 
 type ScanFlag = keyof Omit<Invocation, "verb" | "rest">;
 
+// `--verbose` is not scanned: it shapes a verb's frame, which nothing before the verb draws.
+const SCANNED_GLOBALS = ["quiet", "json", "dryRun"] as const satisfies readonly (ScanFlag &
+  keyof typeof GLOBALS)[];
+
 const SCAN_WORDS = new Map<string, ScanFlag>([
   ...HELP_FLAGS.flatMap((flag): [string, ScanFlag][] => [
     [`--${flag.name}`, flag.name],
     [`-${flag.short}`, flag.name],
   ]),
-  ["--quiet", "quiet"],
-  ["--json", "json"],
-  ["--dry-run", "dryRun"],
+  ...SCANNED_GLOBALS.map((key): [string, ScanFlag] => [`--${GLOBALS[key].name}`, key]),
 ]);
 
 function scan(argv: readonly string[]): Invocation {
