@@ -129,16 +129,20 @@ describe.each(HARNESSES.map((def) => [def.id, def] as const))("%s", (_, def) => 
       const remove = (currentText: string | null) =>
         planHookRegistryWrite({ def: registry, scope, ctx, wanted: false, currentText });
       const [added] = add(original).changes;
-      if (added?.kind !== "write") throw new Error("expected a write");
+      if (added?.kind !== "edit") throw new Error("expected an edit");
       expect(added.path.startsWith(`${scopeRoot(registry, scope, ctx)}${sep}`)).toBe(true);
       expect(add(added.content).changes).toEqual([]);
       const [removed] = remove(added.content).changes;
-      expect(removed).toEqual({ kind: "write", path: added.path, content: original ?? "{}\n" });
+      expect(removed).toEqual({
+        kind: "edit",
+        path: added.path,
+        target: added.target,
+        content: original ?? "{}\n",
+      });
       expect(remove(original).changes).toEqual([]);
       const [fresh] = add(null).changes;
       const [reinstalled] = add("{}\n").changes;
-      if (fresh?.kind !== "write" || reinstalled?.kind !== "write")
-        throw new Error("expected writes");
+      if (fresh?.kind !== "edit" || reinstalled?.kind !== "edit") throw new Error("expected edits");
       expect(reinstalled.content).toBe(fresh.content);
     },
   );

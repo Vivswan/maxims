@@ -282,8 +282,9 @@ test("a fresh project hooks.json receives the grouped async SessionStart entry",
   });
   expect(plan.changes).toEqual([
     {
-      kind: "write",
+      kind: "edit",
       path: assertInsideRoot("/home/user/project", "/home/user/project/.codex/hooks.json"),
+      target: assertInsideRoot("/home/user/project", "/home/user/project/.codex/hooks.json"),
       content: [
         "{",
         '  "hooks": {',

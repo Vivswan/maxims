@@ -51,8 +51,9 @@ describe("claude-code", () => {
     });
     expect(plan.changes).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path: assertInsideRoot(ctx.home, "/home/user/.claude/settings.json"),
+        target: assertInsideRoot(ctx.home, "/home/user/.claude/settings.json"),
         content: [
           "{",
           '  "hooks": {',
@@ -101,8 +102,9 @@ describe("claude-code", () => {
     expect(fixture.split(before)).toHaveLength(2);
     expect(plan.changes).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path: assertInsideRoot("/home/user/project", "/home/user/project/.claude/settings.json"),
+        target: assertInsideRoot("/home/user/project", "/home/user/project/.claude/settings.json"),
         content: fixture.replace(before, after),
       },
     ]);

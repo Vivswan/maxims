@@ -91,8 +91,9 @@ test.each(registries)(
     });
     expect(plan.changes).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path: assertInsideRoot(root, path),
+        target: assertInsideRoot(root, path),
         content: [
           "{",
           '  "version": 1,',
@@ -126,8 +127,9 @@ test("a hand-formatted hooks.json gains the sessionStart list after the user's o
   expect(fixture.endsWith(before)).toBe(true);
   expect(plan.changes).toEqual([
     {
-      kind: "write",
+      kind: "edit",
       path: assertInsideRoot("/home/user/project", "/home/user/project/.cursor/hooks.json"),
+      target: assertInsideRoot("/home/user/project", "/home/user/project/.cursor/hooks.json"),
       content: `${fixture.slice(0, -before.length)}${after}`,
     },
   ]);

@@ -28,7 +28,7 @@ const ENTRY =
   '"maxims": {\n      "command": "npx",\n      "args": [\n        "-y",\n        "@vivswan/maxims",\n        "mcp-serve"\n      ]\n    }';
 
 function registration(dir: string, file: string, serversPath: string[]): McpRegistration {
-  return { path: assertInsideRoot(dir, join(dir, file)), serversPath };
+  return { root: dir, path: assertInsideRoot(dir, join(dir, file)), serversPath };
 }
 
 async function plan(registry: McpRegistration, wanted: boolean): Promise<Change[]> {
@@ -42,11 +42,11 @@ async function roundTrip(
   const registry = registration(dir, "mcp.json", ["mcpServers"]);
   writeFileSync(registry.path, initial);
   const added = await plan(registry, true);
-  const addedText = added[0]?.kind === "write" ? added[0].content : initial;
+  const addedText = added[0]?.kind === "edit" ? added[0].content : initial;
   writeFileSync(registry.path, addedText);
   expect(await plan(registry, true)).toEqual([]);
   const removed = await plan(registry, false);
-  const removedText = removed[0]?.kind === "write" ? removed[0].content : addedText;
+  const removedText = removed[0]?.kind === "edit" ? removed[0].content : addedText;
   writeFileSync(registry.path, removedText);
   expect(await plan(registry, false)).toEqual([]);
   return { added: addedText, removed: removedText };
@@ -96,8 +96,9 @@ test("a comma inside a comment beside our entry is not taken for the separator",
     writeFileSync(registry.path, '{"mcpServers":{"maxims":{} /* keep, note */,"other":{}}}\n');
     expect(await plan(registry, false)).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path: registry.path,
+        target: registry.path,
         content: '{"mcpServers":{ /* keep, note */"other":{}}}\n',
       },
     ]);
@@ -127,7 +128,7 @@ test.each(creations)("%s gains exactly one nested entry", async (_, existing, ex
     const registry = registration(dir, "new.json", ["mcp", "servers"]);
     if (existing !== null) writeFileSync(registry.path, existing);
     expect(await plan(registry, true)).toEqual([
-      { kind: "write", path: registry.path, content: expected },
+      { kind: "edit", path: registry.path, target: registry.path, content: expected },
     ]);
     expect(await plan(registry, false)).toEqual([]);
   });
@@ -250,7 +251,7 @@ test.each(declared)(
         const changes = await plan(registry, true);
         const [change] = changes;
         gained[scope] =
-          change?.kind === "write" && changes.length === 1 ? JSON.parse(change.content) : changes;
+          change?.kind === "edit" && changes.length === 1 ? JSON.parse(change.content) : changes;
       }
       expect(gained).toEqual(written);
     });
