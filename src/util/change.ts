@@ -32,8 +32,9 @@ import {
 //
 // `write` is a file maxims owns whole (a rule file, a body, a hook script): a link at the path is
 // replaced by a real file. `edit` is a file the user owns and maxims keeps a region of (a hook
-// registry, a shared AGENTS.md): the bytes change where they live, so `target` is the file a link
-// at `path` resolves to and the link stays; `editInPlace` is the one place a target is resolved.
+// registry, a shared AGENTS.md, a harness config such as opencode.json): the bytes change where
+// they live, so `target` is the file a link at `path` resolves to and the link stays;
+// `editInPlace` is the one place a target is resolved.
 export type Change =
   | { kind: "write"; path: RootedPath; content: string; mode?: number }
   | { kind: "edit"; path: RootedPath; target: RootedPath; content: string }

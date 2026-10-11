@@ -317,6 +317,7 @@ test(
         for (const change of result.value) {
           expect(artifacts).toContain(change.path);
           expect(["write", "edit", "delete"]).toContain(change.kind);
+          if (change.kind === "edit") expect(change.target).toBe(change.path);
         }
       });
     });

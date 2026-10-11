@@ -53,8 +53,7 @@ function bridgeRow(hooksPath: string): Record<string, unknown> {
 // the same row a global one does. The row and the hooks file are one artifact: an unmount names
 // the file whenever either half is there, so the hook planner sees the pair claimed together and
 // a scope that still wants it keeps the row, while a machine with no trace of the bridge plans
-// nothing. The hooks file is maxims's own and is written whole; the patch file is the user's, so
-// its row is edited where the bytes live and a link at its path stays.
+// nothing. The hooks file is maxims's own and is written whole; the patch file is the user's.
 export function bridgeReconciler(
   roots: Pick<HarnessDefinition, "globalRoot">,
 ): Extract<HookShape, { kind: "custom" }>["reconcile"] {
