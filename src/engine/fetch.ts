@@ -1,6 +1,5 @@
 import { lstatSync } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { heldRevisionAltered, heldRevisionGone } from "../console/strings.ts";
 import { parseGitSha } from "../contracts/git-sha.ts";
@@ -20,6 +19,7 @@ import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, isAbsent, type RootedPath } from "../util/fs.ts";
 import { pendingPathFor, storePathFor } from "../util/home.ts";
+import { withScratchDir } from "../util/scratch.ts";
 import type { EngineContext } from "./context.ts";
 import type { SourceMemory, SourceTree } from "./memories.ts";
 import { readSourceMemories, validateMemoryFiles } from "./memories.ts";
@@ -115,7 +115,6 @@ export async function refreshSource(
   const { from } = entry.intent;
   const resolver = io.resolvers(from);
   const auth = entry.intent.auth;
-  const tempDir = await mkdtemp(join(tmpdir(), "maxims-fetch-"));
   const now = ctx.now.toISOString();
   const lastGood = storePresent ? entry.fetched : undefined;
   // Upstream standing at the installed revision has nothing to apply, and a hold it may have left
@@ -130,66 +129,69 @@ export async function refreshSource(
     if (sha === entry.pending?.sha) return { outcome: "unchanged", entry: touched(entry, now) };
     return null;
   };
-  try {
-    if (resolver.resolveRef !== undefined && lastGood !== undefined) {
-      const byRef = settled(await resolver.resolveRef(from, undefined, { auth }));
-      if (byRef !== null) return byRef;
-    }
-    const result = await resolver.fetch(from, {
-      memoryPath: entry.intent.memoryPath,
-      fullDepth: entry.intent.fullDepth,
-      tempDir,
-      auth,
-    });
-    const byFetch = settled(result.sha);
-    if (byFetch !== null) return byFetch;
-    const { memories, invalid } = validateMemoryFiles(result.files);
-    for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
-    if (memories.length === 0) {
-      const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
-      return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
-    }
-    const unusable: LastError = {
-      kind: "invalid",
-      message: `the source reported an unusable commit id ${JSON.stringify(result.sha)}`,
-      at: now,
-    };
-    const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
-    const changeLines = await visibleChangeLines(entry, memories, entryPath, ctx.installInternal);
-    if (entry.intent.review === true && lastGood !== undefined) {
-      const summary = changeLines;
-      const held = heldEntry(entry, result.sha, now, summary);
-      if (held === null) return failed(entry, unusable, "failed");
-      return {
-        outcome: "held",
-        entry: held,
-        summary,
-        storeChanges: swapStoreEntry(pendingPathFor(ctx.home, from), files),
+  return withScratchDir("maxims-fetch-", async (tempDir) => {
+    try {
+      if (resolver.resolveRef !== undefined && lastGood !== undefined) {
+        const byRef = settled(await resolver.resolveRef(from, undefined, { auth }));
+        if (byRef !== null) return byRef;
+      }
+      const result = await resolver.fetch(from, {
+        memoryPath: entry.intent.memoryPath,
+        fullDepth: entry.intent.fullDepth,
+        tempDir,
+        auth,
+      });
+      const byFetch = settled(result.sha);
+      if (byFetch !== null) return byFetch;
+      const { memories, invalid } = validateMemoryFiles(result.files);
+      for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
+      if (memories.length === 0) {
+        const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
+        return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
+      }
+      const unusable: LastError = {
+        kind: "invalid",
+        message: `the source reported an unusable commit id ${JSON.stringify(result.sha)}`,
+        at: now,
       };
+      const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
+      const changeLines = await visibleChangeLines(entry, memories, entryPath, ctx.installInternal);
+      if (entry.intent.review === true && lastGood !== undefined) {
+        const summary = changeLines;
+        const held = heldEntry(entry, result.sha, now, summary);
+        if (held === null) return failed(entry, unusable, "failed");
+        return {
+          outcome: "held",
+          entry: held,
+          summary,
+          storeChanges: swapStoreEntry(pendingPathFor(ctx.home, from), files),
+        };
+      }
+      const names = memories.map((memory) => memory.memory.name);
+      const next = fetchedFactsFor(entry, memories, result.memoryPath, {
+        sha: result.sha,
+        at: now,
+      });
+      if (next === null) return failed(entry, unusable, "failed");
+      const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
+      const newUpstream =
+        entry.intent.select === "*"
+          ? []
+          : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
+      return {
+        outcome: "fresh",
+        entry: next,
+        tree: { sha: result.sha, memories, invalid },
+        storeChanges: swapStoreEntry(entryPath, files),
+        newUpstream,
+        changeLines,
+      };
+    } catch (error) {
+      const classified = classifyFetchError(error, now);
+      if (classified === null) throw error;
+      return failed(entry, classified, "failed");
     }
-    const names = memories.map((memory) => memory.memory.name);
-    const next = fetchedFactsFor(entry, memories, result.memoryPath, { sha: result.sha, at: now });
-    if (next === null) return failed(entry, unusable, "failed");
-    const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
-    const newUpstream =
-      entry.intent.select === "*"
-        ? []
-        : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
-    return {
-      outcome: "fresh",
-      entry: next,
-      tree: { sha: result.sha, memories, invalid },
-      storeChanges: swapStoreEntry(entryPath, files),
-      newUpstream,
-      changeLines,
-    };
-  } catch (error) {
-    const classified = classifyFetchError(error, now);
-    if (classified === null) throw error;
-    return failed(entry, classified, "failed");
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  });
 }
 
 // A remote confirmed unchanged: the success clock restarts and a past failure is forgotten.

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { format } from "node:url";
 import { promisify } from "node:util";
@@ -9,6 +9,7 @@ import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
 import { DEFAULT_GIT_REF, URL_SCHEME } from "../../contracts/source.ts";
+import { withScratchDir } from "../../util/scratch.ts";
 import { FetchFailure, type FetchFailureKind } from "../contract.ts";
 import type { WarnSink } from "../tree.ts";
 import { DEFAULT_GH_HOST, isDotcomClass } from "./host.ts";
@@ -757,19 +758,15 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
       callEnv: Record<string, string>,
       scratch: string,
     ) => Promise<T>,
-  ): Promise<T> => {
-    const scratch = await mkdtemp(join(tmpdir(), "maxims-git-"));
-    try {
+  ): Promise<T> =>
+    withScratchDir("maxims-git-", async (scratch) => {
       const remote = await target(scratch, url, credentials);
       const file = join(scratch, "config");
       await writeFile(file, credentialConfig(url, remote, credentials), { mode: 0o600 });
       const callEnv =
         credentials.kind === "none" ? await privateHome(env, join(scratch, "home")) : env;
       return await action(remote, [`include.path=${file}`], callEnv, scratch);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-  };
+    });
   return {
     lsRemote: (url, patterns, call) =>
       gitAttempt(binary, () =>

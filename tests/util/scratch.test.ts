@@ -5,11 +5,11 @@
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { withScratchDir } from "../scripts/lib/scratch.ts";
-import { CHMOD_DENIES, WINDOWS } from "./shared/platform.ts";
-import { launcherHome, withTempDir } from "./shared/temp_dir.ts";
+import { withScratchDir } from "../../src/util/scratch.ts";
+import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
+import { launcherHome, withTempDir } from "../shared/temp_dir.ts";
 
-const SCRATCH = resolve(import.meta.dir, "..", "scripts", "lib", "scratch.ts");
+const SCRATCH = resolve(import.meta.dir, "..", "..", "src", "util", "scratch.ts");
 
 async function waitForFile(path: string): Promise<void> {
   for (let waited = 0; !existsSync(path); waited += 20) {
@@ -61,6 +61,33 @@ test.skipIf(WINDOWS)(
 );
 
 type ExitEmitter = { listeners: { exit: unknown[]; afterExit: unknown[] } };
+
+// Fails if withScratchDir goes back to removing the directory on the return path alone, or swaps
+// the callback's error for one of its own: a clone that fails would then leave a temp dir behind
+// on every failed add or refresh, and the caller's catch would classify the wrong error.
+test("a callback that throws leaves no directory behind and surfaces its own error", async () => {
+  await withTempDir(async (root) => {
+    const thrown = new Error("clone failed");
+    let dir = "";
+    const seen = await withScratchDir(
+      "maxims-scratch-probe-",
+      (scratch) => {
+        dir = scratch;
+        writeFileSync(join(scratch, "partial"), "");
+        throw thrown;
+      },
+      root,
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(seen).toBe(thrown);
+    expect([dir.startsWith(join(root, "maxims-scratch-probe-")), existsSync(dir)]).toEqual([
+      true,
+      false,
+    ]);
+  });
+});
 
 function hookCounts(): number[] {
   const emitter = (globalThis as Record<symbol, unknown>)[
