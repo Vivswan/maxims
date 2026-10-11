@@ -1,6 +1,7 @@
-# Linux image for the container test tier: bun, node, git, and every tier-1 harness CLI that
-# installs from npm without credentials. Nothing here is a secret; the runner mounts the
-# repository read-only at /repo and the entrypoint copies it to a writable /work per run.
+# Linux image for the container test tier. Nothing here is a secret: every harness CLI installs
+# from npm without credentials, and the runner mounts the repository read-only.
+# openssh-client is git's ssh transport. Without it, git's error for an ssh:// URL is the shell's
+# "ssh: not found", which names no host, and the password-withholding rows read the host back.
 #
 # Base images are pinned to exact tags. bun 1.4.2 matches .bun-version; node 22.23.2 is the
 # current 22.x line. Bump both tags together with the repository toolchain.
@@ -11,7 +12,7 @@ FROM node:22.23.2-bookworm-slim
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
 # Harness CLIs, versions as published on npm on 2026-09-20. Each installs anonymously; the two
