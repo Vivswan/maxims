@@ -18,7 +18,7 @@ const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
 const counts = () => Object.fromEntries(signals.map((s) => [s, process.listenerCount(s)]));
 const baseline = counts();
 for (const file of [
-  "commands/main.ts", "console/contract.ts", "console/mode.ts", "commands/add.ts",
+  "commands/main.ts", "console/contract.ts", "console/mode.ts", "commands/add/index.ts",
   "commands/update.ts", "commands/install.ts", "commands/init.ts", "commands/config.ts",
   "commands/lint.ts", "commands/doctor.ts", "commands/link.ts", "commands/disable.ts",
   "commands/engine-verbs.ts", "commands/mcp-serve.ts", "commands/loader.ts",

@@ -55,7 +55,7 @@ const VERBS: readonly VerbEntry[] = [
     aliases: ["a"],
     hidden: false,
     brokenConfig: "refuse",
-    load: () => import("./add.ts").then((m) => m.add),
+    load: () => import("./add/index.ts").then((m) => m.add),
   },
   {
     name: "sync",

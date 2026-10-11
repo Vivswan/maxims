@@ -34,7 +34,7 @@ const HOOK_PATH_EXCLUDES = [
   "sources/git/index.ts",
   "console/clack.ts",
   "console/rename.ts",
-  "commands/add.ts",
+  "commands/add/index.ts",
   "commands/update.ts",
 ].map((path) => resolve(SRC, path));
 
@@ -177,7 +177,7 @@ test("the probe names what an add fetching a git remote evaluates", async () => 
       code: 2,
       packages: ["debug", "simple-git", "tar"],
       modules: [
-        "commands/add.ts",
+        "commands/add/index.ts",
         "console/rename.ts",
         "sources/git/index.ts",
         "sources/github/index.ts",

@@ -126,13 +126,13 @@ describe("nextPublishVerdict gates on the shipped surface since the next build",
   const cases: [string, string[], Packument, NextVerdict, Tip | null][] = [
     [
       "a shipped file changed since next's source: publish, naming the files",
-      ["docs/install.md", "package.json", "src/commands/add.ts"],
+      ["docs/install.md", "package.json", "src/commands/add/index.ts"],
       onRegistry,
       {
         action: "publish",
         version: VERSION,
         notices: [
-          `2 shipped files changed since next's ${BASE} (${base7}): package.json, src/commands/add.ts`,
+          `2 shipped files changed since next's ${BASE} (${base7}): package.json, src/commands/add/index.ts`,
         ],
       },
       null,

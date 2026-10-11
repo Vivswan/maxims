@@ -22,7 +22,7 @@ import type { Pending, SourceEntry, State } from "../state/schema.ts";
 import { applyChanges, type Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { storePathFor } from "../util/home.ts";
-import { admitIntent, syncCommitted } from "./add.ts";
+import { admitIntent, syncCommitted } from "./add/commit.ts";
 import { type Intent, loadIntentFor, updateIntent } from "./frame/cli-context.ts";
 import { findInstalledSource, sourcesHere, withIntent } from "./frame/lookup.ts";
 import {

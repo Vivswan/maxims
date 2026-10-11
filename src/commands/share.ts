@@ -1,7 +1,8 @@
 import { notInstalled } from "../console/strings.ts";
 import { applyChanges } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertShareable, syncCommitted } from "./add.ts";
+import { syncCommitted } from "./add/commit.ts";
+import { assertShareable } from "./add/request.ts";
 import { loadIntentFor, updateIntent } from "./frame/cli-context.ts";
 import { findInstalledSource, installedElsewhere, withShared } from "./frame/lookup.ts";
 import { type Command, FLAGS, type FlagSpec, parseDestination, usage } from "./frame/options.ts";
