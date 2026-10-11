@@ -54,8 +54,9 @@ A `registry` hook (`kind: "registry"`) is one handler edited into a config file 
 | `commandKey` | the handler key whose value starts with the maxims command |
 | `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
 | `async` | whether the harness has an async handler field and it is set |
-| `debounceMs` | for a per-prompt event, the window in which a second fire does nothing |
 | `tierCheck` | `{ layers, format?, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value |
+
+There is no per-harness debounce field: every hook runs the same `sync --quiet`, and the one stamp in `src/commands/frame/debounce.ts` debounces them all, per-prompt events included.
 
 The writer finds and prunes its own entries by the `commandKey` prefix. A registry holding a construct outside its `format` (a trailing comma where the vendor reads strict JSON) is refused with exit 4, never written: the vendor would skip the file, hook included.
 

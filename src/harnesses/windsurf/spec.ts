@@ -84,7 +84,6 @@ export const spec = {
     commandKey: "command",
     stdout: "none",
     async: false,
-    debounceMs: 60_000,
   },
   fixtures: { config: "hooks.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;

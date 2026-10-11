@@ -301,7 +301,6 @@ const RegistryHook = z
     commandKey: z.string().min(1),
     stdout: HookStdoutEnum,
     async: z.boolean(),
-    debounceMs: z.number().int().positive().optional(),
     tierCheck: TierCheck.optional(),
   })
   .check((ctx) => {

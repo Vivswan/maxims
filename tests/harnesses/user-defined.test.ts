@@ -142,6 +142,8 @@ test.each(refusals)(
 // decide that for it. A JSON `format` of its own let a tier check read the registry file in a
 // dialect the hook writer did not, so the writer kept a construct the probe called unreadable. A
 // trailing separator was a second spelling of the registry file, past that check's text compare.
+// A per-hook `debounceMs` was declared and never read: the one `sync --quiet` stamp debounces
+// every hook, so an entry carrying it was promising a window nothing kept.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
@@ -171,6 +173,7 @@ const oldShapes: [string, string, string][] = [
     "corrupt-hook-path-trailing-separator.json",
     "hook.path.project: a path has no leading, trailing or doubled / and no . segment; write .acme/settings.json",
   ],
+  ["hook.debounceMs", "corrupt-hook-debounce-ms.json", 'hook: Unrecognized key: "debounceMs"'],
 ];
 
 test.each(oldShapes)(

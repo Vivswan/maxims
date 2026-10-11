@@ -167,7 +167,6 @@ export type RegistryHook = {
   commandKey: string;
   stdout: HookStdout;
   async: boolean;
-  debounceMs?: number;
   tierCheck?: {
     layers: (ctx: HarnessContext) => TierLayer[];
     format: ConfigFormat;

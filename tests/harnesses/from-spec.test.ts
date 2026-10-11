@@ -63,7 +63,6 @@ const rendering = specOf({
     commandKey: "run",
     stdout: "none",
     async: true,
-    debounceMs: 60_000,
   },
 });
 
