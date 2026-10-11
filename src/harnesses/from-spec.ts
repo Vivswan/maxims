@@ -274,7 +274,6 @@ function compileHook(
         commandKey: hook.commandKey,
         stdout: hook.stdout,
         async: hook.async,
-        ...(hook.debounceMs === undefined ? {} : { debounceMs: hook.debounceMs }),
         ...(tierCheck === undefined
           ? {}
           : {

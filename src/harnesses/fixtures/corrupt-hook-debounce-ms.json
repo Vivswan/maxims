@@ -1,0 +1,41 @@
+{
+  "harnesses": [
+    {
+      "id": "acme",
+      "displayName": "Acme Agent",
+      "tier": 1,
+      "verifiedAgainst": {
+        "date": "2026-09-20",
+        "sources": [
+          {
+            "kind": "page",
+            "url": "https://example.com/acme/docs/hooks",
+            "claims": ["hooks"],
+            "why": "a fixture"
+          }
+        ]
+      },
+      "globalRoot": { "default": ".acme", "env": { "name": "ACME_HOME" } },
+      "targets": {
+        "project": { "kind": "shared-block", "file": "AGENTS.md" },
+        "global": { "kind": "shared-block", "file": "AGENTS.md" }
+      },
+      "bodiesDir": { "project": ".agents/memories", "global": null },
+      "markers": "counted",
+      "expands": [],
+      "detect": { "dirs": ["."] },
+      "hook": {
+        "kind": "registry",
+        "path": { "project": ".acme/hooks.json", "global": "hooks.json" },
+        "format": "json",
+        "eventPath": ["hooks", "pre_user_prompt"],
+        "grouped": false,
+        "handlerTemplate": { "command": "{{command}}" },
+        "commandKey": "command",
+        "stdout": "none",
+        "async": false,
+        "debounceMs": 60000
+      }
+    }
+  ]
+}
