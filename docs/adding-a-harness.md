@@ -195,7 +195,7 @@ Every source is read as the text it is, a raw repository file or a page's markdo
 
 One source rarely states every fact: Pi's context-file order is in its resource loader, not its extensions page. A source's `note` names the fact it justifies, so a drift row says what to re-check.
 
-The nightly `harness-drift` category fetches every source and gives each a verdict:
+The nightly `harness-drift` category, which the release PR runs too before a release is cut, fetches every source and gives each a verdict:
 
 | verdict | meaning | the run |
 | --- | --- | --- |

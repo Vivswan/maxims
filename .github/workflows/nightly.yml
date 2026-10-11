@@ -8,6 +8,10 @@
 #   $RUNNER_TEMP/nightly-report/       -> <category>/report.md, the failure-report contract v1
 #   report (<category>)                -> fuzz-issue report on failure or cancellation, resolve on success
 #
+# The tiers a release must pass (property-deep, parity-drift, harness-drift, container) are defined
+# once in release-gate.yml, which the managed ci.yml also runs on the release PR; the nightly calls
+# it and reads one output per tier, because `needs` reports a called workflow as one result for all its jobs.
+#
 # A CANCELLED job counts as red: hitting the timeout cancels rather than fails, and a hang is
 # exactly what a nightly exists to catch.
 name: Nightly
@@ -23,71 +27,12 @@ concurrency:
 permissions: {}
 
 jobs:
-  # The ordinary suite with a larger property-test iteration count than a pull request pays for.
-  property-deep:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  # The called jobs narrow themselves to contents: read, and a call under this file's empty block
+  # would be rejected for asking more than its caller holds.
+  release-gate:
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun run nightly property-deep --report-dir "$RUNNER_TEMP/nightly-report"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: nightly-property-deep
-          path: ${{ runner.temp }}/nightly-report
-          if-no-files-found: ignore
-
-  # `npx skills@latest --help` re-captured and diffed against the committed parity fixture.
-  parity-drift:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun run nightly parity-drift --report-dir "$RUNNER_TEMP/nightly-report"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: nightly-parity-drift
-          path: ${{ runner.temp }}/nightly-report
-          if-no-files-found: ignore
-
-  # Every harness definition's verified source re-fetched and its claims re-matched.
-  harness-drift:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun run nightly harness-drift --report-dir "$RUNNER_TEMP/nightly-report"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: nightly-harness-drift
-          path: ${{ runner.temp }}/nightly-report
-          if-no-files-found: ignore
+    uses: ./.github/workflows/release-gate.yml
 
   # The built bundle driven through the fetch ladder against Vivswan/skills on the public network.
   live-network:
@@ -204,10 +149,11 @@ jobs:
 
   # The category jobs stay apart because `needs` reports a matrix job as one result for all its
   # legs, so a matrix of categories could never tell a report leg which one went red. Fail-fast is
-  # off so a leg's own failure cannot cancel its siblings' filings. The legs and their wording are
-  # pinned by tests/nightly/workflow_census.test.ts to scripts/nightly.ts and the settings' labels.
+  # off so a leg's own failure cannot cancel its siblings' filings.
+  #   not `success` -> files: failure, the `cancelled` of a timeout, or a gate output never written
+  #   the legs      -> pinned by tests/nightly/workflow_census.test.ts to scripts/nightly.ts and the labels
   report:
-    needs: [property-deep, parity-drift, harness-drift, live-network, latency-trend, published-smoke]
+    needs: [release-gate, live-network, latency-trend, published-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -218,25 +164,31 @@ jobs:
       matrix:
         include:
           - category: property-deep
+            result: ${{ needs.release-gate.outputs.property-deep }}
             description: The deep property run failed
           - category: parity-drift
+            result: ${{ needs.release-gate.outputs.parity-drift }}
             description: npx skills --help drifted from the parity fixture
           - category: harness-drift
+            result: ${{ needs.release-gate.outputs.harness-drift }}
             description: A harness definition's verified source drifted or was unreachable
           - category: live-network
+            result: ${{ needs.live-network.result }}
             description: The live fetch ladder against Vivswan/skills failed
           - category: latency-trend
+            result: ${{ needs.latency-trend.result }}
             description: Hook-path latency or bundle size regressed against 7 days ago
           - category: published-smoke
+            result: ${{ needs.published-smoke.result }}
             description: The published next package failed its smoke run
     steps:
-      - if: needs[matrix.category].result == 'failure'
+      - if: matrix.result == 'failure'
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nightly-${{ matrix.category }}
           path: nightly-report
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs[matrix.category].result)
+      - if: matrix.result != 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
@@ -247,43 +199,23 @@ jobs:
           stream: generic
           artifacts-dir: nightly-report
           artifact-name: nightly-${{ matrix.category }}
-      - if: needs[matrix.category].result == 'success'
+      - if: matrix.result == 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
           label: nightly-${{ matrix.category }}
           stream: generic
 
-  # The hermetic container tier: the script builds the image, runs the suite inside it, probes the
-  # sandbox, and writes the build time and image size to the step summary itself. The runtime is
-  # required here, so a runner without a daemon fails instead of skipping with a notice.
-  container:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun run test:container
-        env:
-          MAXIMS_REQUIRE_CONTAINER_RUNTIME: "1"
-
   # No failure report here: the tier's evidence is its log, so the issue points at the run.
   report-container:
-    needs: [container]
+    needs: [release-gate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write
     steps:
-      - if: contains(fromJSON('["failure", "cancelled"]'), needs.container.result)
+      - if: needs.release-gate.outputs.container != 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
@@ -292,7 +224,7 @@ jobs:
           label-color: D93F0B
           label-description: The hermetic container tier failed
           stream: generic
-      - if: needs.container.result == 'success'
+      - if: needs.release-gate.outputs.container == 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
