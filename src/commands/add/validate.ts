@@ -5,7 +5,6 @@ import { DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
 import { sourceSlug } from "../../engine/slug.ts";
 import { sourceIdentity } from "../../engine/source-key.ts";
 import {
-  contentHashOf,
   hiddenCharacterLabel,
   hiddenCharacters,
   type Memory,
@@ -110,7 +109,7 @@ export async function validate(
       memories: chosen.map((memory) => ({
         name: memory.name,
         description: memory.description,
-        contentHash: contentHashOf(memory.raw),
+        contentHash: memory.contentHash,
       })),
       select: "*",
       rename,
