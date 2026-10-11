@@ -202,22 +202,14 @@ function isFile(path: string): boolean {
   return existsSync(path) && statSync(path).isFile();
 }
 
-/** The file `specifier` names from `importer`, trying the source extensions and index files; nothing found throws. */
+/** Bun.resolveSync takes a directory: handed the importer file itself, it finds nothing. */
 export function resolveImport(importer: string, specifier: string): string {
-  const target = resolve(dirname(importer), specifier);
-  if (isFile(target)) return target;
-  const stem = target.replace(/\.(?:[mc]?[jt]sx?)$/, "");
-  const candidates = [
-    ...SOURCE_EXTENSIONS.map((ext) => `${stem}${ext}`),
-    ...SOURCE_EXTENSIONS.map((ext) => join(target, `index${ext}`)),
-  ];
-  const found = candidates.find(isFile);
-  if (found === undefined) {
-    throw new Error(
-      `${importer} imports "${specifier}", which resolves to no file (tried ${candidates.join(", ")})`,
-    );
+  try {
+    return Bun.resolveSync(specifier, dirname(importer));
+  } catch (error) {
+    if (!(error instanceof ResolveMessage)) throw error;
+    throw new Error(`${importer} imports "${specifier}", which resolves to no file`);
   }
-  return found;
 }
 
 // --- the lint ----------------------------------------------------------------
