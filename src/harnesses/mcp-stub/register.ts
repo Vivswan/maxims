@@ -13,8 +13,7 @@ const [command, ...packageArgs] = PACKAGE_ARGV;
 const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
 export const MCP_SERVER_COMMAND = [command, ...packageArgs, "mcp-serve"].join(" ");
 
-// A definition's servers file at one scope, resolved once: the file inside the scope's root, the
-// root it was asserted under, and the key path of the servers map inside it.
+// A definition's servers file at one scope, resolved once; `root` is what `path` was asserted under.
 export type McpRegistration = { root: string; path: RootedPath; serversPath: readonly string[] };
 
 // `null` where the definition declares no registry, or starts no servers from this scope.

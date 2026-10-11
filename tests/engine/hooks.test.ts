@@ -31,11 +31,13 @@ import {
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND,
+  hookSpecFor,
   type Scope,
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
 import { devin } from "../../src/harnesses/devin/spec.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
+import { freshRegistry } from "../../src/harnesses/hook-writer.ts";
 import { rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -575,7 +577,6 @@ describe("the MCP server entry follows the hook intent", () => {
 
   // Each artifact is planned on its own: a servers file that cannot be read costs this run that
   // one registration, reported when it was wanted, and never the hook's own edit or removal.
-
   test("a servers file that cannot be read is reported when wanted and leaves the hook's plan standing", async () => {
     await world(async ({ home, userHome, dir }) => {
       const mcp = join(userHome, FIXTURE_DIR, "mcp.json");
@@ -1347,6 +1348,51 @@ describe("built-in registries linked into one file", () => {
       });
     },
   );
+
+  // Codex's handler carries `async` and `statusMessage` and Devin's does not, so over one file each
+  // wanted rewrite replaces the other's and the second restores the first's bytes: the pair plans
+  // no change and no notice, and the servers file apart from it is still registered.
+  test("Codex's and Devin's registries linked at one file holding Devin's form: the rewrites cancel", async () => {
+    await world(async ({ home, userHome, project }) => {
+      for (const folder of [".codex", ".devin", "dotfiles"]) {
+        mkdirSync(join(project, folder), { recursive: true });
+      }
+      if (devin.hook.kind !== "registry") throw new Error("Devin's hook is a registry");
+      const end = join(project, "dotfiles", "hooks.json");
+      writeFileSync(end, freshRegistry(devin.hook, devin.hook.handler(hookSpecFor(devin))));
+      const links = [join(project, ".codex", "hooks.json"), join(project, ".devin", "config.json")];
+      for (const link of links) symlinkSync(end, link);
+      const defs = [codex, devin];
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: defs });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const planned = await planHooks({
+        ctx,
+        harnesses: defs,
+        agents: undefined,
+        wants: (_id, scope: Scope) => ({
+          hook: true,
+          rules: false,
+          unreachable: scope !== "project",
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      const servers = join(project, ".devin", "mcp_config.json");
+      expect<unknown>(planned).toEqual({
+        changes: [
+          {
+            kind: "edit",
+            path: servers,
+            target: servers,
+            content: expect.stringContaining('"mcp-serve"'),
+          },
+        ],
+        removals: [],
+        notices: [`registered the maxims MCP server in ${servers}`],
+        failures: [],
+      });
+    });
+  });
 });
 
 describe("a registry kept as a symlink", () => {

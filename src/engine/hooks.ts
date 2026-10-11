@@ -158,9 +158,9 @@ export async function planHooks(input: {
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
   const files = new RegistryFiles(input.judgeLink);
   const admittedAnswers: ScopeAnswer[] = [];
-  // A registry this run wants nothing from may be unreadable for reasons of its own; one it must
-  // edit is a failure of this run, reported once. A rewrite's failure is its file's, since each
-  // rewrite of a shared file names it by its own path; any other failure is its message.
+  // Reported once, and only when this run must edit the registry (one it wants nothing from may
+  // be unreadable for reasons of its own). A rewrite's failure is keyed by its file: each rewrite
+  // of a shared file names it by its own path.
   const failures = new Map<string, HooksPlan["failures"][number]>();
   const attempt = async <T>(
     mustEdit: boolean,
@@ -233,10 +233,8 @@ export async function planHooks(input: {
     }
     admittedAnswers.push(...admitted(answers));
   }
-  // Two harnesses at one file under one event or servers key share the entry itself, so every
-  // wanted rewrite lands before any unwanted one, and an unwanted rewrite of an entry a wanted one
-  // owns is skipped: the entry stays for the harness that wants it, and nothing else of the
-  // leaving harness's is kept.
+  // Wanted rewrites land first, and an unwanted rewrite of an entry a wanted one owns is skipped:
+  // two harnesses at one event or servers key share the entry, which stays for the one wanting it.
   const applied = new Set<ScopeAnswer>();
   const owned = new Set<string>();
   const entryKey = (rewrite: Rewrite): string => `${rewrite.file.key}\0${rewrite.entry}`;
@@ -264,8 +262,10 @@ export async function planHooks(input: {
     if (file !== undefined && !emitted.has(file)) {
       emitted.add(file);
       const planned = file.planned();
-      if (planned !== null) (planned.wanted ? changes : removals).push(planned.change);
-      notices.push(...file.notices);
+      if (planned !== null) {
+        (planned.wanted ? changes : removals).push(planned.change);
+        notices.push(...file.notices);
+      }
     }
     if (!applied.has(answer)) continue;
     (answer.wanted ? changes : removals).push(...answer.changes);
@@ -274,8 +274,8 @@ export async function planHooks(input: {
   return { changes, removals, notices, failures: [...failures.values()] };
 }
 
-// `claims` are the files the answer resolves to whether or not it changes them there; `rewrite`
-// is the registry entry the answer is, when it is one.
+//   claims  -> the files the answer resolves to, changed there or not
+//   rewrite -> its registry entry, when the artifact is one (a hook registry, a servers file)
 type ScopeAnswer = {
   changes: Change[];
   rewrite: Rewrite | null;
@@ -284,8 +284,8 @@ type ScopeAnswer = {
   notices: string[];
 };
 
-// `entry` names the slot in the file the rewrite adds or removes, the identity two harnesses
-// collide on when their registries are one file.
+// `entry` is the slot in the file, the identity two harnesses collide on when their registries are
+// one file.
 type Rewrite = {
   file: RegistryFile;
   entry: string;
@@ -315,8 +315,8 @@ function registryFailure(error: unknown): error is MaximsError {
   );
 }
 
-// The registry files this run rewrites, one per destination (the file a link at the path reaches,
-// by its real path), so a leaf, a link to it and a link partway along the chain are one file.
+// One `RegistryFile` per destination: a leaf, a link to it and a link partway along the chain are
+// one file.
 class RegistryFiles {
   private readonly files = new Map<string, RegistryFile>();
 
@@ -325,7 +325,7 @@ class RegistryFiles {
   async at(root: string, path: RootedPath): Promise<Pick<Rewrite, "file" | "edit">> {
     this.judgeLink(path);
     const edit = editInPlace(root, path);
-    // Where an edit lands does not depend on what it writes.
+    // The destination is the same whatever the content.
     const key = destinationOf(edit(""));
     let file = this.files.get(key);
     if (file === undefined) {
@@ -340,7 +340,8 @@ class RegistryFiles {
 // it left. Its change is a removal only while no wanted rewrite altered the text: a hook run
 // defers removals, and an entry a harness wants must not wait on another harness's leaving.
 class RegistryFile {
-  // The text the last rewrite left, under the edit the first one minted.
+  // `edit` is the first altering rewrite's, so the change is addressed at the path that first altered
+  // the file.
   private altered: { text: string; edit: Rewrite["edit"]; wanted: boolean } | null = null;
   readonly notices: string[] = [];
 
@@ -360,6 +361,8 @@ class RegistryFile {
     this.notices.push(rewritten.notice);
   }
 
+  // Two rewrites may cancel (Codex's handler, `async` and `statusMessage` included, written over
+  // Devin's, then Devin's back): text equal to the original plans nothing.
   planned(): { change: Change; wanted: boolean } | null {
     if (this.altered === null || this.altered.text === this.original) return null;
     return { change: this.altered.edit(this.altered.text), wanted: this.altered.wanted };
@@ -488,11 +491,10 @@ function fileId(path: string): string {
   return realKeyOf(chain.kind === "reached" ? chain.end : path);
 }
 
-// Drops one harness's unwanted answer whole where a wanted answer of the same harness claims a
-// file it touches: the unwanted scope's removal applies last, so a project-only install of dsh's
-// bridge (one file for both scopes) would otherwise delete the hook it just wrote. Judged per
-// harness, since another harness's entry in a shared file is never this one's to keep. Files
-// match by where a change lands:
+// Drops one harness's unwanted answer where a wanted answer of the same harness claims a file it
+// touches, since the unwanted scope's removal applies last (dsh's bridge is one file for both
+// scopes; a project-only install must not delete it). Per harness, as another harness's entry in
+// a shared file is never this one's to keep. A file matches by where a change lands:
 //   a registry      -> its destination, the file behind every link to it
 //   a wanted change -> its leaf, and the file it lands in
 //   a claim         -> its leaf, plus the file behind it when no wanted change writes the leaf (a
