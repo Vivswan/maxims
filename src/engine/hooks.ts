@@ -348,11 +348,9 @@ function noticesOf(notice: string | undefined): string[] {
   return notice === undefined ? [] : [notice];
 }
 
-// One file under two spellings (a home reached through a symlink, a project root recorded by its
-// real path, a registry kept as a link) is one file to reconcile. The leaf is walked as the kernel
-// walks it, the way an edit finds its target, never through `realpathSync`: node's folds a `..` in
-// a link's target before reading the folder link ahead of it (`hooks.json -> ../jump/../hooks.json`
-// with `jump` a link), and names another file.
+// One file under two spellings is one file to reconcile. The leaf is walked as an edit finds its
+// target, never through `realpathSync`: node's folds a `..` in a link's target lexically
+// (`hooks.json -> ../jump/../hooks.json`, `jump` a link) and names another file.
 function fileId(path: string): string {
   const chain = followLinks(path);
   return realKeyOf(chain.kind === "reached" ? chain.end : path);

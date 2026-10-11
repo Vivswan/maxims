@@ -30,6 +30,7 @@ import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
   daysAgo,
   entryFor,
+  FIXTURE_DIR,
   fakeIo,
   fakeResolvers,
   fetchedEntry,
@@ -1858,6 +1859,35 @@ describe("what a refused or departed source leaves behind", () => {
       ]);
       expect(readFileSync(ruleFile, "utf8")).toBe(written);
       expect(readlinkSync(shared)).toBe(ruleFile);
+    });
+  });
+
+  // The same two names with no link between them: a user-defined shared-block harness declaring
+  // its file where maxims renders the rule file, listed by no source. Nothing is edited through a
+  // link, so nothing is refused; the rule file renders as its own.
+  test("an orphan shared-block harness declaring its file at a rule file maxims owns whole, no link, is not refused", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const atProject = { destination: { scope: "project" as const, root: project } };
+      const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+      const slug = sourceSlug(localFrom(whole));
+      const ruleFile = join(project, FIXTURE_DIR, "rules", `maxims-${slug}.md`);
+      const atRuleFile: HarnessDefinition = {
+        ...sharedBlockHarness,
+        targets: {
+          project: { kind: "shared-block", file: join(FIXTURE_DIR, "rules", `maxims-${slug}.md`) },
+          global: null,
+        },
+      };
+      writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [rulesDirHarness, atRuleFile] });
+      await runSync(SYNC, io);
+      const written = readFileSync(ruleFile, "utf8");
+      expect([parseBlocks(written).blocks.length, lstatSync(ruleFile).isSymbolicLink()]).toEqual([
+        1,
+        false,
+      ]);
+      expect((await runSync(SYNC, io)).changed).toEqual([]);
+      expect(readFileSync(ruleFile, "utf8")).toBe(written);
     });
   });
 

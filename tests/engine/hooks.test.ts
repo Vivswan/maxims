@@ -540,16 +540,9 @@ describe("both scopes resolving to one registry", () => {
     });
   });
 
-  // One file for both scopes again, the link's target holding a `..` after a linked folder. The
-  // kernel enters `jump` and lands in `$CODEX_HOME/hooks.json`; node's `realpathSync` folds
-  // `jump/..` away first and names a stray `~/hooks.json`, so the unwanted scope's removal misses
-  // the wanted file and, applied last, erases a settled hook:
-  //
-  //   global wanted    the project removal's own leaf is misread
-  //   project wanted   the wanted claim's leaf is misread
-  //
-  // bun's `realpathSync` reads as the kernel does, so node's fold (`node >= 24` is supported) is
-  // driven through the seam both identities read. Windows folds as node does: nothing to drive.
+  // bun's `realpathSync` reads as the kernel does, so node's fold of `jump/..` to the stray
+  // `~/hooks.json` is driven through the seam both scope identities read. Windows folds as node
+  // does: nothing to drive.
   for (const wanted of ["global", "project"] as const) {
     test.skipIf(WINDOWS)(
       `a settled registry keeps its hook when the ${wanted} scope wants it: node's realpathSync folds .. lexically where the kernel does not`,
