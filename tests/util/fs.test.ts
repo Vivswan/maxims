@@ -276,6 +276,9 @@ describe("realpathOfExistingPrefix", () => {
       expect(realpathOfExistingPrefix(["link", "..", "target"].join(sep), root)).toBe(
         join(root, "real", "target"),
       );
+      expect(realpathOfExistingPrefix("target", [root, "link", ".."].join(sep))).toBe(
+        join(root, "real", "target"),
+      );
     });
   });
 

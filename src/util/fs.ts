@@ -141,9 +141,6 @@ export function realKeyOf(path: string): string {
 // front of it, and bun's normalizes the typed path before the kernel sees it, so neither is handed
 // a `..`. The cwd is read inside the try: under a sealed folder macOS refuses the read itself.
 //
-// A relative prefix takes its anchor's names in front of its own, so the anchor is walked like the
-// rest and its own missing tail is kept as typed.
-//
 // A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
 // at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
 // cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
@@ -154,9 +151,7 @@ function realpathOfPrefix(prefix: string, asked: string, from?: string): string 
   let index = 0;
   try {
     if (root === "") {
-      const anchor = links.parts(resolve(from ?? process.cwd()));
-      root = anchor.root;
-      names = [...anchor.names, ...names];
+      ({ root, names } = anchored(links, names, from));
       at = root;
     }
     at = realpathSync.native(resolve(root));
@@ -179,6 +174,19 @@ function realpathOfPrefix(prefix: string, asked: string, from?: string): string 
     if (!isAbsent(cause)) throw cannotInspect(asked, cause);
     return join(at, ...names.slice(index));
   }
+}
+
+// The anchor's names lead a relative prefix's own, read by `parts` and never by `resolve`, which
+// would fold a `..` in the anchor before the walk reaches the link in front of it.
+function anchored(
+  links: LinkSemantics,
+  names: string[],
+  from: string | undefined,
+): { root: string; names: string[] } {
+  const anchor = links.parts(from ?? process.cwd());
+  if (anchor.root !== "") return { root: anchor.root, names: [...anchor.names, ...names] };
+  const cwd = links.parts(process.cwd());
+  return { root: cwd.root, names: [...cwd.names, ...anchor.names, ...names] };
 }
 
 // The deepest existing head of `run` under the real folder `at`. One lookup's ENOENT does not say
