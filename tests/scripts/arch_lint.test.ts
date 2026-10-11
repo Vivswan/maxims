@@ -9,6 +9,7 @@ import {
   type Architecture,
   importSpecifiers,
   lintAccommodationVocabulary,
+  resolveImport,
 } from "../../scripts/arch_lint.mts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
@@ -73,6 +74,30 @@ test("importSpecifiers names every relative module a file loads, the empty re-ex
     "./lazy.ts",
     "./loaded.ts",
   ]);
+});
+
+// The tree alone does not say which sibling bun loads for an extensionless specifier (phase.ts
+// beside phase.tsx); the edge the lint draws must be the one bun follows.
+test("resolveImport follows bun's extension order from the importer's directory and names an unresolvable import", async () => {
+  await withTempDir((root) => {
+    mkdirSync(join(root, "src", "dir"), { recursive: true });
+    for (const file of ["x.ts", "phase.ts", "phase.tsx", "dir/index.ts", "dir/index.js"]) {
+      writeFileSync(join(root, "src", file), "");
+    }
+    const importer = join(root, "src", "x.ts");
+    const rows: [specifier: string, resolved: string][] = [
+      // bun tries .tsx before .ts, then the same order under index (https://bun.com/docs/runtime/modules)
+      ["./phase", "phase.tsx"],
+      ["./dir", "dir/index.ts"],
+      ["./phase.js", "phase.ts"],
+    ];
+    expect(rows.map(([specifier]) => resolveImport(importer, specifier))).toEqual(
+      rows.map(([, resolved]) => join(root, "src", resolved)),
+    );
+    expect(() => resolveImport(importer, "./missing")).toThrow(
+      `${importer} imports "./missing", which resolves to no file`,
+    );
+  });
 });
 
 // A dropped edge is the one silent failure the lint exists to refuse: the walk must surface the
