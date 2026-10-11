@@ -1733,12 +1733,15 @@ function addSharedFilesWithOrphans(
         continue;
       }
       if (only === undefined) continue;
-      // A reader no source here brings judges no budget, so it does not join the readers.
       const visited = files.get(only.realKey);
       if (visited !== undefined) {
+        // A file maxims owns whole is refused under this link as under a link a source brings:
+        // retiring the file would delete it and leave the link dangling.
+        if (ownedWhole(visited)) throw new LinkedAtRuleFile([], only.path, visited.path);
+        // An orphan reader brings no budget to judge, so the visited file records its link and
+        // gains no reader.
         if (
           visited.kind === "harness" &&
-          visited.owned === "shared" &&
           isSymlink(only.path) &&
           !visited.aliases.includes(only.path)
         ) {

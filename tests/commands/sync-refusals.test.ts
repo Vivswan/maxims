@@ -1835,6 +1835,32 @@ describe("what a refused or departed source leaves behind", () => {
     },
   );
 
+  // A reader no source brings (`AGENTS.md -> .claude/rules/maxims-x.md`, the user pointing one
+  // harness at another's rendered rules) reaches the rule file by a link nothing holds: the sync
+  // that retires the source deletes the file and leaves the link dangling. It is refused by name
+  // before anything is written, as a link a source's reader reaches the file by is.
+  test("an orphan shared file linked at a rule file maxims owns whole is refused, nothing written", async () => {
+    await world(async ({ home, dir, userHome, project }) => {
+      const atProject = { destination: { scope: "project" as const, root: project } };
+      const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+      writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+      const io = fakeIo({ home, userHome, cwd: project });
+      await runSync(SYNC, io);
+      const slug = sourceSlug(localFrom(whole));
+      const ruleFile = join(project, ".fixture", "rules", `maxims-${slug}.md`);
+      const written = readFileSync(ruleFile, "utf8");
+      const shared = join(project, "FIXTURE.md");
+      symlinkSync(ruleFile, shared);
+      const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+      expect([error.message, error.hint]).toEqual([
+        `cannot edit ${shared}: it is a symlink to ${ruleFile}, a rule file maxims owns whole`,
+        expect.stringContaining("then run maxims sync"),
+      ]);
+      expect(readFileSync(ruleFile, "utf8")).toBe(written);
+      expect(readlinkSync(shared)).toBe(ruleFile);
+    });
+  });
+
   test("a hook run leaves a departed source's block in a shared file; an interactive run strips it", async () => {
     await world(async ({ home, dir, userHome }) => {
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
