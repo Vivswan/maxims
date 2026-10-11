@@ -3,25 +3,18 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
-import {
-  appendChild,
-  assertParses,
-  readConfigText,
-  removeChild,
-  replaceValue,
-} from "../../util/jsonc.ts";
+import { appendChild, assertParses, removeChild, replaceValue } from "../../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../../util/package.ts";
 import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
-import type { HookPlan } from "../hook-writer.ts";
+import type { RegistryRewrite } from "../hook-writer.ts";
 
 const MCP_SERVER_KEY = "maxims";
 const [command, ...packageArgs] = PACKAGE_ARGV;
 const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
 export const MCP_SERVER_COMMAND = [command, ...packageArgs, "mcp-serve"].join(" ");
 
-// A definition's servers file at one scope, resolved once: the file inside the scope's root and
-// the key path of the servers map inside it.
-export type McpRegistration = { path: RootedPath; serversPath: readonly string[] };
+// A definition's servers file at one scope, resolved once; `root` is what `path` was asserted under.
+export type McpRegistration = { root: string; path: RootedPath; serversPath: readonly string[] };
 
 // `null` where the definition declares no registry, or starts no servers from this scope.
 export function mcpRegistrationAt(
@@ -32,20 +25,8 @@ export function mcpRegistrationAt(
   if (def.mcp === undefined) return null;
   const path = def.mcp.path(scope, ctx);
   if (path === null) return null;
-  return {
-    path: assertInsideRoot(scopeRoot(def, scope, ctx), path),
-    serversPath: def.mcp.serversPath,
-  };
-}
-
-// Reads the servers file and hands the text to the pure planner, the way `planHookOnly` does for a
-// hook registry.
-export async function planMcpOnly(
-  registration: McpRegistration,
-  wanted: boolean,
-): Promise<HookPlan> {
-  const currentText = await readConfigText(registration.path);
-  return planMcpRegistration({ registration, wanted, currentText });
+  const root = scopeRoot(def, scope, ctx);
+  return { root, path: assertInsideRoot(root, path), serversPath: def.mcp.serversPath };
 }
 
 export type McpRegistrationInput = {
@@ -54,14 +35,15 @@ export type McpRegistrationInput = {
   currentText: string | null;
 };
 
-export function planMcpRegistration(input: McpRegistrationInput): HookPlan {
+export function rewriteServers(input: McpRegistrationInput): RegistryRewrite | null {
   const { path, serversPath } = input.registration;
-  const edit = editServers(input.currentText, path, serversPath, input.wanted);
-  if (edit === null) return { changes: [] };
-  assertParses(edit.text, path);
+  const planned = editServers(input.currentText, path, serversPath, input.wanted);
+  if (planned === null) return null;
+  assertParses(planned.text, path);
+  const { verb } = planned;
   return {
-    changes: [{ kind: "write", path, content: edit.text }],
-    notice: `${edit.verb} the maxims MCP server ${edit.verb === "removed" ? "from" : "in"} ${path}`,
+    text: planned.text,
+    notice: `${verb} the maxims MCP server ${verb === "removed" ? "from" : "in"} ${path}`,
   };
 }
 

@@ -102,7 +102,7 @@ function plan(def: HarnessWithHook<"registry">, wanted: boolean, currentText: st
 
 function textOf(result: ReturnType<typeof plan>): string {
   const [change] = result.changes;
-  if (change?.kind !== "write") throw new Error(`expected a write, got ${JSON.stringify(result)}`);
+  if (change?.kind !== "edit") throw new Error(`expected an edit, got ${JSON.stringify(result)}`);
   return change.content;
 }
 
@@ -178,7 +178,7 @@ describe("planHookRegistryWrite on JSON registries", () => {
     });
     expect(plan(grouped, true, added)).toEqual({ changes: [] });
     expect(plan(grouped, false, added)).toEqual({
-      changes: [{ kind: "write", path: settingsPath, content: untouched }],
+      changes: [{ kind: "edit", path: settingsPath, target: settingsPath, content: untouched }],
       notice: `removed the maxims hook from ${settingsPath}`,
     });
     expect(plan(grouped, false, untouched)).toEqual({ changes: [] });
@@ -279,7 +279,7 @@ describe("planHookRegistryWrite on JSON registries", () => {
   test.each(emptied)("add then remove: $name", ({ before, after }) => {
     const added = before.includes(HOOK_COMMAND) ? before : textOf(plan(grouped, true, before));
     expect(plan(grouped, false, added)).toEqual({
-      changes: [{ kind: "write", path: settingsPath, content: after }],
+      changes: [{ kind: "edit", path: settingsPath, target: settingsPath, content: after }],
       notice: `removed the maxims hook from ${settingsPath}`,
     });
   });
@@ -292,8 +292,9 @@ describe("planHookRegistryWrite on JSON registries", () => {
       hooks: { sessionStart: [parse(theirsJson)] },
     });
     const alone = `{"version":1,"hooks":{"sessionStart":[${flatOurs}]}}`;
+    const maximsJson = rooted(`${projectRoot}/.github/hooks/maxims.json`);
     expect(plan(flat, false, alone).changes).toEqual([
-      { kind: "write", path: rooted(`${projectRoot}/.github/hooks/maxims.json`), content: "{}" },
+      { kind: "edit", path: maximsJson, target: maximsJson, content: "{}" },
     ]);
   });
 
@@ -709,8 +710,9 @@ describe("planHookWrite against a real directory", () => {
         const intent = { def: grouped, scope: "project" as const, ctx: local };
         expect((await planHookWrite({ ...intent, wanted: true })).changes).toEqual([
           {
-            kind: "write",
+            kind: "edit",
             path: assertInsideRoot(root, file),
+            target: assertInsideRoot(root, file),
             content: textOf(plan(grouped, true, null)),
           },
         ]);

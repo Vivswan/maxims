@@ -3,7 +3,15 @@
 // after the collision it resolved is gone, a lock entry this machine never installed), and a
 // `--json` document that hides any of those behind pre-rendered strings.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { runList } from "../../src/commands/list.ts";
 import { runSync } from "../../src/commands/sync.ts";
@@ -600,6 +608,57 @@ describe("list", () => {
       expect(harness?.hook).toBe("not-wanted");
     });
   });
+
+  // A registry one harness cannot be judged through (a dangling link, a file that does not parse)
+  // is that harness's row to report, never a reason to drop the listing: the other harnesses still
+  // print, and the run exits as a listing does.
+  const unjudgeable: [string, (registry: string) => void, string][] = [
+    [
+      "a dangling link",
+      (registry) => symlinkSync("missing.json", registry),
+      "it is a symlink to missing.json, which does not exist",
+    ],
+    [
+      "a file that does not parse",
+      (registry) => writeFileSync(registry, "{ oops\n"),
+      "it is not valid JSON",
+    ],
+  ];
+  test.each(unjudgeable)(
+    "a hook registry that is %s: the harness row says broken and the listing still prints",
+    async (_label, plant, reason) => {
+      await world(async ({ home, dir, userHome }) => {
+        const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+        writeState(
+          home,
+          stateWith(
+            { [source]: entryFor(localFrom(source), { harnesses: ["claude-code", "codex"] }) },
+            { global: ["claude-code"] },
+          ),
+        );
+        const registry = join(userHome, ".fixture", "settings.json");
+        rmSync(registry, { force: true });
+        plant(registry);
+        const io = fakeIo({ home, userHome, cwd: dir });
+        const report = await runList({ quiet: false, dryRun: false, json: false }, io);
+        const [listed] = report.sources;
+        const broken = `cannot edit ${registry}: `;
+        expect(listed?.harnesses.map((harness) => [harness.id, harness.hook])).toEqual([
+          [
+            "claude-code",
+            { kind: "broken", reason: expect.stringContaining(broken), hint: expect.any(String) },
+          ],
+          ["codex", "not-wanted"],
+        ]);
+        const hook = listed?.harnesses[0]?.hook;
+        if (typeof hook !== "object") throw new Error("the row is broken");
+        expect(hook.reason).toContain(reason);
+        expect(io.out.join("")).toContain(
+          `  Agents: claude-code (tier 1, hook broken: ${hook.reason}), codex (tier 1)  Rules: yes\n`,
+        );
+      });
+    },
+  );
 
   // `--json` is one document or nothing to a caller parsing stdout, a lock path that cannot be
   // read included; the read that could not look is exit 4, never a usage error.

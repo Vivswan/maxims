@@ -29,8 +29,9 @@ test.each(registries)(
     });
     expect(plan.changes).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path: assertInsideRoot(root, path),
+        target: assertInsideRoot(root, path),
         content: [
           "{",
           '  "hooks": {',
@@ -70,7 +71,7 @@ test("a commented settings.json receives the hook and a trailing comma is refuse
     wanted: true,
     currentText: commented,
   }).changes;
-  if (change?.kind !== "write") throw new Error("expected a write");
+  if (change?.kind !== "edit") throw new Error("expected an edit");
   expect(change.content).toContain("  // mine\n");
   expect(change.content).toContain('"command": "npx -y @vivswan/maxims sync --quiet"');
   const verdict = outcome(() =>

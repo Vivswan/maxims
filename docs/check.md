@@ -35,6 +35,8 @@ Defaults: agents=detected rule=false cooldownDays=7 ruleCap=25
 | live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |
 | the tier each harness achieves, and the rule file token estimate | the harness configs and rule files on disk |
 
+`--json` prints the same facts as one document. Each harness under a source carries `hook`, with the [values `doctor` reports](#the-ci-one-liner).
+
 ## Read one memory or source: show
 
 ```bash
@@ -91,3 +93,5 @@ npx -y @vivswan/maxims doctor --expect prefer-timeouts-to-hangs --json
 `--expect <name>` or `--expect @owner/repo/name` asserts that memory has a rule line in place for every harness it targets. A missing one exits 1 with the harness and path named. The flag repeats, one memory per `--expect`.
 
 `--json` emits the report as one document, so a CI job asserts "these rules are installed" without parsing lines. Its top-level keys are `ok`, `findings`, `harnesses`, `unresolved`, `expect`, `lastSync`, and `defaults`. `findings` carries the printed lines as `{ "kind": "ok" | "warn" | "fail", "text" }`, and `ok` is false when any finding is `fail`, the `x` lines above.
+
+Each entry of `harnesses` carries `hook`: `none` for a harness with no hook, `not-wanted` when state asks for none there, `current`, `missing`, or `{ "kind": "broken", "reason", "hint" }` for a registry that cannot be planned (a dangling link, a file that does not parse). The printed line reads `hook broken: <reason>`.

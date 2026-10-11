@@ -10,7 +10,7 @@ import {
 } from "jsonc-parser";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { util, z } from "zod";
-import type { Change } from "../util/change.ts";
+import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
 import { jsonDocument } from "../util/json.ts";
@@ -101,14 +101,18 @@ export type RegistryWriteInput = HookIntent & {
   currentText: string | null;
 };
 
-export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
+// The text a registry rewrite leaves and the word for what it did; `null` when the file already
+// says what the intent wants. The engine applies rewrites of one file in turn and mints the one
+// edit itself, so a rewrite names no destination.
+export type RegistryRewrite = { text: string; notice: string };
+
+export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite | null {
   const path = hookPath(input.def, input.scope, input.ctx);
   const handler = input.def.hook.handler(hookSpecFor(input.def));
   if (input.currentText === null) {
-    if (!input.wanted) return { changes: [] };
-    const content = freshRegistry(input.def.hook, handler);
+    if (!input.wanted) return null;
     return {
-      changes: [{ kind: "write", path, content }],
+      text: freshRegistry(input.def.hook, handler),
       notice: `registered the maxims hook in ${path}`,
     };
   }
@@ -116,21 +120,35 @@ export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
   if (input.wanted) {
     if (registry.locateOurs().length === 0) {
       registry.append(handler);
-      return { changes: [registry.write()], notice: `registered the maxims hook in ${path}` };
+      return { text: registry.validatedText(), notice: `registered the maxims hook in ${path}` };
     }
     const duplicates = registry.dropDuplicates();
     const [ours] = registry.locateOurs();
     if (ours === undefined) throw new Error("the surviving maxims handler must still be present");
     if (sameJson(getNodeValue(ours), handler)) {
-      if (!duplicates) return { changes: [] };
-      return { changes: [registry.write()], notice: `removed duplicate maxims hooks from ${path}` };
+      if (!duplicates) return null;
+      return {
+        text: registry.validatedText(),
+        notice: `removed duplicate maxims hooks from ${path}`,
+      };
     }
     registry.replace(ours, handler);
-    return { changes: [registry.write()], notice: `updated the maxims hook in ${path}` };
+    return { text: registry.validatedText(), notice: `updated the maxims hook in ${path}` };
   }
-  if (registry.locateOurs().length === 0) return { changes: [] };
+  if (registry.locateOurs().length === 0) return null;
   registry.removeAll();
-  return { changes: [registry.finish()], notice: `removed the maxims hook from ${path}` };
+  return { text: registry.finish(), notice: `removed the maxims hook from ${path}` };
+}
+
+// A registry is the user's file, edited where its bytes live: a link at the path is followed, and
+// one nothing can follow is refused by name when the file must change, as the sync planner refuses
+// it, so `list` and `doctor` call a settled hook behind such a link current.
+export function planHookRegistryWrite(input: RegistryWriteInput): HookPlan {
+  const rewrite = rewriteHookRegistry(input);
+  if (rewrite === null) return { changes: [] };
+  const path = hookPath(input.def, input.scope, input.ctx);
+  const edit = editInPlace(scopeRoot(input.def, input.scope, input.ctx), path);
+  return { changes: [edit(rewrite.text)], notice: rewrite.notice };
 }
 
 // The registry file a hook lands in when none exists. A quirk that keeps a registry-shaped file
@@ -268,18 +286,20 @@ class JsonRegistry {
   // A file left holding nothing but its wrapper becomes an empty object with its own line ending,
   // never a deletion: nothing records whether the file existed before the hook was registered,
   // and an empty object is harmless to every harness.
-  finish(): Change {
+  finish(): string {
     const root = this.root();
     if (this.commentFree(root) && sameJson(getNodeValue(root), this.hook.wrapper ?? {})) {
       const eol = this.text.endsWith("\r\n") ? "\r\n" : this.text.endsWith("\n") ? "\n" : "";
-      return { kind: "write", path: this.path, content: `{}${eol}` };
+      return `{}${eol}`;
     }
-    return this.write();
+    return this.text;
   }
 
-  write(): Change {
+  // The text as the splices left it, parsed once more in the vendor's dialect so a cut through a
+  // comment never leaves the planner.
+  validatedText(): string {
     this.root();
-    return { kind: "write", path: this.path, content: this.text };
+    return this.text;
   }
 
   private isGroup(node: Node): boolean {

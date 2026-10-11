@@ -36,7 +36,7 @@ flowchart LR
   userdef["src/harnesses/user-defined.ts<br>loadUserDefinedHarnesses()"]
   plock["src/state/project-lock.ts<br>PROJECT_LOCK_RELATIVE_PATH serializeProjectLock() parseProjectLock()"]
   local["src/sources/local.ts<br>materializeLocal()"]
-  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/engine/rules.ts<br>planRuleFile()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/harnesses/mcp-stub/register.ts<br>planMcpOnly()"]
+  planners["src/harnesses/strategies/rules-dir.ts<br>planRulesDirWrite()<br>src/engine/rules.ts<br>planRuleFile()<br>src/harnesses/hook-writer.ts<br>planHookWrite()<br>src/harnesses/mcp-stub/register.ts<br>rewriteServers()"]
   apply["src/util/change.ts<br>applyChanges()"]
   sync[["maxims sync: the only writer of destinations and of the stamp"]]
   home -->|"homePaths(): the store, state, lock, log, stamp and config paths, derived once"| homedir
@@ -247,7 +247,8 @@ flowchart LR
 ```
 
 - **A `write` compares before it writes,** so an unchanged file keeps its bytes and its mtime, and a sync that changes nothing touches no destination.
-- **An `edit` is a `write` into a file the user owns** (a hook registry, a shared instruction file). The planner resolves a symlink at the path and asserts its target inside the root; the apply writes beside the target and renames onto it, so a dotfiles link survives. A dangling link, one out of the root, or one at a rule file maxims owns whole is refused by name.
+- **An `edit` is a `write` into a file the user owns** (a hook or MCP registry, a shared instruction file). The planner resolves the path's link and asserts its target inside the root; the apply writes beside the target and renames onto it, so a dotfiles link survives. A dangling link, one out of the root, or one at a rule file maxims owns whole is refused by name.
+- **One edit per registry file.** The hook planner holds one file per resolved target, so a registry two scopes, two harnesses, or a hook and its servers entry land in is edited once over every rewrite in turn.
 - **`unlink` and `symlink` refuse a real file or directory at the path,** so the only thing a link change replaces is a link maxims could have written itself; a repointed link is created beside the old one and renamed over it, so no reader sees it absent.
 - **Containment is judged on real paths.** `assertInsideRoot()` resolves the existing prefix of both root and candidate, so a rules directory symlinked out of the project fails while a root that is itself a symlink passes.
 
@@ -259,7 +260,7 @@ Demonstrated by: [tests/util/change.test.ts](../tests/util/change.test.ts), [tes
 flowchart LR
   contract["src/harnesses/contract.ts<br>HOOK_COMMAND HOOK_COMMAND_PREFIX HOOK_TIMEOUT_SECONDS hookSpecFor() HookShape HookStdout"]
   writer["src/harnesses/hook-writer.ts<br>planHookWrite() planHookRegistryWrite() planFileHookWrite() achievedTier()"]
-  mcp["src/harnesses/mcp-stub/register.ts<br>planMcpOnly() planMcpRegistration()<br>src/harnesses/mcp-stub/server.ts<br>serveMcpStub()"]
+  mcp["src/harnesses/mcp-stub/register.ts<br>mcpRegistrationAt() rewriteServers()<br>src/harnesses/mcp-stub/server.ts<br>serveMcpStub()"]
   registry[("the harness's own registry: a hooks file, a settings file or a hook script; a TOML config is read for the tier check and never written")]
   session[["a session starts, or a prompt is sent where the harness has no session-start event"]]
   sync[["maxims sync --quiet, the command every hook runs"]]
