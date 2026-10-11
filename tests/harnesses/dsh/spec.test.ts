@@ -4,8 +4,16 @@
 // the user duplicated by hand must converge to one on mount and to none on unmount. Also pins the
 // byte line past which dsh truncates an AGENTS.md.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { hookSpecFor } from "../../../src/harnesses/contract.ts";
 import { BRIDGE_ROW_ID } from "../../../src/harnesses/dsh/quirks.ts";
 import { dsh } from "../../../src/harnesses/dsh/spec.ts";
@@ -176,6 +184,55 @@ test.each(layouts)(
   },
 );
 
+// The patch file is the user's: one kept in a dotfiles checkout under DSH_HOME and linked into
+// place is edited in the checkout through mount and unmount, the link surviving, where a plain
+// write would have put a real file over it. A link out of DSH_HOME is refused by name with the
+// fix, and neither half of the bridge is written.
+test("a cordis.patch.yml that is a link is edited behind the link under DSH_HOME, and refused out of it", async () => {
+  await withTempDir(async (home) => {
+    const dshHome = join(home, "dsh-home");
+    const inside = rooted(dshHome, "dotfiles", "cordis.patch.yml");
+    const outside = join(home, "elsewhere", "cordis.patch.yml");
+    for (const file of [inside, outside]) {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, fixture);
+    }
+    const patch = rooted(dshHome, "cordis.patch.yml");
+    symlinkSync(inside, patch);
+    const changes = await reconcileBridge("global", contextFor(home), spec, true);
+    expect(changes).toEqual([
+      { kind: "write", path: rooted(dshHome, "maxims-hooks.json"), content: expect.any(String) },
+      { kind: "edit", path: patch, target: inside, content: `${fixture}${ourOperation(dshHome)}` },
+    ]);
+    await applyChanges({ changes, notices: [] }, { dryRun: false });
+    expect([readlinkSync(patch), readFileSync(inside, "utf8")]).toEqual([
+      inside,
+      `${fixture}${ourOperation(dshHome)}`,
+    ]);
+    await apply(home, false);
+    expect([readlinkSync(patch), readFileSync(inside, "utf8")]).toEqual([inside, fixture]);
+
+    unlinkSync(patch);
+    symlinkSync(outside, patch);
+    expect(
+      await asyncOutcome(() => reconcileBridge("global", contextFor(home), spec, true)),
+    ).toMatchObject({
+      kind: "threw",
+      error: {
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: `cannot edit ${patch}: it is a symlink to ${outside}, outside ${dshHome}`,
+        hint: `move the file the link points to under ${dshHome}, or replace the link with a real file, then run maxims sync`,
+      },
+    });
+    expect([
+      readlinkSync(patch),
+      readFileSync(outside, "utf8"),
+      existsSync(join(dshHome, "maxims-hooks.json")),
+    ]).toEqual([outside, fixture, false]);
+  });
+});
+
 test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a project install mounts the same machine-wide row, and an unmount takes back only what is there", async () => {
   await withTempDir(async (home) => {
     const changes = await reconcileBridge(
@@ -217,8 +274,9 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
         )}\n`,
       },
       {
-        kind: "write",
+        kind: "edit",
         path: rooted(join(home, ".dsh"), "cordis.patch.yml"),
+        target: rooted(join(home, ".dsh"), "cordis.patch.yml"),
         content: ourOperation(join(home, ".dsh")),
       },
     ]);
@@ -232,7 +290,12 @@ test("a missing DSH_HOME defaults to ~/.dsh, a missing patch file is created, a 
       await reconcileBridge("global", { home, projectRoot: null, cwd: home, env: {} }, spec, false),
     ).toEqual([
       { kind: "delete", path: rooted(join(home, ".dsh"), "maxims-hooks.json") },
-      { kind: "write", path: rooted(join(home, ".dsh"), "cordis.patch.yml"), content: "[]\n" },
+      {
+        kind: "edit",
+        path: rooted(join(home, ".dsh"), "cordis.patch.yml"),
+        target: rooted(join(home, ".dsh"), "cordis.patch.yml"),
+        content: "[]\n",
+      },
     ]);
     // A row the user removed by hand leaves the hooks file orphaned; the unmount still takes it.
     writeFileSync(join(home, ".dsh", "cordis.patch.yml"), "[]\n");

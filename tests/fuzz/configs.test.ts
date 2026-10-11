@@ -316,7 +316,8 @@ test(
         if (result.kind === "threw") return refusal(result.error);
         for (const change of result.value) {
           expect(artifacts).toContain(change.path);
-          expect(["write", "delete"]).toContain(change.kind);
+          expect(["write", "edit", "delete"]).toContain(change.kind);
+          if (change.kind === "edit") expect(change.target).toBe(change.path);
         }
       });
     });

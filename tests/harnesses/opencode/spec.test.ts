@@ -2,8 +2,16 @@
 // `instructions` edit that must leave a hand-formatted opencode.json byte-identical outside our
 // entry and name the glob the rule files are written under.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import type { SourceSlug } from "../../../src/harnesses/contract.ts";
 import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import {
@@ -12,6 +20,7 @@ import {
 } from "../../../src/harnesses/opencode/quirks.ts";
 import { opencode } from "../../../src/harnesses/opencode/spec.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
+import { applyChanges } from "../../../src/util/change.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { asyncOutcome } from "../../shared/outcome.ts";
@@ -91,22 +100,69 @@ test("adding then removing the instructions entry returns a hand-formatted openc
     const added = await configEdit("project", inProject, true);
     expect(added).toEqual([
       {
-        kind: "write",
+        kind: "edit",
         path,
+        target: path,
         content: fixture.replace(
           '"docs/guidelines.md"]',
           '"docs/guidelines.md", ".opencode/memories/maxims-*.md"]',
         ),
       },
     ]);
-    writeFileSync(path, added[0]?.kind === "write" ? added[0].content : "");
+    writeFileSync(path, added[0]?.kind === "edit" ? added[0].content : "");
     expect(await configEdit("project", inProject, true)).toEqual([]);
     expect(await configEdit("global", inProject, true)).toEqual([]);
 
     const removed = await configEdit("project", inProject, false);
-    expect(removed).toEqual([{ kind: "write", path, content: fixture }]);
+    expect(removed).toEqual([{ kind: "edit", path, target: path, content: fixture }]);
     writeFileSync(path, fixture);
     expect(await configEdit("project", inProject, false)).toEqual([]);
+  });
+});
+
+// The config is the user's file: one kept in a dotfiles checkout inside the project and linked
+// into place is edited in the checkout, the link surviving, where a plain write would have put a
+// real file over the link. A link out of the project is refused by name with the fix, and nothing
+// is written on either side of it.
+test("an opencode.json that is a link is edited behind the link inside the project, and refused out of it", async () => {
+  await withTempDir(async (dir) => {
+    const root = join(dir, "project");
+    const inside = assertInsideRoot(root, join(root, "dotfiles", "opencode.json"));
+    const outside = join(dir, "elsewhere", "opencode.json");
+    for (const file of [inside, outside]) {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, fixture);
+    }
+    const link = assertInsideRoot(root, join(root, "opencode.json"));
+    symlinkSync(inside, link);
+    const changes = await reconcileInstructions(root, true);
+    expect(changes).toEqual([
+      {
+        kind: "edit",
+        path: link,
+        target: inside,
+        content: expect.stringContaining(INSTRUCTIONS_GLOB),
+      },
+    ]);
+    await applyChanges({ changes, notices: [] }, { dryRun: false });
+    expect([readlinkSync(link), readFileSync(inside, "utf8").includes(INSTRUCTIONS_GLOB)]).toEqual([
+      inside,
+      true,
+    ]);
+    expect(await reconcileInstructions(root, true)).toEqual([]);
+
+    unlinkSync(link);
+    symlinkSync(outside, link);
+    expect(await asyncOutcome(() => reconcileInstructions(root, true))).toMatchObject({
+      kind: "threw",
+      error: {
+        name: "MaximsError",
+        code: ExitCode.DestinationWriteFailed,
+        message: `cannot edit ${link}: it is a symlink to ${outside}, outside ${root}`,
+        hint: `move the file the link points to under ${root}, or replace the link with a real file, then run maxims sync`,
+      },
+    });
+    expect([readlinkSync(link), readFileSync(outside, "utf8")]).toEqual([outside, fixture]);
   });
 });
 
@@ -139,8 +195,9 @@ test.each(creations)("writes the entry into %s", async (label, existing, expecte
   await withTempDir(async (dir) => {
     const name = label.startsWith("an opencode.jsonc") ? "opencode.jsonc" : "opencode.json";
     if (existing !== null) writeFileSync(join(dir, name), existing);
+    const path = assertInsideRoot(dir, join(dir, name));
     expect(await reconcileInstructions(dir, true)).toEqual([
-      { kind: "write", path: assertInsideRoot(dir, join(dir, name)), content: expected },
+      { kind: "edit", path, target: path, content: expected },
     ]);
   });
 });
@@ -156,7 +213,7 @@ test("both config names count: no second entry is added and removal clears every
     writeFileSync(jsonc, '{ "model": "x" }\n');
     expect(await reconcileInstructions(dir, true)).toEqual([]);
     expect(await reconcileInstructions(dir, false)).toEqual([
-      { kind: "write", path: json, content: '{ "instructions": ["user.md"] }\n' },
+      { kind: "edit", path: json, target: json, content: '{ "instructions": ["user.md"] }\n' },
     ]);
 
     writeFileSync(jsonc, `{ "instructions": ["${INSTRUCTIONS_GLOB}"] }\n`);
