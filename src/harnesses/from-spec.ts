@@ -41,8 +41,12 @@ type ScopedPath = (scope: Scope, ctx: HarnessContext) => string;
 type PathsPerScope = Record<Scope, string>;
 type LayersSpec = NonNullable<Extract<HookSpecData, { kind: "registry" }>["tierCheck"]>["layers"];
 
-export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): HarnessDefinition {
-  const declared = compileData(spec);
+export function toDefinition(
+  spec: HarnessSpec,
+  quirks: QuirksInput = {},
+  platform: NodeJS.Platform = process.platform,
+): HarnessDefinition {
+  const declared = compileData(spec, platform);
   const resolved = typeof quirks === "function" ? quirks(declared) : quirks;
   const { reconcile, configEdit } = resolved;
   if (reconcile !== undefined && declared.hook.kind !== "none") {
@@ -55,8 +59,9 @@ export function toDefinition(spec: HarnessSpec, quirks: QuirksInput = {}): Harne
   };
 }
 
-function compileData(spec: HarnessSpec): HarnessDefinition {
-  const globalRoot = spec.globalRoot === undefined ? undefined : compileGlobalRoot(spec.globalRoot);
+function compileData(spec: HarnessSpec, platform: NodeJS.Platform): HarnessDefinition {
+  const globalRoot =
+    spec.globalRoot === undefined ? undefined : compileGlobalRoot(spec.globalRoot, platform);
   const roots: Pick<HarnessDefinition, "globalRoot"> =
     globalRoot === undefined ? {} : { globalRoot };
   const under =
@@ -164,10 +169,14 @@ function sessionDirectory(cwd: string): string {
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
-// working directory, not against HOME.
-function compileGlobalRoot(root: GlobalRootSpec): (ctx: HarnessContext) => string {
+// working directory, not against HOME. A variable the vendor reads on other platforms only is
+// not consulted on this one.
+function compileGlobalRoot(
+  root: GlobalRootSpec,
+  platform: NodeJS.Platform,
+): (ctx: HarnessContext) => string {
   const fallback = homeRelative(root.default);
-  const env = root.env;
+  const env = root.env?.platforms?.includes(platform) === false ? undefined : root.env;
   return (ctx) => {
     const override = env === undefined ? undefined : ctx.env[env.name];
     if (env !== undefined && override !== undefined && override !== "") {

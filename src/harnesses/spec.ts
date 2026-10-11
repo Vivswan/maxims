@@ -203,9 +203,32 @@ const SharedBlockTarget = z
 
 const Target = z.discriminatedUnion("kind", [RulesDirTarget, SharedBlockTarget]);
 
+// `platforms` names where the vendor reads the variable, as `process.platform` spells them; left
+// out, the variable is read everywhere. Zed resolves `$XDG_CONFIG_HOME` on Linux and FreeBSD and
+// fixes `~/.config/zed` on macOS.
+const PlatformEnum = completeEnum<NodeJS.Platform>()([
+  "aix",
+  "android",
+  "cygwin",
+  "darwin",
+  "freebsd",
+  "haiku",
+  "linux",
+  "netbsd",
+  "openbsd",
+  "sunos",
+  "win32",
+]);
+
 const GlobalRoot = z.strictObject({
   default: HomePath,
-  env: z.strictObject({ name: EnvName, subdir: RelPath.optional() }).optional(),
+  env: z
+    .strictObject({
+      name: EnvName,
+      subdir: RelPath.optional(),
+      platforms: nonEmpty(PlatformEnum).optional(),
+    })
+    .optional(),
 });
 
 // `dirs` are relative to the global root, `.` being the root itself.
