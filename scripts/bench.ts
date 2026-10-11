@@ -62,7 +62,8 @@ function parseArgs(argv: string[]): Options {
 const round = (ms: number): number => Math.round(ms * 1000) / 1000;
 
 // Median, never the mean: one page-cache miss or scheduler hiccup must not move the reported
-// number, since the nightly trend compares this figure against one recorded a week earlier.
+// number, which the nightly trend records for its history; the verdict is judged elsewhere,
+// base against head on the same runner.
 export function summarize(durationsMs: number[]): Summary {
   const sorted = [...durationsMs].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);

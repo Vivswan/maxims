@@ -1,8 +1,10 @@
 // Builds and times HEAD and the base ref on the same machine in one run, so the figures compare
 // two bundles under the same noise instead of one bundle against a budget written for other
-// hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's.
+// hardware. The base is built from its own scripts/build.ts; the timing harness is HEAD's. The
+// nightly trend (scripts/nightly/latency_trend.ts) judges through the same compare, with the
+// week-old entry's sha as its base.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseArgv, positiveInteger } from "./lib/argv.ts";
 import { exitDescription, timeColdStart } from "./lib/cold_start.ts";
 import { percent, quantity, readPositiveNumber, type Unit } from "./lib/figures.ts";
@@ -60,11 +62,18 @@ export interface Judged extends Signal {
   status: Status;
 }
 
-interface Frame {
+export interface Frame {
   base: { ref: string; sha: string };
   head: { sha: string };
   runs: number;
   commands: string[][];
+}
+
+// The base reaches the compare as its bundle's size, or as the reason it has none (a build that
+// failed); the head is always built, since a head that cannot be built is the run's own failure.
+export interface Bytes {
+  head: number;
+  base: number | { notComparable: string };
 }
 
 export interface Compared extends Frame {
@@ -92,6 +101,12 @@ export const TIMED_PATHS: TimedPath[] = [
   { name: "sync --quiet", argv: ["sync", "--quiet"], gate: "fail" },
   { name: "add --list", argv: ["add", "@example/repo", "--list", "--no-fetch"], gate: "warn" },
 ];
+
+export const TIMED_COMMANDS: string[][] = TIMED_PATHS.map((timed) => [
+  "node",
+  "dist/cli.js",
+  ...timed.argv,
+]);
 
 /** One cold start of a side's bundle on an argv, in milliseconds; a start that fails throws. */
 export type Sampler = (side: SideName, argv: string[]) => number | Promise<number>;
@@ -159,19 +174,20 @@ function series(samples: number[]): Series {
 const figure = (s: Series): number =>
   round(s.kept.reduce((sum, ms) => sum + ms, 0) / s.kept.length);
 
-type Timed = { paths: Record<SideName, Series>[] } | { heads: Series[]; notComparable: string };
+type Timed =
+  | { paths: Record<SideName, Series>[]; baseBytes: number }
+  | { heads: Series[]; notComparable: string };
 
 // The pair swaps order every run: with the base always first, the head drew the cooler second
 // slot of every pair and the same bytes read up to 7% faster on a settling runner.
-async function timeSides(
-  runs: number,
-  bytes: Record<SideName, number>,
-  sample: Sampler,
-): Promise<Timed> {
-  let notComparable: string | undefined;
-  if (bytes.base < MIN_COMPARABLE_BUNDLE_BYTES) {
+async function timeSides(runs: number, bytes: Bytes, sample: Sampler): Promise<Timed> {
+  let base: { bytes: number } | { notComparable: string } =
+    typeof bytes.base === "number" ? { bytes: bytes.base } : bytes.base;
+  if ("bytes" in base && base.bytes < MIN_COMPARABLE_BUNDLE_BYTES) {
     const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
-    notComparable = `its bundle is ${quantity(bytes.base, "bytes")}, under the ${floor}-byte floor`;
+    base = {
+      notComparable: `its bundle is ${quantity(base.bytes, "bytes")}, under the ${floor}-byte floor`,
+    };
   }
   const heads: Series[] = [];
   const bases: Series[] = [];
@@ -182,28 +198,27 @@ async function timeSides(
       for (const side of order) {
         if (side === "head") {
           starts.head.push(await sample("head", path.argv));
-        } else if (notComparable === undefined) {
+        } else if ("bytes" in base) {
           try {
             starts.base.push(await sample("base", path.argv));
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            notComparable = `timing its bundle failed: ${reason}`;
+            base = { notComparable: `timing its bundle failed: ${reason}` };
           }
         }
       }
     }
     heads.push(series(starts.head));
-    if (notComparable === undefined) bases.push(series(starts.base));
+    if ("bytes" in base) bases.push(series(starts.base));
   }
-  if (notComparable !== undefined) return { heads, notComparable };
-  return { paths: heads.map((head, index) => ({ head, base: bases[index] })) };
+  if ("notComparable" in base) return { heads, notComparable: base.notComparable };
+  return {
+    paths: heads.map((head, index) => ({ head, base: bases[index] })),
+    baseBytes: base.bytes,
+  };
 }
 
-export async function compare(
-  frame: Frame,
-  bytes: Record<SideName, number>,
-  sample: Sampler,
-): Promise<Report> {
+export async function compare(frame: Frame, bytes: Bytes, sample: Sampler): Promise<Report> {
   const timed = await timeSides(frame.runs, bytes, sample);
   if ("notComparable" in timed) {
     return {
@@ -236,7 +251,7 @@ export async function compare(
         name: "bundle size",
         unit: "bytes",
         gate: "fail",
-        base: bytes.base,
+        base: timed.baseBytes,
         head: bytes.head,
       }),
     ],
@@ -262,9 +277,15 @@ function sampleRows(report: Report): string[][] {
 
 export function renderMarkdown(report: Report): string {
   const against = `Head \`${short(report.head.sha)}\` against base \`${short(report.base.sha)}\` (\`${report.base.ref}\`)`;
+  return `## Latency and bundle size\n\n${renderComparison(against, report)}\n`;
+}
+
+// `against` names the two sides the way the caller found them (a ref for the PR gate, a trend
+// entry for the nightly); the statistic, the tables, and the verdict read the same for both.
+export function renderComparison(against: string, report: Report): string {
   const statistic = `${TRIM_RATIO * 100}% trimmed mean of ${report.runs} cold starts`;
   const header = ["signal", "base", "head", "delta", "status"];
-  const lines = ["## Latency and bundle size", ""];
+  const lines: string[] = [];
   if ("notComparable" in report) {
     lines.push(
       `${against}: ${statistic} of the head, built and timed on this runner.`,
@@ -306,7 +327,7 @@ export function renderMarkdown(report: Report): string {
     "",
     `Commands timed: ${report.commands.map((argv) => `\`${argv.join(" ")}\``).join(", ")}.`,
   );
-  return `${lines.join("\n")}\n`;
+  return lines.join("\n");
 }
 
 export function renderJson(report: Report): string {
@@ -315,15 +336,17 @@ export function renderJson(report: Report): string {
 
 const git = (args: string[]): string => captureOrThrow("git", ["-C", repoRoot, ...args]).trim();
 
-interface Built {
+export interface Built {
   bytes: number;
   bundle: string;
 }
 
-function build(root: string, label: SideName, scratch: string): Built {
-  const outDir = join(scratch, `${label}-dist`);
-  const bundle = join(outDir, "cli.js");
-  const sizeJson = join(outDir, "size.json");
+export const bundlePath = (scratch: string, label: SideName): string =>
+  join(scratch, `${label}-dist`, "cli.js");
+
+export function build(root: string, label: SideName, scratch: string): Built {
+  const bundle = bundlePath(scratch, label);
+  const sizeJson = join(dirname(bundle), "size.json");
   runOrThrow(
     "bun",
     [join(root, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
@@ -332,18 +355,28 @@ function build(root: string, label: SideName, scratch: string): Built {
   return { bytes: readPositiveNumber(sizeJson, "bytes"), bundle };
 }
 
-function buildBase(options: Options, scratch: string, baseSha: string): Built {
+// The base's checkout is registered in this repository's .git and released as soon as its bundle
+// exists beside it; --force because `bun install` leaves the tree unclean.
+export function buildBase(sha: string, scratch: string): Built {
   const baseRoot = join(scratch, "base");
-  git(["worktree", "add", "--detach", baseRoot, baseSha]);
-  if (!existsSync(join(baseRoot, "scripts", "build.ts")))
-    throw new Error(`base ${options.base} (${short(baseSha)}) has no scripts/build.ts to build`);
-  runOrThrow("bun", ["install", "--frozen-lockfile"], baseRoot);
-  return build(baseRoot, "base", scratch);
+  git(["worktree", "add", "--detach", baseRoot, sha]);
+  try {
+    if (!existsSync(join(baseRoot, "scripts", "build.ts")))
+      throw new Error(`base \`${short(sha)}\` has no scripts/build.ts to build`);
+    runOrThrow("bun", ["install", "--frozen-lockfile"], baseRoot);
+    return build(baseRoot, "base", scratch);
+  } finally {
+    git(["worktree", "remove", "--force", baseRoot]);
+  }
 }
 
-function coldStarts(bundles: Record<SideName, string>): Sampler {
+// A base ruled out before the timing has no bundle and is never asked for a start (timeSides
+// skips it), so the throw here is a programming error, not a measurement.
+export function coldStarts(bundles: { head: string; base?: string }): Sampler {
   return async (side, argv) => {
-    const command = ["node", bundles[side], ...argv];
+    const bundle = bundles[side];
+    if (bundle === undefined) throw new Error("the base side has no bundle to time");
+    const command = ["node", bundle, ...argv];
     const result = await timeColdStart(command);
     if (result.exitCode === 0) return result.elapsedMs;
     process.stderr.write(result.stderr);
@@ -355,34 +388,28 @@ async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   const headSha = git(["rev-parse", "HEAD"]);
   const baseSha = git(["rev-parse", "--verify", `${options.base}^{commit}`]);
-  try {
-    return await withScratchDir("maxims-bench-ci-", async (scratch) => {
-      const base = buildBase(options, scratch, baseSha);
-      const head = build(repoRoot, "head", scratch);
-      const report = await compare(
-        {
-          base: { ref: options.base, sha: baseSha },
-          head: { sha: headSha },
-          runs: options.runs,
-          commands: TIMED_PATHS.map((timed) => ["node", "dist/cli.js", ...timed.argv]),
-        },
-        { base: base.bytes, head: head.bytes },
-        coldStarts({ base: base.bundle, head: head.bundle }),
-      );
-      const markdown = renderMarkdown(report);
-      if (options.out !== undefined) {
-        mkdirSync(options.out, { recursive: true });
-        writeFileSync(join(options.out, "report.md"), markdown);
-        writeFileSync(join(options.out, "report.json"), renderJson(report));
-      }
-      process.stdout.write(markdown);
-      return verdict(report) === "fail" ? 1 : 0;
-    });
-  } finally {
-    // Pruning once the scratch tree is gone covers a worktree add that registered the checkout
-    // and then failed (a post-checkout hook, for one), which a remove keyed on success would miss.
-    git(["worktree", "prune"]);
-  }
+  return withScratchDir("maxims-bench-ci-", async (scratch) => {
+    const base = buildBase(baseSha, scratch);
+    const head = build(repoRoot, "head", scratch);
+    const report = await compare(
+      {
+        base: { ref: options.base, sha: baseSha },
+        head: { sha: headSha },
+        runs: options.runs,
+        commands: TIMED_COMMANDS,
+      },
+      { base: base.bytes, head: head.bytes },
+      coldStarts({ base: base.bundle, head: head.bundle }),
+    );
+    const markdown = renderMarkdown(report);
+    if (options.out !== undefined) {
+      mkdirSync(options.out, { recursive: true });
+      writeFileSync(join(options.out, "report.md"), markdown);
+      writeFileSync(join(options.out, "report.json"), renderJson(report));
+    }
+    process.stdout.write(markdown);
+    return verdict(report) === "fail" ? 1 : 0;
+  });
 }
 
 if (import.meta.main) {

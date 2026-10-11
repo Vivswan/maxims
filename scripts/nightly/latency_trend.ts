@@ -1,14 +1,26 @@
-// Times the hook path and the interactive path of the bundle built from HEAD and compares them,
-// with the bundle size, against the entry recorded a week ago; day-to-day noise on a shared runner
-// hides a slow creep that a week-old baseline shows.
+// Records the cold starts of the bundle built from HEAD, then judges HEAD against the entry
+// recorded a week ago by rebuilding that entry's sha and timing both bundles on tonight's runner.
+// The history shows one unchanged sha spanning more than 60% across nights, so a figure another
+// night's runner stored is history, never the other side of a ratio.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { jsonDocument } from "../../src/util/json.ts";
 import { flattenIssues } from "../../src/util/zod-issues.ts";
-import { FAIL_RATIO, type Judged, judge, TIMED_PATHS, WARN_RATIO } from "../bench_ci.ts";
-import { percent, quantity, readPositiveNumber } from "../lib/figures.ts";
-import { markdownTable } from "../lib/markdown_table.ts";
+import {
+  type Bytes,
+  build,
+  buildBase,
+  bundlePath,
+  coldStarts,
+  compare,
+  renderComparison,
+  type Sampler,
+  TIMED_COMMANDS,
+  TIMED_PATHS,
+  verdict,
+} from "../bench_ci.ts";
+import { readPositiveNumber } from "../lib/figures.ts";
 import { withScratchDir } from "../lib/scratch.ts";
 import { captureOrThrow, runOrThrow } from "../lib/spawn.ts";
 import type { Outcome } from "./report.ts";
@@ -35,7 +47,7 @@ export type Trend = z.infer<typeof Trend>;
 export type ReadTrend = { ok: true; trend: Trend } | { ok: false; issues: string[] };
 
 // Only a file that does not exist is the first run; any other read failure, and anything that
-// does not parse whole, is reported, since a half-read trend would compare against figures that
+// does not parse whole, is reported, since a half-read trend would record beside figures that
 // never were.
 export function readTrend(path: string): ReadTrend {
   let json: unknown;
@@ -51,6 +63,8 @@ export function readTrend(path: string): ReadTrend {
   return { ok: false, issues: flattenIssues(parsed.error.issues) };
 }
 
+// Only the entry's sha enters the verdict, so the newest entry at least a week old is the code
+// of a week ago whatever its runner measured.
 export function pickBaseline(entries: readonly Entry[], now: Date): Entry | null {
   const cutoff = now.getTime() - BASELINE_AGE_DAYS * DAY_MS;
   let baseline: Entry | null = null;
@@ -67,81 +81,28 @@ export function appendEntry(trend: Trend, entry: Entry): Trend {
   return { version: 1, entries: entries.slice(Math.max(0, entries.length - MAX_ENTRIES)) };
 }
 
-export type TrendJudgement = { signals: Judged[]; unmatched: string[] };
-
-// A timed path the baseline never recorded has nothing to compare against; it is named rather
-// than judged so a renamed path cannot pass by vanishing.
-export function judgeTrend(baseline: Entry, current: Entry): TrendJudgement {
-  const signals: Judged[] = [];
-  const unmatched: string[] = [];
-  for (const timed of TIMED_PATHS) {
-    const base = baseline.medianMs[timed.name];
-    const head = current.medianMs[timed.name];
-    if (base === undefined || head === undefined) {
-      unmatched.push(timed.name);
-      continue;
-    }
-    signals.push(judge({ name: timed.name, unit: "ms", gate: timed.gate, base, head }));
-  }
-  signals.push(
-    judge({
-      name: "bundle size",
-      unit: "bytes",
-      gate: "fail",
-      base: baseline.bundleBytes,
-      head: current.bundleBytes,
-    }),
-  );
-  return { signals, unmatched };
-}
-
 const describe = (entry: Entry): string => `\`${entry.sha.slice(0, 7)}\` at ${entry.at}`;
-
-export function renderComparison(baseline: Entry, current: Entry, judged: TrendJudgement): string {
-  const table = markdownTable(
-    ["signal", "baseline", "current", "delta", "status"],
-    judged.signals.map((s) => [
-      s.name,
-      quantity(s.base, s.unit),
-      quantity(s.head, s.unit),
-      percent(s.ratio),
-      s.status === "fail" ? "FAIL" : s.status,
-    ]),
-  );
-  const lines = [
-    `Current ${describe(current)} against the baseline ${describe(baseline)}, ` +
-      `the newest entry at least ${BASELINE_AGE_DAYS} days old; median of ${current.runs} cold starts.`,
-    "",
-    table,
-  ];
-  if (judged.unmatched.length > 0) {
-    lines.push("", `Not in the baseline, so not judged: ${judged.unmatched.join(", ")}.`);
-  }
-  lines.push(
-    "",
-    `A regression past ${FAIL_RATIO * 100}% fails on a signal marked fail; past ${WARN_RATIO * 100}% it warns.`,
-  );
-  return lines.join("\n");
-}
 
 export type Measurement = Pick<Entry, "sha" | "node" | "medianMs" | "bundleBytes">;
 export type Measure = (scratch: string) => Promise<Measurement>;
 
+// The base side of tonight's comparison: the baseline's bundle size, or why it has no bundle,
+// and one cold start of either side's bundle.
+export interface BaseSide {
+  bytes: Bytes["base"];
+  sample: Sampler;
+}
+export type MeasureBase = (scratch: string, baseline: Entry) => Promise<BaseSide>;
+
 async function measureHead(scratch: string): Promise<Measurement> {
-  const bundle = join(scratch, "cli.js");
-  const sizeJson = join(scratch, "size.json");
-  runOrThrow(
-    "bun",
-    [join(repoRoot, "scripts", "build.ts"), "--outfile", bundle, "--size-json", sizeJson],
-    repoRoot,
-  );
+  const head = build(repoRoot, "head", scratch);
   const medianMs: Record<string, number> = {};
   for (const [index, timed] of TIMED_PATHS.entries()) {
     const json = join(scratch, `timing-${index}.json`);
     const bench = join(repoRoot, "scripts", "bench.ts");
     runOrThrow(
       "bun",
-      [bench, "--runs", String(RUNS), "--json", json, "--", "node", bundle, ...timed.argv],
+      [bench, "--runs", String(RUNS), "--json", json, "--", "node", head.bundle, ...timed.argv],
       repoRoot,
     );
     medianMs[timed.name] = readPositiveNumber(json, "medianMs");
@@ -150,13 +111,43 @@ async function measureHead(scratch: string): Promise<Measurement> {
     sha: captureOrThrow("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).trim(),
     node: captureOrThrow("node", ["--version"], { cwd: repoRoot }).trim(),
     medianMs,
-    bundleBytes: readPositiveNumber(sizeJson, "bytes"),
+    bundleBytes: head.bytes,
   };
+}
+
+function holdsCommit(sha: string): boolean {
+  try {
+    captureOrThrow("git", ["-C", repoRoot, "cat-file", "-e", `${sha}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// actions/checkout leaves a one-commit clone, so a week-old sha is fetched when the clone lacks
+// it. A baseline that cannot be built (a sha the remote no longer serves, a lockfile its
+// toolchain no longer installs, a build script it predates) is reported as not comparable and
+// HEAD is timed alone; the figures its night stored are never the fallback.
+async function buildBaseSide(scratch: string, baseline: Entry): Promise<BaseSide> {
+  const head = bundlePath(scratch, "head");
+  try {
+    if (!holdsCommit(baseline.sha))
+      runOrThrow("git", ["-C", repoRoot, "fetch", "-q", "origin", baseline.sha], repoRoot);
+    const base = buildBase(baseline.sha, scratch);
+    return { bytes: base.bytes, sample: coldStarts({ head, base: base.bundle }) };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      bytes: { notComparable: `building its bundle failed: ${reason}` },
+      sample: coldStarts({ head }),
+    };
+  }
 }
 
 export type LatencyTrendOptions = {
   now?: Date;
   measure?: Measure;
+  measureBase?: MeasureBase;
 };
 
 const TITLE = "Hook-path latency or bundle size regressed against 7 days ago";
@@ -167,6 +158,7 @@ export async function runLatencyTrend(
 ): Promise<Outcome> {
   const now = options.now ?? new Date();
   const measure = options.measure ?? measureHead;
+  const measureBase = options.measureBase ?? buildBaseSide;
   const read = readTrend(trendPath);
   if (!read.ok) {
     const body = `${trendPath} did not parse as a trend file:\n\n\`\`\`text\n${read.issues.join("\n")}\n\`\`\`\n`;
@@ -176,19 +168,37 @@ export async function runLatencyTrend(
       report: { title: TITLE, body },
     };
   }
-  const measured = await withScratchDir("maxims-latency-trend-", measure);
-  const current: Entry = { at: now.toISOString(), runs: RUNS, ...measured };
   const baseline = pickBaseline(read.trend.entries, now);
+  const night = await withScratchDir("maxims-latency-trend-", async (scratch) => {
+    const measurement = await measure(scratch);
+    if (baseline === null) return { measurement, judged: null };
+    const base = await measureBase(scratch, baseline);
+    const report = await compare(
+      {
+        base: { ref: baseline.sha, sha: baseline.sha },
+        head: { sha: measurement.sha },
+        runs: RUNS,
+        commands: TIMED_COMMANDS,
+      },
+      { head: measurement.bundleBytes, base: base.bytes },
+      base.sample,
+    );
+    return { measurement, judged: { baseline, report } };
+  });
+  const current: Entry = { at: now.toISOString(), runs: RUNS, ...night.measurement };
   writeFileSync(trendPath, jsonDocument(appendEntry(read.trend, current)));
-  if (baseline === null) {
+  if (night.judged === null) {
     const notice =
       `Recorded ${describe(current)}; no entry is ${BASELINE_AGE_DAYS} days old yet, ` +
       `so there is nothing to compare against.`;
     return { status: "pass", summary: `## Latency trend\n\n${notice}\n` };
   }
-  const judged = judgeTrend(baseline, current);
-  const body = `${renderComparison(baseline, current, judged)}\n`;
+  const { report } = night.judged;
+  const against =
+    `Head \`${current.sha.slice(0, 7)}\` against the baseline ${describe(night.judged.baseline)}, ` +
+    `the newest entry at least ${BASELINE_AGE_DAYS} days old`;
+  const body = `${renderComparison(against, report)}\n`;
   const summary = `## Latency trend\n\n${body}`;
-  if (judged.signals.every((s) => s.status !== "fail")) return { status: "pass", summary };
+  if (verdict(report) !== "fail") return { status: "pass", summary };
   return { status: "fail", summary, report: { title: TITLE, body } };
 }
