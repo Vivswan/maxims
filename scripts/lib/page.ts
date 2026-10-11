@@ -1,4 +1,5 @@
-import { parse, postprocess, preprocess } from "micromark";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { visit } from "unist-util-visit";
 
 export interface Fence {
   /** Zero-based line of the opening fence. */
@@ -7,67 +8,33 @@ export interface Fence {
   end: number;
   /** The info string names mermaid; other fences are text the page quotes. */
   mermaid: boolean;
+  /** The lines between the fences, without the final line ending whether or not the fence closed. */
   body: string;
-}
-
-/** Every line ending micromark recognizes (LF, CRLF, a lone CR) splits a line, so `Page.lines` and the token positions count the same lines. */
-function normalizedLines(markdown: string): string[] {
-  return markdown.split(/\r\n|\n|\r/);
 }
 
 const MERMAID_INFO = /^\s*mermaid\s*$/;
 
-interface OpenFence {
-  line: number;
-  marker?: string;
-  infoLine?: string;
-  fenceTokens: number;
-  values: Map<number, string>;
-}
-
 /**
- * A blank line inside a fence has no codeFlowValue token, so the body is rebuilt from the tokens
- * present. One codeFencedFence token means the fence never closed and ends where the codeFenced
- * token does: with the block quote or list item holding it, or the page. The opener's text after
- * the marker is judged whole: micromark moves a space into the meta token but keeps a NBSP in info.
+ * The opener's text after the marker is judged whole: "mermaid title" quotes a diagram, it is not
+ * one. Indented code arrives as the same `code` node and stays page text: its position starts at
+ * the indentation, a fence's at its marker.
  */
-function fences(markdown: string): Fence[] {
-  const events = postprocess(
-    parse()
-      .document()
-      .write(preprocess()(markdown, undefined, true)),
-  );
+function fences(markdown: string, lines: readonly string[]): Fence[] {
   const found: Fence[] = [];
-  let open: OpenFence | undefined;
-  for (const [step, token, context] of events) {
-    if (step === "enter") {
-      if (token.type === "codeFenced")
-        open = { line: token.start.line - 1, fenceTokens: 0, values: new Map() };
-      else if (token.type === "codeFencedFence" && open !== undefined) open.fenceTokens += 1;
-      continue;
-    }
-    if (open === undefined) continue;
-    if (open.fenceTokens === 1 && token.type === "codeFencedFenceSequence")
-      open.marker = context.sliceSerialize(token);
-    else if (open.fenceTokens === 1 && token.type === "codeFencedFence")
-      open.infoLine = context.sliceSerialize(token).slice(open.marker?.length);
-    else if (token.type === "codeFlowValue")
-      open.values.set(token.start.line - 1, context.sliceSerialize(token));
-    else if (token.type === "codeFenced") {
-      const closed = open.fenceTokens === 2;
-      const end = token.end.line - 1;
-      const body: string[] = [];
-      for (let line = open.line + 1; line <= (closed ? end - 1 : end); line++)
-        body.push(open.values.get(line) ?? "");
-      found.push({
-        line: open.line,
-        end,
-        mermaid: MERMAID_INFO.test(open.infoLine ?? ""),
-        body: body.join("\n"),
-      });
-      open = undefined;
-    }
-  }
+  visit(fromMarkdown(markdown), "code", (node) => {
+    if (node.position === undefined)
+      throw new Error("mdast-util-from-markdown positions every node");
+    const { start, end } = node.position;
+    const marker = lines[start.line - 1]?.charAt(start.column - 1);
+    if (marker !== "`" && marker !== "~") return;
+    const info = [node.lang, node.meta].filter((part) => typeof part === "string").join(" ");
+    found.push({
+      line: start.line - 1,
+      end: end.line - 1,
+      mermaid: MERMAID_INFO.test(info),
+      body: node.value,
+    });
+  });
   return found;
 }
 
@@ -87,8 +54,13 @@ export interface Page {
 }
 
 export function readPage(markdown: string): Page {
-  const lines = normalizedLines(markdown);
-  const all = fences(markdown);
+  // micromark reads LF, CRLF, and a lone CR alike, and a node's value keeps the page's own
+  // endings: normalizing before the parse keeps a CR beside an LF across a stripped `> ` prefix
+  // from merging into one CRLF. micromark also skips one leading BOM and counts every position
+  // from the next character.
+  const source = markdown.replace(/\r\n?/g, "\n");
+  const lines = (source.startsWith("\uFEFF") ? source.slice(1) : source).split("\n");
+  const all = fences(source, lines);
   const text = lines.map((line, index) =>
     all.some((fence) => index >= fence.line && index <= fence.end) ? undefined : line,
   );
