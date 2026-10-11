@@ -1611,9 +1611,7 @@ describe("what a refused or departed source leaves behind", () => {
   });
 
   // A harness `-a` leaves out is never planned, so a destination it cannot resolve is not this
-  // run's failure, whether the sweep meets it or a source of its own still names it. Main let both
-  // runs through: a folder linked out keeps the leaf's name there, and a file nothing can follow
-  // was never resolved past its folder.
+  // run's failure, whether the sweep meets it or a source of its own still names it.
   const unresolvable: [string, (elsewhere: string, dir: string) => void, boolean][] = [
     [
       "its config folder linked out of the home, named by no source",
@@ -1679,10 +1677,10 @@ describe("what a refused or departed source leaves behind", () => {
     ["the shared file's source sorts first", "b-whole", "a-block"],
   ];
   // The rule file itself kept as a link elsewhere: the two files no longer share a name, so the
-  // shared link is judged by the hops it passes, each read as the kernel reads it. Written, the
-  // rule file would replace its link and the block would land in a file nothing reads. Each route
-  // returns the link text the shared file is given.
-  const routes: [string, (project: string, rules: string, name: string) => string][] = [
+  // shared link is judged by the hops it passes. Written, the rule file would replace its link and
+  // the block would land in a file nothing reads. The `..` route reaches the rule file on POSIX
+  // only: Windows folds the `..` away before it reads `jump`, and the link dangles there.
+  const routes: [string, (project: string, rules: string, name: string) => string, boolean][] = [
     [
       "a relative hop inside a linked folder",
       (project, rules, name) => {
@@ -1690,52 +1688,56 @@ describe("what a refused or departed source leaves behind", () => {
         symlinkSync(join("..", "rules", name), join(rules, "bridge.md"));
         return join(project, "linkdir", "bridge.md");
       },
+      true,
     ],
     [
-      "a .. after a linked folder, which steps out of the folder that link reached",
+      "a .. after a linked folder, which steps out of the folder that link reached (POSIX only)",
       (project, rules, name) => {
         mkdirSync(join(rules, "sub"));
         symlinkSync(join(".fixture", "rules", "sub"), join(project, "jump"));
         return ["jump", "..", name].join(sep);
       },
+      !WINDOWS,
     ],
   ];
-  test.each(routes)(
-    "a shared file linked through a rule file kept as a link is refused, nothing written: %s",
-    async (_label, route) => {
-      await world(async ({ home, dir, userHome, project }) => {
-        const atProject = { destination: { scope: "project" as const, root: project } };
-        const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
-        writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
-        const io = fakeIo({ home, userHome, cwd: project });
-        await runSync(SYNC, io);
-        const slug = sourceSlug(localFrom(whole));
-        const rules = join(project, ".fixture", "rules");
-        const ruleFile = join(rules, `maxims-${slug}.md`);
-        const notes = join(project, "notes.md");
-        renameSync(ruleFile, notes);
-        symlinkSync(notes, ruleFile);
-        const shared = join(project, "FIXTURE.md");
-        const typed = route(project, rules, basename(ruleFile));
-        symlinkSync(typed, shared);
-        const written = readFileSync(notes, "utf8");
-        expect(readFileSync(shared, "utf8")).toBe(written);
-        const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
-        writeState(
-          home,
-          stateWith({
-            [whole]: entryFor(localFrom(whole), atProject),
-            [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
-          }),
-        );
-        const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
-        expect(error.message).toContain(`cannot edit ${shared}: it is a symlink to ${ruleFile}`);
-        expect(readFileSync(notes, "utf8")).toBe(written);
-        expect(readlinkSync(ruleFile)).toBe(notes);
-        expect(readlinkSync(shared)).toBe(typed);
-      });
-    },
-  );
+  for (const [label, route, onThisHost] of routes) {
+    test.skipIf(!onThisHost)(
+      `a shared file linked through a rule file kept as a link is refused, nothing written: ${label}`,
+      async () => {
+        await world(async ({ home, dir, userHome, project }) => {
+          const atProject = { destination: { scope: "project" as const, root: project } };
+          const whole = writeSource(join(dir, "whole"), TWO_MEMORIES);
+          writeState(home, stateWith({ [whole]: entryFor(localFrom(whole), atProject) }));
+          const io = fakeIo({ home, userHome, cwd: project });
+          await runSync(SYNC, io);
+          const slug = sourceSlug(localFrom(whole));
+          const rules = join(project, ".fixture", "rules");
+          const ruleFile = join(rules, `maxims-${slug}.md`);
+          const notes = join(project, "notes.md");
+          renameSync(ruleFile, notes);
+          symlinkSync(notes, ruleFile);
+          const shared = join(project, "FIXTURE.md");
+          const typed = route(project, rules, basename(ruleFile));
+          symlinkSync(typed, shared);
+          const written = readFileSync(notes, "utf8");
+          expect(readFileSync(shared, "utf8")).toBe(written);
+          const block = writeSource(join(dir, "block"), { other: { description: "Other." } });
+          writeState(
+            home,
+            stateWith({
+              [whole]: entryFor(localFrom(whole), atProject),
+              [block]: entryFor(localFrom(block), { ...atProject, harnesses: ["codex"] }),
+            }),
+          );
+          const error = await expectExit(runSync(SYNC, io), ExitCode.DestinationWriteFailed);
+          expect(error.message).toContain(`cannot edit ${shared}: it is a symlink to ${ruleFile}`);
+          expect(readFileSync(notes, "utf8")).toBe(written);
+          expect(readlinkSync(ruleFile)).toBe(notes);
+          expect(readlinkSync(shared)).toBe(typed);
+        });
+      },
+    );
+  }
 
   // The file's own name is no link; a second reader of the source reaches it through the rule
   // file, which the write would replace, cutting that reader off.

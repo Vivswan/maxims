@@ -15,7 +15,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { chmod } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
 export type WriteFileAtomicOptions = {
@@ -138,9 +148,6 @@ export function isSymlink(path: string): boolean {
   }
 }
 
-// The kernel's own bound on a chain of links, past which an open fails with ELOOP.
-const MAX_LINK_HOPS = 40;
-
 // The entries a chain of links passes, read as the kernel reads them: the links passed and the
 // entry each reaches, a folder link on the way included, the link at `path` itself excluded.
 // `reached` ends at an entry that is no link (it may not exist); `broken` met a folder that is
@@ -150,15 +157,55 @@ export type LinkChain =
   | { kind: "broken"; hops: string[] }
   | { kind: "looped"; hops: string[] };
 
-// A relative target is read from the link's real parent, one component at a time, a `..` stepping
-// out of the folder the component before it reached. No path holding a `..` is handed to
-// realpathSync, which folds it before looking at the links before it.
-export function followLinks(path: string): LinkChain {
+// How one kernel reads a link's target. The two differ on what a `..` means, so the same link
+// reaches different files on each, and a walk has to pick the one the kernel of its platform opens:
+//
+//   POSIX    one component at a time; a `..` steps out of the folder the component before it
+//            reached; 40 links, then ELOOP
+//   Windows  `.` and `..` folded in the target string before any entry is looked at, so a `..`
+//            after a linked folder never enters it; 63 reparse points
+//
+// Both read a relative target from the folder the link's own path reached, a folder link before
+// it followed. `parts` is the fold: on Windows `win32.normalize`, whose kept `..` lead the target.
+type LinkSemantics = {
+  parts: (target: string) => { root: string; names: string[]; dirOnly: boolean };
+  maxHops: number;
+};
+const POSIX_LINKS: LinkSemantics = {
+  parts: (target) => {
+    const { root } = posix.parse(target);
+    const names = target
+      .slice(root.length)
+      .split(/\/+/)
+      .filter((name) => name !== "");
+    const dirOnly = target.endsWith("/") || names.at(-1) === ".";
+    return { root, names: names.filter((name) => name !== "."), dirOnly };
+  },
+  maxHops: 40,
+};
+const WINDOWS_LINKS: LinkSemantics = {
+  parts: (target) => {
+    const folded = win32.normalize(target);
+    const { root } = win32.parse(folded);
+    const names = folded
+      .slice(root.length)
+      .split("\\")
+      .filter((name) => name !== "" && name !== ".");
+    return { root, names, dirOnly: folded.endsWith("\\") };
+  },
+  maxHops: 63,
+};
+
+// No path holding a `..` is handed to realpathSync, which folds it before looking at the links
+// before it. Every path returned is built on real folders, so `editInPlace` can hold the end
+// against a real root.
+export function followLinks(path: string, platform: NodeJS.Platform = process.platform): LinkChain {
+  const links = platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
   const hops: string[] = [];
   let at = path;
   while (isSymlink(at)) {
-    if (hops.length >= MAX_LINK_HOPS) return { kind: "looped", hops };
-    const next = hopOf(hops, realpathOfExistingPrefix(dirname(at)), readlinkSync(at));
+    if (hops.length >= links.maxHops) return { kind: "looped", hops };
+    const next = hopOf(hops, realpathOfExistingPrefix(dirname(at)), readlinkSync(at), links);
     if (next === null) return { kind: "broken", hops };
     hops.push(next);
     at = next;
@@ -166,24 +213,17 @@ export function followLinks(path: string): LinkChain {
   return { kind: "reached", hops, end: at };
 }
 
-// A backslash separates only where the platform says so; on POSIX it is a character in a name.
-const SEPARATORS = sep === "\\" ? /[\\/]+/ : /\/+/;
-
-// `target` walked from `realParent` (or from the root it names), every folder on the way an
-// existing directory or the walk ends in null, as the kernel's does in ENOENT or ENOTDIR; a
-// folder link on the way joins `hops`. The final entry is not followed: it is the next hop, or
-// the file the chain ends at. A target ending in a separator or `.` names a folder, so its final
-// entry is walked like the ones before it.
-function hopOf(hops: string[], realParent: string, target: string): string | null {
-  const { root } = parse(target);
-  const parts = target
-    .slice(root.length)
-    .split(SEPARATORS)
-    .filter((name) => name !== "");
-  const dirOnly = SEPARATORS.test(target.slice(-1)) || parts[parts.length - 1] === ".";
-  const names = parts.filter((name) => name !== ".");
-  const last = dirOnly ? undefined : names.pop();
+// A target ending in a separator names a folder, so its final entry is walked like the ones
+// before it.
+function hopOf(
+  hops: string[],
+  realParent: string,
+  target: string,
+  links: LinkSemantics,
+): string | null {
+  const { root, names, dirOnly } = links.parts(target);
   let at = root === "" ? realParent : root;
+  const last = dirOnly ? undefined : names.pop();
   for (const name of names) {
     if (name === "..") {
       at = dirname(at);
@@ -199,7 +239,6 @@ function hopOf(hops: string[], realParent: string, target: string): string | nul
   return last === ".." ? dirname(at) : join(at, last);
 }
 
-// The real path of the directory at `path`, or null where nothing is there or a file is.
 function existingDirectory(path: string): string | null {
   try {
     const real = realpathSync.native(path);
