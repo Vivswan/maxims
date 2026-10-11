@@ -852,8 +852,9 @@ describe("planHookOnly leaves the definition's config edit out", () => {
             notice: `wrote the maxims hook to ${plugin}`,
           };
       const configEdit: Change = {
-        kind: "write",
+        kind: "edit",
         path: config,
+        target: config,
         content: `{\n  "model": "x",\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
       };
       const intent = { def: opencode, scope: "project" as const, ctx: local, wanted: true };
@@ -865,6 +866,40 @@ describe("planHookOnly leaves the definition's config edit out", () => {
     });
   });
 });
+
+// A regular file where the hook's folder should be is not "nothing there": a write planned over it
+// fails at apply, and `applyChanges` stops at the first failure, so every later harness's changes
+// would go unapplied. Refused while planning instead, as this harness's failure alone. Windows
+// reports the file in the way as ENOENT, so there the plan is a write that apply refuses.
+test.skipIf(WINDOWS)(
+  "a file hook whose folder is a regular file is refused while planning, not planned as a write",
+  async () => {
+    await withTempDir(async (root) => {
+      const local: HarnessContext = { ...ctx, projectRoot: root, cwd: root };
+      const plugin = join(root, ".opencode", "plugins", "maxims.ts");
+      mkdirSync(join(root, ".opencode"));
+      writeFileSync(join(root, ".opencode", "plugins"), "");
+      for (const wanted of [true, false]) {
+        const verdict = await asyncOutcome(() =>
+          planHookOnly({ def: opencode, scope: "project", ctx: local, wanted }),
+        );
+        expect([wanted, verdict]).toMatchObject([
+          wanted,
+          {
+            kind: "threw",
+            error: {
+              name: "MaximsError",
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(
+                new RegExp(`^cannot inspect ${RegExp.escape(plugin)}: ENOTDIR`),
+              ),
+            },
+          },
+        ]);
+      }
+    });
+  },
+);
 
 describe("achievedTier", () => {
   const codexLike = registryDef({

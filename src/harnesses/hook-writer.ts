@@ -12,7 +12,7 @@ import { parse as parseToml, TomlError } from "smol-toml";
 import { util, z } from "zod";
 import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertInsideRoot, type RootedPath } from "../util/fs.ts";
+import { assertInsideRoot, cannotInspect, type RootedPath } from "../util/fs.ts";
 import { jsonDocument } from "../util/json.ts";
 import {
   appendChild,
@@ -372,17 +372,16 @@ export type FileHookWriteInput = HookIntent & {
 };
 
 // A file hook is a script, not a config: a blank file at its path is still a file to delete on
-// removal, so this read does not share `readConfigText`'s blank-is-absent policy.
+// removal, so this read does not share `readConfigText`'s blank-is-absent policy. Only ENOENT is
+// absent: a regular file where the hook's folder should be (ENOTDIR) is something in the way, and
+// a write planned over it would fail at apply and stop every later harness's changes with it.
 async function readFileState(path: string): Promise<FileState | null> {
   try {
     const [text, stats] = await Promise.all([readFile(path, "utf8"), stat(path)]);
     return { text, mode: stats.mode & 0o7777 };
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot inspect ${path}: ${detail}`, {
-      cause,
-    });
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw cannotInspect(path, cause);
   }
 }
 

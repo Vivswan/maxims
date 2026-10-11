@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
-import type { Change } from "../../util/change.ts";
+import { type Change, editInPlace } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
@@ -41,7 +41,9 @@ export async function reconcileInstructions(
   const files = await readConfigs(projectRoot);
   if (!wanted) {
     return files.flatMap((file) =>
-      file.text === null ? [] : writeIfChanged(file, editInstructions(file.text, file.path, false)),
+      file.text === null
+        ? []
+        : editIfChanged(projectRoot, file, editInstructions(file.text, file.path, false)),
     );
   }
   const listed = files.map((file) => file.text !== null && hasEntry(file.text, file.path));
@@ -54,13 +56,16 @@ export async function reconcileInstructions(
     target.text === null
       ? jsonDocument({ instructions: [INSTRUCTIONS_GLOB] })
       : editInstructions(target.text, target.path, true);
-  return writeIfChanged(target, next);
+  return editIfChanged(projectRoot, target, next);
 }
 
-function writeIfChanged(file: ConfigFile, next: string): Change[] {
+// The config is the user's file, so the edit lands where its bytes live and a link at the path
+// stays; the edit is minted only once the text must change, so a settled config behind a link the
+// edit would refuse costs nothing.
+function editIfChanged(projectRoot: string, file: ConfigFile, next: string): Change[] {
   if (next === file.text) return [];
   assertParses(next, file.path);
-  return [{ kind: "write", path: file.path, content: next }];
+  return [editInPlace(projectRoot, file.path)(next)];
 }
 
 async function readConfigs(projectRoot: string): Promise<ConfigFile[]> {
