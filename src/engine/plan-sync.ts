@@ -333,7 +333,7 @@ async function planInstall(
   // The held block's detail lines link its source's store entry, so a source with work this run
   // is refused whole, like an over-budget one, when it has a block in the file (`owner`, set only
   // then by the reservation's read) or renders into it (`files`, the render's). The reservation
-  // precedes every block request; a run limited by -a, or a file behind a link, requests none.
+  // precedes every block request, and a run limited by -a requests none outside its filter.
   const workKeys = new Set(works.map((work) => work.key));
   const holds = new Map<string, Pick<Refusal, "said" | "failure"> & { frozen: Set<string> }>();
   const takeHold = (hold: RuleFileHeld, owner?: string): void => {
@@ -1420,6 +1420,9 @@ export async function retainedNames(
       }
     }
   }
+  // A source installed for another project has no rule file and no body in this one; `readTrees`
+  // skips it before sync reads anything, and `list` reads every entry.
+  if (!actsHere(entry, ctx)) return [...names];
   const upstreamPaths = intent.destination.scope === "global";
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = regularFileText(path);
@@ -1510,7 +1513,6 @@ function retainedRuleFiles(entry: SourceEntry, ctx: EngineContext, io: EngineIo)
   if (intent.destination.scope === "out") {
     return [outRuleFile(intent.destination.path, sourceSlug(intent.from))];
   }
-  if (!actsHere(entry, ctx)) return [];
   return resolveTargets({
     intent,
     scope: intent.destination.scope,

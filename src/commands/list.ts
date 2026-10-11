@@ -92,6 +92,16 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       report.notices.push(`maxims: ${key}: ${line}`),
     );
+    // Sync reads every source's rule files through `retainedNames` and reports a refused marker
+    // there; list reads them the same way, so a readable source's held file is named too. Two
+    // sources may share one file: its lines are said once.
+    const retained = await retainedNames(key, entry, ctx, io, (held) => {
+      const realKey = realKeyOf(held.path);
+      if (heldKeys.has(realKey)) return;
+      heldKeys.add(realKey);
+      report.notices.push(`maxims: ${held.message}`);
+      if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
+    });
     const upstream: MemoryName[] =
       tree.kind === "tree"
         ? selectMemories({
@@ -101,14 +111,7 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
             disabled: new Set(),
             detailPath: () => "",
           }).ownedUpstreamNames
-        : await retainedNames(key, entry, ctx, io, (held) => {
-            // Two unreadable sources may share one held file; its lines are said once.
-            const realKey = realKeyOf(held.path);
-            if (heldKeys.has(realKey)) return;
-            heldKeys.add(realKey);
-            report.notices.push(`maxims: ${held.message}`);
-            if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
-          });
+        : retained;
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
   // An unreadable source's names are already local (its selection and renames applied), so

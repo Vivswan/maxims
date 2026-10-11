@@ -73,7 +73,7 @@ Codex's `config.toml` is only read, for its hooks flag, and is never refused: a 
 
 **What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it.
 
-maxims holds the file instead: nothing in it changes, the sources with a block in it, on disk or rendered this run, stay at last-good, and any other source refreshes.
+maxims holds the file instead: nothing in it changes, the sources whose block in it this run writes or removes stay at last-good, and any other source refreshes.
 
 **What to do:** open the file, delete or edit the stray `maxims:begin` and `maxims:end` lines the message names, then run `sync`; the block leaves with that run.
 
