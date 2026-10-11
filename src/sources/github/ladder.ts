@@ -702,10 +702,11 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   const binary = options.binary ?? "git";
   const env = options.env ?? gitEnvironment();
   const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_SECONDS * 1000;
-  const client = (config: string[], baseDir?: string, callEnv = env): SimpleGit => {
+  const client = (config: string[], baseDir: string, callEnv = env): SimpleGit => {
     const guarded = guardedEnvironment(callEnv);
     const settings: Partial<SimpleGitOptions> = {
       binary,
+      baseDir,
       config: [...GIT_CONFIG, ...config],
       timeout: { block: timeoutMs },
       allowEnvironment: guarded.allowEnvironment,
@@ -722,7 +723,6 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
         allowUnsafeUrlRewrite: true,
       },
     };
-    if (baseDir !== undefined) settings.baseDir = baseDir;
     return simpleGit(settings).env(guarded.env);
   };
   // An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
@@ -730,8 +730,8 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   //   header                   as typed: its header is scoped to that URL, so a rewrite leaves it
   //   none, http(s)            whole userinfo goes: git would send it as Basic auth after a 401
   //   not a URL, has userinfo  refused: git prints it as typed, password and all
-  const target = async (url: string, credentials: GitCredentials): Promise<string> => {
-    const expanded = await effectiveUrl(client([]), url);
+  const target = async (cwd: string, url: string, credentials: GitCredentials): Promise<string> => {
+    const expanded = await effectiveUrl(client([], cwd), url);
     if (hasUnparsableUserinfo(expanded)) {
       throw new Error(
         `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
@@ -743,18 +743,47 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     }
     return transportUrl(expanded);
   };
+  // No git process runs in the caller's cwd: a repository the caller happens to be in would lend
+  // its local config (an `insteadOf`) to the lookup, and a fetch run there would register a
+  // promisor remote in its config. The lookups run in this scratch directory, the clone in its
+  // destination.
+  //
+  // Credentials reach git through an include file in the scratch directory, never an argument or
+  // the environment: simple-git echoes both to its debug log. An anonymous call also runs in a
+  // private HOME, because libcurl answers a 401 from `~/.netrc` on its own, outside every git
+  // setting.
+  const withCredentials = async <T>(
+    url: string,
+    credentials: GitCredentials,
+    action: (
+      remote: string,
+      config: string[],
+      callEnv: Record<string, string>,
+      scratch: string,
+    ) => Promise<T>,
+  ): Promise<T> => {
+    const scratch = await mkdtemp(join(tmpdir(), "maxims-git-"));
+    try {
+      const remote = await target(scratch, url, credentials);
+      const file = join(scratch, "config");
+      await writeFile(file, credentialConfig(url, remote, credentials), { mode: 0o600 });
+      const callEnv =
+        credentials.kind === "none" ? await privateHome(env, join(scratch, "home")) : env;
+      return await action(remote, [`include.path=${file}`], callEnv, scratch);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  };
   return {
     lsRemote: (url, patterns, call) =>
-      gitAttempt(binary, async () => {
-        const remote = await target(url, call.credentials);
-        return withCredentials(url, remote, call.credentials, env, (config, callEnv) =>
-          client(config, undefined, callEnv).listRemote([remote, ...patterns]),
-        );
-      }),
+      gitAttempt(binary, () =>
+        withCredentials(url, call.credentials, (remote, config, callEnv, scratch) =>
+          client(config, scratch, callEnv).listRemote([remote, ...patterns]),
+        ),
+      ),
     shallowClone: (url, ref, dir, call) =>
-      gitAttempt(binary, async () => {
-        const remote = await target(url, call.credentials);
-        return withCredentials(url, remote, call.credentials, env, async (config, callEnv) => {
+      gitAttempt(binary, () =>
+        withCredentials(url, call.credentials, async (remote, config, callEnv) => {
           await mkdir(dir, { recursive: true });
           const git = client(config, dir, callEnv);
           await git.raw(["init", "--quiet"]);
@@ -765,8 +794,8 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
           }
           await git.raw(["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
           return (await git.revparse(["HEAD"])).trim();
-        });
-      }),
+        }),
+      ),
   };
 }
 
@@ -827,27 +856,6 @@ function transportUrl(url: string): string {
 async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
   const expanded = (await git.raw(["ls-remote", "--get-url", url])).replace(/\r?\n$/, "");
   return expanded === "" ? url : expanded;
-}
-
-// Credentials reach git through a private include file, never an argument or the environment:
-// simple-git echoes both to its debug log. An anonymous call also runs in a private HOME, because
-// libcurl answers a 401 from `~/.netrc` on its own, outside every git setting.
-async function withCredentials<T>(
-  url: string,
-  remote: string,
-  credentials: GitCredentials,
-  env: Record<string, string>,
-  action: (config: string[], env: Record<string, string>) => Promise<T>,
-): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "maxims-git-"));
-  try {
-    const file = join(dir, "config");
-    await writeFile(file, credentialConfig(url, remote, credentials), { mode: 0o600 });
-    const callEnv = credentials.kind === "none" ? await privateHome(env, join(dir, "home")) : env;
-    return await action([`include.path=${file}`], callEnv);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 }
 
 // Every entry is scoped to the exact URL, the longest match git can find, so it outranks any
