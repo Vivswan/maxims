@@ -154,16 +154,6 @@ export function removedOutRuleFiles(
   return changes;
 }
 
-export function groupTargets(targets: HarnessTarget[]): HarnessTarget[][] {
-  const groups = new Map<string, HarnessTarget[]>();
-  for (const target of targets) {
-    const group = groups.get(target.realKey) ?? [];
-    group.push(target);
-    groups.set(target.realKey, group);
-  }
-  return [...groups.values()];
-}
-
 // The detail path a rule line carries: absolute into the store at user scope, project-relative
 // into the bodies directory at project scope so the committed file is machine-independent.
 export function detailPathFor(
