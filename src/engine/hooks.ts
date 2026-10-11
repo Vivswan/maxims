@@ -530,10 +530,10 @@ function fileId(path: string): string {
   return realKeyOf(chain.kind === "reached" ? chain.end : path);
 }
 
-// Drops one harness's unwanted answer where a wanted answer of the same harness claims a file it
-// touches, since the unwanted scope's removal applies last (dsh's bridge is one file for both
-// scopes; a project-only install must not delete it). Per harness, as another harness's entry in
-// a shared file is never this one's to keep. A file matches by where a change lands:
+// The unwanted scope's removal applies last, and dsh's bridge is one file for both scopes: a
+// project-only install must not delete for the global scope the hook it wrote. Per harness, since
+// another harness's entry in a shared file is never this one's to keep. A file matches by where a
+// change lands:
 //   a registry      -> its destination, the file behind every link to it
 //   a wanted change -> its leaf, and the file it lands in
 //   a claim         -> its leaf, plus the file behind it when no wanted change writes the leaf (a

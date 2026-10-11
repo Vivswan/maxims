@@ -241,12 +241,13 @@ describe("the MCP server entry follows the hook intent", () => {
     });
   });
 
-  // The registry's edit lands in the file behind its link, so the one file the two entries share
-  // may be named by the leaf (both declared at a registry linked into a dotfiles checkout), by the
-  // file behind the registry's link (a registry linked at the servers file), by the file behind
-  // the servers file's link (a servers file linked at the registry), or by a link partway along
-  // the chain. Either way a servers change planned from the file's old text would land after the
-  // edit and take the hook back out. `end` is the file the edit names when `behind` is a link.
+  // One file the hook and the servers entry name two ways: a servers change planned from its old
+  // text would land after the hook's edit and take the hook back out. `end` is the file the edit
+  // names when `behind` is itself a link. The file is named by:
+  //   both at a registry linked into dotfiles           -> the leaf
+  //   a registry linked at the servers file             -> the file behind the registry's link
+  //   a servers file linked at the registry             -> the file behind the servers file's link
+  //   a registry linked at a servers file that is a link -> a link partway along the chain
   const linkedRegistry: [
     string,
     HarnessDefinition,
@@ -650,7 +651,6 @@ describe("two harnesses declared at one file", () => {
   };
   const server = { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] };
   const group = { hooks: [{ type: "command", command: HOOK_COMMAND }] };
-  // Every row pins the whole plan, never a field of it.
   const parsed = (change: Change): unknown[] => [
     change.kind,
     change.path,
@@ -1152,48 +1152,36 @@ describe("both scopes resolving to one registry", () => {
 
   // A project servers file linked to the global one is the user's link, and the project's write
   // would land out of the project root: it is refused by name, nothing replaces the link, and the
-  // global scope's removal stands. Settled, nothing writes the leaf, the link stays, and the file
-  // behind it is the project's registration: compared by the leaf alone the global removal would
-  // take it away, and so would a removal at a link partway along the chain.
-  const behindTheLink: [
-    string,
-    (current: string) => string,
-    boolean,
-    object[],
-    object[],
-    object[],
-  ][] = [
+  // global scope's removal stands, behind the global file's own link too. Settled, nothing writes
+  // the leaf, the link stays, and the file behind it is the project's registration: compared by
+  // the leaf alone the global removal would take it away, and so would a removal at a link partway
+  // along the chain.
+  const stale = () =>
+    '{\n  "mcpServers": {\n    "maxims": {\n      "command": "old"\n    }\n  }\n}\n';
+  const settled = (current: string) => current;
+  // label, the text behind the link, the global file a link itself, the project entry refused
+  const behindTheLink: [string, (current: string) => string, boolean, boolean][] = [
     [
       "a stale entry behind the link is refused out of the project root, and the global entry still leaves",
-      () => '{\n  "mcpServers": {\n    "maxims": {\n      "command": "old"\n    }\n  }\n}\n',
+      stale,
       false,
-      [],
-      [{ kind: "edit", content: '{\n  "mcpServers": {}\n}\n' }],
-      [
-        {
-          message: expect.stringMatching(/^cannot edit .*: it is a symlink to .*, outside /),
-          hint: expect.stringContaining("then run maxims sync"),
-        },
-      ],
+      true,
     ],
     [
-      "the current entry behind the link is settled and stays",
-      (current) => current,
-      false,
-      [],
-      [],
-      [],
+      "a stale entry behind a chain of links is refused, and the global entry still leaves behind its own link",
+      stale,
+      true,
+      true,
     ],
+    ["the current entry behind the link is settled and stays", settled, false, false],
     [
       "the current entry behind a chain of links, the global file a link itself, stays",
-      (current) => current,
+      settled,
       true,
-      [],
-      [],
-      [],
+      false,
     ],
   ];
-  for (const [label, textBehind, chained, changes, removals, failures] of behindTheLink) {
+  for (const [label, textBehind, chained, refused] of behindTheLink) {
     test(`a project servers file linked to the global one: ${label}`, async () => {
       await world(async ({ home, userHome, project }) => {
         const hookless: HarnessDefinition = { ...apart, hook: { kind: "none" } };
@@ -1232,11 +1220,29 @@ describe("both scopes resolving to one registry", () => {
           elsewhere: () => [],
           judgeLink: () => undefined,
         });
-        expect<unknown[]>(plan.changes).toEqual(changes.map((c) => ({ ...c, path: linked })));
-        expect<unknown[]>(plan.removals).toEqual(
-          removals.map((c) => ({ ...c, path: global, target: global })),
-        );
-        expect<unknown[]>(plan.failures).toEqual(failures);
+        const behind = chained ? backing : global;
+        expect<unknown>(plan).toEqual({
+          changes: [],
+          removals: refused
+            ? [
+                {
+                  kind: "edit",
+                  path: global,
+                  target: behind,
+                  content: '{\n  "mcpServers": {}\n}\n',
+                },
+              ]
+            : [],
+          notices: refused ? [`removed the maxims MCP server from ${global}`] : [],
+          failures: refused
+            ? [
+                {
+                  message: `cannot edit ${linked}: it is a symlink to ${behind}, outside ${project}`,
+                  hint: expect.stringContaining("then run maxims sync"),
+                },
+              ]
+            : [],
+        });
       });
     });
   }
