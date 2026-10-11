@@ -17,13 +17,13 @@ import {
   memoryName,
   seedStore,
   stateWith,
+  treeDigest,
 } from "../engine/fakes.ts";
 import {
   FIXTURES,
   runCli,
   type Scenario,
   type ScenarioOptions,
-  snapshot,
   withScenario,
   writeState,
 } from "./fake-engine.ts";
@@ -52,7 +52,7 @@ describe("show", () => {
   test("prints the store copy verbatim after the facts, and the same facts under --json", async () => {
     await withScenario(bothRepos, async (scenario) => {
       await add(scenario, "@a/b", "-g", "--rule");
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["show", NAME]);
       expect([run.code, run.stderr]).toEqual([0, ""]);
       const [frame, body] = splitAtBody(run.stdout);
@@ -90,7 +90,7 @@ describe("show", () => {
       expect(document.sha).toMatch(/^[0-9a-f]{40}$/);
       expect(frame).toContain(`   rule: ${document.ruleLine}\n`);
       // Two reads later the home holds exactly what the add left: no lock, no log line, no stamp.
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   });
 
@@ -255,7 +255,7 @@ describe("show", () => {
     await withScenario({}, async (scenario) => {
       const path = homePaths(scenario.home).state;
       writeFileSync(path, '{"version": 1, "sources": "nope"}\n');
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, ["show", NAME]);
       expect(run.code).toBe(1);
       expect(run.stderr).toMatch(
@@ -274,7 +274,7 @@ describe("show", () => {
         hint: null,
         notices: [],
       });
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   });
 });

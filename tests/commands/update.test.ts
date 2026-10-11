@@ -12,11 +12,12 @@ import {
   githubFrom,
   seedStore,
   stateWith,
+  treeDigest,
   writeSource,
   writeState,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
-import { realEngineBundle, runCli, type Scenario, snapshot, withScenario } from "./fake-engine.ts";
+import { realEngineBundle, runCli, type Scenario, withScenario } from "./fake-engine.ts";
 
 const FROM = githubFrom("a/b");
 const KEY = "@a/b";
@@ -38,7 +39,7 @@ async function lastGoodThenUnreachable(scenario: Scenario): Promise<void> {
 test("update --dry-run over a failed fetch prints the plan sync --dry-run prints and the run's notices, then the failure, exit 2, writes nothing", async () => {
   await withScenario({}, async (scenario) => {
     await lastGoodThenUnreachable(scenario);
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     // The control: the same failure under `sync --dry-run` is the plan, its notes, and exit 2.
     const sync = await runCli(scenario, ["sync", "--dry-run"]);
     const planLines = sync.stdout.split("\n").filter((line) => line.startsWith("write   "));
@@ -57,7 +58,7 @@ test("update --dry-run over a failed fetch prints the plan sync --dry-run prints
         " ERROR  Failed to update @a/b: scripted network\n" +
         "Tip: the last good copy of each failed source stays installed\n",
     });
-    expect(await snapshot(scenario.root)).toBe(before);
+    expect(treeDigest(scenario.root)).toBe(before);
   });
 });
 

@@ -19,14 +19,7 @@ import {
   writeSource,
 } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
-import {
-  readState,
-  realEngineBundle,
-  runCli,
-  type Scenario,
-  snapshot,
-  withScenario,
-} from "./fake-engine.ts";
+import { readState, realEngineBundle, runCli, type Scenario, withScenario } from "./fake-engine.ts";
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
@@ -161,13 +154,13 @@ test("accept --dry-run plans the pending directory's removal once and writes not
   await heldScenario(async (scenario) => {
     expect((await runCli(scenario, ["update"])).stdout).toContain(HELD_LINE);
     const pending = pendingPathFor(scenario.home, FROM);
-    const before = await snapshot(scenario.home);
+    const before = treeDigest(scenario.home);
     const dry = await runCli(scenario, ["accept", KEY, "--dry-run"]);
     expect(dry.code).toBe(0);
     const deletes = dry.stdout.split("\n").filter((line) => line === `delete  ${pending}`);
     expect(deletes).toHaveLength(1);
     expect(dry.stdout).toContain("o  Accepted @acme/rules (2 changed lines)\n");
-    expect(await snapshot(scenario.home)).toBe(before);
+    expect(treeDigest(scenario.home)).toBe(before);
     expect(recorded(scenario).pending?.summary).toHaveLength(2);
   });
 });

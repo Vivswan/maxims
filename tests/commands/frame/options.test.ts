@@ -5,7 +5,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERSION } from "../../../src/version.ts";
-import { FIXTURES, runCli, snapshot, withScenario } from "../fake-engine.ts";
+import { treeDigest } from "../../engine/fakes.ts";
+import { FIXTURES, runCli, withScenario } from "../fake-engine.ts";
 
 const RULES = join(FIXTURES, "rules");
 
@@ -94,12 +95,12 @@ test.each(refusals)(
   "%s exits 1 with the usage message and writes nothing",
   async (_name, argv, message) => {
     await withScenario({}, async (scenario) => {
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, argv);
       expect(run.code).toBe(1);
       expect(run.stderr).toBe(` ERROR  ${message}\n`);
       expect(run.stdout).toBe("");
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
       expect(scenario.engine.calls).toEqual(NO_ENGINE_CALLS);
     });
   },
@@ -162,23 +163,23 @@ test.each(VERBS.map((verb) => [verb] as const))(
   "%s --help prints usage before any I/O and changes nothing",
   async (verb) => {
     await withScenario({ github: { "a/b": RULES } }, async (scenario) => {
-      const before = await snapshot(scenario.root);
+      const before = treeDigest(scenario.root);
       const run = await runCli(scenario, [verb, "@a/b", "-y", "--help"]);
       expect(run.code).toBe(0);
       expect(run.stdout.startsWith(`Usage: maxims ${verb}`)).toBe(true);
       expect(scenario.fetches).toEqual([]);
       expect(scenario.engine.calls.sync).toEqual([]);
-      expect(await snapshot(scenario.root)).toBe(before);
+      expect(treeDigest(scenario.root)).toBe(before);
     });
   },
 );
 
-// The control for the snapshot above: a verb that only created an empty directory must not pass.
-test("the snapshot changes when an empty directory appears", async () => {
+// The control for the digest above: a verb that only created an empty directory must not pass.
+test("the digest changes when an empty directory appears", async () => {
   await withScenario({}, async (scenario) => {
-    const before = await snapshot(scenario.root);
+    const before = treeDigest(scenario.root);
     mkdirSync(join(scenario.root, "control"));
-    expect(await snapshot(scenario.root)).not.toBe(before);
+    expect(treeDigest(scenario.root)).not.toBe(before);
   });
 });
 

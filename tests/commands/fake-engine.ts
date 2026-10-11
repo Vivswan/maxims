@@ -1,12 +1,5 @@
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { ReportedMaximsError } from "../../src/commands/frame/errors.ts";
@@ -33,7 +26,6 @@ import { hashFiles, readMemoryTree } from "../../src/sources/tree.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../src/util/fs.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { hashDirectory } from "../shared/hash_directory.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { FIXTURE_HARNESSES } from "./fixture-harnesses.ts";
 
@@ -289,25 +281,6 @@ function scriptedStreams(
 
 function letters(text: string): string {
   return stripVTControlCharacters(text).replace(/[^A-Za-z0-9]/g, "");
-}
-
-// Every regular file under a directory with its content hash, every symlink by name and target,
-// and every directory by name, so a test can prove a failing verb created nothing anywhere under
-// the home or the project, not even an empty folder.
-export async function snapshot(dir: string): Promise<string> {
-  const entries: string[] = [];
-  const walk = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name);
-      if (entry.isSymbolicLink()) entries.push(`${relative(dir, path)}->${readlinkSync(path)}`);
-      else if (entry.isDirectory()) {
-        entries.push(`${relative(dir, path)}/`);
-        walk(path);
-      }
-    }
-  };
-  walk(dir);
-  return `${await hashDirectory(dir)}|${entries.sort().join(",")}`;
 }
 
 // The real engine's three runners and probes over the given resolvers and definitions: what the
