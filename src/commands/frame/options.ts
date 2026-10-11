@@ -26,7 +26,7 @@ export type GlobalFlags = {
 };
 
 // Flags every verb accepts. `--help` and `--version` are not here: they are recognized on the raw
-// argv before any verb loads, so they need no table.
+// argv before any verb loads, from HELP_FLAGS in main.ts.
 export const GLOBAL_FLAGS: readonly FlagSpec[] = [
   { name: "quiet", kind: "boolean", summary: "one line of output and fail-soft (the hook's mode)" },
   { name: "dry-run", kind: "boolean", summary: "print the plan and write nothing" },
