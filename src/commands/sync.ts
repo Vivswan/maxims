@@ -1,5 +1,6 @@
 import { type EngineContext, loadContext } from "../engine/context.ts";
-import { planSync, recordedCopies } from "../engine/plan-sync.ts";
+import { planSync } from "../engine/plan-sync.ts";
+import { recordedCopies } from "../engine/sync-refresh.ts";
 import type { EngineIo, SyncOptions, SyncReport } from "../engine/types.ts";
 import type { State } from "../state/schema.ts";
 import type { StateLock } from "../state/store.ts";

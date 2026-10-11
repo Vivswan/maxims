@@ -11,19 +11,14 @@ import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
 import { DAY_MS } from "../engine/fetch.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { hookStatus, hookStatusText } from "../engine/hooks.ts";
-import {
-  installedHere,
-  isFetchedEntry,
-  readInstalledTree,
-  retainedBlockNames,
-  retainedNames,
-  shortSha,
-  staleness,
-} from "../engine/plan-sync.ts";
+import { installedHere } from "../engine/plan-sync.ts";
 import { readProjectLock } from "../engine/project-lock-read.ts";
 import type { RuleFileHeld } from "../engine/rules.ts";
 import { disabledNames, selectMemories } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
+import { isFetchedEntry, shortSha, staleness } from "../engine/sync-refresh.ts";
+import { retainedBlockNames, retainedNames } from "../engine/sync-retained.ts";
+import { readInstalledTree } from "../engine/sync-trees.ts";
 import type {
   EngineIo,
   ListedHarness,
