@@ -9,7 +9,7 @@ An agent can hold a rule in its memory and still not act on it, because memory b
 
 ## The rule the agent held but did not act on
 
-The failure this tool exists for is a rule that sits in a memory file while the sessions it was written for keep breaking it. Take a "give every call a timeout" rule: the calls still went out bare. The memory system had the rule. The session did not.
+The failure this tool exists for is a rule that sits in a memory file while the sessions it was written for keep breaking it: a "give every call a timeout" rule, and the calls still went out bare. The memory system had the rule. The session did not.
 
 Before, the rule lived in a memory directory the agent searched only when it judged the memory relevant:
 
