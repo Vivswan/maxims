@@ -33,7 +33,7 @@ Every path is relative to its scope root: the project root for a project install
 
 Where the vendor tries several variables in turn, `name` is an ordered list of `{ name, absoluteOnly? }`. The first value that is set, and absolute where its variable requires it, wins, and the default applies when none is.
 
-A relative value resolves against the working directory, as a shell would. `absoluteOnly: true` marks a variable whose vendor does not take a relative value, as the XDG Base Directory spec requires, and the default stands in for it with no notice.
+A relative value resolves against the working directory, as a shell would. `absoluteOnly: true` marks a variable whose vendor does not take a relative value, as the XDG Base Directory spec requires; a relative value is passed over as if unset, with no notice, so the next variable or the default applies.
 
 `byteBudget` is one number for both scopes, or `{ project?, global? }` when the two files are capped differently. In `detect.dirs`, `.` is the global root itself.
 

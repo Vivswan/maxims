@@ -30,7 +30,7 @@ export const spec = {
         claims: [
           'home_dir().join(".config").join(APP_NAME_LOWERCASE)',
           'dirs::config_dir().expect("failed to determine XDG_CONFIG_HOME directory")',
-          'dirs::config_dir().expect("failed to determine RoamingAppData directory")',
+          '.expect("failed to determine RoamingAppData directory")',
           'cfg!(any(target_os = "linux", target_os = "freebsd")) { if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME") { flatpak_xdg_config.into() } else {',
           "AGENTS.md",
           "settings.json",
