@@ -10,6 +10,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  type Stats,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -119,8 +120,8 @@ export function isInside(root: string, path: string): boolean {
 }
 
 // The real path of a location that may not exist yet: its deepest existing prefix resolved, the
-// rest appended as typed. Only "nothing is there" walks up; a prefix that exists but cannot be
-// inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
+// rest appended as typed. Only "nothing is there" stops the walk; a prefix that exists but cannot
+// be inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
 export function realpathOfExistingPrefix(path: string): string {
   return realpathOfPrefix(path, path);
@@ -133,33 +134,69 @@ export function realKeyOf(path: string): string {
   return join(realpathOfPrefix(dirname(path), path), basename(path));
 }
 
-// A failure to look names `asked`, the entry the caller asked about, never the prefix the walk
-// was at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
+// Read as the kernel reads `prefix`: a `..` steps out of the folder the link before it reached.
+// Node's `realpathSync` folds the `..` before reading that link, and bun's normalizes the typed
+// path before the kernel sees it, so no `..` is handed to either: the runs between them are the
+// kernel's lookups, and the `..` step enters the folder it leaves as the kernel does (`<at>/.`,
+// spelled without `join`, which would fold the `.` away).
+//
+// A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
+// at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
 // cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
 function realpathOfPrefix(prefix: string, asked: string): string {
-  let at = prefix;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      return join(realpathSync(at), ...tail.reverse());
-    } catch (cause) {
-      if (!isAbsent(cause)) throw cannotInspect(asked, cause);
-      const parent = dirname(at);
-      if (parent === at) return prefix;
-      tail.push(basename(at));
-      at = parent;
+  const { root, names } = linksOf(process.platform).parts(prefix);
+  // No root, or a bare drive (`C:`), is read from the cwd, as the kernel reads it.
+  let at = resolve(root);
+  let index = 0;
+  try {
+    at = realpathSync.native(at);
+    while (index < names.length) {
+      const rest = names.slice(index);
+      if (rest[0] === "..") {
+        statSync(`${at}${sep}.`);
+        at = dirname(at);
+        index += 1;
+        continue;
+      }
+      const end = rest.indexOf("..");
+      const run = end === -1 ? rest : rest.slice(0, end);
+      const head = realpathOfRun(at, run);
+      if (head.length < run.length) return join(head.real, ...rest.slice(head.length));
+      at = head.real;
+      index += run.length;
     }
+    return at;
+  } catch (cause) {
+    if (!isAbsent(cause)) throw cannotInspect(asked, cause);
+    return join(at, ...names.slice(index));
   }
 }
 
-// Nothing there reads as no link; a probe that could not look is exit 4, never an answer.
-export function isSymlink(path: string): boolean {
+// The deepest existing head of `run` under the real folder `at`: the kernel fails a lookup at the
+// first missing entry, so the head is retried one entry shorter.
+function realpathOfRun(at: string, run: string[]): { real: string; length: number } {
+  for (let length = run.length; length > 0; length -= 1) {
+    try {
+      return { real: realpathSync.native(join(at, ...run.slice(0, length))), length };
+    } catch (cause) {
+      if (!isAbsent(cause)) throw cause;
+    }
+  }
+  return { real: at, length: 0 };
+}
+
+// Nothing there reads as absent; a probe that could not look is exit 4, never an answer.
+export function lstatIfPresent(path: string): Stats | null {
   try {
-    return lstatSync(path).isSymbolicLink();
+    return lstatSync(path);
   } catch (cause) {
-    if (isAbsent(cause)) return false;
+    if (isAbsent(cause)) return null;
     throw cannotInspect(path, cause);
   }
+}
+
+export function isSymlink(path: string): boolean {
+  return lstatIfPresent(path)?.isSymbolicLink() ?? false;
 }
 
 // The entries a chain of links passes, read as the kernel reads them: the links passed and the
@@ -214,7 +251,7 @@ const WINDOWS_LINKS: LinkSemantics = {
 // before it. Every hop of a followed chain is built on real folders, so `editInPlace` can hold the
 // end of one against a real root; a path that is no link is returned as given.
 export function followLinks(path: string, platform: NodeJS.Platform = process.platform): LinkChain {
-  const links = platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
+  const links = linksOf(platform);
   const hops: string[] = [];
   let at = path;
   while (isSymlink(at)) {
@@ -225,6 +262,10 @@ export function followLinks(path: string, platform: NodeJS.Platform = process.pl
     at = next;
   }
   return { kind: "reached", hops, end: at };
+}
+
+function linksOf(platform: NodeJS.Platform): LinkSemantics {
+  return platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
 }
 
 // A target ending in a separator names a folder, so its final entry is walked like the ones

@@ -12,7 +12,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -254,20 +254,71 @@ describe("realpathOfExistingPrefix", () => {
     });
   });
 
+  // What would drift silently: a `..` folded before the link in front of it is read, which is
+  // what `realpathSync` does on node and on bun, so `link/../target` names the sibling the kernel
+  // never opens. Windows folds the typed path that way itself, so there the lexical answer is the
+  // kernel's and the rows do not apply.
+  //
+  //   link     -> deep/dir
+  //   alias    -> deep/target
+  //   notes.md    a file
+  const kernelRows: [string, string[], string[]][] = [
+    [
+      "a `..` after a linked folder steps out of the folder the link reached",
+      ["link", "..", "target"],
+      ["deep", "target"],
+    ],
+    [
+      "the missing tail after such a `..` is appended as typed",
+      ["link", "..", "target", "missing", "leaf.md"],
+      ["deep", "target", "missing", "leaf.md"],
+    ],
+    [
+      "a `..` after a file ends the walk, so a link typed after it stays as typed",
+      ["notes.md", "..", "alias"],
+      ["alias"],
+    ],
+  ];
+  test.skipIf(WINDOWS).each(kernelRows)("%s", async (_name, typed, expected) => {
+    await withTempDir((dir) => {
+      const root = realpathSync(dir);
+      mkdirSync(join(root, "deep", "dir"), { recursive: true });
+      mkdirSync(join(root, "deep", "target"));
+      mkdirSync(join(root, "target"));
+      writeFileSync(join(root, "notes.md"), "");
+      symlinkSync(join(root, "deep", "dir"), join(root, "link"));
+      symlinkSync(join(root, "deep", "target"), join(root, "alias"));
+      expect(realpathOfExistingPrefix([root, ...typed].join(sep))).toBe(join(root, ...expected));
+    });
+  });
+
   // The kernels disagree on which component a sealed folder fails at (macOS's realpath refuses
   // the folder it cannot open, Linux's the entry inside it); each resolver names the entry it was
-  // asked about on both, never the lexical path and never the folder.
+  // asked about on both, never the lexical path and never the folder. A `..` out of the sealed
+  // folder is the same refusal: the kernel enters the folder to leave it, where a lexical fold
+  // never looks at it.
   const sealedResolvers: [string, (path: string) => string][] = [
     ["realpathOfExistingPrefix", realpathOfExistingPrefix],
     ["realKeyOf", realKeyOf],
   ];
-  test.skipIf(!CHMOD_DENIES).each(sealedResolvers)(
+  const sealedShapes: [string, string[]][] = [
+    ["an entry inside it", ["child", "leaf.md"]],
+    ["a `..` out of it", ["..", "leaf.md"]],
+  ];
+  const sealedRows = sealedResolvers.flatMap(([name, resolver]) =>
+    sealedShapes.map(([shape, tail]): [string, (path: string) => string, string[]] => [
+      `${name}, ${shape}`,
+      resolver,
+      tail,
+    ]),
+  );
+  test.skipIf(!CHMOD_DENIES).each(sealedRows)(
     "%s: a folder on the way that cannot be searched is exit 4 naming the entry asked about",
-    async (_name, resolver) => {
+    async (_name, resolver, tail) => {
       await withTempDir((dir) => {
         const locked = join(dir, "locked");
         mkdirSync(join(locked, "child"), { recursive: true });
-        const asked = join(locked, "child", "leaf.md");
+        const asked = [locked, ...tail].join(sep);
         chmodSync(locked, 0o000);
         try {
           expect(outcome(() => resolver(asked))).toEqual({
@@ -281,6 +332,32 @@ describe("realpathOfExistingPrefix", () => {
           });
         } finally {
           chmodSync(locked, 0o755);
+        }
+      });
+    },
+  );
+
+  // A prefix with no entry of its own (`.`) is still a place the kernel has to look at.
+  test.skipIf(!CHMOD_DENIES)(
+    "the cwd under a folder that cannot be searched is exit 4 naming the typed `.`",
+    async () => {
+      await withTempDir((dir) => {
+        const locked = join(dir, "locked");
+        mkdirSync(join(locked, "child"), { recursive: true });
+        const back = process.cwd();
+        process.chdir(join(locked, "child"));
+        chmodSync(locked, 0o000);
+        try {
+          expect(outcome(() => realpathOfExistingPrefix("."))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(/^cannot inspect \.: EACCES/),
+            }),
+          });
+        } finally {
+          chmodSync(locked, 0o755);
+          process.chdir(back);
         }
       });
     },

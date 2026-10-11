@@ -15,9 +15,8 @@ import {
 import { type RuleLine, staleSentence } from "../rulefile/types.ts";
 import type { State } from "../state/schema.ts";
 import { serializeState, WRITTEN_BY } from "../state/store.ts";
-import { lstatOrNullSync } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
-import { assertInsideRoot, realKeyOf } from "../util/fs.ts";
+import { assertInsideRoot, isSymlink, realKeyOf } from "../util/fs.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../util/home.ts";
 import { planBodies, planBodySweep } from "./bodies.ts";
 import { actsHere, agentsAllowed, type EngineContext } from "./context.ts";
@@ -197,7 +196,7 @@ export async function planInstall(
   // once every file is rendered.
   const linkedHolds: { hold: RuleFileHeld; owner: string | undefined }[] = [];
   const reserveHold = (hold: RuleFileHeld, owner: string | undefined): void => {
-    if (lstatOrNullSync(hold.path)?.isSymbolicLink() ?? false) linkedHolds.push({ hold, owner });
+    if (isSymlink(hold.path)) linkedHolds.push({ hold, owner });
     else takeHold(hold, owner);
   };
   // What a source holds on disk enters the name index first, dated before every source, so a memory
