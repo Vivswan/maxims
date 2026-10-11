@@ -112,7 +112,8 @@ jobs:
           path: ${{ runner.temp }}/nightly-report
           if-no-files-found: ignore
 
-  # HEAD built and timed, then compared against the entry recorded a week ago. The trend lives in
+  # HEAD built and timed for the record, then judged against the entry recorded a week ago by
+  # rebuilding that entry's sha and timing both bundles on this runner. The trend lives in
   # trend.json on the orphan `benchmarks` branch, checked out into a scratch clone under
   # $RUNNER_TEMP so the measured checkout stays clean; the push goes through the workflow token.
   latency-trend:
