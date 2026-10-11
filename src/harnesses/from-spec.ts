@@ -1,4 +1,4 @@
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { realpathOfExistingPrefix } from "../util/fs.ts";
@@ -169,20 +169,21 @@ function sessionDirectory(cwd: string): string {
 }
 
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
-// working directory, not against HOME. A variable the vendor reads on other platforms only is
-// not consulted on this one.
+// working directory, not against HOME. A vendor whose loader drops a relative value declares
+// `absoluteOnly`, and the default stands in for it: a root resolver has no channel to say so. A
+// variable the vendor reads on other platforms only is not consulted on this one.
 function compileGlobalRoot(
   root: GlobalRootSpec,
   platform: NodeJS.Platform,
 ): (ctx: HarnessContext) => string {
   const fallback = homeRelative(root.default);
-  const env = root.env?.platforms?.includes(platform) === false ? undefined : root.env;
+  const entries = root.env === undefined ? [] : Array.isArray(root.env) ? root.env : [root.env];
+  const env = entries.find((entry) => entry.platforms?.includes(platform) !== false);
   return (ctx) => {
-    const override = env === undefined ? undefined : ctx.env[env.name];
-    if (env !== undefined && override !== undefined && override !== "") {
-      return env.subdir === undefined ? resolve(override) : join(resolve(override), env.subdir);
-    }
-    return join(ctx.home, fallback);
+    const value = env === undefined ? undefined : ctx.env[env.name];
+    if (env === undefined || value === undefined || value === "") return join(ctx.home, fallback);
+    if (env.absoluteOnly === true && !isAbsolute(value)) return join(ctx.home, fallback);
+    return env.subdir === undefined ? resolve(value) : join(resolve(value), env.subdir);
   };
 }
 

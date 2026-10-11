@@ -45,6 +45,15 @@ function make(dir: string, entry: string): void {
 
 type Files = { rule: string | null; hook: string | null; mcp: string | null };
 
+function underDir(dir: string, env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).map(([name, value]) => [
+      name,
+      value.startsWith("./") ? join(dir, value.slice("./".length)) : value,
+    ]),
+  );
+}
+
 function filesOf(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Files {
   const target = def.targets[scope];
   const rule =
@@ -216,7 +225,7 @@ const AT_HOME: Record<BuiltInHarnessId, Record<Scope, Files>> = {
 
 // A relocated config directory moves every user-level file with it, and a variable the vendor's
 // docs do not honour moves nothing. A variable the vendor reads on some platforms only is driven
-// per platform in UNDER_XDG below. A relative override resolves against the working directory,
+// per platform in PER_PLATFORM below. A relative override resolves against the working directory,
 // which tests/harnesses/from-spec.test.ts pins once for the compiler.
 const RELOCATED: [string, BuiltInHarnessId, Record<string, string>, Files][] = [
   [
@@ -384,67 +393,90 @@ test.each(installRows)(
   async (id, _label, installed, entries, env) => {
     await withTempDir((dir) => {
       for (const entry of entries) make(dir, entry);
-      const under = Object.fromEntries(
-        Object.entries(env).map(([name, value]) => [
-          name,
-          value.startsWith("./") ? join(dir, value.slice("./".length)) : value,
-        ]),
-      );
       expect(
         definitionOf(id).detect({
           home: join(dir, "home"),
           projectRoot: null,
           cwd: join(dir, "home"),
-          env: under,
+          env: underDir(dir, env),
         }),
       ).toBe(installed);
     });
   },
 );
 
-// Zed's paths.rs resolves `$XDG_CONFIG_HOME` on Linux and FreeBSD and fixes `~/.config/zed` on
-// macOS, a fact only its loader enforces. The registry compiles for the platform the suite runs
-// on, so each platform's definition is compiled here. Paths are relative to a temporary directory
-// holding `home/` and the override's `xdg/zed/`, and `installed` is what detection says of a
-// machine with only that directory.
-type PlatformRow = [string, HarnessSpec, NodeJS.Platform, Files, boolean];
+// Zed's config directory moves per platform, a fact only its loader enforces: paths.rs reads
+// `$XDG_CONFIG_HOME` through the dirs crate on Linux and FreeBSD, which drops a relative value as
+// the XDG spec requires, takes RoamingAppData (`%APPDATA%\Zed`) on Windows, and fixes
+// `~/.config/zed` on macOS. The registry compiles for the platform the suite runs on, so each
+// platform's definition is compiled here. Paths and `./` values are relative to a temporary
+// directory holding `home/` and the row's directories, and `installed` is what detection says of
+// a machine with only those.
+type PlatformRow = [
+  label: string,
+  spec: HarnessSpec,
+  platform: NodeJS.Platform,
+  env: Record<string, string>,
+  dirs: string[],
+  files: Files,
+  installed: boolean,
+];
 
-const UNDER_XDG: PlatformRow[] = [
+const PER_PLATFORM: PlatformRow[] = [
   [
-    "zed on Linux",
+    "zed on Linux, where paths.rs reads $XDG_CONFIG_HOME",
     zedSpec,
     "linux",
+    { XDG_CONFIG_HOME: "./xdg" },
+    ["xdg/zed/"],
     { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
     true,
   ],
   [
-    "zed on FreeBSD",
+    "zed on FreeBSD, where paths.rs reads $XDG_CONFIG_HOME",
     zedSpec,
     "freebsd",
+    { XDG_CONFIG_HOME: "./xdg" },
+    ["xdg/zed/"],
     { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
     true,
   ],
   [
-    "zed on macOS, where Zed ignores $XDG_CONFIG_HOME",
+    "zed on Linux with a relative $XDG_CONFIG_HOME, which the XDG spec calls invalid and dirs ignores",
     zedSpec,
-    "darwin",
+    "linux",
+    { XDG_CONFIG_HOME: "xdg" },
+    ["xdg/zed/"],
     { rule: "home/.config/zed/AGENTS.md", hook: null, mcp: "home/.config/zed/settings.json" },
     false,
   ],
+  [
+    "zed on macOS, where paths.rs fixes ~/.config/zed and ignores $XDG_CONFIG_HOME",
+    zedSpec,
+    "darwin",
+    { XDG_CONFIG_HOME: "./xdg" },
+    ["xdg/zed/"],
+    { rule: "home/.config/zed/AGENTS.md", hook: null, mcp: "home/.config/zed/settings.json" },
+    false,
+  ],
+  [
+    "zed on Windows, where the docs put settings.json under %APPDATA%\\Zed",
+    zedSpec,
+    "win32",
+    { APPDATA: "./appdata", XDG_CONFIG_HOME: "./xdg" },
+    ["appdata/Zed/", "xdg/zed/"],
+    { rule: "appdata/Zed/AGENTS.md", hook: null, mcp: "appdata/Zed/settings.json" },
+    true,
+  ],
 ];
 
-test.each(UNDER_XDG)(
-  "%s: the global files under $XDG_CONFIG_HOME land where it reads them",
-  async (_label, spec, platform, files, installed) => {
+test.each(PER_PLATFORM)(
+  "%s: the global files land where it reads them",
+  async (_label, spec, platform, env, dirs, files, installed) => {
     await withTempDir((dir) => {
-      make(dir, "xdg/zed/");
+      for (const entry of dirs) make(dir, entry);
       const home = join(dir, "home");
-      const ctx = {
-        home,
-        projectRoot: null,
-        cwd: home,
-        env: { XDG_CONFIG_HOME: join(dir, "xdg") },
-      };
+      const ctx = { home, projectRoot: null, cwd: home, env: underDir(dir, env) };
       const def = toDefinition(spec, {}, platform);
       const rooted = (path: string | null): string | null =>
         path === null ? null : join(dir, path);

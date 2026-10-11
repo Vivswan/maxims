@@ -204,8 +204,9 @@ const SharedBlockTarget = z
 const Target = z.discriminatedUnion("kind", [RulesDirTarget, SharedBlockTarget]);
 
 // `platforms` names where the vendor reads the variable, as `process.platform` spells them; left
-// out, the variable is read everywhere. Zed resolves `$XDG_CONFIG_HOME` on Linux and FreeBSD and
-// fixes `~/.config/zed` on macOS.
+// out, the variable is read everywhere. `absoluteOnly` says the vendor's loader drops a relative
+// value, as the XDG Base Directory spec requires of its variables, where a shell would resolve it
+// against the working directory.
 const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "aix",
   "android",
@@ -220,15 +221,38 @@ const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "win32",
 ]);
 
+const RootEnv = z.strictObject({
+  name: EnvName,
+  subdir: RelPath.optional(),
+  platforms: nonEmpty(PlatformEnum).optional(),
+  absoluteOnly: z.literal(true).optional(),
+});
+
+// A root read through a different variable per platform lists them. Every entry names its
+// platforms and no platform is read through two, so which entry a platform compiles to is never
+// a matter of order.
+const RootEnvList = nonEmpty(RootEnv.required({ platforms: true })).check((ctx) => {
+  const readThrough = new Map<string, string>();
+  ctx.value.forEach((entry, index) => {
+    for (const platform of entry.platforms) {
+      const earlier = readThrough.get(platform);
+      if (earlier === undefined) {
+        readThrough.set(platform, entry.name);
+        continue;
+      }
+      ctx.issues.push({
+        code: "custom",
+        input: entry.platforms,
+        path: [index, "platforms"],
+        message: `${platform} is already read through ${earlier}`,
+      });
+    }
+  });
+});
+
 const GlobalRoot = z.strictObject({
   default: HomePath,
-  env: z
-    .strictObject({
-      name: EnvName,
-      subdir: RelPath.optional(),
-      platforms: nonEmpty(PlatformEnum).optional(),
-    })
-    .optional(),
+  env: z.union([RootEnv, RootEnvList]).optional(),
 });
 
 // `dirs` are relative to the global root, `.` being the root itself.

@@ -106,6 +106,17 @@ const refusals: [string, Mutation, string][] = [
     "targets.global.skipsEmpty: only a precedence list has empty files to skip",
   ],
   [
+    "two root variables read on one platform",
+    at(
+      ["globalRoot", "env"],
+      [
+        { name: "XDG_CONFIG_HOME", platforms: ["linux"] },
+        { name: "APPDATA", platforms: ["win32", "linux"] },
+      ],
+    ),
+    "globalRoot.env.1.platforms: linux is already read through XDG_CONFIG_HOME",
+  ],
+  [
     "a scoped frontmatter whose paths key already holds a value",
     at(["targets", "project", "frontmatter", "scoped"], {
       fields: { globs: "**", alwaysApply: false },
