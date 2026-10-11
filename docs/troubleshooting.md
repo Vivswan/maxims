@@ -71,13 +71,17 @@ Codex's `config.toml` is only read, for its hooks flag, and is never refused: a 
 !  maxims: edit or delete the stray "maxims:begin" and "maxims:end" lines around the block, then retry
 ```
 
-**What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it. maxims holds the file instead: nothing in it changes, and every other file refreshes.
+**What it means:** a `<!-- maxims:begin ... -->` line and a `<!-- maxims:end ... -->` line you left in a shared file are plain text while a managed block stands between them; the [rule file section](harnesses.md#the-rule-file) owns the markers. Removing that block would join them into a block the next sync takes, your lines with it.
+
+maxims holds the file instead: nothing in it changes, the sources with a block in it, on disk or rendered this run, stay at last-good, and any other source refreshes.
 
 **What to do:** open the file, delete or edit the stray `maxims:begin` and `maxims:end` lines the message names, then run `sync`; the block leaves with that run.
 
 ## Exit 4: a block's marker carries no version, or another one
 
-**What you see:** `sync` exits 4 with these two lines naming the file and the marker line, and every other file refreshes. A hook run exits 0 and writes the same two lines without the `!` prefix, which reach the session where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
+**What you see:** `sync` exits 4 with these two lines naming the file and the marker line; the sources with a block in the held file, on disk or rendered this run, stay at last-good, and any other source refreshes.
+
+A hook run exits 0 and writes the same two lines without the `!` prefix, which reach the session where the `stdout` column of the [harness matrix](harnesses.md#the-matrix) says the harness passes sync's output on.
 
 ```text
 !  maxims: /home/user/AGENTS.md: the marker "<!-- maxims:begin @you/notes sha=3f2a9c1e -->" carries no version; this maxims writes version 1 and cannot refresh the block it opens
