@@ -11,9 +11,17 @@ import { ExitCode, MaximsError } from "./exit-codes.ts";
 // Edits to a JSON or JSONC config the user also owns are byte-range splices on the user's own
 // text, located through the jsonc-parser tree: only the touched node and the one separator joining
 // it to a neighbour change, so comments, irregular spacing and trailing commas outside it come
-// back byte-identical. jsonc-parser's `modify` is not used because it reformats every line an edit
-// touches, and a compact hand-written file does not survive that. Every splice invalidates the
-// offsets of the tree it was computed from: callers re-parse before the next edit.
+// back byte-identical. Every splice invalidates the offsets of the tree it was computed from:
+// callers re-parse before the next edit.
+//
+// jsonc-parser 3.3.1's `modify` is not used: an add or remove spells its output from the library's
+// own rules, never from the file's spacing. Two removals also corrupt the value, not only the
+// layout, and tests/util/jsonc.test.ts pins the splice column.
+//   add, no FormattingOptions        -> JSON.stringify spelling, a bare `,` after any sibling
+//   add or remove, FormattingOptions -> every line the edit touches reformatted (`keepLines` off)
+//
+//   {"l": [1, /* keep */ 2]}, remove index 1  -> modify: {"l": [12]}  splice: {"l": [1 /* keep */]}
+//   {"o": {"k": 1,}},         remove "k"      -> modify: {"o": {,}}   splice: {"o": {}}
 
 // Null text means "no config here": the file is missing, or it exists and holds only whitespace
 // (`touch` creates one, and nobody has put a config in it yet), so a fresh config may replace it.
