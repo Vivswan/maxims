@@ -292,7 +292,7 @@ class JsonRegistry {
       const eol = this.text.endsWith("\r\n") ? "\r\n" : this.text.endsWith("\n") ? "\n" : "";
       return `{}${eol}`;
     }
-    return this.validatedText();
+    return this.text;
   }
 
   // The text as the splices left it, parsed once more in the vendor's dialect so a cut through a

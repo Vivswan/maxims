@@ -280,10 +280,12 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
   }
   const hook = hookStatusText(report.hook);
   if (hook !== null) {
+    const hint =
+      typeof report.hook === "object" ? report.hook.hint : "run maxims add <source> --add-hook";
     findings.push(
       report.hook === "current"
         ? { kind: "ok", text: `${prefix} ${hook}` }
-        : { kind: "fail", text: `${prefix} ${hook} (run maxims add <source> --add-hook)` },
+        : { kind: "fail", text: `${prefix} ${hook}${hint === null ? "" : ` (${hint})`}` },
     );
   }
   if (report.tier.tier === 2) {

@@ -657,6 +657,161 @@ describe("two harnesses declared at one file", () => {
       });
     },
   );
+
+  // The other harness's entry in the shared file is not this harness's artifact at another scope:
+  // once only claude-code is wanted, codex's group leaves and claude-code's stays, in one edit.
+  test("two hook registries at one file, then one harness wanted: the other's group leaves in one edit", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const defs = [hookedAt("claude-code", "SessionStart"), hookedAt("codex", "Start")];
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const path = join(userHome, FIXTURE_DIR, "settings.json");
+      const plan = (wanted: string[]) =>
+        planHooks({
+          ctx,
+          harnesses: defs,
+          agents: undefined,
+          wants: (id, scope: Scope) => ({
+            hook: wanted.includes(id),
+            rules: false,
+            unreachable: scope !== "global",
+          }),
+          elsewhere: () => [],
+          judgeLink: () => undefined,
+        });
+      const both = await plan(["claude-code", "codex"]);
+      const [installed] = both.changes;
+      if (installed?.kind !== "edit") throw new Error("expected the one edit");
+      writeFileSync(path, installed.content);
+      const one = await plan(["claude-code"]);
+      const parsed = (change: { kind: string; path: string; content?: string }) => [
+        change.kind,
+        change.path,
+        change.content === undefined ? null : JSON.parse(change.content),
+      ];
+      expect<unknown[]>([one.changes, one.removals.map(parsed), one.failures]).toEqual([
+        [],
+        [["edit", path, { hooks: { SessionStart: [group] } }]],
+        [],
+      ]);
+      const [removal] = one.removals;
+      if (removal?.kind !== "edit") throw new Error("expected the one removal edit");
+      writeFileSync(path, removal.content);
+      const settled = await plan(["claude-code"]);
+      expect([settled.changes, settled.removals, settled.failures]).toEqual([[], [], []]);
+    });
+  });
+
+  // Two harnesses at one file under one event share the entry itself: the harness that wants it
+  // owns it, so the other's leaving removes nothing, on the install and once settled alike.
+  test("two hook registries at one file under one event, one harness wanted: the entry stays", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const defs = [hookedAt("claude-code", "SessionStart"), hookedAt("codex", "SessionStart")];
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const path = join(userHome, FIXTURE_DIR, "settings.json");
+      const plan = () =>
+        planHooks({
+          ctx,
+          harnesses: defs,
+          agents: undefined,
+          wants: (id, scope: Scope) => ({
+            hook: id === "claude-code",
+            rules: false,
+            unreachable: scope !== "global",
+          }),
+          elsewhere: () => [],
+          judgeLink: () => undefined,
+        });
+      const installing = await plan();
+      const [installed] = installing.changes;
+      if (installed?.kind !== "edit") throw new Error("expected the one edit");
+      expect([JSON.parse(installed.content), installing.removals, installing.notices]).toEqual([
+        { hooks: { SessionStart: [group] } },
+        [],
+        [`registered the maxims hook in ${path}`],
+      ]);
+      writeFileSync(path, installed.content);
+      const settled = await plan();
+      expect([settled.changes, settled.removals, settled.notices]).toEqual([[], [], []]);
+    });
+  });
+
+  // The plan lists files in the order the harnesses reached them, a file whose first harness
+  // leaves it included, so a dry run reads in harness order whatever each harness wants.
+  test("a shared file reached first by the harness that leaves it keeps its place in the plan", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const other: HarnessDefinition = {
+        ...hookedAt("cursor", "SessionStart"),
+        hook: {
+          ...hookedAt("cursor", "SessionStart").hook,
+          path: (scope: Scope, ctx: HarnessContext) =>
+            join(scopeRoot({}, scope, ctx), FIXTURE_DIR, "other.json"),
+        } as HarnessDefinition["hook"],
+      };
+      const defs = [
+        hookedAt("claude-code", "SessionStart"),
+        other,
+        hookedAt("codex", "SessionStart"),
+      ];
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const planned = await planHooks({
+        ctx,
+        harnesses: defs,
+        agents: undefined,
+        wants: (id, scope: Scope) => ({
+          hook: id !== "claude-code",
+          rules: false,
+          unreachable: scope !== "global",
+        }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect([planned.changes.map((change) => basename(change.path)), planned.removals]).toEqual([
+        ["settings.json", "other.json"],
+        [],
+      ]);
+    });
+  });
+
+  // A servers key path is a list of segments, and a segment may hold the separator a flattened
+  // spelling would use: ["mcp/one"] and ["mcp", "one"] are two entries, not one.
+  test("two servers files at one file under key paths that flatten alike: the unwanted entry leaves", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const defs = [hookless("claude-code", ["mcp/one"]), hookless("codex", ["mcp", "one"])];
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: defs });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const path = join(userHome, FIXTURE_DIR, "mcp.json");
+      const plan = (wanted: string[]) =>
+        planHooks({
+          ctx,
+          harnesses: defs,
+          agents: undefined,
+          wants: (id, scope: Scope) => ({
+            hook: wanted.includes(id),
+            rules: false,
+            unreachable: scope !== "global",
+          }),
+          elsewhere: () => [],
+          judgeLink: () => undefined,
+        });
+      const [installed] = (await plan(["claude-code", "codex"])).changes;
+      if (installed?.kind !== "edit") throw new Error("expected the one edit");
+      expect(JSON.parse(installed.content)).toEqual({
+        "mcp/one": { maxims: server },
+        mcp: { one: { maxims: server } },
+      });
+      writeFileSync(path, installed.content);
+      const one = await plan(["claude-code"]);
+      expect<unknown[]>([
+        one.changes,
+        one.removals.map((change) =>
+          change.kind === "edit" ? JSON.parse(change.content) : change,
+        ),
+      ]).toEqual([[], [{ "mcp/one": { maxims: server }, mcp: { one: {} } }]]);
+    });
+  });
 });
 
 describe("a hook that lives in one place for both scopes", () => {

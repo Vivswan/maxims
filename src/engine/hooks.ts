@@ -1,3 +1,4 @@
+import { append, nil } from "@hyperjump/json-pointer";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import {
   type HarnessContext,
@@ -40,7 +41,14 @@ export function hookedAt(
   return projectRoot === null ? [] : scopedAt(state.hooks, { scope, root: projectRoot });
 }
 
-export type HookStatus = "current" | "missing" | "none" | "not-wanted";
+// `broken` carries the planner's refusal of the registry (a dangling link, a file that does not
+// parse): the harness's row says why, and the other harnesses are still reported.
+export type HookStatus =
+  | "current"
+  | "missing"
+  | "none"
+  | "not-wanted"
+  | { kind: "broken"; reason: string; hint: string | null };
 
 // The one judgment `list` and `doctor` report a hook by. The hook alone is planned: a pending
 // config edit beside it is not a missing hook. A harness with no usable home at this scope (its
@@ -63,14 +71,20 @@ export async function hookStatus(
   ) {
     return "not-wanted";
   }
-  const planned = await plan({ def, scope, ctx, wanted: true });
-  return planned.changes.length === 0 ? "current" : "missing";
+  try {
+    const planned = await plan({ def, scope, ctx, wanted: true });
+    return planned.changes.length === 0 ? "current" : "missing";
+  } catch (error) {
+    if (!registryFailure(error)) throw error;
+    return { kind: "broken", reason: error.message, hint: error.hint ?? null };
+  }
 }
 
 // The word beside a judged hook; a harness with none, or none wanted, gets no word.
 export function hookStatusText(status: HookStatus): string | null {
   if (status === "current") return "hook current";
   if (status === "missing") return "hook missing";
+  if (typeof status === "object") return `hook broken: ${status.reason}`;
   return null;
 }
 
@@ -129,8 +143,8 @@ export type HooksPlan = {
 // Reconciles every definition's hook, MCP server entry and config edit at every scope this run can
 // reach. The hook and the servers entry follow the scope's hook list and the harness's sources
 // there; the config edit follows the rules alone. Each artifact is planned on its own: one that
-// cannot be is reported and leaves the others standing. One `RegistryFile` per destination plans a
-// file reached twice once.
+// cannot be is reported and leaves the others standing. A registry file is one `RegistryFile`
+// however many harnesses and scopes reach it, so it gets one change holding every entry.
 export async function planHooks(input: {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
@@ -144,7 +158,7 @@ export async function planHooks(input: {
   const harnessCtx = harnessContext(ctx);
   const scopes: Scope[] = ctx.projectRoot === null ? ["global"] : ["global", "project"];
   const files = new RegistryFiles(input.judgeLink);
-  const answers: ScopeAnswer[] = [];
+  const admittedAnswers: ScopeAnswer[] = [];
   const failures: HooksPlan["failures"] = [];
   // A registry this run wants nothing from may be unreadable for reasons of its own; one it must
   // edit is a failure of this run, reported once however many artifacts share the file.
@@ -161,6 +175,7 @@ export async function planHooks(input: {
   };
   for (const def of input.harnesses) {
     if (!agentsAllowed(input.agents, def.id)) continue;
+    const answers: ScopeAnswer[] = [];
     // Every file this run's own scopes resolve to, a registry whose plan failed included: another
     // project's hook in such a file is this run's to plan, and the failure this run's to report.
     const reach = new Set<string>();
@@ -180,7 +195,7 @@ export async function planHooks(input: {
         const edits = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
         return {
           changes: edits,
-          files: [],
+          rewrites: [],
           claims: edits.map((c) => c.path),
           wanted: wants.rules,
           notices: [],
@@ -211,20 +226,64 @@ export async function planHooks(input: {
         }
       }
     }
+    admittedAnswers.push(...admitted(answers));
   }
-  return { ...reconcile(answers), failures };
+  // Two harnesses at one file under one event or servers key share the entry itself, so every
+  // wanted rewrite lands before any unwanted one, and an unwanted rewrite of an entry a wanted one
+  // owns is skipped: the entry stays for the harness that wants it, and nothing else of the
+  // leaving harness's is kept.
+  const applied = new Set<ScopeAnswer>();
+  const owned = new Set<string>();
+  const entryKey = (rewrite: Rewrite): string => `${rewrite.file.key}\0${rewrite.entry}`;
+  for (const wanted of [true, false]) {
+    for (const answer of admittedAnswers) {
+      if (answer.wanted !== wanted) continue;
+      if (!wanted && answer.rewrites.some((rewrite) => owned.has(entryKey(rewrite)))) continue;
+      const outcome = await attempt(wanted, async () => {
+        for (const rewrite of answer.rewrites) rewrite.file.rewrite(rewrite, wanted);
+      });
+      if (outcome === null) continue;
+      applied.add(answer);
+      if (wanted) for (const rewrite of answer.rewrites) owned.add(entryKey(rewrite));
+    }
+  }
+  const changes: Change[] = [];
+  const removals: Change[] = [];
+  const notices: string[] = [];
+  // A file takes the plan slot of the first admitted answer that reached it, skipped or not, so
+  // the plan reads in harness order whatever each harness wants.
+  const emitted = new Set<RegistryFile>();
+  for (const answer of admittedAnswers) {
+    for (const { file } of answer.rewrites) {
+      if (emitted.has(file)) continue;
+      emitted.add(file);
+      const planned = file.planned();
+      if (planned !== null) (planned.wanted ? changes : removals).push(planned.change);
+      notices.push(...file.notices);
+    }
+    if (!applied.has(answer)) continue;
+    (answer.wanted ? changes : removals).push(...answer.changes);
+    notices.push(...answer.notices);
+  }
+  return { changes, removals, notices, failures };
 }
 
-// `changes` are planned outright (a hook script, dsh's bridge, a config edit); `files` are the
-// registries the answer rewrote, each emitted once however many answers rewrote it. `claims` are
-// the files the answer resolves to whether or not it changes them there; the notices describe the
-// artifact and are accepted or dropped with it.
+// `claims` are the files the answer resolves to whether or not it changes them there.
 type ScopeAnswer = {
   changes: Change[];
-  files: RegistryFile[];
+  rewrites: Rewrite[];
   claims: string[];
   wanted: boolean;
   notices: string[];
+};
+
+// `entry` names the slot in the file the rewrite adds or removes, the identity two harnesses
+// collide on when their registries are one file.
+type Rewrite = {
+  file: RegistryFile;
+  entry: string;
+  edit: (content: string) => Change;
+  plan: (currentText: string | null) => RegistryRewrite | null;
 };
 
 // `undefined` when another project cannot resolve a file of its own (its config folder a symlink
@@ -251,58 +310,58 @@ function registryFailure(error: unknown): error is MaximsError {
 
 // The registry files this run rewrites, one per destination (the file a link at the path reaches,
 // by its real path), so a leaf, a link to it and a link partway along the chain are one file.
-// Wanted and unwanted rewrites keep separate files, since an unwanted rewrite is dropped whole when
-// a wanted answer claims the file. The link is judged before the file is read through it.
 class RegistryFiles {
-  private readonly wanted = new Map<string, RegistryFile>();
-  private readonly unwanted = new Map<string, RegistryFile>();
+  private readonly files = new Map<string, RegistryFile>();
 
   constructor(private readonly judgeLink: LinkJudge) {}
 
-  async at(root: string, path: RootedPath, wanted: boolean): Promise<RegistryFile> {
+  async at(root: string, path: RootedPath): Promise<Pick<Rewrite, "file" | "edit">> {
     this.judgeLink(path);
     const edit = editInPlace(root, path);
     // Where an edit lands does not depend on what it writes.
     const key = destinationOf(edit(""));
-    const files = wanted ? this.wanted : this.unwanted;
-    let file = files.get(key);
+    let file = this.files.get(key);
     if (file === undefined) {
-      file = new RegistryFile(key, await readConfigText(path), edit);
-      files.set(key, file);
+      file = new RegistryFile(key, await readConfigText(path));
+      this.files.set(key, file);
     }
-    return file;
+    return { file, edit };
   }
 }
 
 // One registry file as this run leaves it: every rewrite is planned over the text the one before
-// it left, so the file gets one change however many artifacts land in it.
+// it left, so the file gets one change however many artifacts land in it, addressed at the path
+// of the first rewrite that altered it. That change is a removal only while no wanted rewrite
+// altered the text: a hook run defers removals, and an entry a harness wants must not wait on
+// another harness's leaving the same file.
 class RegistryFile {
   private text: string | null;
+  private edit: Rewrite["edit"] | null = null;
+  private installs = false;
   readonly notices: string[] = [];
 
   constructor(
     readonly key: string,
     private readonly original: string | null,
-    private readonly edit: (content: string) => Change,
   ) {
     this.text = original;
   }
 
-  rewrite(plan: (currentText: string | null) => RegistryRewrite | null): void {
-    const rewritten = plan(this.text);
+  rewrite(rewrite: Rewrite, wanted: boolean): void {
+    const rewritten = rewrite.plan(this.text);
     if (rewritten === null) return;
     this.text = rewritten.text;
+    this.edit ??= rewrite.edit;
     this.notices.push(rewritten.notice);
+    this.installs ||= wanted;
   }
 
-  // The change the file ends in, or none when every rewrite found it current.
-  planned(): Change | null {
-    return this.text === null || this.text === this.original ? null : this.edit(this.text);
+  planned(): { change: Change; wanted: boolean } | null {
+    if (this.edit === null || this.text === null || this.text === this.original) return null;
+    return { change: this.edit(this.text), wanted: this.installs };
   }
 }
 
-// Where a change lands: the file behind the link an edit follows, the leaf a write replaces, under
-// one spelling for one file.
 function destinationOf(change: Change): string {
   return realKeyOf(change.kind === "edit" ? change.target : change.path);
 }
@@ -344,14 +403,16 @@ async function hookAnswer(
   const declared = declaredHookFile(def, scope, ctx);
   if (declared !== null) reach?.add(fileId(declared));
   if (hasHook(def, "registry")) {
-    const file = await files.at(scopeRoot(def, scope, ctx), hookPath(def, scope, ctx), wanted);
-    file.rewrite((currentText) => rewriteHookRegistry({ def, scope, ctx, wanted, currentText }));
-    return { changes: [], files: [file], claims: [file.key], wanted, notices: [] };
+    const reached = await files.at(scopeRoot(def, scope, ctx), hookPath(def, scope, ctx));
+    const plan: Rewrite["plan"] = (currentText) =>
+      rewriteHookRegistry({ def, scope, ctx, wanted, currentText });
+    const rewrites = [{ ...reached, entry: entryOf("hook", def.hook.eventPath), plan }];
+    return { changes: [], rewrites, claims: [reached.file.key], wanted, notices: [] };
   }
   const plan = await planHookOnly({ def, scope, ctx, wanted });
   const claims = hookFiles(def, scope, ctx, plan.changes);
   for (const claim of claims) reach?.add(fileId(claim));
-  return { changes: plan.changes, files: [], claims, wanted, notices: noticesOf(plan.notice) };
+  return { changes: plan.changes, rewrites: [], claims, wanted, notices: noticesOf(plan.notice) };
 }
 
 // The stub server entry, planned over the text the hook left in a file they share. A file hook is
@@ -366,7 +427,7 @@ async function mcpAnswer(
   wanted: boolean,
   files: RegistryFiles,
 ): Promise<ScopeAnswer> {
-  const file = await files.at(registration.root, registration.path, wanted);
+  const reached = await files.at(registration.root, registration.path);
   const hookFile = fileHookKey(def, scope, ctx);
   if (
     hookFile !== null &&
@@ -378,11 +439,18 @@ async function mcpAnswer(
       { hint: "declare the servers file apart from the hook's path in harnesses.json" },
     );
   }
-  file.rewrite((currentText) => rewriteServers({ registration, wanted, currentText }));
-  return { changes: [], files: [file], claims: [file.key], wanted, notices: [] };
+  const plan: Rewrite["plan"] = (currentText) =>
+    rewriteServers({ registration, wanted, currentText });
+  const rewrites = [{ ...reached, entry: entryOf("servers", registration.serversPath), plan }];
+  return { changes: [], rewrites, claims: [reached.file.key], wanted, notices: [] };
 }
 
-// The files a change names by `realKeyOf`: its leaf, and for an edit the file behind the link too.
+// A key path as a JSON pointer, so a segment holding a separator (`["mcp/one"]`) is not the
+// nested path (`["mcp", "one"]`).
+function entryOf(kind: "hook" | "servers", path: readonly string[]): string {
+  return `${kind}${path.reduce((pointer, segment) => append(segment, pointer), nil)}`;
+}
+
 function filesOf(change: Change): string[] {
   return [...new Set([realKeyOf(change.path), destinationOf(change)])];
 }
@@ -404,7 +472,6 @@ function fileHookKey(def: HarnessDefinition, scope: Scope, ctx: HarnessContext):
   }
 }
 
-// Every entry a path names on the way to its file: the leaf, each link passed, the file reached.
 function entriesOf(path: string): string[] {
   const chain = followLinks(path);
   return [path, ...chain.hops, ...(chain.kind === "reached" ? [chain.end] : [])];
@@ -418,27 +485,24 @@ function fileId(path: string): string {
   return realKeyOf(chain.kind === "reached" ? chain.end : path);
 }
 
-// One file can be reached twice: from both scopes (dsh's bridge under the global root; a home that
-// is a repository), or by two harnesses. A removal touching a file a wanted answer claims is
-// dropped whole, dsh's patch row included, or a project-only install would delete for the global
-// scope the hook it wrote for the project. Files are matched by where a change lands:
+// One harness's artifact can be reached from both scopes (dsh's bridge under the global root; a
+// home that is a repository), and the unwanted scope's removal applies last. A removal touching a
+// file a wanted answer of the same harness claims is dropped whole, dsh's patch row included, or a
+// project-only install would delete for the global scope the hook it wrote for the project.
+// Another harness's entry in a shared file is never this harness's to keep, so the judgment is
+// made per harness. Files are matched by where a change lands:
 //   a registry      -> its destination, the file behind every link to it
 //   a wanted change -> its leaf, and the file it lands in
 //   a claim         -> its leaf, plus the file behind it when no wanted change writes the leaf (a
 //                      write there replaces the link with a real file)
 //   a removal       -> its leaf and the file behind it, so a write at a link partway along a kept
 //                      claim's chain is dropped too
-function reconcile(
-  answers: readonly ScopeAnswer[],
-): Pick<HooksPlan, "changes" | "removals" | "notices"> {
-  const changes: Change[] = [];
-  const removals: Change[] = [];
-  const notices: string[] = [];
+function admitted(answers: readonly ScopeAnswer[]): ScopeAnswer[] {
   const wanted = answers.filter((answer) => answer.wanted);
   const touched = new Set(
     wanted.flatMap((answer) => [
       ...answer.changes.flatMap(filesOf),
-      ...answer.files.map((file) => file.key),
+      ...answer.rewrites.map((rewrite) => rewrite.file.key),
     ]),
   );
   const kept = new Set(touched);
@@ -449,22 +513,11 @@ function reconcile(
   }
   const keeps = (change: Change): boolean =>
     filesOf(change).some((file) => kept.has(file)) || kept.has(fileId(change.path));
-  const emitted = new Set<RegistryFile>();
-  for (const answer of answers) {
-    const dropped =
-      !answer.wanted &&
-      (answer.changes.some(keeps) || answer.files.some((file) => kept.has(file.key)));
-    if (dropped) continue;
-    const into = answer.wanted ? changes : removals;
-    into.push(...answer.changes);
-    for (const file of answer.files) {
-      if (emitted.has(file)) continue;
-      emitted.add(file);
-      const change = file.planned();
-      if (change !== null) into.push(change);
-      notices.push(...file.notices);
-    }
-    notices.push(...answer.notices);
-  }
-  return { changes, removals, notices };
+  return answers.filter(
+    (answer) =>
+      answer.wanted ||
+      !(
+        answer.changes.some(keeps) || answer.rewrites.some((rewrite) => kept.has(rewrite.file.key))
+      ),
+  );
 }

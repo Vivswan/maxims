@@ -979,6 +979,27 @@ test("doctor reports rule files, frontmatter, hooks, tiers and --expect without 
   );
 });
 
+// A registry doctor cannot judge a hook through is that harness's fail line, with the planner's
+// refusal as the reason, never an abort that hides the other harnesses' lines.
+test("doctor reports a hook whose registry is a dangling link as broken, and still checks the rest", async () => {
+  const fake = fakeResolvers();
+  const loadEngine = async () => realEngineBundle(fake.resolvers);
+  await withScenario({ loadEngine }, async (scenario) => {
+    const source = writeSource(join(scenario.root, "src"), TWO_MEMORIES);
+    const argv = ["add", source, "-g", "--rule", "-a", "claude-code", "--add-hook"];
+    expect((await runCli(scenario, argv)).code).toBe(0);
+    const registry = join(scenario.userHome, ".claude", "settings.json");
+    rmSync(registry);
+    symlinkSync("missing.json", registry);
+    const run = await runCli(scenario, ["doctor"]);
+    expect([run.code, run.stderr]).toEqual([1, ""]);
+    expect(run.stdout).toContain(
+      `x   claude-code: hook broken: cannot edit ${registry}: it is a symlink to missing.json, which does not exist (create the file the link points to, or remove the link, then run maxims sync)\n`,
+    );
+    expect(run.stdout).toContain("ok  last sync ");
+  });
+});
+
 // A shared file is one file however many sources it carries: doctor says it loads once, and names
 // the source only where a block is missing.
 test("doctor reports a shared rule file once for the sources it carries", async () => {
