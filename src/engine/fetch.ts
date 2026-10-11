@@ -7,6 +7,7 @@ import { parseGitSha } from "../contracts/git-sha.ts";
 import type { LastError } from "../contracts/last-error.ts";
 import {
   contentHashOf,
+  type Memory,
   type MemoryName,
   parseContentHash,
   parseMemoryName,
@@ -283,15 +284,13 @@ async function visibleFacts(
   );
 }
 
-// What a fetch records per memory: the hashes a later diff and the copy sweep compare by.
-export function memoryFacts(memories: readonly SourceMemory[]): Fetched["memories"] {
+// What a fetch and a commit record per memory: the hashes a later diff and the copy sweep compare
+// by. The one builder, so a record written by `add` is the record a refresh computes.
+export function memoryFacts(memories: readonly Memory[]): Fetched["memories"] {
   return Object.fromEntries(
     memories.map((memory) => [
-      memory.memory.name,
-      {
-        content: memory.memory.contentHash,
-        description: contentHashOf(memory.memory.description),
-      },
+      memory.name,
+      { content: memory.contentHash, description: contentHashOf(memory.description) },
     ]),
   );
 }
@@ -308,8 +307,9 @@ export function fetchedFactsFor(
   memoryPath: string,
   revision: { sha: string; at: string },
 ): FetchedEntry | null {
-  const facts = { at: revision.at, memoryPath, memories: memoryFacts(memories), lastError: null };
-  const names = memories.map((memory) => memory.memory.name);
+  const parsed = memories.map((memory) => memory.memory);
+  const facts = { at: revision.at, memoryPath, memories: memoryFacts(parsed), lastError: null };
+  const names = parsed.map((memory) => memory.name);
   const renamed = withRename(entry, pruneRenames(entry.intent.rename, names));
   const { addedAt } = renamed;
   if (isRemoteEntry(renamed)) {
@@ -350,7 +350,7 @@ async function visibleChangeLines(
     isVisible(memory, entry.intent.select, installInternal);
   return diffLines(
     await visibleFacts(entry.fetched, storeEntry, entry.intent, visible),
-    memoryFacts(memories.filter(visible)),
+    memoryFacts(memories.filter(visible).map((memory) => memory.memory)),
   );
 }
 
@@ -376,7 +376,9 @@ export async function readHeldRevision(
   const tree = await storeTree(pendingPathFor(home, from), entry.intent);
   const memories = tree === null ? [] : validateMemoryFiles(tree.files).memories;
   if (memories.length === 0) return { kind: "forgotten", line: heldRevisionGone(key) };
-  const full = new Set(diffLines(entry.fetched?.memories ?? {}, memoryFacts(memories)));
+  const full = new Set(
+    diffLines(entry.fetched?.memories ?? {}, memoryFacts(memories.map((memory) => memory.memory))),
+  );
   const recorded = new Set(pending.summary);
   const storeEntry = storePathFor(home, from);
   const visible = await visibleChangeLines(entry, memories, storeEntry, installInternal);

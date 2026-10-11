@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
+import { memoryFacts } from "../../src/engine/fetch.ts";
 import { validateMemoryFiles } from "../../src/engine/memories.ts";
 import type { EngineIo, SymlinkSupport } from "../../src/engine/types.ts";
 import {
@@ -18,7 +19,7 @@ import {
   type Scope,
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
-import { contentHashOf, type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
+import { type MemoryName, parseMemoryName } from "../../src/memory/contract.ts";
 import {
   FetchFailure,
   type FetchFailureKind,
@@ -388,15 +389,7 @@ export async function fetchedFacts(
     at,
     sha: sha === undefined ? fixtureGitSha(tree.sha) : gitSha(sha),
     memoryPath: "memories",
-    memories: Object.fromEntries(
-      memories.map((memory) => [
-        memory.memory.name,
-        {
-          content: memory.memory.contentHash,
-          description: contentHashOf(memory.memory.description),
-        },
-      ]),
-    ),
+    memories: memoryFacts(memories.map((memory) => memory.memory)),
     lastError,
   };
 }
