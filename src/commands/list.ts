@@ -7,7 +7,7 @@ import {
   harnessContext,
   loadContext,
 } from "../engine/context.ts";
-import { noDefinitionReason, realKeyOf, resolveTargets } from "../engine/destination.ts";
+import { noDefinitionReason, resolveTargets } from "../engine/destination.ts";
 import { DAY_MS } from "../engine/fetch.ts";
 import { pathAbsent } from "../engine/fs-probe.ts";
 import { hookStatus, hookStatusText } from "../engine/hooks.ts";
@@ -39,6 +39,7 @@ import type { MemoryName } from "../memory/contract.ts";
 import { estimateTokens } from "../rulefile/budget.ts";
 import { buildNameIndex, type NameIndex, shortHash } from "../rulefile/dedupe.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
+import { realKeyOf } from "../util/fs.ts";
 import { storePathFor } from "../util/home.ts";
 import { jsonDocument } from "../util/json.ts";
 import { previewState, reportedUnderJson } from "./frame/report.ts";

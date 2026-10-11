@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { type HarnessId, isBuiltInHarnessId } from "../contracts/harness-id.ts";
 import {
   type HarnessContext,
@@ -14,7 +14,7 @@ import { rulesDirPath } from "../harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../harnesses/strategies/shared-block.ts";
 import type { SourceIntent } from "../state/schema.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { type RootedPath, realpathOfExistingPrefix } from "../util/fs.ts";
+import { followLinks, type RootedPath, realKeyOf } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import type { HarnessFilter } from "./types.ts";
 
@@ -28,7 +28,9 @@ export type HarnessTarget = {
   ctx: HarnessContext;
   path: RootedPath;
   // The real path of the target file (or of its nearest existing ancestor plus the rest), so two
-  // definitions whose targets are one file through a symlink share one block.
+  // definitions whose targets are one file through a symlink share one block. A rule file keeps
+  // its own leaf name (a link there is replaced); a shared file is edited through a link, so its
+  // identity is the file the link resolves to.
   realKey: string;
 };
 
@@ -99,9 +101,25 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
       target.kind === "rules-dir"
         ? rulesDirPath({ def, target, scope, ctx: harnessCtx, sourceSlug: slugFor(request) })
         : sharedBlockPath({ def, target, scope, ctx: harnessCtx });
-    targets.push({ def, scope, target, ctx: harnessCtx, path, realKey: realKeyOf(path) });
+    const realKey = target.kind === "shared-block" ? sharedFileKey(path) : realKeyOf(path);
+    targets.push({ def, scope, target, ctx: harnessCtx, path, realKey });
   }
   return { targets, skipped };
+}
+
+// A shared file is edited through a link at its leaf, so its identity is the file the link reaches,
+// read by the walk the edit takes, and two harnesses reading one file through leaf links are one
+// file. A leaf nothing can follow (a loop, a broken chain, a folder this process cannot search)
+// keeps its own name, as a rule file does: the edit step refuses it by name if this run writes
+// there, and a harness `-a` leaves out costs the run nothing.
+function sharedFileKey(path: string): string {
+  try {
+    const chain = followLinks(path);
+    if (chain.kind === "reached" && chain.hops.length > 0) return chain.end;
+  } catch (error) {
+    if (!(error instanceof MaximsError)) throw error;
+  }
+  return realKeyOf(path);
 }
 
 // A built-in id always has a definition, so a missing one names a harness the user declared in
@@ -132,11 +150,4 @@ export function destinationConflict(
     return scope === "project" ? `${def.displayName}: ${folder} does not exist` : null;
   }
   return `${def.displayName}: ${folder} is a file, not the directory ${target.dir} needs`;
-}
-
-// The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
-// because the final entry is what a write replaces (a leaf that is a symlink becomes the real
-// file), while two spellings of the directory above it are one place.
-export function realKeyOf(path: string): string {
-  return join(realpathOfExistingPrefix(dirname(path)), basename(path));
 }

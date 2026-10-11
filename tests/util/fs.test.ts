@@ -17,7 +17,11 @@ import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   assertInsideRoot,
   ensureDir0700,
+  followLinks,
+  isAbsent,
+  type LinkChain,
   type RootedPath,
+  realKeyOf,
   realpathOfExistingPrefix,
   writeFileAtomic,
 } from "../../src/util/fs.ts";
@@ -250,30 +254,223 @@ describe("realpathOfExistingPrefix", () => {
     });
   });
 
-  test.skipIf(!CHMOD_DENIES)(
-    "a prefix that exists but cannot be inspected is exit 4, never the lexical path",
-    async () => {
+  // The kernels disagree on which component a sealed folder fails at (macOS's realpath refuses
+  // the folder it cannot open, Linux's the entry inside it); each resolver names the entry it was
+  // asked about on both, never the lexical path and never the folder.
+  const sealedResolvers: [string, (path: string) => string][] = [
+    ["realpathOfExistingPrefix", realpathOfExistingPrefix],
+    ["realKeyOf", realKeyOf],
+  ];
+  test.skipIf(!CHMOD_DENIES).each(sealedResolvers)(
+    "%s: a folder on the way that cannot be searched is exit 4 naming the entry asked about",
+    async (_name, resolver) => {
       await withTempDir((dir) => {
         const locked = join(dir, "locked");
         mkdirSync(join(locked, "child"), { recursive: true });
-        const probed = join(locked, "child", "leaf.md");
+        const asked = join(locked, "child", "leaf.md");
         chmodSync(locked, 0o000);
         try {
-          let caught: unknown;
-          try {
-            realpathOfExistingPrefix(probed);
-          } catch (error) {
-            caught = error;
-          }
-          expect(caught).toBeInstanceOf(MaximsError);
-          expect((caught as MaximsError).code).toBe(ExitCode.DestinationWriteFailed);
-          expect((caught as MaximsError).message).toMatch(
-            new RegExp(`^cannot inspect ${probed.replaceAll("\\", "\\\\")}: EACCES`),
-          );
+          expect(outcome(() => resolver(asked))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(
+                new RegExp(`^cannot inspect ${asked.replaceAll("\\", "\\\\")}: EACCES`),
+              ),
+            }),
+          });
         } finally {
           chmodSync(locked, 0o755);
         }
       });
     },
   );
+});
+
+// What would drift silently: node's realpathSync folds `jump/../file` before it looks at `jump`,
+// so a chain read through it names a file the kernel never opens, and the two kernels disagree on
+// what a `..`, a trailing `.`, and a long chain mean. Each table is one kernel's reading, held to
+// that kernel's own open of the link where the host is that platform.
+//
+//   notes.md            "notes"
+//   maxims-x.md         "root"            (where Windows's fold of `jump\..\maxims-x.md` lands)
+//   rules/notes.md      "under rules"
+//   rules/plain.md      "rules"
+//   rules/maxims-x.md   -> ../notes.md
+//   rules/sub/bridge.md -> ../notes.md
+//   jump                -> rules/sub
+//   alias               -> rules
+//   L1 -> L2 -> ... -> Ln -> notes.md      (n links, planted by the rows that need them)
+//   AGENTS.md           -> the row's route (at `alias/AGENTS.md` where the row says so)
+describe("followLinks", () => {
+  type Place = (rel: string) => string;
+  type Row = {
+    name: string;
+    route: string;
+    link?: string;
+    planted?: number;
+    text: string | null;
+    chain: (at: Place) => LinkChain;
+  };
+  const reached =
+    (hops: string[], end: string) =>
+    (at: Place): LinkChain => ({ kind: "reached", hops: hops.map(at), end: at(end) });
+  const broken = (): LinkChain => ({ kind: "broken", hops: [] });
+  const looped =
+    (hops: string[]) =>
+    (at: Place): LinkChain => ({ kind: "looped", hops: hops.map(at) });
+  const links = (n: number): string[] => Array.from({ length: n }, (_, i) => `L${i + 1}`);
+  // Both kernels read a relative target from the folder the link's own path reached, a folder
+  // link before it followed, and the walk names that folder by its real path.
+  const fromTheRealFolder: Row[] = [
+    {
+      name: "a .. in a link inside a linked folder climbs from the folder the link reached",
+      route: "jump/bridge.md",
+      text: "under rules\n",
+      chain: reached(["jump", "rules/sub/bridge.md", "rules/notes.md"], "rules/notes.md"),
+    },
+    {
+      name: "a link whose own folder is reached through a folder link is named by the real folder",
+      route: "plain.md",
+      link: "alias/AGENTS.md",
+      text: "rules\n",
+      chain: reached(["rules/plain.md"], "rules/plain.md"),
+    },
+  ];
+  const tables: { platform: NodeJS.Platform; separator: string; rows: Row[] }[] = [
+    {
+      platform: "linux",
+      separator: "/",
+      rows: [
+        {
+          name: "a .. after a linked folder steps out of the folder the link reached",
+          route: "jump/../maxims-x.md",
+          text: "notes\n",
+          chain: reached(["jump", "rules/maxims-x.md", "notes.md"], "notes.md"),
+        },
+        ...fromTheRealFolder,
+        {
+          name: "a .. after a missing folder",
+          route: "missing/../notes.md",
+          text: null,
+          chain: broken,
+        },
+        { name: "a .. after a file", route: "notes.md/../notes.md", text: null, chain: broken },
+        {
+          name: "a file named with a trailing separator",
+          route: "notes.md/",
+          text: null,
+          chain: broken,
+        },
+        {
+          name: "a file named with a trailing dot",
+          route: "notes.md/.",
+          text: null,
+          chain: broken,
+        },
+        {
+          name: "a chain of 41 links, past the kernel's bound of 40",
+          route: "L1",
+          planted: 40,
+          text: null,
+          chain: looped(links(40)),
+        },
+      ],
+    },
+    {
+      platform: "win32",
+      separator: "\\",
+      rows: [
+        {
+          name: "a .. after a linked folder is folded away before the link is read",
+          route: "jump\\..\\maxims-x.md",
+          text: "root\n",
+          chain: reached(["maxims-x.md"], "maxims-x.md"),
+        },
+        ...fromTheRealFolder,
+        {
+          name: "a .. after a missing folder is folded away",
+          route: "missing\\..\\notes.md",
+          text: "notes\n",
+          chain: reached(["notes.md"], "notes.md"),
+        },
+        {
+          name: "a .. after a file is folded away",
+          route: "notes.md\\..\\notes.md",
+          text: "notes\n",
+          chain: reached(["notes.md"], "notes.md"),
+        },
+        {
+          name: "a file named with a trailing separator",
+          route: "notes.md\\",
+          text: null,
+          chain: broken,
+        },
+        {
+          name: "a file named with a trailing dot is the file",
+          route: "notes.md\\.",
+          text: "notes\n",
+          chain: reached(["notes.md"], "notes.md"),
+        },
+        {
+          name: "a chain of 41 links, within the kernel's bound of 63",
+          route: "L1",
+          planted: 40,
+          text: "notes\n",
+          chain: reached([...links(40), "notes.md"], "notes.md"),
+        },
+        {
+          name: "a chain of 64 links, past the kernel's bound of 63",
+          route: "L1",
+          planted: 63,
+          text: null,
+          chain: looped(links(63)),
+        },
+      ],
+    },
+  ];
+  // What the kernel hands back through a path: its text, or null where it refuses the path. A
+  // failure to look (EACCES, EIO) is neither and fails the row.
+  const opens = (path: string): string | null => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch (cause) {
+      if (isAbsent(cause) || (cause as NodeJS.ErrnoException).code === "ELOOP") return null;
+      throw cause;
+    }
+  };
+  // The Windows table runs on every host, since a POSIX link keeps the backslashes in its target;
+  // the POSIX table only on POSIX hosts, since a Windows link may rewrite its target's separators.
+  for (const { platform, separator, rows } of tables) {
+    const hostKernel = platform === "win32" ? WINDOWS : !WINDOWS;
+    const runs = platform === "win32" || !WINDOWS;
+    const where = runs ? "" : " (POSIX hosts only)";
+    test.skipIf(!runs).each(rows)(
+      `${platform}${where}: $name`,
+      async ({ route, link, planted, text, chain }) => {
+        await withTempDir((dir) => {
+          const at: Place = (rel) => join(dir, ...rel.split("/"));
+          mkdirSync(at("rules/sub"), { recursive: true });
+          writeFileSync(at("notes.md"), "notes\n");
+          writeFileSync(at("maxims-x.md"), "root\n");
+          writeFileSync(at("rules/notes.md"), "under rules\n");
+          writeFileSync(at("rules/plain.md"), "rules\n");
+          symlinkSync(`..${separator}notes.md`, at("rules/maxims-x.md"));
+          symlinkSync(`..${separator}notes.md`, at("rules/sub/bridge.md"));
+          symlinkSync(at("rules/sub"), at("jump"));
+          symlinkSync("rules", at("alias"));
+          for (let i = 1; i <= (planted ?? 0); i++) {
+            symlinkSync(i === planted ? "notes.md" : `L${i + 1}`, at(`L${i}`));
+          }
+          const linkAt = at(link ?? "AGENTS.md");
+          symlinkSync(route, linkAt);
+          const read = followLinks(linkAt, platform);
+          const walked = read.kind === "reached" ? opens(read.end) : null;
+          const kernel = hostKernel ? opens(linkAt) : text;
+          expect([kernel, walked, read]).toEqual([text, text, chain(at)]);
+          expect(followLinks(at("notes.md"), platform)).toEqual(reached([], "notes.md")(at));
+        });
+      },
+    );
+  }
 });

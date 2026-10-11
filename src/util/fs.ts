@@ -7,13 +7,25 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { chmod } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
 export type WriteFileAtomicOptions = {
@@ -87,7 +99,7 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
   const realCandidate =
     resolved === resolvedRoot || dirname(resolved) === resolved
       ? realpathOfExistingPrefix(resolved)
-      : join(realpathOfExistingPrefix(dirname(resolved)), basename(resolved));
+      : realKeyOf(resolved);
   if (!isInside(realRoot, realCandidate)) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
@@ -111,18 +123,143 @@ export function isInside(root: string, path: string): boolean {
 // inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
 export function realpathOfExistingPrefix(path: string): string {
-  let prefix = path;
+  return realpathOfPrefix(path, path);
+}
+
+// The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
+// because the final entry is what a write replaces (a leaf that is a symlink becomes the real
+// file), while two spellings of the directory above it are one place.
+export function realKeyOf(path: string): string {
+  return join(realpathOfPrefix(dirname(path), path), basename(path));
+}
+
+// A failure to look names `asked`, the entry the caller asked about, never the prefix the walk
+// was at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
+// cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
+function realpathOfPrefix(prefix: string, asked: string): string {
+  let at = prefix;
   const tail: string[] = [];
   for (;;) {
     try {
-      return join(realpathSync(prefix), ...tail.reverse());
+      return join(realpathSync(at), ...tail.reverse());
     } catch (cause) {
-      if (!isAbsent(cause)) throw cannotInspect(prefix, cause);
-      const parent = dirname(prefix);
-      if (parent === prefix) return path;
-      tail.push(basename(prefix));
-      prefix = parent;
+      if (!isAbsent(cause)) throw cannotInspect(asked, cause);
+      const parent = dirname(at);
+      if (parent === at) return prefix;
+      tail.push(basename(at));
+      at = parent;
     }
+  }
+}
+
+// Nothing there reads as no link; a probe that could not look is exit 4, never an answer.
+export function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch (cause) {
+    if (isAbsent(cause)) return false;
+    throw cannotInspect(path, cause);
+  }
+}
+
+// The entries a chain of links passes, read as the kernel reads them: the links passed and the
+// entry each reaches, a folder link on the way included, the link at `path` itself excluded.
+// `reached` ends at an entry that is no link (it may not exist); `broken` met a folder that is
+// missing or a file (ENOENT, ENOTDIR); `looped` passed the kernel's bound (ELOOP).
+export type LinkChain =
+  | { kind: "reached"; hops: string[]; end: string }
+  | { kind: "broken"; hops: string[] }
+  | { kind: "looped"; hops: string[] };
+
+// How one kernel reads a link's target. The two differ on what a `..` means, so the same link
+// reaches different files on each, and a walk has to pick the one the kernel of its platform opens:
+//
+//   POSIX    one component at a time; a `..` steps out of the folder the component before it
+//            reached; 40 links, then ELOOP
+//   Windows  `.` and `..` folded in the target string before any entry is looked at, so a `..`
+//            after a linked folder never enters it; 63 reparse points
+//
+// Both read a relative target from the folder the link's own path reached, a folder link before
+// it followed. `parts` is the fold: on Windows `win32.normalize`, whose kept `..` lead the target.
+type LinkSemantics = {
+  parts: (target: string) => { root: string; names: string[]; dirOnly: boolean };
+  maxHops: number;
+};
+const POSIX_LINKS: LinkSemantics = {
+  parts: (target) => {
+    const { root } = posix.parse(target);
+    const names = target
+      .slice(root.length)
+      .split(/\/+/)
+      .filter((name) => name !== "");
+    const dirOnly = target.endsWith("/") || names.at(-1) === ".";
+    return { root, names: names.filter((name) => name !== "."), dirOnly };
+  },
+  maxHops: 40,
+};
+const WINDOWS_LINKS: LinkSemantics = {
+  parts: (target) => {
+    const folded = win32.normalize(target);
+    const { root } = win32.parse(folded);
+    const names = folded
+      .slice(root.length)
+      .split("\\")
+      .filter((name) => name !== "" && name !== ".");
+    return { root, names, dirOnly: folded.endsWith("\\") };
+  },
+  maxHops: 63,
+};
+
+// No path holding a `..` is handed to realpathSync, which folds it before looking at the links
+// before it. Every hop of a followed chain is built on real folders, so `editInPlace` can hold the
+// end of one against a real root; a path that is no link is returned as given.
+export function followLinks(path: string, platform: NodeJS.Platform = process.platform): LinkChain {
+  const links = platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
+  const hops: string[] = [];
+  let at = path;
+  while (isSymlink(at)) {
+    if (hops.length >= links.maxHops) return { kind: "looped", hops };
+    const next = hopOf(hops, realpathOfExistingPrefix(dirname(at)), readlinkSync(at), links);
+    if (next === null) return { kind: "broken", hops };
+    hops.push(next);
+    at = next;
+  }
+  return { kind: "reached", hops, end: at };
+}
+
+// A target ending in a separator names a folder, so its final entry is walked like the ones
+// before it.
+function hopOf(
+  hops: string[],
+  realParent: string,
+  target: string,
+  links: LinkSemantics,
+): string | null {
+  const { root, names, dirOnly } = links.parts(target);
+  let at = root === "" ? realParent : root;
+  const last = dirOnly ? undefined : names.pop();
+  for (const name of names) {
+    if (name === "..") {
+      at = dirname(at);
+      continue;
+    }
+    const entry = join(at, name);
+    if (isSymlink(entry)) hops.push(entry);
+    const folder = existingDirectory(entry);
+    if (folder === null) return null;
+    at = folder;
+  }
+  if (last === undefined) return at;
+  return last === ".." ? dirname(at) : join(at, last);
+}
+
+function existingDirectory(path: string): string | null {
+  try {
+    const real = realpathSync.native(path);
+    return statSync(real).isDirectory() ? real : null;
+  } catch (cause) {
+    if (isAbsent(cause)) return null;
+    throw cannotInspect(path, cause);
   }
 }
 

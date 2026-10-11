@@ -51,7 +51,7 @@ flowchart LR
   plock -->|"fixed field order, sorted keys: two machines with one intent diff empty"| projlock
   sync -->|"touches"| stamp
   sync -->|"asks each for its changes"| planners
-  planners -->|"Change list: write, delete, symlink, unlink, mkdir"| apply
+  planners -->|"Change list: write, edit, delete, symlink, unlink, mkdir"| apply
   apply -->|"temp plus rename"| dest
 ```
 
@@ -242,11 +242,12 @@ flowchart LR
   fs -->|"a candidate outside its root: exit 4, nothing written"| exit
   planners -->|"a Plan: changes and notices"| change
   change -->|"dryRun: nothing applied, renderPlan() or the plan inside the --json document is the whole output"| stdout
-  change -->|"write: compare, then writeFileAtomic(), unlink and symlink refuse a real file"| disk
+  change -->|"write and edit: compare, then writeFileAtomic(); an edit lands in the file a link resolves to; unlink and symlink refuse a real file"| disk
   change -->|"a probe that could not look: exit 4, never a change that silently did not happen"| exit
 ```
 
 - **A `write` compares before it writes,** so an unchanged file keeps its bytes and its mtime, and a sync that changes nothing touches no destination.
+- **An `edit` is a `write` into a file the user owns** (a hook registry, a shared instruction file). The planner resolves a symlink at the path and asserts its target inside the root; the apply writes beside the target and renames onto it, so a dotfiles link survives. A dangling link, one out of the root, or one at a rule file maxims owns whole is refused by name.
 - **`unlink` and `symlink` refuse a real file or directory at the path,** so the only thing a link change replaces is a link maxims could have written itself; a repointed link is created beside the old one and renamed over it, so no reader sees it absent.
 - **Containment is judged on real paths.** `assertInsideRoot()` resolves the existing prefix of both root and candidate, so a rules directory symlinked out of the project fails while a root that is itself a symlink passes.
 

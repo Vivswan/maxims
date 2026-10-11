@@ -12,12 +12,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { util } from "zod";
 import { targetPath } from "../../src/commands/frame/lookup.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
@@ -35,6 +37,7 @@ import { HARNESSES } from "../../src/harnesses/registry.ts";
 import type { Destination } from "../../src/state/schema.ts";
 import type { Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import { gitInit } from "../shared/git_fixture.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
   type Bundle,
@@ -179,6 +182,8 @@ function carriedOut(change: Change): boolean {
   switch (change.kind) {
     case "write":
       return existsSync(change.path) && readFileSync(change.path, "utf8") === change.content;
+    case "edit":
+      return existsSync(change.target) && readFileSync(change.target, "utf8") === change.content;
     case "delete":
     case "unlink":
       return !existsSync(change.path);
@@ -356,3 +361,49 @@ describe.each(missingScope)("%s has no %s target", (_id, scope, def) => {
     });
   });
 });
+
+// node's `realpathSync` folds `..` lexically where the kernel does not, so under node the project
+// scope's removal named the stray `~/hooks.json` and erased the hook settled behind the link. The
+// bundle runs as shipped, no spy. Windows folds as node does and is not under test here.
+test.skipIf(process.platform === "win32")(
+  "a settled codex hook survives a sync when its project registry is a link whose target holds .. after a linked folder",
+  async () => {
+    await withTempDir(async (dir) => {
+      const home = makeHome(dir);
+      gitInit(home.root);
+      const codexHome = join(home.root, "dotfiles", "codex");
+      mkdirSync(join(codexHome, "sub"), { recursive: true });
+      const backing = join(codexHome, "hooks.json");
+      writeFileSync(backing, "{}\n");
+      const stray = join(home.root, "hooks.json");
+      writeFileSync(stray, "{}\n");
+      symlinkSync(join(codexHome, "sub"), join(home.root, "jump"));
+      mkdirSync(join(home.root, ".codex"));
+      const link = join(home.root, ".codex", "hooks.json");
+      // Spelled by hand: `join` would fold `jump/..` away before the link is ever made.
+      const typed = ["..", "jump", "..", "hooks.json"].join(sep);
+      symlinkSync(typed, link);
+      const env = { CODEX_HOME: codexHome };
+      const codex = HARNESSES.find((def) => def.id === "codex");
+      if (codex === undefined) throw new Error("the codex definition is in the registry");
+      const ctx: HarnessContext = {
+        home: home.root,
+        projectRoot: home.root,
+        cwd: home.root,
+        env: childEnv(home, env),
+      };
+      const source = fixtureRepo(dir, "rules");
+      const argv = ["add", source, "-g", "--rule", "--add-hook", "-a", "codex", "-y"];
+      ok(await runMaxims(bundle, home, argv, { cwd: home.root, env }));
+      await expectHookInstalled(codex, "global", ctx, null);
+      const settled = readFileSync(backing, "utf8");
+      ok(await runMaxims(bundle, home, ["sync"], { cwd: home.root, env }));
+      expect([
+        readFileSync(backing, "utf8"),
+        readlinkSync(link),
+        readFileSync(stray, "utf8"),
+      ]).toEqual([settled, typed, "{}\n"]);
+    });
+  },
+  ROW_TIMEOUT_MS,
+);

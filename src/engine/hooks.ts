@@ -5,7 +5,7 @@ import {
   type Scope,
   scopeRoot,
 } from "../harnesses/contract.ts";
-import { planHookOnly } from "../harnesses/hook-writer.ts";
+import { type HookPlan, hasHook, hookPath, planHookOnly } from "../harnesses/hook-writer.ts";
 import {
   type McpRegistration,
   mcpRegistrationAt,
@@ -14,12 +14,13 @@ import {
 } from "../harnesses/mcp-stub/register.ts";
 import type { State } from "../state/schema.ts";
 import { type ScopeAt, scopedAt, scopesOf, withScopedList } from "../state/scoped.ts";
-import type { Change } from "../util/change.ts";
+import { type Change, editInPlace } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
-import { assertInsideRoot, realpathOfExistingPrefix } from "../util/fs.ts";
+import { assertInsideRoot, followLinks, realKeyOf } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
-import { destinationConflict, realKeyOf } from "./destination.ts";
+import { destinationConflict } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
+import { LinkedAtRuleFile } from "./rules.ts";
 import type { HarnessFilter } from "./types.ts";
 
 // The harnesses whose hook state wants at one scope; a project scope with no project root wants
@@ -103,6 +104,11 @@ export type HarnessWants = {
   unreachable: boolean;
 };
 
+// Refuses a link an edit would pass through a rule file maxims owns whole: the sync planner's
+// one judgment, shared files and registries alike, so a registry linked at a rule file never
+// holds the registry until the next sync writes rules over the user's settings.
+export type LinkJudge = (link: string, keys?: readonly string[]) => void;
+
 // `removals` take our entry or artifact out of a registry the intent no longer wants it in; a
 // hook run defers them like any other removal.
 export type HooksPlan = {
@@ -122,6 +128,7 @@ export async function planHooks(input: {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
+  judgeLink: LinkJudge;
   wants: (id: HarnessId, scope: Scope) => HarnessWants;
   // The roots of the other projects whose entries want the harness's hook.
   elsewhere: (id: HarnessId) => string[];
@@ -139,9 +146,7 @@ export async function planHooks(input: {
     try {
       return await plan();
     } catch (error) {
-      if (!(error instanceof MaximsError) || error.code !== ExitCode.DestinationWriteFailed) {
-        throw error;
-      }
+      if (!registryFailure(error)) throw error;
       if (mustEdit && !failures.some((failure) => failure.message === error.message)) {
         failures.push({ message: error.message, hint: error.hint });
       }
@@ -158,13 +163,13 @@ export async function planHooks(input: {
       const wants = input.wants(def.id, scope);
       if (wants.unreachable) continue;
       const hook = await attempt(wants.hook, () =>
-        hookAnswer(def, scope, harnessCtx, wants.hook, reach),
+        hookAnswer(def, scope, harnessCtx, wants.hook, reach, input.judgeLink),
       );
       const mcp = await attempt(wants.hook, async () => {
         const registration = mcpRegistrationAt(def, scope, harnessCtx);
         if (registration === null) return null;
         reach.add(fileId(registration.path));
-        return mcpAnswer(registration, wants.hook, hook);
+        return mcpAnswer(def, scope, harnessCtx, registration, wants.hook, hook, input.judgeLink);
       });
       const config = await attempt(wants.rules, async () => {
         const edits = (await def.configEdit?.(scope, harnessCtx, wants.rules)) ?? [];
@@ -186,13 +191,13 @@ export async function planHooks(input: {
         const declared = resolvedThere(() => declaredHookFile(def, "project", there));
         if (declared === undefined) return null;
         if (declared !== null && !reach.has(fileId(declared))) return null;
-        return hookAnswer(def, "project", there, true, null);
+        return hookAnswer(def, "project", there, true, null, input.judgeLink);
       });
       const mcp = await attempt(true, async () => {
         const registration = resolvedThere(() => mcpRegistrationAt(def, "project", there));
         if (registration === undefined || registration === null) return null;
         if (!reach.has(fileId(registration.path))) return null;
-        return mcpAnswer(registration, true, hook);
+        return mcpAnswer(def, "project", there, registration, true, hook, input.judgeLink);
       });
       for (const answer of [hook, mcp]) {
         if (answer?.claims.some((file) => reach.has(fileId(file)))) {
@@ -221,6 +226,38 @@ function resolvedThere<T>(resolve: () => T): T | undefined {
     if (!destinationUnresolvable(error)) throw error;
     return undefined;
   }
+}
+
+// A registry this run cannot read or edit (unparsable, a file where a folder should be, a link
+// nothing can follow) fails that harness alone, the others proceeding. A registry linked at a rule
+// file maxims owns whole refuses the plan whole instead, as a shared file's link does.
+function registryFailure(error: unknown): error is MaximsError {
+  return (
+    error instanceof MaximsError &&
+    error.code === ExitCode.DestinationWriteFailed &&
+    !(error instanceof LinkedAtRuleFile)
+  );
+}
+
+// A registry is the user's file, edited where its bytes live, and its link is judged before the
+// registry is read through it. A file hook is maxims's own artifact and stays a plain write, a
+// real file wherever a link pointed.
+async function planHook(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  wanted: boolean,
+  judgeLink: LinkJudge,
+): Promise<HookPlan> {
+  if (!hasHook(def, "registry")) return planHookOnly({ def, scope, ctx, wanted });
+  const path = hookPath(def, scope, ctx);
+  judgeLink(path);
+  const edit = editInPlace(scopeRoot(def, scope, ctx), path);
+  const hook = await planHookOnly({ def, scope, ctx, wanted });
+  const changes = hook.changes.map((change) =>
+    change.kind === "write" ? edit(change.content) : change,
+  );
+  return { ...hook, changes };
 }
 
 // A registry or file hook knows its file before it is planned; a custom hook names its files only
@@ -253,34 +290,55 @@ async function hookAnswer(
   ctx: HarnessContext,
   wanted: boolean,
   reach: Set<string> | null,
+  judgeLink: LinkJudge,
 ): Promise<ScopeAnswer> {
   const declared = declaredHookFile(def, scope, ctx);
   if (declared !== null) reach?.add(fileId(declared));
-  const plan = await planHookOnly({ def, scope, ctx, wanted });
+  const plan = await planHook(def, scope, ctx, wanted, judgeLink);
   const claims = hookFiles(def, scope, ctx, plan.changes);
   for (const claim of claims) reach?.add(fileId(claim));
   return { artifact: plan.changes, claims, wanted, notices: noticesOf(plan.notice) };
 }
 
-// The stub server entry. A user-defined harness may keep its hooks and its servers in one file:
-// the entry is then planned over the hook's planned text and rides in the hook's write, notice
-// included. The names are matched by `realKeyOf`: a servers path through a directory link is the
-// hook's registry, while a leaf that is a link is replaced by the write and stays its own file.
+// Hooks and servers kept in one file are planned as one change over the hook's text: a second
+// change of that file from its old text would land after the first and take the hook back out.
+// Where the hook's answer is a failure:
+//
+//   refused at the servers file's own path   no servers change: a second read through the refused
+//                                            link would fail again, worded differently
+//   anywhere else                            the servers change on its own: a hook folder nobody
+//                                            can resolve failed the hook alone, never this file
 async function mcpAnswer(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
   registration: McpRegistration,
   wanted: boolean,
   hook: ScopeAnswer | null,
+  judgeLink: LinkJudge,
 ): Promise<ScopeAnswer> {
-  const file = realKeyOf(registration.path);
+  judgeLink(registration.path);
+  const leaf = realKeyOf(registration.path);
+  const rides = { artifact: [], claims: [registration.path], wanted, notices: [] };
+  if (
+    hook === null &&
+    hasHook(def, "registry") &&
+    resolvedThere(() => realKeyOf(def.hook.path(scope, ctx))) === leaf
+  ) {
+    return rides;
+  }
+  const identities = new Set([leaf, fileId(registration.path)]);
   const shared =
-    hook?.artifact.findIndex(
-      (change) => change.kind === "write" && realKeyOf(change.path) === file,
-    ) ?? -1;
+    hook?.artifact.findIndex((change) => filesOf(change).some((file) => identities.has(file))) ??
+    -1;
   const current = hook?.artifact[shared];
-  if (hook === null || current?.kind !== "write") {
+  if (hook === null || current === undefined || !carriesText(current)) {
     const plan = await planMcpOnly(registration, wanted);
+    const root = scopeRoot(def, scope, ctx);
     return {
-      artifact: plan.changes,
+      artifact: plan.changes.map((change) =>
+        change.kind === "write" ? editInPlace(root, registration.path)(change.content) : change,
+      ),
       claims: [registration.path],
       wanted,
       notices: noticesOf(plan.notice),
@@ -292,31 +350,47 @@ async function mcpAnswer(
     hook.artifact[shared] = { ...current, content: write.content };
     hook.notices.push(...noticesOf(plan.notice));
   }
-  return { artifact: [], claims: [registration.path], wanted, notices: [] };
+  return rides;
+}
+
+function carriesText(change: Change): change is Extract<Change, { kind: "write" | "edit" }> {
+  return change.kind === "write" || change.kind === "edit";
+}
+
+function landsIn(change: Extract<Change, { kind: "write" | "edit" }>): string {
+  return change.kind === "edit" ? change.target : change.path;
+}
+
+function filesOf(change: Change): string[] {
+  const files = [realKeyOf(change.path)];
+  if (carriesText(change)) files.push(realKeyOf(landsIn(change)));
+  return files;
 }
 
 function noticesOf(notice: string | undefined): string[] {
   return notice === undefined ? [] : [notice];
 }
 
-// One file under two spellings (a home reached through a symlink, a project root recorded by its
-// real path) is one file to reconcile.
+// One file under two spellings is one file to reconcile. The leaf is walked as an edit finds its
+// target, never through `realpathSync`: node's folds a `..` in a link's target lexically
+// (`hooks.json -> ../jump/../hooks.json`, `jump` a link) and names another file.
 function fileId(path: string): string {
-  return realpathOfExistingPrefix(path);
+  const chain = followLinks(path);
+  return realKeyOf(chain.kind === "reached" ? chain.end : path);
 }
 
-// One file can be reached from both scopes: dsh mounts its bridge under the global root whatever
-// the install scope, and a home directory that is itself a repository makes the project and the
-// global registry one file. A project-only install would then write the hook for the project scope
-// and delete it again for the global scope, the deletion applied last. A removal touching any file
-// a wanted answer claims is dropped whole, its companion edits (the patch row) included. The claim
-// covers files the wanted answer leaves alone: on a settled registry the wanted scope has nothing
-// to write while the unwanted scope still finds our entry to remove. Files are matched by
-// `realKeyOf`, the fold's identity, and a claim no wanted change touches covers the file behind
-// it too: a leaf that is a link stays one, so the file behind it is the registration; a change at
-// the leaf replaces the link with a real file, so the file behind it is another file and its
-// removal stands. A removal is matched by its leaf and by the file behind it, so a write at a link
-// partway along a kept claim's chain is dropped as well.
+// One file can be reached from both scopes (dsh mounts its bridge under the global root whatever
+// the install scope; a home that is a repository makes the project and the global registry one
+// file), and the unwanted scope's removal applies last. A removal of a file a wanted answer
+// claims is dropped whole, patch row included. What a claim covers, by `realKeyOf`:
+//
+//   a wanted change             its leaf, and the file it lands in (an edit's target)
+//   a claim no change touches   its leaf, and the file behind it: the link stays, so that file is
+//                               the registration the unwanted scope would remove
+//   a claim a write touches     its leaf only: the write replaces the link, so the file behind it
+//                               is another file and its removal stands
+//   a removal                   its leaf, the file it lands in, and the file behind its leaf, so a
+//                               write at a link partway along a kept claim's chain is dropped too
 function reconcileScopes(
   answers: readonly ScopeAnswer[],
 ): Pick<HooksPlan, "changes" | "removals" | "notices"> {
@@ -324,19 +398,18 @@ function reconcileScopes(
   const removals: Change[] = [];
   const notices: string[] = [];
   const wanted = answers.filter((answer) => answer.wanted);
-  const touched = new Set(
-    wanted.flatMap((answer) => answer.artifact.map((c) => realKeyOf(c.path))),
-  );
-  const kept = new Set<string>();
+  const touched = new Set(wanted.flatMap((answer) => answer.artifact.flatMap(filesOf)));
+  const kept = new Set(touched);
   for (const claim of wanted.flatMap((answer) => answer.claims)) {
     const key = realKeyOf(claim);
     kept.add(key);
     if (!touched.has(key)) kept.add(fileId(claim));
   }
-  const keeps = (path: string): boolean => kept.has(realKeyOf(path)) || kept.has(fileId(path));
+  const keeps = (change: Change): boolean =>
+    filesOf(change).some((file) => kept.has(file)) || kept.has(fileId(change.path));
   for (const answer of answers) {
     if (answer.wanted) changes.push(...answer.artifact);
-    else if (answer.artifact.some((change) => keeps(change.path))) continue;
+    else if (answer.artifact.some(keeps)) continue;
     else removals.push(...answer.artifact);
     notices.push(...answer.notices);
   }
