@@ -29,7 +29,7 @@ Every path is relative to its scope root: the project root for a project install
 | `mcp` | `{ path, serversPath }`: the MCP config per scope and its servers map's key path |
 | `fixtures` | built-in folders only: `config` and `hookStdin` file names under `fixtures/` |
 
-`globalRoot.env` takes an optional `subdir` appended to the variable's value. `byteBudget` is one number for both scopes, or `{ project?, global? }` when the two files are capped differently. In `detect.dirs`, `.` is the global root itself.
+`globalRoot.env` takes an optional `subdir` appended to the variable's value, and an optional `platforms` list (`process.platform` names such as `linux` or `darwin`) outside which the variable is not read. `byteBudget` is one number for both scopes, or `{ project?, global? }` when the two files are capped differently. In `detect.dirs`, `.` is the global root itself.
 
 A `rules-dir` target is `{ kind: "rules-dir", dir, fileName, frontmatter? }`. The file name must contain `{{slug}}`, which becomes the source slug.
 

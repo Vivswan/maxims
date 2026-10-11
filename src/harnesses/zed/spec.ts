@@ -9,7 +9,7 @@ export const spec = {
   displayName: "Zed",
   tier: 2,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-10",
     sources: [
       {
         kind: "file",
@@ -49,11 +49,11 @@ export const spec = {
         ref: "main",
         path: "docs/src/configuring-zed.md",
         claims: [
-          "~/.config/zed/settings.json",
-          "$XDG_CONFIG_HOME/zed/settings.json",
+          "- macOS: `~/.config/zed/settings.json`",
+          "- Linux: `~/.config/zed/settings.json` (or `$XDG_CONFIG_HOME/zed/settings.json`)",
           ".zed/settings.json",
         ],
-        note: "settings.json under ~/.config/zed",
+        note: "settings.json under ~/.config/zed, with $XDG_CONFIG_HOME given for Linux alone",
       },
       {
         kind: "file",
@@ -73,7 +73,10 @@ export const spec = {
       },
     ],
   },
-  globalRoot: { default: ".config/zed", env: { name: "XDG_CONFIG_HOME", subdir: "zed" } },
+  globalRoot: {
+    default: ".config/zed",
+    env: { name: "XDG_CONFIG_HOME", subdir: "zed", platforms: ["linux", "freebsd"] },
+  },
   targets: {
     project: {
       kind: "shared-block",

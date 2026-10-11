@@ -14,10 +14,13 @@ import {
   type SourceSlug,
   sharedBlockFile,
 } from "../../src/harnesses/contract.ts";
+import { toDefinition } from "../../src/harnesses/from-spec.ts";
 import { hasHook, hookPath } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
+import type { HarnessSpec } from "../../src/harnesses/spec.ts";
 import { rulesDirPath } from "../../src/harnesses/strategies/rules-dir.ts";
 import { sharedBlockPath } from "../../src/harnesses/strategies/shared-block.ts";
+import { spec as zedSpec } from "../../src/harnesses/zed/spec.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { exampleContext } from "./context.ts";
 
@@ -212,7 +215,8 @@ const AT_HOME: Record<BuiltInHarnessId, Record<Scope, Files>> = {
 };
 
 // A relocated config directory moves every user-level file with it, and a variable the vendor's
-// docs do not honour moves nothing. A relative override resolves against the working directory,
+// docs do not honour moves nothing. A variable the vendor reads on some platforms only is driven
+// per platform in UNDER_XDG below. A relative override resolves against the working directory,
 // which tests/harnesses/from-spec.test.ts pins once for the compiler.
 const RELOCATED: [string, BuiltInHarnessId, Record<string, string>, Files][] = [
   [
@@ -244,12 +248,6 @@ const RELOCATED: [string, BuiltInHarnessId, Record<string, string>, Files][] = [
       hook: "/home/user/xdg/opencode/plugins/maxims.ts",
       mcp: null,
     },
-  ],
-  [
-    "$XDG_CONFIG_HOME",
-    "zed",
-    { XDG_CONFIG_HOME: "/xdg" },
-    { rule: "/xdg/zed/AGENTS.md", hook: null, mcp: "/xdg/zed/settings.json" },
   ],
   [
     "$XDG_CONFIG_HOME, which Amp's docs leave out of its root",
@@ -347,10 +345,7 @@ const INSTALLS: Record<BuiltInHarnessId, Layout[]> = {
   ],
   devin: [["~/.config/devin", ["home/.config/devin/"], {}, true]],
   windsurf: [["~/.codeium/windsurf", ["home/.codeium/windsurf/"], {}, true]],
-  zed: [
-    ["a zed directory under $XDG_CONFIG_HOME", ["xdg/zed/"], { XDG_CONFIG_HOME: "./xdg" }, true],
-    ["~/.config/zed", ["home/.config/zed/"], {}, true],
-  ],
+  zed: [["~/.config/zed", ["home/.config/zed/"], {}, true]],
   amp: [["~/.config/amp", ["home/.config/amp/"], {}, true]],
   warp: [
     ["~/.warp", ["home/.warp/"], {}, true],
@@ -403,6 +398,64 @@ test.each(installRows)(
           env: under,
         }),
       ).toBe(installed);
+    });
+  },
+);
+
+// Zed's paths.rs resolves `$XDG_CONFIG_HOME` on Linux and FreeBSD and fixes `~/.config/zed` on
+// macOS, a fact only its loader enforces. The registry compiles for the platform the suite runs
+// on, so each platform's definition is compiled here. Paths are relative to a temporary directory
+// holding `home/` and the override's `xdg/zed/`, and `installed` is what detection says of a
+// machine with only that directory.
+type PlatformRow = [string, HarnessSpec, NodeJS.Platform, Files, boolean];
+
+const UNDER_XDG: PlatformRow[] = [
+  [
+    "zed on Linux",
+    zedSpec,
+    "linux",
+    { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
+    true,
+  ],
+  [
+    "zed on FreeBSD",
+    zedSpec,
+    "freebsd",
+    { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
+    true,
+  ],
+  [
+    "zed on macOS, where Zed ignores $XDG_CONFIG_HOME",
+    zedSpec,
+    "darwin",
+    { rule: "home/.config/zed/AGENTS.md", hook: null, mcp: "home/.config/zed/settings.json" },
+    false,
+  ],
+];
+
+test.each(UNDER_XDG)(
+  "%s: the global files under $XDG_CONFIG_HOME land where it reads them",
+  async (_label, spec, platform, files, installed) => {
+    await withTempDir((dir) => {
+      make(dir, "xdg/zed/");
+      const home = join(dir, "home");
+      const ctx = {
+        home,
+        projectRoot: null,
+        cwd: home,
+        env: { XDG_CONFIG_HOME: join(dir, "xdg") },
+      };
+      const def = toDefinition(spec, {}, platform);
+      const rooted = (path: string | null): string | null =>
+        path === null ? null : join(dir, path);
+      expect({ ...filesOf(def, "global", ctx), installed: def.detect(ctx) }).toEqual({
+        ...resolvedFiles({
+          rule: rooted(files.rule),
+          hook: rooted(files.hook),
+          mcp: rooted(files.mcp),
+        }),
+        installed,
+      });
     });
   },
 );

@@ -162,6 +162,20 @@ test("the global root joins the env override with its subdirectory and strips ~/
   expect(
     def.globalRoot?.({ home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: "custom" } }),
   ).toBe(join(process.cwd(), "custom", "example"));
+  // A `platforms` list gates the override on the platform the definition is compiled for; the
+  // list left out reads it everywhere, which the assertions above compile for this machine.
+  const gated = specOf({
+    ...rendering,
+    globalRoot: {
+      default: "~/.config/example",
+      env: { name: "XDG_CONFIG_HOME", subdir: "example", platforms: ["linux", "freebsd"] },
+    },
+  });
+  const withXdg = { home, projectRoot: null, cwd: home, env: { XDG_CONFIG_HOME: xdg } };
+  expect(toDefinition(gated, {}, "freebsd").globalRoot?.(withXdg)).toBe(resolve("/xdg/example"));
+  expect(toDefinition(gated, {}, "darwin").globalRoot?.(withXdg)).toBe(
+    resolve("/home/user/.config/example"),
+  );
   const whole = toDefinition(
     specOf({
       ...rendering,
