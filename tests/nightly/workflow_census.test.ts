@@ -1,7 +1,8 @@
 // Fails if the dispatcher's categories, the workflow's report legs, and the settings' labels stop
-// naming the same set, or if a report leg stops deciding on its own category's result.
+// naming the same set, if a tracked category runs twice a night or never (here and again inside
+// the release gate), or if a report leg stops deciding on its own category's result.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { data, Evaluator, Lexer, Parser } from "@actions/expressions";
 import type { FunctionDefinition } from "@actions/expressions/funcs/info";
@@ -16,17 +17,23 @@ const read = (path: string): unknown => parse(readFileSync(resolve(repoRoot, pat
 // YAML reads a bare `if: true` as a boolean; GitHub reads every condition as its text.
 type Condition = string | boolean;
 type Step = { if?: Condition; run?: string; uses?: string; with?: Record<string, string> };
-type Leg = { category: string; description: string };
+type Leg = { category: string; description: string; result: string };
 type Job = {
+  "timeout-minutes"?: number | string;
   needs?: string[];
   if?: Condition | null;
-  steps: Step[];
+  uses?: string;
+  outputs?: Record<string, string>;
+  steps?: Step[];
   strategy?: { matrix: { include: Leg[] } };
 };
 type Workflow = { jobs: Record<string, Job> };
+type Gate = Workflow & { on: { workflow_call: { outputs: Record<string, { value: string }> } } };
 type Settings = { labels: { name: string; color: string; description: string }[] };
 
+const GATE_PATH = ".github/workflows/release-gate.yml";
 const workflow = read(".github/workflows/nightly.yml") as Workflow;
+const gate = read(GATE_PATH) as Gate;
 const settings = read(".github/settings.local.yml") as Settings;
 
 // The container tier runs through its own script rather than the dispatcher and writes no
@@ -34,6 +41,11 @@ const settings = read(".github/settings.local.yml") as Settings;
 const TRACKED = [...CATEGORIES, "container"].sort();
 const report = workflow.jobs.report;
 const legs = report?.strategy?.matrix.include ?? [];
+const tiers = Object.keys(gate.jobs);
+
+// A category declared in both files is caught by the census below, not hidden by this preference.
+const tierJob = (category: string): Job | undefined =>
+  gate.jobs[category] ?? workflow.jobs[category];
 
 type Result = "success" | "failure" | "cancelled";
 type Context = Record<string, unknown>;
@@ -86,14 +98,51 @@ const fill = (template: string, context: Context): string =>
     evaluate(expression, context).coerceString(),
   );
 
+// One simulated night: `category` ends with `own`, every other tier and category with `siblings`.
+// GitHub reports the gate call as one result for all its tiers, so a tier's own verdict reaches
+// the report legs only through two declared mappings, rendered here as the runner would: the
+// tier job's outputs from its final `job.status`, then the gate's outputs from those.
 function night(category: string, own: Result, siblings: Result): Step[] {
   const leg = legs.find((entry) => entry.category === category);
   const job = leg === undefined ? workflow.jobs[`report-${category}`] : report;
-  const needs = Object.fromEntries(
-    (job?.needs ?? []).map((name) => [name, { result: name === category ? own : siblings }]),
+  const verdict = (name: string): Result => (name === category ? own : siblings);
+  const gateJobs = Object.fromEntries(
+    tiers.map((tier) => [
+      tier,
+      {
+        outputs: Object.fromEntries(
+          Object.entries(gate.jobs[tier]?.outputs ?? {}).map(([name, value]) => [
+            name,
+            fill(value, { job: { status: verdict(tier) } }),
+          ]),
+        ),
+      },
+    ]),
   );
-  const context: Context = { needs, matrix: leg ?? {} };
-  const results = Object.values(needs).map((need) => need.result);
+  const gateCall = {
+    result: tiers.every((tier) => verdict(tier) === "success") ? "success" : "failure",
+    outputs: Object.fromEntries(
+      Object.entries(gate.on.workflow_call.outputs).map(([name, output]) => [
+        name,
+        fill(output.value, { jobs: gateJobs }),
+      ]),
+    ),
+  };
+  const needs = Object.fromEntries(
+    (job?.needs ?? []).map((name) => [
+      name,
+      name === "release-gate" ? gateCall : { result: verdict(name) },
+    ]),
+  );
+  // A leg's fields are rendered under `needs` before any step reads them, as the runner does.
+  const matrix =
+    leg === undefined
+      ? {}
+      : Object.fromEntries(
+          Object.entries(leg).map(([key, value]) => [key, fill(value, { needs })]),
+        );
+  const context: Context = { needs, matrix };
+  const results = Object.values(needs).map((need) => need.result as Result);
   // A job-level `if` sees `needs` but not `matrix`; GitHub rejects the workflow otherwise.
   if (!truthy(evaluate(jobCondition(job?.if), { needs }, statusFunctions(results)))) return [];
   return (job?.steps ?? [])
@@ -120,15 +169,41 @@ const DECISIONS: Record<Result, string[]> = {
   success: ["resolve"],
 };
 
-test("the report legs are the dispatcher's categories, and nothing else has a job", () => {
-  expect(legs.map((leg) => leg.category).sort()).toEqual([...CATEGORIES].sort());
+test("every tracked category has one job a night, here or in the release gate, and nothing else has one", () => {
+  const inline = Object.keys(workflow.jobs).filter((name) => TRACKED.includes(name));
+  expect([...inline, ...tiers].sort()).toEqual(TRACKED);
+  expect(workflow.jobs["release-gate"]?.uses).toBe(`./${GATE_PATH}`);
   expect(Object.keys(workflow.jobs).sort()).toEqual(
-    [...TRACKED, "report", "report-container"].sort(),
+    [...inline, "release-gate", "report", "report-container"].sort(),
   );
+  expect(legs.map((leg) => leg.category).sort()).toEqual([...CATEGORIES].sort());
+});
+
+// GitHub's default job timeout is six hours and nothing reports its absence.
+test("every release-gate job carries its own timeout", () => {
+  const missing = Object.entries(gate.jobs)
+    .filter(([, job]) => job["timeout-minutes"] === undefined)
+    .map(([name]) => name);
+  expect(missing).toEqual([]);
+});
+
+// A second caller runs every tier twice per release with no error from GitHub. The managed
+// ci.yml is the platform's caller and is left out: it changes by sync, never here. A call names
+// the file by a local path, by this repository's coordinate with a ref, or by the `$/` shorthand.
+const CALLS_GATE = new RegExp(`(^\\./|^\\$/|/)${RegExp.escape(GATE_PATH)}(@|$)`);
+test("nightly.yml is the one repository-owned caller of the release gate", () => {
+  const callers = readdirSync(resolve(repoRoot, ".github/workflows"))
+    .filter((file) => /\.ya?ml$/.test(file) && file !== "ci.yml")
+    .flatMap((file) =>
+      Object.entries((read(`.github/workflows/${file}`) as Workflow).jobs ?? {})
+        .filter(([, job]) => CALLS_GATE.test(job.uses ?? ""))
+        .map(([name]) => `${file}:${name}`),
+    );
+  expect(callers).toEqual(["nightly.yml:release-gate"]);
 });
 
 test.each([...CATEGORIES])("the %s job runs its category through the dispatcher", (category) => {
-  const runs = workflow.jobs[category]?.steps.flatMap((step) => step.run ?? []) ?? [];
+  const runs = tierJob(category)?.steps?.flatMap((step) => step.run ?? []) ?? [];
   expect(runs.some((line) => line.startsWith(`bun run nightly ${category} `))).toBe(true);
 });
 
@@ -142,7 +217,7 @@ test.each(nights)(
   "a night where %s is %s and its siblings %s decides on its own result, under its own label and artifact",
   (category, own, siblings) => {
     const steps = night(category, own, siblings);
-    const uploaded = workflow.jobs[category]?.steps.find((step) =>
+    const uploaded = tierJob(category)?.steps?.find((step) =>
       step.uses?.startsWith("actions/upload-artifact@"),
     )?.with?.name;
     // The container tier uploads no report, so its red night has nothing to download.
