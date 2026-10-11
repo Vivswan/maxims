@@ -9,6 +9,7 @@ import { createEngine } from "../../src/commands/loader.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { estimateTokens } from "../../src/rulefile/budget.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { runCli, type Scenario, withScenario } from "../commands/fake-engine.ts";
 import {
   entryFor,
   localFrom,
@@ -18,7 +19,6 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { globalRulesFile, TWO_MEMORIES } from "../engine/world.ts";
-import { runCli, type Scenario, withScenario } from "./harness.ts";
 
 const BROKEN = '{"ruleCap":"x","agents":["codex"]}\n';
 

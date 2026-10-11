@@ -9,6 +9,7 @@ import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:f
 import { join } from "node:path";
 import { createEngine } from "../../src/commands/loader.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { type RunResult, runCli, type Scenario, withScenario } from "../commands/fake-engine.ts";
 import {
   ADDED_AT,
   fetchedEntry,
@@ -28,7 +29,6 @@ import {
   scriptedGit,
   scriptedRunner,
 } from "../sources/github/fakes/runner.ts";
-import { type RunResult, runCli, type Scenario, withScenario } from "./harness.ts";
 
 const FROM = githubFrom("a/b");
 const KEY = "@a/b";

@@ -26,7 +26,7 @@ import { normalizeHelp } from "../scripts/lib/skills_help.ts";
 import type { FlagSpec } from "../src/commands/frame/options.ts";
 import { ExitCode } from "../src/util/exit-codes.ts";
 import { VERSION } from "../src/version.ts";
-import { FIXTURES, runCli, type Scenario, withScenario } from "./cli/harness.ts";
+import { FIXTURES, runCli, type Scenario, withScenario } from "./commands/fake-engine.ts";
 
 const RULES = join(FIXTURES, "rules");
 
