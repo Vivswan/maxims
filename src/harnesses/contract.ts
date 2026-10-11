@@ -128,9 +128,10 @@ export type ConfigLayer =
   | { kind: "value"; value: unknown }
   | { kind: "unreadable"; reason: string };
 
-// What the harness does with a config layer it cannot parse or its schema rejects. One that skips
-// the file keeps its other layers in effect, so only the file the hook is registered in bears on
-// the tier; one that refuses to start runs no hook from any layer.
+// Which unreadable layers `achievedTier` (hook-writer.ts) takes as the tier-2 reading.
+//   skips-the-file     only the file this scope's hook is registered in; any other unreadable
+//                      layer is passed over, and the first layer that sets the key decides
+//   refuses-to-start   any layer, since the harness runs no hook from any of them
 export type UnreadableLayer = "skips-the-file" | "refuses-to-start";
 
 // One file of a tier check's walk, in the harness's precedence order. A project layer names the

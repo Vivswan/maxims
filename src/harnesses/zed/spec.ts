@@ -2,8 +2,8 @@ import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
 // Zed reads exactly one project instruction file, and only at the worktree root. Its paths.rs
-// resolves the config directory through `$XDG_CONFIG_HOME` on Linux and FreeBSD and fixes it at
-// `~/.config/zed` on macOS.
+// honours `$XDG_CONFIG_HOME` on Linux and FreeBSD only and fixes `~/.config/zed` on macOS; the
+// `globalRoot` below honours the variable on every platform.
 export const spec = {
   id: "zed",
   displayName: "Zed",

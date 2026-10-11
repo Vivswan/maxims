@@ -5,8 +5,10 @@ import type { HarnessSpec } from "../spec.ts";
 // under `alwaysApply: true`; a scoped one is attached by its `globs` instead.
 //   global target   none: user rules live in Cursor's settings UI, not in a file
 //   bursts          `sessionStart` fires for every new conversation and is fire-and-forget on
-//                   Cursor's side, so a burst of them each pays the npx start and only the first
-//                   gets past the `sync --quiet` debounce stamp, the rest exit without work
+//                   Cursor's side, so a burst of them each pays the npx start
+//   debounce        the `sync --quiet` stamp (src/commands/frame/debounce.ts) is one per maxims
+//                   home, written by the last sync that ran from any hook or by hand; a start
+//                   inside a minute of it exits without work, the first of a Cursor burst included
 export const spec = {
   id: "cursor",
   displayName: "Cursor",
