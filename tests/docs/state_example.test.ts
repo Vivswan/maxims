@@ -4,13 +4,13 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseState } from "../src/state/schema.ts";
+import { parseState } from "../../src/state/schema.ts";
 
 const STATE_PAGE = "docs/state.md";
 const SCHEMA_HEADING = "## The schema";
 
 test("the state example under the schema heading parses as current state", () => {
-  const page = readFileSync(resolve(import.meta.dir, "..", STATE_PAGE), "utf8");
+  const page = readFileSync(resolve(import.meta.dir, "..", "..", STATE_PAGE), "utf8");
   const section = page.slice(page.indexOf(SCHEMA_HEADING));
   const fence = /```json\n([\s\S]*?)\n```/.exec(section);
   if (fence === null) throw new Error(`${STATE_PAGE}: no json fence under ${SCHEMA_HEADING}`);

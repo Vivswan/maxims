@@ -67,7 +67,7 @@ interface RunResult {
   stderr: string;
 }
 
-// The HOME is rooted at tmpdir(), never RUNNER_TEMP: tests/bench.test.ts finds it through TMPDIR.
+// The HOME is rooted at tmpdir(), never RUNNER_TEMP: tests/scripts/bench.test.ts finds it through TMPDIR.
 function timeOneRun(command: string[]): Promise<RunResult> {
   return withScratchDir(
     "maxims-bench-home-",

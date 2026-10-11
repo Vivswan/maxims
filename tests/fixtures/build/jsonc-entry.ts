@@ -1,4 +1,4 @@
-// Bundle entry for tests/build.test.ts: the smallest program that loads jsonc-parser through
+// Bundle entry for tests/scripts/build.test.ts: the smallest program that loads jsonc-parser through
 // src/util/jsonc.ts, so the shipped artifact's copy of the dependency is what runs under node.
 import { appendChild, assertParses } from "../../../src/util/jsonc.ts";
 
