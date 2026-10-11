@@ -19,6 +19,7 @@ import { parseSync, pathLabel, resolveImport, SOURCE_EXTENSIONS } from "./arch_l
 import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { type Fence, type Page, readPage } from "./lib/page.ts";
+import { parseMarker } from "./lib/region.ts";
 
 // An ECMAScript identifier name, so `$run` and a Unicode-letter export are symbols too.
 const SYMBOL_TOKEN = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*(?:\(\))?$/u;
@@ -233,29 +234,25 @@ export function labelProblems(
   return problems;
 }
 
-// A marker line as the renderer reads it: up to three spaces in, the name, an optional hint on BEGIN.
-const MARKER = /^ {0,3}<!-- (BEGIN|END) GENERATED: (\S+?)(?: \([^)]*\))? -->\s*$/;
-
 /** Every BEGIN GENERATED marker needs the END marker of the same name after it; an unmatched one would hide every later diagram. */
 function regionProblems(page: Page): string[] {
   const problems: string[] = [];
   let open: { name: string; line: number } | undefined;
   for (const [index, text] of page.text.entries()) {
     if (text === undefined) continue;
-    const marker = MARKER.exec(text);
-    const begin = marker?.[1] === "BEGIN" ? marker : null;
-    const end = marker?.[1] === "END" ? marker : null;
-    if (begin) {
+    const marker = parseMarker(text);
+    if (marker?.kind === "BEGIN") {
       if (open)
         problems.push(
-          `line ${index + 1}: BEGIN GENERATED: ${begin[2]} opens inside the region ${open.name} opened at line ${open.line + 1}`,
+          `line ${index + 1}: BEGIN GENERATED: ${marker.name} opens inside the region ${open.name} opened at line ${open.line + 1}`,
         );
-      open = { name: begin[2] ?? "", line: index };
-    } else if (end) {
-      if (!open) problems.push(`line ${index + 1}: END GENERATED: ${end[2]} closes no open region`);
-      else if (open.name !== end[2])
+      open = { name: marker.name, line: index };
+    } else if (marker?.kind === "END") {
+      if (!open)
+        problems.push(`line ${index + 1}: END GENERATED: ${marker.name} closes no open region`);
+      else if (open.name !== marker.name)
         problems.push(
-          `line ${index + 1}: END GENERATED: ${end[2]} closes the region ${open.name} opened at line ${open.line + 1}`,
+          `line ${index + 1}: END GENERATED: ${marker.name} closes the region ${open.name} opened at line ${open.line + 1}`,
         );
       open = undefined;
     }
@@ -269,9 +266,9 @@ function insideGeneratedRegion(page: Page, line: number): boolean {
   for (const [index, text] of page.text.entries()) {
     if (index === line) return open;
     if (text === undefined) continue;
-    const marker = MARKER.exec(text);
-    if (marker?.[1] === "BEGIN") open = true;
-    else if (marker?.[1] === "END") open = false;
+    const marker = parseMarker(text);
+    if (marker?.kind === "BEGIN") open = true;
+    else if (marker?.kind === "END") open = false;
   }
   return open;
 }
