@@ -123,8 +123,11 @@ export function isInside(root: string, path: string): boolean {
 // rest appended as typed. Only "nothing is there" stops the walk; a prefix that exists but cannot
 // be inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
-export function realpathOfExistingPrefix(path: string): string {
-  return realpathOfPrefix(path, path);
+//
+// A relative `path` is read from `from`, the cwd when none is given, never folded first: a `..`
+// is a step the walk takes from the real folder before it.
+export function realpathOfExistingPrefix(path: string, from?: string): string {
+  return realpathOfPrefix(path, path, from);
 }
 
 // The identity a rule FILE is grouped and swept under: its parent resolved, its own name kept,
@@ -141,14 +144,17 @@ export function realKeyOf(path: string): string {
 // A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
 // at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
 // cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
-function realpathOfPrefix(prefix: string, asked: string): string {
+function realpathOfPrefix(prefix: string, asked: string, from?: string): string {
   const links = linksOf(process.platform);
-  const { root, names } = links.parts(prefix);
+  let { root, names } = links.parts(prefix);
   let at = root;
   let index = 0;
   try {
-    at = resolve(root === "" ? process.cwd() : root);
-    at = realpathSync.native(at);
+    if (root === "") {
+      ({ root, names } = anchored(links, names, from));
+      at = root;
+    }
+    at = realpathSync.native(resolve(root));
     while (index < names.length) {
       const rest = names.slice(index);
       if (rest[0] === "..") {
@@ -168,6 +174,19 @@ function realpathOfPrefix(prefix: string, asked: string): string {
     if (!isAbsent(cause)) throw cannotInspect(asked, cause);
     return join(at, ...names.slice(index));
   }
+}
+
+// The anchor's names lead a relative prefix's own, read by `parts` and never by `resolve`, which
+// would fold a `..` in the anchor before the walk reaches the link in front of it.
+function anchored(
+  links: LinkSemantics,
+  names: string[],
+  from: string | undefined,
+): { root: string; names: string[] } {
+  const anchor = links.parts(from ?? process.cwd());
+  if (anchor.root !== "") return { root: anchor.root, names: [...anchor.names, ...names] };
+  const cwd = links.parts(process.cwd());
+  return { root: cwd.root, names: [...cwd.names, ...anchor.names, ...names] };
 }
 
 // The deepest existing head of `run` under the real folder `at`. One lookup's ENOENT does not say

@@ -1,14 +1,14 @@
 // Guards the compiler behaviors no single built-in folder exercises on its own; each would
 // otherwise break only in the one harness that happens to use it, with nothing else going red.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { chmodSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { hookSpecFor } from "../../src/harnesses/contract.ts";
 import { toDefinition } from "../../src/harnesses/from-spec.ts";
 import { type HarnessSpec, parseHarnessSpec } from "../../src/harnesses/spec.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { outcome } from "../shared/outcome.ts";
-import { CHMOD_DENIES } from "../shared/platform.ts";
+import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const globs = ["src/**", "docs/**"];
@@ -265,6 +265,47 @@ test("a tier check reads JSON layers in the hook's dialect and TOML layers as TO
     expect(def.hook.tierCheck?.format).toBe(row.compiled);
   }
 });
+
+// What would drift silently: the session directory read as a shell would NOT read it. A cwd typed
+// `link/../x` enters the link's target and steps out of THAT folder, so the walked layers start
+// in a folder the lexical fold never reaches. Windows folds the `..` before any entry is read, so
+// there the lexical answer is the kernel's.
+//
+//   project/link    -> project/real/deep
+//   project/x          the folder the fold names
+//   project/real/x     the folder the kernel names
+test.skipIf(WINDOWS)(
+  "walked layers start where the kernel reads a cwd with a `..` after a linked folder",
+  async () => {
+    await withTempDir((dir) => {
+      const project = join(realpathSync(dir), "project");
+      mkdirSync(join(project, "real", "deep"), { recursive: true });
+      mkdirSync(join(project, "real", "x"));
+      mkdirSync(join(project, "x"));
+      symlinkSync(join(project, "real", "deep"), join(project, "link"));
+      const layers = {
+        project: [{ kind: "root-to-cwd", file: "settings.json" }],
+        global: ["settings.json"],
+      };
+      const check = {
+        layers,
+        key: "hooks.enabled",
+        demotesWhen: false,
+        unreadable: "skips-the-file",
+      };
+      const def = toDefinition(
+        specOf({ ...rendering, hook: { ...rendering.hook, tierCheck: check } }),
+      );
+      if (def.hook.kind !== "registry") throw new Error("expected a registry hook");
+      const cwd = [project, "link", "..", "x"].join(sep);
+      const ctx = { home: join(dir, "home"), projectRoot: project, cwd, env: {} };
+      const dirs = def.hook.tierCheck
+        ?.layers(ctx)
+        .flatMap((layer) => (layer.scope === "project" ? [layer.dir] : []));
+      expect(dirs).toEqual([join(project, "real", "x"), join(project, "real"), project]);
+    });
+  },
+);
 
 test("a reconcile quirk becomes the custom hook of a spec that declares none", () => {
   const reconcile = async () => [];

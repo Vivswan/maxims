@@ -158,14 +158,17 @@ function directoriesDownTo(root: string, cwd: string): string[] {
 // the rest kept as typed: the climb still meets a root recorded by its real path, and the probe
 // reports the layer that stopped it, where a throw here would abort a verb over files maxims
 // never writes.
+//
+// The cwd goes to the walk as typed, so a `..` after a linked folder steps out of the folder the
+// link reached. At the top of the climb nothing could be inspected, so the fold is the answer, and
+// it anchors a relative cwd.
 function sessionDirectory(cwd: string): string {
-  const typed = resolve(cwd);
   try {
-    return realpathOfExistingPrefix(typed);
+    return realpathOfExistingPrefix(cwd);
   } catch (error) {
     if (!(error instanceof MaximsError)) throw error;
-    const parent = dirname(typed);
-    return parent === typed ? typed : join(sessionDirectory(parent), basename(typed));
+    const parent = dirname(cwd);
+    return parent === cwd ? resolve(cwd) : join(sessionDirectory(parent), basename(cwd));
   }
 }
 

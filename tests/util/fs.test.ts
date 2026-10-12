@@ -254,6 +254,34 @@ describe("realpathOfExistingPrefix", () => {
     });
   });
 
+  // What would drift silently: an anchor folded into the typed path before the walk, so a `..`
+  // after a linked folder names the sibling the kernel never opens, or an anchor read whole, so
+  // its own missing tail is kept as typed where the walk would resolve the link before it.
+  //
+  //   alias -> real
+  //   link  -> real/deep
+  //   real/target, target   two folders a `..` after the link tells apart
+  test("a relative path is read from its anchor, which is walked like the rest", async () => {
+    await withTempDir((dir) => {
+      const root = realpathSync(dir);
+      mkdirSync(join(root, "real", "deep"), { recursive: true });
+      mkdirSync(join(root, "real", "target"));
+      mkdirSync(join(root, "target"));
+      symlinkSync(join(root, "real"), join(root, "alias"));
+      symlinkSync(join(root, "real", "deep"), join(root, "link"));
+      expect(realpathOfExistingPrefix("x", join(root, "alias", "missing"))).toBe(
+        join(root, "real", "missing", "x"),
+      );
+      if (WINDOWS) return;
+      expect(realpathOfExistingPrefix(["link", "..", "target"].join(sep), root)).toBe(
+        join(root, "real", "target"),
+      );
+      expect(realpathOfExistingPrefix("target", [root, "link", ".."].join(sep))).toBe(
+        join(root, "real", "target"),
+      );
+    });
+  });
+
   // What would drift silently: a `..` folded before the link in front of it is read, which is
   // what `realpathSync` does on node and on bun, so `link/../target` names the sibling the kernel
   // never opens. Past the deepest existing prefix the fold IS the answer: nothing is there for the
