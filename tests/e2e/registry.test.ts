@@ -24,6 +24,7 @@ import { util } from "zod";
 import { targetPath } from "../../src/commands/frame/lookup.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import {
+  type CustomHookPlan,
   type HarnessContext,
   type HarnessDefinition,
   HOOK_COMMAND_PREFIX,
@@ -32,7 +33,7 @@ import {
   type Scope,
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
-import { hasHook, hookPath } from "../../src/harnesses/hook-writer.ts";
+import { hasHook, hookPath, mintRewrites } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import type { Destination } from "../../src/state/schema.ts";
 import type { Change } from "../../src/util/change.ts";
@@ -198,6 +199,12 @@ function satisfied(changes: readonly Change[]): boolean {
   return changes.every(carriedOut);
 }
 
+// A custom hook's plan as the changes it comes to once its rewrites are minted over the files.
+async function mintedPlan(plan: Promise<CustomHookPlan>): Promise<Change[]> {
+  const { changes, rewrites } = await plan;
+  return [...changes, ...(await mintRewrites(rewrites))];
+}
+
 function regularFile(path: string): { file: boolean; link: boolean } {
   const entry = lstatSync(path, { throwIfNoEntry: false });
   return { file: entry?.isFile() === true, link: entry?.isSymbolicLink() === true };
@@ -222,7 +229,7 @@ async function expectHookInstalled(
       expect((statSync(path).mode & 0o111) !== 0).toBe(def.hook.executable);
     }
   } else if (hasHook(def, "custom")) {
-    const plan = await def.hook.reconcile(scope, ctx, spec, true);
+    const plan = await mintedPlan(def.hook.reconcile(scope, ctx, spec, true));
     expect(plan.length > 0 && satisfied(plan)).toBe(true);
   }
   if (def.configEdit !== undefined) expect(await def.configEdit(scope, ctx, true)).toEqual([]);
@@ -241,7 +248,7 @@ async function expectHookGone(
   } else if (hasHook(def, "file")) {
     expect(existsSync(hookPath(def, scope, ctx))).toBe(false);
   } else if (hasHook(def, "custom")) {
-    expect(satisfied(await def.hook.reconcile(scope, ctx, spec, false))).toBe(true);
+    expect(satisfied(await mintedPlan(def.hook.reconcile(scope, ctx, spec, false)))).toBe(true);
   }
   if (def.configEdit !== undefined) expect(await def.configEdit(scope, ctx, false)).toEqual([]);
 }

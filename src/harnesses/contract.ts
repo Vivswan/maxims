@@ -4,6 +4,7 @@ import type { HarnessId } from "../contracts/harness-id.ts";
 import type { ExpansionSyntax, Markers } from "../rulefile/types.ts";
 import type { Change } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
+import type { RootedPath } from "../util/fs.ts";
 import type { JsonDialect } from "../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../util/package.ts";
 import { statOrAbsent } from "./detect.ts";
@@ -113,11 +114,33 @@ export type HookStdout =
 export type ConfigFormat = JsonDialect | "toml";
 
 // The config the bundled MCP stub is registered in, since its start runs sync; `null` means that
-// scope has no file the harness starts servers from.
+// scope has no file the harness starts servers from. `format` is the dialect the vendor's parser
+// takes, so a servers file it would skip is refused rather than edited.
 export type McpRegistry = {
   path: (scope: Scope, ctx: HarnessContext) => string | null;
   serversPath: string[];
+  format: JsonDialect;
 };
+
+// The text a rewrite of a user-owned file leaves and the word for what it did; `null` from a
+// planner when the file already says what the intent wants. The sync planner applies the rewrites
+// of one file in turn and mints the one edit itself, so a rewrite names no destination.
+export type RegistryRewrite = { text: string; notice?: string };
+
+// An edit of a user-owned file at a slot of its own, minted by the sync planner over the one text
+// it holds per file, so a hook registry linked at a harness config lands in one edit with it.
+// `entry` is the slot the rewrite owns, so two harnesses at one file leave each other's.
+export type ConfigRewrite = {
+  root: string;
+  path: RootedPath;
+  entry: readonly string[];
+  rewrite: (currentText: string | null) => RegistryRewrite | null;
+};
+
+// What a custom hook may plan: files maxims owns whole, written and deleted as its own (dsh's
+// hooks file), and rewrites of the user's files. A user's file is never written whole here.
+export type OwnedChange = Extract<Change, { kind: "write" | "delete" }>;
+export type CustomHookPlan = { changes: OwnedChange[]; rewrites: ConfigRewrite[] };
 
 // `unreadable` covers a key path or value of another type as well as a file that cannot be read or
 // parsed: what the harness makes of a config its own schema rejects is not another layer's to say.
@@ -194,7 +217,7 @@ export type HookShape =
         ctx: HarnessContext,
         spec: HookSpec,
         wanted: boolean,
-      ) => Promise<Change[]>;
+      ) => Promise<CustomHookPlan>;
     };
 
 // The hook command carries no source string, no filter, and no version pin: intent supplies the
@@ -264,8 +287,8 @@ export interface HarnessDefinition {
   globalRoot?: (ctx: HarnessContext) => string;
   mcp?: McpRegistry;
   // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`
-  // array entry), reconciled by sync like a hook.
-  configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<Change[]>;
+  // array entry), reconciled by sync like a hook: each a rewrite of a file the user owns.
+  configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<ConfigRewrite[]>;
 }
 
 export function scopeRoot(

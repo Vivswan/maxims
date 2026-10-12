@@ -28,7 +28,6 @@ import type { SourceEntry } from "../../src/state/schema.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
-  configEditHarness,
   daysAgo,
   entryFor,
   FIXTURE_CONFIG_CONTENT,
@@ -42,6 +41,7 @@ import {
   memoryFile,
   memoryName,
   readStateFile,
+  rewritingHookHarness,
   rulesDirHarness,
   seedStore,
   sharedBlockHarness,
@@ -123,9 +123,9 @@ describe("idempotency and convergence", () => {
         home,
         stateWith({ [source]: entryFor(localFrom(source)) }, { global: ["claude-code"] }),
       );
-      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [configEditHarness] });
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [rewritingHookHarness] });
       await runSync(SYNC, io);
-      const config = join(userHome, FIXTURE_DIR, "config.json");
+      const config = join(userHome, FIXTURE_DIR, "hooks.json");
       expect(readFileSync(config, "utf8")).toBe(FIXTURE_CONFIG_CONTENT);
       io.out.length = 0;
       io.clock.now = new Date(NOW.getTime() + 1000);

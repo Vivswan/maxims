@@ -314,10 +314,15 @@ test(
         writeFileSync(patchPath, text);
         const result = await asyncOutcome(() => reconcile("global", contextAt(home), HOOK, wanted));
         if (result.kind === "threw") return refusal(result.error);
-        for (const change of result.value) {
+        for (const change of result.value.changes) {
           expect(artifacts).toContain(change.path);
-          expect(["write", "edit", "delete"]).toContain(change.kind);
-          if (change.kind === "edit") expect(change.target).toBe(change.path);
+          expect(["write", "delete"]).toContain(change.kind);
+        }
+        for (const rewrite of result.value.rewrites) {
+          expect<string>(rewrite.path).toBe(patchPath);
+          const planned = outcome(() => rewrite.rewrite(text === "" ? null : text));
+          if (planned.kind === "threw") return refusal(planned.error);
+          expect(planned.value === null || typeof planned.value.text === "string").toBe(true);
         }
       });
     });

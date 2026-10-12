@@ -3,18 +3,36 @@ import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
-import { appendChild, assertParses, removeChild, replaceValue } from "../../util/jsonc.ts";
+import {
+  appendChild,
+  assertParses,
+  type JsonReader,
+  jsonReader,
+  removeChild,
+  replaceValue,
+} from "../../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../../util/package.ts";
-import { type HarnessContext, type HarnessDefinition, type Scope, scopeRoot } from "../contract.ts";
-import type { RegistryRewrite } from "../hook-writer.ts";
+import {
+  type HarnessContext,
+  type HarnessDefinition,
+  type RegistryRewrite,
+  type Scope,
+  scopeRoot,
+} from "../contract.ts";
 
 const MCP_SERVER_KEY = "maxims";
 const [command, ...packageArgs] = PACKAGE_ARGV;
 const MCP_SERVER_ENTRY = { command, args: [...packageArgs, "mcp-serve"] };
 export const MCP_SERVER_COMMAND = [command, ...packageArgs, "mcp-serve"].join(" ");
 
-// A definition's servers file at one scope, resolved once; `root` is what `path` was asserted under.
-export type McpRegistration = { root: string; path: RootedPath; serversPath: readonly string[] };
+// A definition's servers file at one scope, resolved once; `root` is what `path` was asserted
+// under, `reader` the dialect the vendor loads the file in.
+export type McpRegistration = {
+  root: string;
+  path: RootedPath;
+  serversPath: readonly string[];
+  reader: JsonReader;
+};
 
 // `null` where the definition declares no registry, or starts no servers from this scope.
 export function mcpRegistrationAt(
@@ -26,7 +44,12 @@ export function mcpRegistrationAt(
   const path = def.mcp.path(scope, ctx);
   if (path === null) return null;
   const root = scopeRoot(def, scope, ctx);
-  return { root, path: assertInsideRoot(root, path), serversPath: def.mcp.serversPath };
+  return {
+    root,
+    path: assertInsideRoot(root, path),
+    serversPath: def.mcp.serversPath,
+    reader: jsonReader(def.mcp.format, def.displayName),
+  };
 }
 
 export type McpRegistrationInput = {
@@ -36,10 +59,10 @@ export type McpRegistrationInput = {
 };
 
 export function rewriteServers(input: McpRegistrationInput): RegistryRewrite | null {
-  const { path, serversPath } = input.registration;
-  const planned = editServers(input.currentText, path, serversPath, input.wanted);
+  const { path, serversPath, reader } = input.registration;
+  const planned = editServers(input.currentText, path, serversPath, reader, input.wanted);
   if (planned === null) return null;
-  assertParses(planned.text, path);
+  assertParses(planned.text, path, reader);
   const { verb } = planned;
   return {
     text: planned.text,
@@ -54,6 +77,7 @@ function editServers(
   text: string | null,
   path: string,
   serversPath: readonly string[],
+  reader: JsonReader,
   wanted: boolean,
 ): Edit | null {
   const entryPath = [...serversPath, MCP_SERVER_KEY];
@@ -65,7 +89,7 @@ function editServers(
     );
     return { text: jsonDocument(nested), verb: "registered" };
   }
-  const root = assertParses(text, path);
+  const root = assertParses(text, path, reader);
   // A missing level of the servers path is created with the rest nested inside it, so a file
   // without the key gains exactly one new property.
   let container = root;

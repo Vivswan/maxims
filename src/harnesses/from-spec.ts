@@ -134,6 +134,7 @@ function compileData(spec: HarnessSpec, platform: NodeJS.Platform): HarnessDefin
                 : join(scopeRoot(roots, scope, ctx), file);
             },
             serversPath: [...spec.mcp.serversPath],
+            format: spec.mcp.format,
           },
         }),
   };

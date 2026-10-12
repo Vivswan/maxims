@@ -42,6 +42,7 @@ import {
   scopeRoot,
 } from "../../src/harnesses/contract.ts";
 import { devin } from "../../src/harnesses/devin/spec.ts";
+import { BRIDGE_PLUGIN, BRIDGE_ROW_ID } from "../../src/harnesses/dsh/quirks.ts";
 import { dsh } from "../../src/harnesses/dsh/spec.ts";
 import {
   freshRegistry,
@@ -51,16 +52,20 @@ import {
   rewriteHookRegistry,
 } from "../../src/harnesses/hook-writer.ts";
 import { mcpRegistrationAt, rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
+import { INSTRUCTIONS_GLOB } from "../../src/harnesses/opencode/quirks.ts";
+import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import * as fsUtil from "../../src/util/fs.ts";
 import { assertInsideRoot, readIfPresent } from "../../src/util/fs.ts";
+import { JSONC } from "../../src/util/jsonc.ts";
 import { CHMOD_DENIES, WINDOWS } from "../shared/platform.ts";
 import { SYNC } from "../shared/sync_support.ts";
 import {
   configEditHarness,
   entryFor,
   FIXTURE_CONFIG_CONTENT,
+  FIXTURE_CONFIG_EMPTIED,
   FIXTURE_DIR,
   fakeIo,
   localFrom,
@@ -73,12 +78,18 @@ import {
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "./world.ts";
 
 // The registry write's content is the hook writer's; this test pins only which changes appear:
-// the config entry is a write of a file maxims owns, the registry and the servers file edits of
-// the user's files.
+// the config entry, the registry and the servers file are each an edit of the user's file.
 const configWrite = (config: string): unknown => ({
-  kind: "write",
+  kind: "edit",
   path: config,
+  target: config,
   content: FIXTURE_CONFIG_CONTENT,
+});
+const configEmptied = (config: string): unknown => ({
+  kind: "edit",
+  path: config,
+  target: config,
+  content: FIXTURE_CONFIG_EMPTIED,
 });
 const registryWrite = (registry: string): unknown => ({
   kind: "edit",
@@ -118,6 +129,11 @@ describe("planHooks", () => {
       await world(async ({ home, userHome, dir }) => {
         const io = fakeIo({ home, userHome, cwd: dir, harnesses: [configEditHarness] });
         const ctx = await loadContext(io, { readHookStdin: false });
+        const config = join(userHome, FIXTURE_DIR, "config.json");
+        const registry = join(userHome, FIXTURE_DIR, "settings.json");
+        // The entry is there to leave when the rules are not wanted, absent to be written when
+        // they are, so each row plans the edit its intent calls for.
+        if (!wants.rules) writeFileSync(config, FIXTURE_CONFIG_CONTENT);
         const plan = await planHooks({
           ctx,
           harnesses: [configEditHarness],
@@ -127,12 +143,8 @@ describe("planHooks", () => {
           elsewhere: () => [],
           judgeLink: () => undefined,
         });
-        const config = join(userHome, FIXTURE_DIR, "config.json");
-        const registry = join(userHome, FIXTURE_DIR, "settings.json");
         expect<unknown[]>(plan.changes).toEqual(expected(config, registry));
-        expect<unknown[]>(plan.removals).toEqual(
-          wants.rules ? [] : [{ kind: "delete", path: config }],
-        );
+        expect<unknown[]>(plan.removals).toEqual(wants.rules ? [] : [configEmptied(config)]);
         expect(plan.failures).toEqual([]);
       });
     });
@@ -149,6 +161,7 @@ const serversIn = (file: string, serversPath = ["mcpServers"]): HarnessDefinitio
   mcp: {
     path: (scope: Scope, ctx: HarnessContext) => join(scopeRoot({}, scope, ctx), FIXTURE_DIR, file),
     serversPath,
+    format: "jsonc",
   },
 });
 const apart = serversIn("mcp.json");
@@ -231,6 +244,7 @@ describe("the MCP server entry follows the hook intent", () => {
           path: (scope: Scope, ctx: HarnessContext) =>
             join(scopeRoot({}, scope, ctx), "fixture-alias", "settings.json"),
           serversPath: ["mcpServers"],
+          format: "jsonc",
         },
       };
       const registry = join(userHome, FIXTURE_DIR, "settings.json");
@@ -548,6 +562,7 @@ describe("the MCP server entry follows the hook intent", () => {
             path: (scope: Scope, ctx: HarnessContext) =>
               join(scopeRoot({}, scope, ctx), FIXTURE_DIR, serversFile),
             serversPath: ["mcpServers"],
+            format: "jsonc",
           },
         };
         const wanted = await plan(colliding, dir, home, userHome, true);
@@ -1194,6 +1209,7 @@ describe("both scopes resolving to one registry", () => {
             root: userHome,
             path: assertInsideRoot(userHome, global),
             serversPath: ["mcpServers"],
+            reader: JSONC,
           },
           wanted: true,
           currentText: null,
@@ -1316,6 +1332,7 @@ describe("both scopes resolving to one registry", () => {
           root: userHome,
           path: assertInsideRoot(userHome, global),
           serversPath: ["mcpServers"],
+          reader: JSONC,
         },
         wanted: true,
         currentText: null,
@@ -1429,6 +1446,7 @@ describe("both scopes resolving to one registry", () => {
           path: (scope: Scope, ctx: HarnessContext) =>
             join(scopeRoot({}, scope, ctx), folderOf(scope), "mcp.json"),
           serversPath: ["mcpServers"],
+          format: "jsonc",
         },
       };
       const hookFile = join(userHome, ".fixture-project", "hooks", "start");
@@ -1515,6 +1533,7 @@ describe("both scopes resolving to one registry", () => {
           path: (scope: Scope, ctx: HarnessContext) =>
             join(scopeRoot({}, scope, ctx), FIXTURE_DIR, `${scope}-mcp.json`),
           serversPath: ["mcpServers"],
+          format: "jsonc",
         },
       };
       const io = fakeIo({ home, userHome, cwd: userHome, harnesses: [perScope] });
@@ -1661,6 +1680,136 @@ describe("built-in registries linked into one file", () => {
         notices: [`registered the maxims MCP server in ${servers}`],
         failures: [],
       });
+    });
+  });
+});
+
+describe("a config edit is the planner's to mint", () => {
+  // Claude's registry linked at opencode.json: planned apart, the config edit was a second edit
+  // of one backing file from the original bytes, and whichever applied last took the other out
+  // until the next sync. One text per file holds for a config too.
+  test("opencode.json linked at .claude/settings.json takes Claude's hook and OpenCode's rules in one edit", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      for (const folder of [".claude", ".opencode"]) mkdirSync(join(project, folder));
+      const config = join(project, "opencode.json");
+      writeFileSync(config, '{ "model": "x" }\n');
+      const registry = join(project, ".claude", "settings.json");
+      symlinkSync(config, registry);
+      const source = writeSource(join(dir, "src"), TWO_MEMORIES);
+      const entry = entryFor(localFrom(source), {
+        destination: { scope: "project", root: project },
+        harnesses: ["claude-code", "opencode"],
+      });
+      writeState(home, stateWith({ [source]: entry }, { project: { [project]: ["claude-code"] } }));
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [claudeCode, opencode] });
+      const report = await runSync(SYNC, io);
+      const edits = report.plan.changes.flatMap((change) =>
+        change.kind === "edit" ? [[String(change.path), String(change.target)]] : [],
+      );
+      expect(edits).toEqual([[registry, config]]);
+      const text = readFileSync(config, "utf8");
+      expect(
+        [HOOK_COMMAND, INSTRUCTIONS_GLOB, '"model": "x"'].map((s) => text.includes(s)),
+      ).toEqual([true, true, true]);
+      expect((await runSync(SYNC, io)).changed).toEqual([]);
+    });
+  });
+
+  // The entry must leave and cannot: a refusal raised while removing was recorded only while the
+  // entry was wanted, so it stayed behind the link with nothing said. The edit is minted where a
+  // registry's is, under the same reporting.
+  test("removing the OpenCode entry behind a link out of the project is reported", async () => {
+    await world(async ({ home, userHome, dir, project }) => {
+      const outside = join(dir, "elsewhere", "opencode.json");
+      const listed = `{ "instructions": ["${INSTRUCTIONS_GLOB}"] }\n`;
+      mkdirSync(join(dir, "elsewhere"));
+      writeFileSync(outside, listed);
+      const link = join(project, "opencode.json");
+      symlinkSync(outside, link);
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [opencode] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [opencode],
+        agents: undefined,
+        wants: (_id, scope) => ({ hook: false, rules: false, unreachable: scope !== "project" }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect(plan).toEqual({
+        changes: [],
+        removals: [],
+        notices: [],
+        failures: [
+          {
+            message: `cannot edit ${link}: it is a symlink to ${outside}, outside ${project}`,
+            hint: expect.stringContaining("then run maxims sync"),
+          },
+        ],
+      });
+      expect(readFileSync(outside, "utf8")).toBe(listed);
+    });
+  });
+
+  // The bridge is one artifact: with the row unremovable, the hooks file it points at stays too,
+  // and the run says why instead of planning nothing.
+  test("removing the dsh bridge behind a patch file linked out of DSH_HOME is reported, the hooks file kept", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      const dshHome = join(userHome, ".dsh");
+      mkdirSync(dshHome);
+      const hooks = join(dshHome, "maxims-hooks.json");
+      writeFileSync(hooks, "{}\n");
+      const outside = join(dir, "elsewhere", "cordis.patch.yml");
+      const mounted = `- insert:\n    - id: ${BRIDGE_ROW_ID}\n      name: "${BRIDGE_PLUGIN}"\n      config:\n        configPath: ${hooks}\n`;
+      mkdirSync(join(dir, "elsewhere"));
+      writeFileSync(outside, mounted);
+      const link = join(dshHome, "cordis.patch.yml");
+      symlinkSync(outside, link);
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [dsh] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [dsh],
+        agents: undefined,
+        wants: (_id, scope) => ({ hook: false, rules: false, unreachable: scope !== "global" }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect(plan).toEqual({
+        changes: [],
+        removals: [],
+        notices: [],
+        failures: [
+          {
+            message: `cannot edit ${link}: it is a symlink to ${outside}, outside ${dshHome}`,
+            hint: expect.stringContaining("then run maxims sync"),
+          },
+        ],
+      });
+      expect([existsSync(hooks), readFileSync(outside, "utf8")]).toEqual([true, mounted]);
+    });
+  });
+
+  // The row points at the hooks file, so the file is written first: a hooks-file write that fails
+  // at apply stops the plan there, with no row mounted over a file that is not there.
+  test("the dsh bridge plans its hooks file before the patch row", async () => {
+    await world(async ({ home, userHome, dir }) => {
+      mkdirSync(join(userHome, ".dsh"));
+      writeFileSync(join(userHome, ".dsh", "cordis.patch.yml"), "[]\n");
+      const io = fakeIo({ home, userHome, cwd: dir, harnesses: [dsh] });
+      const ctx = await loadContext(io, { readHookStdin: false });
+      const plan = await planHooks({
+        ctx,
+        harnesses: [dsh],
+        agents: undefined,
+        wants: (_id, scope) => ({ hook: true, rules: false, unreachable: scope !== "global" }),
+        elsewhere: () => [],
+        judgeLink: () => undefined,
+      });
+      expect(plan.changes.map((change) => [change.kind, basename(change.path)])).toEqual([
+        ["write", "maxims-hooks.json"],
+        ["edit", "cordis.patch.yml"],
+      ]);
     });
   });
 });

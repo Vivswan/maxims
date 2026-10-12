@@ -12,15 +12,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import type { SourceSlug } from "../../../src/harnesses/contract.ts";
-import { hasHook, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
+import type { ConfigRewrite, SourceSlug } from "../../../src/harnesses/contract.ts";
+import { hasHook, mintRewrites, planFileHookWrite } from "../../../src/harnesses/hook-writer.ts";
 import {
   INSTRUCTIONS_GLOB,
-  reconcileInstructions,
+  reconcileInstructions as planInstructions,
 } from "../../../src/harnesses/opencode/quirks.ts";
 import { opencode } from "../../../src/harnesses/opencode/spec.ts";
 import { planRulesDirWrite } from "../../../src/harnesses/strategies/rules-dir.ts";
-import { applyChanges } from "../../../src/util/change.ts";
+import { applyChanges, type Change } from "../../../src/util/change.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { asyncOutcome } from "../../shared/outcome.ts";
@@ -32,6 +32,13 @@ import { exampleContext as ctx } from "../context.ts";
 const fixture = readFileSync(srcPath("harnesses", "opencode", "fixtures", "config.jsonc"), "utf8");
 const block =
   "<!-- maxims:begin @example-user/doctrine sha=1 version=1 -->\n<!-- maxims:end @example-user/doctrine -->\n";
+
+// The instructions edit as the changes it comes to, its rewrites minted over the files on disk,
+// as `list` and `doctor` plan one harness alone.
+const minted = async (rewrites: Promise<ConfigRewrite[]>): Promise<Change[]> =>
+  mintRewrites(await rewrites);
+const reconcileInstructions = (root: string, wanted: boolean) =>
+  minted(planInstructions(root, wanted));
 
 // OpenCode reads nothing back from a plugin and the shell call is `.nothrow().quiet()`, so an
 // offline npx can never surface as a plugin error in the session.
@@ -94,8 +101,9 @@ test("adding then removing the instructions entry returns a hand-formatted openc
     const path = assertInsideRoot(dir, join(dir, "opencode.json"));
     writeFileSync(path, fixture);
     const inProject = { ...ctx, projectRoot: dir, cwd: dir };
-    const configEdit = opencode.configEdit;
-    if (configEdit === undefined) throw new Error("OpenCode lists its rules dir in opencode.json");
+    const planned = opencode.configEdit;
+    if (planned === undefined) throw new Error("OpenCode lists its rules dir in opencode.json");
+    const configEdit = (...args: Parameters<typeof planned>) => minted(planned(...args));
 
     const added = await configEdit("project", inProject, true);
     expect(added).toEqual([
@@ -230,13 +238,17 @@ const refusals: [string, string][] = [
   ["an instructions value that is not an array", '{\n  "instructions": "AGENTS.md"\n}\n'],
 ];
 
-test.each(refusals)("refuses to rewrite %s (exit 4)", async (_, text) => {
+// Refused on the way out as on the way in: a removal that read a non-array `instructions` as
+// "nothing of ours here" would leave a file OpenCode rejects with nothing said.
+test.each(refusals)("refuses to rewrite %s (exit 4), wanted or not", async (_, text) => {
   await withTempDir(async (dir) => {
     writeFileSync(join(dir, "opencode.json"), text);
-    expect(await asyncOutcome(() => reconcileInstructions(dir, true))).toMatchObject({
-      kind: "threw",
-      error: { name: "MaximsError", code: ExitCode.DestinationWriteFailed },
-    });
+    for (const wanted of [true, false]) {
+      expect([wanted, await asyncOutcome(() => reconcileInstructions(dir, wanted))]).toMatchObject([
+        wanted,
+        { kind: "threw", error: { name: "MaximsError", code: ExitCode.DestinationWriteFailed } },
+      ]);
+    }
     expect(readFileSync(join(dir, "opencode.json"), "utf8")).toBe(text);
   });
 });

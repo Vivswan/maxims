@@ -12,7 +12,7 @@ export const spec = {
   displayName: "Amp",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-10",
+    date: "2026-10-11",
     sources: [
       {
         kind: "schema",
@@ -48,9 +48,13 @@ export const spec = {
       {
         kind: "page",
         url: "https://ampcode.com/docs/markdown/cli/settings",
-        claims: ["~/.config/amp/settings.json", ".amp/settings.json"],
+        claims: [
+          "~/.config/amp/settings.json",
+          ".amp/settings.json",
+          "`~/.config/amp/settings.json` or `~/.config/amp/settings.jsonc`",
+        ],
         why: "Amp is closed source and its settings schema names no file location; this is the page's markdown rendition",
-        note: "settings.json per scope",
+        note: "settings.json per scope, read beside a settings.jsonc, so the file is edited as JSONC",
       },
     ],
   },
@@ -93,6 +97,7 @@ export const spec = {
   mcp: {
     path: { project: ".amp/settings.json", global: "settings.json" },
     serversPath: ["amp.mcpServers"],
+    format: "jsonc",
   },
   fixtures: { config: "settings.json" },
 } satisfies HarnessSpec;

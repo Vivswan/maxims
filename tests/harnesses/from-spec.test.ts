@@ -46,7 +46,11 @@ const rendering = specOf({
   expands: [],
   detect: { dirs: ["."] },
   scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list" },
-  mcp: { path: { project: null, global: "mcp.json" }, serversPath: ["servers", "mcp"] },
+  mcp: {
+    path: { project: null, global: "mcp.json" },
+    serversPath: ["servers", "mcp"],
+    format: "json",
+  },
   hook: {
     kind: "registry",
     path: { project: ".example/hooks.json", global: "hooks.json" },
@@ -308,7 +312,7 @@ test.skipIf(WINDOWS)(
 );
 
 test("a reconcile quirk becomes the custom hook of a spec that declares none", () => {
-  const reconcile = async () => [];
+  const reconcile = async () => ({ changes: [], rewrites: [] });
   const custom = toDefinition(specOf({ ...rendering, hook: { kind: "none" } }), { reconcile });
   expect(custom.hook).toEqual({ kind: "custom", reconcile });
 });

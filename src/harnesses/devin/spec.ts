@@ -10,7 +10,7 @@ export const spec = {
   displayName: "Devin Local",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-07",
+    date: "2026-10-11",
     sources: [
       {
         kind: "page",
@@ -48,6 +48,13 @@ export const spec = {
         why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
         note: "the project config.json and mcp_config.json per scope",
       },
+      {
+        kind: "page",
+        url: "https://docs.devin.ai/cli/reference/configuration/config-file.md",
+        claims: ["Devin CLI uses JSON files (with comment support) for configuration."],
+        why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
+        note: "the config files take comments; nothing says whether a trailing comma is taken, so config.json and the servers file are edited as JSONC",
+      },
     ],
   },
   globalRoot: { default: ".config/devin" },
@@ -62,7 +69,7 @@ export const spec = {
   hook: {
     kind: "registry",
     path: { project: ".devin/config.json", global: "config.json" },
-    format: "json",
+    format: "jsonc",
     eventPath: ["hooks", "SessionStart"],
     grouped: true,
     handlerTemplate: { type: "command", command: "{{command}}", timeout: "{{timeoutSeconds}}" },
@@ -73,6 +80,7 @@ export const spec = {
   mcp: {
     path: { project: ".devin/mcp_config.json", global: "mcp_config.json" },
     serversPath: ["mcpServers"],
+    format: "jsonc",
   },
   fixtures: { config: "config.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;

@@ -1,14 +1,16 @@
 import { join } from "node:path";
 import { type Document, isMap, isNode, isSeq, parseDocument, stringify } from "yaml";
-import { type Change, editInPlace, lstatOrNull } from "../../util/change.ts";
+import { lstatOrNull } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { readConfigText } from "../../util/jsonc.ts";
 import {
+  type ConfigRewrite,
   type HarnessContext,
   type HarnessDefinition,
   type HookShape,
   type HookSpec,
+  type OwnedChange,
   scopeRoot,
 } from "../contract.ts";
 import { freshRegistry, type RegistryShape } from "../hook-writer.ts";
@@ -53,7 +55,8 @@ function bridgeRow(hooksPath: string): Record<string, unknown> {
 // the same row a global one does. The row and the hooks file are one artifact: an unmount names
 // the file whenever either half is there, so the hook planner sees the pair claimed together and
 // a scope that still wants it keeps the row, while a machine with no trace of the bridge plans
-// nothing. The hooks file is maxims's own and is written whole; the patch file is the user's.
+// nothing. The hooks file is maxims's own and is written whole; the patch file is the user's,
+// handed to the sync planner as a rewrite so it is edited where its bytes live, once per run.
 export function bridgeReconciler(
   roots: Pick<HarnessDefinition, "globalRoot">,
 ): Extract<HookShape, { kind: "custom" }>["reconcile"] {
@@ -61,14 +64,21 @@ export function bridgeReconciler(
     const home = scopeRoot(roots, "global", ctx);
     const files = bridgeFiles(home);
     const text = (await readConfigText(files.patch)) ?? "";
-    const next = editPatch(text, files.patch, wanted ? bridgeRow(files.hooks) : null);
-    const changes: Change[] = [];
+    const row = wanted ? bridgeRow(files.hooks) : null;
+    const next = editPatch(text, files.patch, row);
+    const changes: OwnedChange[] = [];
     if (wanted) changes.push({ kind: "write", path: files.hooks, content: renderHooksFile(spec) });
     else if (next !== text || (await lstatOrNull(files.hooks)) !== null) {
       changes.push({ kind: "delete", path: files.hooks });
     }
-    if (next !== text) changes.push(editInPlace(home, files.patch)(next));
-    return changes;
+    const rewrite = (current: string | null) => {
+      const held = current ?? "";
+      const edited = editPatch(held, files.patch, row);
+      return edited === held ? null : { text: edited };
+    };
+    const rewrites: ConfigRewrite[] =
+      next === text ? [] : [{ root: home, path: files.patch, entry: [BRIDGE_ROW_ID], rewrite }];
+    return { changes, rewrites };
   };
 }
 
