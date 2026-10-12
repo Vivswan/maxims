@@ -16,15 +16,16 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
-# Harness CLIs, versions as published on npm on 2026-09-20. Each installs anonymously; the two
-# postinstall scripts (claude-code, opencode-ai) only unpack the platform binary shipped as an
-# optional dependency. Cursor, Cline, and dsh have no anonymous npm install, so they are absent.
+# Harness CLIs, versions as published on npm on 2026-09-20, OpenCode's on 2026-10-11. Each installs
+# anonymously; the two postinstall scripts (claude-code, @opencode/cli) only unpack the platform
+# binary shipped as an optional dependency. Cursor, Cline, and dsh have no anonymous npm install,
+# so they are absent.
 RUN npm install -g \
   @anthropic-ai/claude-code@2.1.278 \
   @openai/codex@0.155.1 \
   @google/gemini-cli@0.60.0 \
   @github/copilot@1.0.86 \
-  opencode-ai@1.18.31 \
+  @opencode/cli@2.0.26 \
   && npm cache clean --force
 
 # The repository's dependencies are installed once at build time because runs have no network.

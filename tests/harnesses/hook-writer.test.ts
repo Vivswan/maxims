@@ -17,13 +17,11 @@ import {
   achievedTier,
   type HarnessWithHook,
   type HookPlan,
-  hasHook,
   planFileHookWrite,
   planHookOnly,
   planHookRegistryWrite,
   planHookWrite,
 } from "../../src/harnesses/hook-writer.ts";
-import { INSTRUCTIONS_GLOB } from "../../src/harnesses/opencode/quirks.ts";
 import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
@@ -839,34 +837,44 @@ describe("planHookWrite composes the hook with the definition's config edit", ()
 // config edit as a stale hook; one that plans the config edit separately would write it twice.
 describe("planHookOnly leaves the definition's config edit out", () => {
   const rows: [string, boolean][] = [
-    ["the plugin is current and only the instructions entry is missing", true],
-    ["the plugin is missing too", false],
+    ["the hook file is current and only the config entry is missing", true],
+    ["the hook file is missing too", false],
   ];
-  test.each(rows)("%s", async (_, pluginPresent) => {
-    if (!hasHook(opencode, "file")) throw new Error("OpenCode writes a plugin file");
-    const rendered = opencode.hook.render(hookSpecFor(opencode));
+  test.each(rows)("%s", async (_, hookPresent) => {
     await withTempDir(async (root) => {
       const local: HarnessContext = { ...ctx, projectRoot: root, cwd: root };
-      const plugin = assertInsideRoot(root, join(root, ".opencode", "plugins", "maxims.ts"));
-      const config = assertInsideRoot(root, join(root, "opencode.json"));
-      writeFileSync(config, '{\n  "model": "x"\n}\n');
-      if (pluginPresent) {
-        mkdirSync(join(root, ".opencode", "plugins"), { recursive: true });
-        writeFileSync(plugin, rendered);
+      const hookFile = assertInsideRoot(root, join(root, ".example", "hook.ts"));
+      const config = assertInsideRoot(root, join(root, "example.json"));
+      const def: HarnessWithHook<"file"> = {
+        ...base,
+        hook: {
+          kind: "file",
+          path: () => hookFile,
+          render: () => "hook\n",
+          executable: false,
+          stdout: "none",
+        },
+        configEdit: async (_scope, _ctx, wanted) => [
+          {
+            root,
+            path: config,
+            entry: ["entry"],
+            rewrite: (text) => (wanted && text === null ? { text: "{}\n" } : null),
+          },
+        ],
+      };
+      if (hookPresent) {
+        mkdirSync(join(root, ".example"));
+        writeFileSync(hookFile, "hook\n");
       }
-      const hook: HookPlan = pluginPresent
+      const hook: HookPlan = hookPresent
         ? { changes: [] }
         : {
-            changes: [{ kind: "write", path: plugin, content: rendered }],
-            notice: `wrote the maxims hook to ${plugin}`,
+            changes: [{ kind: "write", path: hookFile, content: "hook\n" }],
+            notice: `wrote the maxims hook to ${hookFile}`,
           };
-      const configEdit: Change = {
-        kind: "edit",
-        path: config,
-        target: config,
-        content: `{\n  "model": "x",\n  "instructions": [\n    "${INSTRUCTIONS_GLOB}"\n  ]\n}\n`,
-      };
-      const intent = { def: opencode, scope: "project" as const, ctx: local, wanted: true };
+      const configEdit: Change = { kind: "edit", path: config, target: config, content: "{}\n" };
+      const intent = { def, scope: "project" as const, ctx: local, wanted: true };
       expect(await planHookOnly(intent)).toEqual(hook);
       expect(await planHookWrite(intent)).toEqual({
         ...hook,

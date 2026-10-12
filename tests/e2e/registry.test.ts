@@ -85,10 +85,6 @@ const QUIRK_FIXTURE_HOMES: Partial<
   Record<string, (def: HarnessDefinition, scope: Scope, ctx: HarnessContext) => string | null>
 > = {
   dsh: (def, _scope, ctx) => join(scopeRoot(def, "global", ctx), "cordis.patch.yml"),
-  opencode: (_def, scope, ctx) =>
-    scope === "project" && ctx.projectRoot !== null
-      ? join(ctx.projectRoot, "opencode.jsonc")
-      : null,
 };
 
 function fixtureHome(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): string | null {

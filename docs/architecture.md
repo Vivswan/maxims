@@ -222,7 +222,7 @@ flowchart LR
   contract -->|"hook of kind registry, file, custom or none; a tierCheck's layers read in order"| hook
 ```
 
-- **Writing logic lives once.** Two strategies and one hook writer serve every folder; a folder is data, and the quirk kinds a spec cannot carry are a config edit (opencode) and a custom reconcile (dsh). [Adding a harness](adding-a-harness.md) owns the spec, field by field.
+- **Writing logic lives once.** Two strategies and one hook writer serve every folder; a folder is data, and the quirk kinds a spec cannot carry are a config edit (`configEdit`, which no built-in needs today) and a custom reconcile (dsh). [Adding a harness](adding-a-harness.md) owns the spec, field by field.
 - **A custom `reconcile` quirk needs hook kind `none` in the spec;** `toDefinition()` throws otherwise, so a folder cannot declare a registry hook and then replace it in code.
 - **The registry is guarded by a completeness test:** a folder missing from the import list fails it, and a user spec that names a built-in id or repeats one is refused with the entry named.
 

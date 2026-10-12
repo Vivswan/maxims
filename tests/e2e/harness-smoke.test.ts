@@ -170,11 +170,11 @@ const COPILOT: Row = {
   succeeded: (stdout) => jsonLines(stdout).some((line) => line.type === "result"),
 };
 
-// Once a plugin file exists, OpenCode installs `@opencode-ai/plugin` into its config directory
-// with the npm it bundles and waits for that install before loading the plugin. With no registry
-// reachable, npm's default retry schedule held the row for about 70 s of its 90 s deadline; npm
-// reads `npm_config_*` from the environment, so offline mode makes it give up without a request.
-// The models.dev refresh is the other request the container cannot serve.
+// OpenCode 2.0 serves `@opencode/plugin` to the plugin file from the host, so nothing is installed
+// for it; the models.dev refresh is the one request the container cannot serve. The 1.x provider
+// block below is read through 2.0's config migration. Its json output is one `text` line per
+// assistant text part and an `error` line on a failed step, with no step-finish line, so the
+// text part is the success marker.
 const OPENCODE: Row = {
   command: ["opencode"],
   harness: "opencode",
@@ -188,7 +188,6 @@ const OPENCODE: Row = {
     XDG_STATE_HOME: join(home, ".local", "state"),
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     OPENCODE_DISABLE_MODELS_FETCH: "1",
-    npm_config_offline: "true",
   }),
   files: (baseUrl) => ({
     ".config/opencode/opencode.json": `${JSON.stringify(
@@ -214,10 +213,10 @@ const OPENCODE: Row = {
     jsonLines(stdout).some((line) => {
       const part = line.part;
       return (
-        line.type === "step_finish" &&
+        line.type === "text" &&
         typeof part === "object" &&
         part !== null &&
-        (part as Record<string, unknown>).reason === "stop"
+        (part as Record<string, unknown>).type === "text"
       );
     }),
 };

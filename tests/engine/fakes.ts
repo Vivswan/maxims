@@ -41,6 +41,7 @@ import {
 import { serializeState } from "../../src/state/store.ts";
 import { assertInsideRoot, sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
+import { jsonDocument } from "../../src/util/json.ts";
 
 export const FIXTURE_DIR = ".fixture";
 
@@ -151,6 +152,29 @@ export const configEditHarness: HarnessDefinition = {
       return next === null || next === text ? null : { text: next };
     };
     return [{ root: ctx.home, path, entry: ["instructions"], rewrite }];
+  },
+};
+
+// The rules-dir fixture under another real id, so it can sit beside the Claude Code definition,
+// whose config entry is spliced into the JSON the planner holds rather than replacing it, as a
+// harness that lists its rules directory in a user-owned config does: an entry another harness put
+// in the same text survives, and text that is not JSON throws.
+export const jsonConfigEditHarness: HarnessDefinition = {
+  ...rulesDirHarness,
+  id: "cursor",
+  displayName: "Fixture Config",
+  configEdit: async (scope, ctx, wanted) => {
+    const root = scopeRoot({}, scope, ctx);
+    const path = assertInsideRoot(root, join(root, FIXTURE_DIR, "config.json"));
+    const rewrite = (text: string | null) => {
+      if (text === null && !wanted) return null;
+      const parsed: Record<string, unknown> = JSON.parse(text ?? "{}");
+      if (wanted) parsed.instructions = ["rules"];
+      else delete parsed.instructions;
+      const next = jsonDocument(parsed);
+      return next === text ? null : { text: next };
+    };
+    return [{ root, path, entry: ["instructions"], rewrite }];
   },
 };
 

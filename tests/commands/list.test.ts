@@ -18,18 +18,19 @@ import { runSync } from "../../src/commands/sync.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import type { ListReport, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
-import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import {
   configEditHarness,
   daysAgo,
   entryFor,
+  FIXTURE_DIR,
   fakeIo,
   fetchedEntry,
   fetchedFacts,
   githubFrom,
   gitSha,
   type IntentOverrides,
+  jsonConfigEditHarness,
   localFrom,
   memoryName,
   rulesDirHarness,
@@ -225,18 +226,18 @@ describe("list", () => {
         stateWith(
           {
             [source]: entryFor(localFrom(source), {
-              harnesses: ["opencode"],
+              harnesses: ["cursor"],
               destination: { scope: "project", root: w.project },
             }),
           },
-          { project: { [w.project]: ["opencode"] } },
+          { project: { [w.project]: ["cursor"] } },
         ),
       );
-      const io = fakeIo({ ...w, cwd: w.project, harnesses: [opencode] });
-      mkdirSync(join(w.project, ".opencode"), { recursive: true });
+      const io = fakeIo({ ...w, cwd: w.project, harnesses: [jsonConfigEditHarness] });
       await runSync(SYNC, io);
-      expect(existsSync(join(w.project, ".opencode", "plugins", "maxims.ts"))).toBe(true);
-      writeFileSync(join(w.project, "opencode.json"), "{");
+      const config = join(w.project, FIXTURE_DIR, "config.json");
+      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({ instructions: ["rules"] });
+      writeFileSync(config, "{");
       const report = await runList({ quiet: false, dryRun: false, json: true }, io);
       expect(report.sources[0]?.harnesses.map((harness) => harness.hook)).toEqual(["current"]);
     });

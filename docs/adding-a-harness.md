@@ -99,7 +99,7 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 The built-in Codex spec from `src/harnesses/codex/spec.ts`, serialised as JSON without its `fixtures`. Its `verifiedAgainst` is abridged to one source with an illustrative note: the spec file holds the current date and every source, and each re-verification moves them.
 
-A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; dsh and OpenCode add a quirk in code beside theirs for what the data cannot say.
+A `harnesses.json` entry has the same shape under an id that is not a built-in. Every built-in is declared this way; dsh adds a quirk in code beside its spec for what the data cannot say.
 
 ```json
 {
@@ -175,13 +175,15 @@ A harness loaded from the file carries `userDefined: true`, the mark for labelli
 
 1. Create `src/harnesses/<id>/spec.ts` exporting `spec` with `satisfies HarnessSpec`, and add the id to `HARNESS_IDS` in `src/contracts/harness-id.ts`.
 2. Export the compiled definition from the same file as a camel-cased constant (`geminiCli` for `gemini-cli`): `export const geminiCli = toDefinition(spec)`.
-3. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a config edit (OpenCode) or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`. One needing a spec value takes it as an argument: the spec imports the quirk, never the reverse.
+3. Code the data cannot say goes in a `quirks.ts` beside the spec, passed as the second argument: a config edit (`configEdit`) or a custom hook (the dsh bridge). A quirk needing the compiled paths takes them from the definition, as `(declared) => ({ reconcile: bridgeReconciler(declared) })`. One needing a spec value takes it as an argument: the spec imports the quirk, never the reverse.
 4. Put a hand-written `config.*` and, for a hook that reads stdin, `hook-stdin.json` under `fixtures/`, and name them in `fixtures`.
 5. Write `tests/harnesses/<id>/spec.test.ts` for the facts the vendor enforces silently, and add the definition to the harness registry's static import list, whose completeness test names any folder it misses.
 
 The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles it, and checks its id, export and fixtures, so a spec that violates a refinement fails there before it ships. Verify every path, key and event against the vendor's current pages before encoding it.
 
 Each source goes into `verifiedAgainst.sources` with the facts the nightly re-reads, as the most programmatic record the vendor publishes: a JSON schema first, then a file in the vendor's open-source repository, and a documentation page only when neither exists, with `why` saying what was looked for.
+
+A `file` source's `ref` is the line the targeted version is released from: a release branch where the vendor keeps one (OpenCode's `v2`), the default branch where releases cut from it. A default branch that already carries the next major verifies a contract the harness has not moved to, so a claim that fails there is not drift the harness can act on.
 
 | kind | shape | what the nightly checks |
 | --- | --- | --- |

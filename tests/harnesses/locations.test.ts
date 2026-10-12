@@ -143,7 +143,7 @@ const AT_HOME: Record<BuiltInHarnessId, Record<Scope, Files>> = {
   },
   opencode: {
     project: {
-      rule: "/home/user/project/.opencode/memories/maxims-example-user-doctrine.md",
+      rule: "/home/user/project/AGENTS.md",
       hook: "/home/user/project/.opencode/plugins/maxims.ts",
       mcp: null,
     },
