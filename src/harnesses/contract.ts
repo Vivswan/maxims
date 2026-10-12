@@ -127,12 +127,9 @@ export type McpRegistry = {
 // of one file in turn and mints the one edit itself, so a rewrite names no destination.
 export type RegistryRewrite = { text: string; notice?: string };
 
-// An edit of a user-owned file at a slot of its own, minted by the sync planner: it holds one text
-// per file and plans every rewrite over the text the one before it left, so a hook registry linked
-// at a harness config lands in one edit, and the link at `path` is judged and followed where the
-// edit is minted, on removal too. `entry` is the slot the rewrite owns, so two harnesses at one
-// file leave each other's. A quirk reads the file to decide whether a rewrite is due, and the
-// rewrite splices the planner's text, which may already carry another artifact's edit.
+// An edit of a user-owned file at a slot of its own, minted by the sync planner over the one text
+// it holds per file, so a hook registry linked at a harness config lands in one edit with it.
+// `entry` is the slot the rewrite owns, so two harnesses at one file leave each other's.
 export type ConfigRewrite = {
   root: string;
   path: RootedPath;

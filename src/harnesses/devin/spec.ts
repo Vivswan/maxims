@@ -53,7 +53,7 @@ export const spec = {
         url: "https://docs.devin.ai/cli/reference/configuration/config-file.md",
         claims: ["Devin CLI uses JSON files (with comment support) for configuration."],
         why: "Devin is closed source and publishes no schema; this is the page's markdown rendition",
-        note: "the config files take comments; nothing says whether a trailing comma is taken, so the servers file is edited as JSONC",
+        note: "the config files take comments; nothing says whether a trailing comma is taken, so config.json and the servers file are edited as JSONC",
       },
     ],
   },
@@ -69,7 +69,7 @@ export const spec = {
   hook: {
     kind: "registry",
     path: { project: ".devin/config.json", global: "config.json" },
-    format: "json",
+    format: "jsonc",
     eventPath: ["hooks", "SessionStart"],
     grouped: true,
     handlerTemplate: { type: "command", command: "{{command}}", timeout: "{{timeoutSeconds}}" },

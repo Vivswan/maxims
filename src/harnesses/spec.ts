@@ -610,11 +610,10 @@ type DeclaredFiles = {
   mcp?: z.infer<typeof Mcp>;
 };
 
-// One owner per file at a scope: a shared rule file is edited as markdown, a registry and a
-// servers file as JSON, so a path declared for two of them is a file two planners write over each
-// other (the servers map replaced a rule file's block in one plan). The rule file is any the block
-// may land in, the default or a precedence fallback that exists first. Compared as text because
-// `RelPath` admits one spelling per path.
+// One owner per file at a scope: a rule file's block and a servers map declared at one path were
+// two edits of one file in one plan, the later replacing the earlier. The rule file is any the
+// block may land in, `file` or a precedence fallback. Compared as text because `RelPath` admits
+// one spelling per path.
 function requireOneOwnerPerFile(ctx: {
   value: DeclaredFiles;
   issues: z.core.$ZodRawIssue[];
