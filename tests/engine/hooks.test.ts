@@ -52,8 +52,6 @@ import {
   rewriteHookRegistry,
 } from "../../src/harnesses/hook-writer.ts";
 import { mcpRegistrationAt, rewriteServers } from "../../src/harnesses/mcp-stub/register.ts";
-import { INSTRUCTIONS_GLOB } from "../../src/harnesses/opencode/quirks.ts";
-import { opencode } from "../../src/harnesses/opencode/spec.ts";
 import { applyChanges, type Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import * as fsUtil from "../../src/util/fs.ts";
@@ -68,6 +66,7 @@ import {
   FIXTURE_CONFIG_EMPTIED,
   FIXTURE_DIR,
   fakeIo,
+  jsonConfigEditHarness,
   localFrom,
   rulesDirHarness,
   sharedBlockHarness,
@@ -1685,32 +1684,37 @@ describe("built-in registries linked into one file", () => {
 });
 
 describe("a config edit is the planner's to mint", () => {
-  // Claude's registry linked at opencode.json: planned apart, the config edit was a second edit
-  // of one backing file from the original bytes, and whichever applied last took the other out
-  // until the next sync. One text per file holds for a config too.
-  test("opencode.json linked at .claude/settings.json takes Claude's hook and OpenCode's rules in one edit", async () => {
+  // Claude's registry linked at the config another harness lists its rules in: planned apart, the
+  // config edit was a second edit of one backing file from the original bytes, and whichever
+  // applied last took the other out until the next sync. One text per file holds for a config too.
+  test("a config linked at .claude/settings.json takes Claude's hook and the rules entry in one edit", async () => {
     await world(async ({ home, userHome, dir, project }) => {
-      for (const folder of [".claude", ".opencode"]) mkdirSync(join(project, folder));
-      const config = join(project, "opencode.json");
+      mkdirSync(join(project, ".claude"));
+      const config = join(project, FIXTURE_DIR, "config.json");
       writeFileSync(config, '{ "model": "x" }\n');
       const registry = join(project, ".claude", "settings.json");
       symlinkSync(config, registry);
       const source = writeSource(join(dir, "src"), TWO_MEMORIES);
       const entry = entryFor(localFrom(source), {
         destination: { scope: "project", root: project },
-        harnesses: ["claude-code", "opencode"],
+        harnesses: ["claude-code", "cursor"],
       });
       writeState(home, stateWith({ [source]: entry }, { project: { [project]: ["claude-code"] } }));
-      const io = fakeIo({ home, userHome, cwd: project, harnesses: [claudeCode, opencode] });
+      const io = fakeIo({
+        home,
+        userHome,
+        cwd: project,
+        harnesses: [claudeCode, jsonConfigEditHarness],
+      });
       const report = await runSync(SYNC, io);
       const edits = report.plan.changes.flatMap((change) =>
         change.kind === "edit" ? [[String(change.path), String(change.target)]] : [],
       );
       expect(edits).toEqual([[registry, config]]);
       const text = readFileSync(config, "utf8");
-      expect(
-        [HOOK_COMMAND, INSTRUCTIONS_GLOB, '"model": "x"'].map((s) => text.includes(s)),
-      ).toEqual([true, true, true]);
+      expect([HOOK_COMMAND, '"instructions"', '"model": "x"'].map((s) => text.includes(s))).toEqual(
+        [true, true, true],
+      );
       expect((await runSync(SYNC, io)).changed).toEqual([]);
     });
   });
@@ -1718,19 +1722,19 @@ describe("a config edit is the planner's to mint", () => {
   // The entry must leave and cannot: a refusal raised while removing was recorded only while the
   // entry was wanted, so it stayed behind the link with nothing said. The edit is minted where a
   // registry's is, under the same reporting.
-  test("removing the OpenCode entry behind a link out of the project is reported", async () => {
+  test("removing the rules entry behind a link out of the project is reported", async () => {
     await world(async ({ home, userHome, dir, project }) => {
-      const outside = join(dir, "elsewhere", "opencode.json");
-      const listed = `{ "instructions": ["${INSTRUCTIONS_GLOB}"] }\n`;
+      const outside = join(dir, "elsewhere", "config.json");
+      const listed = '{"instructions":["rules"]}\n';
       mkdirSync(join(dir, "elsewhere"));
       writeFileSync(outside, listed);
-      const link = join(project, "opencode.json");
+      const link = join(project, FIXTURE_DIR, "config.json");
       symlinkSync(outside, link);
-      const io = fakeIo({ home, userHome, cwd: project, harnesses: [opencode] });
+      const io = fakeIo({ home, userHome, cwd: project, harnesses: [jsonConfigEditHarness] });
       const ctx = await loadContext(io, { readHookStdin: false });
       const plan = await planHooks({
         ctx,
-        harnesses: [opencode],
+        harnesses: [jsonConfigEditHarness],
         agents: undefined,
         wants: (_id, scope) => ({ hook: false, rules: false, unreachable: scope !== "project" }),
         elsewhere: () => [],

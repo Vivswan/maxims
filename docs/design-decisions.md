@@ -52,20 +52,20 @@ Each decision is one line, what was decided and why it will not be re-argued. Th
 
 ## Harnesses
 
-- **Every harness in the [matrix](harnesses.md#the-matrix) ships in the first release.** Each built-in is declared from a spec, the shape [adding a harness](adding-a-harness.md) owns, and a user's own `harnesses.json` entries take the same shape. dsh and OpenCode add a `quirks.ts` beside theirs for what the data cannot say.
+- **Every harness in the [matrix](harnesses.md#the-matrix) ships in the first release.** Each built-in is declared from a spec, the shape [adding a harness](adding-a-harness.md) owns, and a user's own `harnesses.json` entries take the same shape. dsh adds a `quirks.ts` beside its spec for what the data cannot say.
 - **Pi ships with a file hook, not a deferred extension package.** An extension file in Pi's extensions directory receives `session_start` and runs the sync, the plugin-file pattern OpenCode uses.
 - **Codex's hooks flag is read-only detection.** Hooks are on by default there; maxims reads `hooks = false` to report tier 2 achieved and never writes the flag.
 - **Cursor gets a session-start hook, not a per-prompt one.** Current Cursor exposes `sessionStart`, so the earlier per-prompt shape is gone.
 - **Every quiet-mode sync is debounced by 60 seconds, on every harness.** A harness that fires more than once per session does the sync work once, and the rule needs no per-harness exception.
 - **`-g` on a harness with no global target warns and skips.** Cursor's user rules are UI-stored; refusing the whole command for one harness would block the other harnesses.
 - **Copilot CLI is tier 1; the IDE half is tier 2.** The CLI ships a `sessionStart` hook; the IDE has none, and an editor folder-open task to promote it was rejected as too invasive.
-- **OpenCode is tier 1 through a maxims-written plugin file.** Whole-file write and whole-file delete are simpler than a registry edit because nothing else lives in the file.
+- **OpenCode is tier 1 through a maxims-written plugin file, and the harness targets OpenCode 2.0.** Whole-file write and whole-file delete are simpler than a registry edit because nothing else lives in the file. 2.0 loads the file from its plugins directory with no config entry and passes over the 1.x plugin shape without a word, so the 1.x line is not targeted.
 - **DeepSeek Harness is tier 1 through its Claude Code hook bridge, caveats recorded.** The bridge row is mounted machine-wide and its config points at a maxims-owned file, never into `.claude`; the [dsh catch](harnesses.md#per-harness-catches) owns the caveats.
 - **The MCP stub ships behind the hidden `maxims mcp-serve` command.** It is the only mechanical tier 2 answer, for harnesses that start MCP servers eagerly and have no hook; the [matrix](harnesses.md#the-matrix) shows where it is registered.
 - **The self-refresh line ships beside the stub.** Zero artifact and universal by construction, since every tier 2 harness has an always-loaded layer by definition; not written where a hook exists.
 - **Shell-rc lines, OS schedulers, editor tasks, and git hooks are rejected as freshness fallbacks.** None fires on the agent's session start, each forks per platform or writes into a file the team shares, and the one hook already refreshes every harness. The [prior art table](why.md#prior-art) places them beside the tools maxims did borrow from.
 - **The rule file is a real file, never a symlink, on every harness.** A rule that silently never loads is the failure the tool exists to prevent. The spec reports, unverified here, that Claude Code skips a symlinked rule file pointing outside the working directory.
-- **A hook registry, a shared rule file, or a harness config file the user owns is edited through its symlink, never replaced.** A registry, a shared `AGENTS.md`, an `opencode.json`, or a `cordis.patch.yml` linked into a dotfiles checkout stays in the checkout, since replacing the link would cut it out silently; the [apply step](architecture.md#every-write-is-a-planned-change) owns the mechanics.
+- **A hook registry, a shared rule file, or a harness config file the user owns is edited through its symlink, never replaced.** A registry, a shared `AGENTS.md`, or a `cordis.patch.yml` linked into a dotfiles checkout stays in the checkout, since replacing the link would cut it out silently; the [apply step](architecture.md#every-write-is-a-planned-change) owns the mechanics.
 
 ## Tooling
 

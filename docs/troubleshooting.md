@@ -50,7 +50,7 @@ wait for it to finish, or remove <path to state.json.lock> if that process is go
 
 ## Exit 4: a harness config could not be written
 
-**What you see:** exit 4 naming a file, for example a harness config such as `settings.json`, `hooks.json`, or `opencode.json` that did not parse, or one that parses only as JSONC where the harness reads strict JSON:
+**What you see:** exit 4 naming a file, for example a harness config such as `settings.json` or `hooks.json` that did not parse, or one that parses only as JSONC where the harness reads strict JSON:
 
 ```text
 cannot edit ~/.claude/settings.json: a trailing comma at line 9, column 44; Claude Code reads strict JSON
@@ -163,23 +163,6 @@ npx -y @vivswan/maxims sync --quiet
 ```
 
 The [Cline catch](harnesses.md#per-harness-catches) names the hook's other prerequisites.
-
-## OpenCode waits about a minute to start offline after an install
-
-**What you see:** on a machine without network, an OpenCode session started after an `add` that wrote its plugin file takes about 70 seconds to get going.
-
-**What it means:** once a plugin file exists, OpenCode installs `@opencode-ai/plugin` into its config directory with its bundled npm and waits for that install before loading plugins; offline, npm's default retry schedule is the wait. The [OpenCode catch](harnesses.md#per-harness-catches) owns the plugin file.
-
-**What to do:** set `npm_config_offline=true` in the environment OpenCode starts from, and npm gives up without a request. Online the install succeeds on its first request and the wait does not appear; that follows from the cause and was not measured.
-
-The e2e smoke test measured it on OpenCode 1.18.31 in a network namespace with only loopback, one session per run:
-
-| environment | one session |
-| --- | --- |
-| as installed | 73.3 s |
-| `npm_config_offline=true` and `OPENCODE_DISABLE_MODELS_FETCH=1` together | 3.5 s |
-
-The second variable drops a models.dev refresh the namespace could not serve; the pair was measured together, not each alone.
 
 ## A sync notice names a harness you defined yourself
 
