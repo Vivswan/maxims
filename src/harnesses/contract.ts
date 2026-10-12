@@ -286,8 +286,9 @@ export interface HarnessDefinition {
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
   mcp?: McpRegistry;
-  // Config edits a rules-dir target needs before the harness reads it (OpenCode's `instructions`
-  // array entry), reconciled by sync like a hook: each a rewrite of a file the user owns.
+  // Config edits a rules-dir target needs before the harness reads it (a rules directory listed
+  // in a config the user owns), reconciled by sync like a hook: each a rewrite of a file the user
+  // owns. No built-in declares one today; dsh's custom hook mints the same rewrites.
   configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<ConfigRewrite[]>;
 }
 

@@ -183,7 +183,7 @@ The folder census test under `tests/harnesses/` parses every `spec.ts`, compiles
 
 Each source goes into `verifiedAgainst.sources` with the facts the nightly re-reads, as the most programmatic record the vendor publishes: a JSON schema first, then a file in the vendor's open-source repository, and a documentation page only when neither exists, with `why` saying what was looked for.
 
-A `file` source's `ref` is the release line of the version the harness targets, a release branch such as OpenCode's `v2` or a tag, never the vendor's default branch: the default branch carries the next major before the harness does, so a claim read there verifies a contract the harness has not moved to, and a claim that fails there is not drift the harness can act on.
+A `file` source's `ref` is the line the targeted version is released from: a release branch where the vendor keeps one (OpenCode's `v2`), the default branch where releases cut from it. A default branch that already carries the next major verifies a contract the harness has not moved to, so a claim that fails there is not drift the harness can act on.
 
 | kind | shape | what the nightly checks |
 | --- | --- | --- |
