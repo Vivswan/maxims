@@ -30,6 +30,38 @@ export function tail(output: string, lines: number): string {
   return all.slice(Math.max(0, all.length - lines)).join("\n");
 }
 
+// bun prints a failing row's source excerpt, assertion and stack before the `(fail)` line that
+// names it, a timeout's explanation on a caret line after it, and names every failing row again
+// under `N tests failed:` at the end without that output. A file that fails early scrolls its
+// blocks past the tail.
+const MARKER = /^(\((pass|fail|skip|todo)\) |::group::|::endgroup::|\d+ tests? failed:)/;
+const TRAILER = /^\s+\^ \S/;
+const DURATION = / \[[\d.]+m?s\]$/;
+
+function failingRows(output: string): string[] {
+  const blocks: string[] = [];
+  const named = new Set<string>();
+  let block: string[] = [];
+  let open = false;
+  for (const line of output.split("\n")) {
+    if (open && TRAILER.test(line)) {
+      blocks[blocks.length - 1] += `\n${line}`;
+      continue;
+    }
+    open = false;
+    block.push(line);
+    if (!MARKER.test(line)) continue;
+    const name = line.replace(DURATION, "");
+    if (line.startsWith("(fail) ") && !named.has(name)) {
+      named.add(name);
+      blocks.push(block.join("\n"));
+      open = true;
+    }
+    block = [];
+  }
+  return blocks;
+}
+
 function suiteEnv(iterations: number): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -37,6 +69,12 @@ function suiteEnv(iterations: number): Record<string, string> {
   }
   env[ITERATIONS_ENV] = String(iterations);
   return env;
+}
+
+function rowsSection(output: string): string {
+  const rows = failingRows(output);
+  if (rows.length === 0) return "";
+  return `Each failing row as bun printed it:\n\n\`\`\`text\n${rows.join("\n\n")}\n\`\`\`\n\n`;
 }
 
 export function runPropertyDeep(iterations: number, run: SuiteRunner = spawnSuite): Outcome {
@@ -49,7 +87,7 @@ export function runPropertyDeep(iterations: number, run: SuiteRunner = spawnSuit
     summary,
     report: {
       title: "Deep property run failed",
-      body: `${headline}. The last ${TAIL_LINES} lines of its output:\n\n\`\`\`text\n${tail(result.output, TAIL_LINES)}\n\`\`\`\n`,
+      body: `${headline}. ${rowsSection(result.output)}The last ${TAIL_LINES} lines of its output:\n\n\`\`\`text\n${tail(result.output, TAIL_LINES)}\n\`\`\`\n`,
     },
   };
 }
