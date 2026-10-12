@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { lstatSync, readlinkSync, type Stats, statSync } from "node:fs";
+import { readlinkSync, type Stats, statSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -201,18 +201,9 @@ async function applyOne(change: Change): Promise<boolean> {
 }
 
 // Only "nothing is there" reads as absent; a probe that could not look (EACCES on a parent, an
-// I/O error) surfaces as exit 4 rather than as a change that silently did not happen. A planner
-// deciding whether a removal is worth planning asks the same question.
+// I/O error) surfaces as exit 4 rather than as a change that silently did not happen.
 export function lstatOrNull(path: string): Promise<Stats | null> {
   return probe(path, lstat);
-}
-
-export function lstatOrNullSync(path: string): Stats | null {
-  try {
-    return lstatSync(path);
-  } catch (error) {
-    return absentOrThrow(path, error);
-  }
 }
 
 // A directory reached through a link already exists for mkdir's purposes, so this probe follows.
@@ -224,13 +215,9 @@ async function probe(path: string, look: (path: string) => Promise<Stats>): Prom
   try {
     return await look(path);
   } catch (error) {
-    return absentOrThrow(path, error);
+    if (isAbsent(error)) return null;
+    throw cannotInspect(path, error);
   }
-}
-
-function absentOrThrow(path: string, error: unknown): null {
-  if (isAbsent(error)) return null;
-  throw cannotInspect(path, error);
 }
 
 async function guarded(path: string, action: () => Promise<unknown>): Promise<void> {

@@ -12,7 +12,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import {
   assertInsideRoot,
@@ -254,20 +254,97 @@ describe("realpathOfExistingPrefix", () => {
     });
   });
 
+  // What would drift silently: a `..` folded before the link in front of it is read, which is
+  // what `realpathSync` does on node and on bun, so `link/../target` names the sibling the kernel
+  // never opens. Past the deepest existing prefix the fold IS the answer: nothing is there for the
+  // kernel to enter, so a link typed after such a `..` is kept as typed, not followed.
+  //
+  //   link     -> deep/dir
+  //   alias    -> deep/target
+  //   dangling -> nowhere
+  //   notes.md    a file
+  const plantKernelRows = (root: string): void => {
+    mkdirSync(join(root, "deep", "dir"), { recursive: true });
+    mkdirSync(join(root, "deep", "target"));
+    mkdirSync(join(root, "target"));
+    writeFileSync(join(root, "notes.md"), "");
+    symlinkSync(join(root, "deep", "dir"), join(root, "link"));
+    symlinkSync(join(root, "deep", "target"), join(root, "alias"));
+    symlinkSync(join(root, "nowhere"), join(root, "dangling"));
+  };
+  const kernelRows: [string, string[], string[]][] = [
+    [
+      "a `..` after a linked folder steps out of the folder the link reached",
+      ["link", "..", "target"],
+      ["deep", "target"],
+    ],
+    [
+      "the missing tail after such a `..` is appended as typed",
+      ["link", "..", "target", "missing", "leaf.md"],
+      ["deep", "target", "missing", "leaf.md"],
+    ],
+    [
+      "a `..` after a file ends the walk, so a link typed after it stays as typed",
+      ["notes.md", "..", "alias"],
+      ["alias"],
+    ],
+    [
+      "a `..` after a missing entry is folded, so a link typed after it stays as typed",
+      ["missing", "..", "alias"],
+      ["alias"],
+    ],
+    ["a `..` after a dangling link is folded the same way", ["dangling", "..", "alias"], ["alias"]],
+  ];
+  test.skipIf(WINDOWS).each(kernelRows)("%s", async (_name, typed, expected) => {
+    await withTempDir((dir) => {
+      const root = realpathSync(dir);
+      plantKernelRows(root);
+      expect(realpathOfExistingPrefix([root, ...typed].join(sep))).toBe(join(root, ...expected));
+    });
+  });
+
+  // Win32 folds the typed path before any entry is looked at, so there the lexical answer is the
+  // kernel's own.
+  test.skipIf(!WINDOWS)(
+    "a `..` after a linked folder is folded before the link is read",
+    async () => {
+      await withTempDir((dir) => {
+        const root = realpathSync(dir);
+        plantKernelRows(root);
+        expect(realpathOfExistingPrefix([root, "link", "..", "target"].join(sep))).toBe(
+          join(root, "target"),
+        );
+      });
+    },
+  );
+
   // The kernels disagree on which component a sealed folder fails at (macOS's realpath refuses
   // the folder it cannot open, Linux's the entry inside it); each resolver names the entry it was
-  // asked about on both, never the lexical path and never the folder.
+  // asked about on both, never the lexical path and never the folder. A `..` out of the sealed
+  // folder is the same refusal: the kernel enters the folder to leave it, where a lexical fold
+  // never looks at it.
   const sealedResolvers: [string, (path: string) => string][] = [
     ["realpathOfExistingPrefix", realpathOfExistingPrefix],
     ["realKeyOf", realKeyOf],
   ];
-  test.skipIf(!CHMOD_DENIES).each(sealedResolvers)(
+  const sealedShapes: [string, string[]][] = [
+    ["an entry inside it", ["child", "leaf.md"]],
+    ["a `..` out of it", ["..", "leaf.md"]],
+  ];
+  const sealedRows = sealedResolvers.flatMap(([name, resolver]) =>
+    sealedShapes.map(([shape, tail]): [string, (path: string) => string, string[]] => [
+      `${name}, ${shape}`,
+      resolver,
+      tail,
+    ]),
+  );
+  test.skipIf(!CHMOD_DENIES).each(sealedRows)(
     "%s: a folder on the way that cannot be searched is exit 4 naming the entry asked about",
-    async (_name, resolver) => {
+    async (_name, resolver, tail) => {
       await withTempDir((dir) => {
         const locked = join(dir, "locked");
         mkdirSync(join(locked, "child"), { recursive: true });
-        const asked = join(locked, "child", "leaf.md");
+        const asked = [locked, ...tail].join(sep);
         chmodSync(locked, 0o000);
         try {
           expect(outcome(() => resolver(asked))).toEqual({
@@ -285,6 +362,56 @@ describe("realpathOfExistingPrefix", () => {
       });
     },
   );
+
+  // The kernels fail this at different reads: Linux hands out the cwd and refuses its realpath,
+  // macOS refuses the cwd read itself (uv_cwd EACCES). Both are exit 4 naming the typed `.`.
+  test.skipIf(!CHMOD_DENIES)(
+    "the cwd under a folder that cannot be searched is exit 4 naming the typed `.`",
+    async () => {
+      await withTempDir((dir) => {
+        const locked = join(dir, "locked");
+        mkdirSync(join(locked, "child"), { recursive: true });
+        const back = process.cwd();
+        process.chdir(join(locked, "child"));
+        chmodSync(locked, 0o000);
+        try {
+          expect(outcome(() => realpathOfExistingPrefix("."))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(/^cannot inspect \.: EACCES/),
+            }),
+          });
+        } finally {
+          chmodSync(locked, 0o755);
+          process.chdir(back);
+        }
+      });
+    },
+  );
+
+  // What would drift silently: the cwd read moved back out of the walk's try, where only macOS
+  // CI sees it fail (the row above). Only a stub makes the read fail elsewhere, and bun's `resolve`
+  // reads the cwd natively, so the stub reaches the read only where the code makes it itself.
+  test("a cwd the kernel refuses to read is exit 4 naming the typed `.`", () => {
+    const cwd = process.cwd;
+    process.cwd = () => {
+      throw Object.assign(new Error("EACCES: process.cwd failed with error permission denied"), {
+        code: "EACCES",
+      });
+    };
+    try {
+      expect(outcome(() => realpathOfExistingPrefix("."))).toEqual({
+        kind: "threw",
+        error: expect.objectContaining({
+          code: ExitCode.DestinationWriteFailed,
+          message: expect.stringMatching(/^cannot inspect \.: EACCES/),
+        }),
+      });
+    } finally {
+      process.cwd = cwd;
+    }
+  });
 });
 
 // What would drift silently: node's realpathSync folds `jump/../file` before it looks at `jump`,
@@ -473,4 +600,36 @@ describe("followLinks", () => {
       },
     );
   }
+
+  // What would drift silently: a `..` in a target stepped lexically, so the chain reports a file
+  // reached where the kernel's own open refuses to enter the folder the `..` leaves.
+  test.skipIf(!CHMOD_DENIES)(
+    "a .. out of a sealed folder is exit 4 naming that folder, as the kernel refuses the open",
+    async () => {
+      await withTempDir((dir) => {
+        const root = realpathSync(dir);
+        const locked = join(root, "locked");
+        mkdirSync(locked);
+        writeFileSync(join(root, "notes.md"), "notes\n");
+        const link = join(root, "AGENTS.md");
+        symlinkSync(["locked", "..", "notes.md"].join(sep), link);
+        chmodSync(locked, 0o000);
+        try {
+          expect(outcome(() => readFileSync(link, "utf8"))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({ code: "EACCES" }),
+          });
+          expect(outcome(() => followLinks(link))).toEqual({
+            kind: "threw",
+            error: expect.objectContaining({
+              code: ExitCode.DestinationWriteFailed,
+              message: expect.stringMatching(new RegExp(`^cannot inspect ${locked}: EACCES`)),
+            }),
+          });
+        } finally {
+          chmodSync(locked, 0o755);
+        }
+      });
+    },
+  );
 });

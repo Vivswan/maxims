@@ -10,6 +10,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  type Stats,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -119,8 +120,8 @@ export function isInside(root: string, path: string): boolean {
 }
 
 // The real path of a location that may not exist yet: its deepest existing prefix resolved, the
-// rest appended as typed. Only "nothing is there" walks up; a prefix that exists but cannot be
-// inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
+// rest appended as typed. Only "nothing is there" stops the walk; a prefix that exists but cannot
+// be inspected is exit 4, never a path verdict, so a containment check or a sweep identity is never
 // built on a path nobody looked at.
 export function realpathOfExistingPrefix(path: string): string {
   return realpathOfPrefix(path, path);
@@ -133,33 +134,72 @@ export function realKeyOf(path: string): string {
   return join(realpathOfPrefix(dirname(path), path), basename(path));
 }
 
-// A failure to look names `asked`, the entry the caller asked about, never the prefix the walk
-// was at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
+// Read as the kernel reads `prefix`. Node's `realpathSync` folds a `..` before reading the link in
+// front of it, and bun's normalizes the typed path before the kernel sees it, so neither is handed
+// a `..`. The cwd is read inside the try: under a sealed folder macOS refuses the read itself.
+//
+// A failure to look names `asked`, the entry the caller asked about, never the entry the walk was
+// at: the kernels disagree on where a sealed folder fails (macOS's realpath at the folder it
 // cannot open, Linux's at the entry inside it), and the kernel's own path stays in the cause text.
 function realpathOfPrefix(prefix: string, asked: string): string {
-  let at = prefix;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      return join(realpathSync(at), ...tail.reverse());
-    } catch (cause) {
-      if (!isAbsent(cause)) throw cannotInspect(asked, cause);
-      const parent = dirname(at);
-      if (parent === at) return prefix;
-      tail.push(basename(at));
-      at = parent;
+  const links = linksOf(process.platform);
+  const { root, names } = links.parts(prefix);
+  let at = root;
+  let index = 0;
+  try {
+    at = resolve(root === "" ? process.cwd() : root);
+    at = realpathSync.native(at);
+    while (index < names.length) {
+      const rest = names.slice(index);
+      if (rest[0] === "..") {
+        at = links.parentOf(at);
+        index += 1;
+        continue;
+      }
+      const end = rest.indexOf("..");
+      const run = end === -1 ? rest : rest.slice(0, end);
+      const head = realpathOfRun(at, run);
+      if (head.length < run.length) return join(head.real, ...rest.slice(head.length));
+      at = head.real;
+      index += run.length;
     }
+    return at;
+  } catch (cause) {
+    if (!isAbsent(cause)) throw cannotInspect(asked, cause);
+    return join(at, ...names.slice(index));
   }
 }
 
-// Nothing there reads as no link; a probe that could not look is exit 4, never an answer.
-export function isSymlink(path: string): boolean {
+// The deepest existing head of `run` under the real folder `at`. One lookup's ENOENT does not say
+// which entry was missing.
+function realpathOfRun(at: string, run: string[]): { real: string; length: number } {
+  for (let length = run.length; length > 0; length -= 1) {
+    try {
+      return { real: realpathSync.native(join(at, ...run.slice(0, length))), length };
+    } catch (cause) {
+      if (!isAbsent(cause)) throw cause;
+    }
+  }
+  return { real: at, length: 0 };
+}
+
+// Nothing there reads as absent; a probe that could not look is exit 4 naming `path`, never an
+// answer.
+function ifPresent<T>(path: string, look: () => T): T | null {
   try {
-    return lstatSync(path).isSymbolicLink();
+    return look();
   } catch (cause) {
-    if (isAbsent(cause)) return false;
+    if (isAbsent(cause)) return null;
     throw cannotInspect(path, cause);
   }
+}
+
+export function lstatIfPresent(path: string): Stats | null {
+  return ifPresent(path, () => lstatSync(path));
+}
+
+export function isSymlink(path: string): boolean {
+  return lstatIfPresent(path)?.isSymbolicLink() ?? false;
 }
 
 // The entries a chain of links passes, read as the kernel reads them: the links passed and the
@@ -171,18 +211,22 @@ export type LinkChain =
   | { kind: "broken"; hops: string[] }
   | { kind: "looped"; hops: string[] };
 
-// How one kernel reads a link's target. The two differ on what a `..` means, so the same link
-// reaches different files on each, and a walk has to pick the one the kernel of its platform opens:
+// How one kernel reads a path with links in it. The two differ on what a `..` means, so the same
+// link reaches different files on each, and a walk has to pick the one the kernel of its platform
+// opens:
 //
 //   POSIX    one component at a time; a `..` steps out of the folder the component before it
-//            reached; 40 links, then ELOOP
-//   Windows  `.` and `..` folded in the target string before any entry is looked at, so a `..`
+//            reached, entering it on the way (a sealed folder is EACCES, a file ENOTDIR);
+//            40 links, then ELOOP
+//   Windows  `.` and `..` folded in the typed string before any entry is looked at, so a `..`
 //            after a linked folder never enters it; 63 reparse points
 //
 // Both read a relative target from the folder the link's own path reached, a folder link before
 // it followed. `parts` is the fold: on Windows `win32.normalize`, whose kept `..` lead the target.
+// `parentOf` is the `..` step from a real folder, the one step both walks take.
 type LinkSemantics = {
   parts: (target: string) => { root: string; names: string[]; dirOnly: boolean };
+  parentOf: (at: string) => string;
   maxHops: number;
 };
 const POSIX_LINKS: LinkSemantics = {
@@ -194,6 +238,11 @@ const POSIX_LINKS: LinkSemantics = {
       .filter((name) => name !== "");
     const dirOnly = target.endsWith("/") || names.at(-1) === ".";
     return { root, names: names.filter((name) => name !== "."), dirOnly };
+  },
+  // Spelled without `join`, which would fold the `.` away and never enter the folder.
+  parentOf: (at) => {
+    statSync(`${at}${sep}.`);
+    return dirname(at);
   },
   maxHops: 40,
 };
@@ -207,6 +256,7 @@ const WINDOWS_LINKS: LinkSemantics = {
       .filter((name) => name !== "" && name !== ".");
     return { root, names, dirOnly: folded.endsWith("\\") };
   },
+  parentOf: dirname,
   maxHops: 63,
 };
 
@@ -214,7 +264,7 @@ const WINDOWS_LINKS: LinkSemantics = {
 // before it. Every hop of a followed chain is built on real folders, so `editInPlace` can hold the
 // end of one against a real root; a path that is no link is returned as given.
 export function followLinks(path: string, platform: NodeJS.Platform = process.platform): LinkChain {
-  const links = platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
+  const links = linksOf(platform);
   const hops: string[] = [];
   let at = path;
   while (isSymlink(at)) {
@@ -227,8 +277,12 @@ export function followLinks(path: string, platform: NodeJS.Platform = process.pl
   return { kind: "reached", hops, end: at };
 }
 
-// A target ending in a separator names a folder, so its final entry is walked like the ones
-// before it.
+function linksOf(platform: NodeJS.Platform): LinkSemantics {
+  return platform === "win32" ? WINDOWS_LINKS : POSIX_LINKS;
+}
+
+// A target ending in a separator or a `..` names a folder, so its final entry is walked like the
+// ones before it.
 function hopOf(
   hops: string[],
   realParent: string,
@@ -237,30 +291,22 @@ function hopOf(
 ): string | null {
   const { root, names, dirOnly } = links.parts(target);
   let at = root === "" ? realParent : root;
-  const last = dirOnly ? undefined : names.pop();
+  const last = dirOnly || names.at(-1) === ".." ? undefined : names.pop();
   for (const name of names) {
-    if (name === "..") {
-      at = dirname(at);
-      continue;
-    }
-    const entry = join(at, name);
-    if (isSymlink(entry)) hops.push(entry);
-    const folder = existingDirectory(entry);
+    const folder = name === ".." ? ifPresent(at, () => links.parentOf(at)) : enter(hops, at, name);
     if (folder === null) return null;
     at = folder;
   }
-  if (last === undefined) return at;
-  return last === ".." ? dirname(at) : join(at, last);
+  return last === undefined ? at : join(at, last);
 }
 
-function existingDirectory(path: string): string | null {
-  try {
-    const real = realpathSync.native(path);
+function enter(hops: string[], at: string, name: string): string | null {
+  const entry = join(at, name);
+  if (isSymlink(entry)) hops.push(entry);
+  return ifPresent(entry, () => {
+    const real = realpathSync.native(entry);
     return statSync(real).isDirectory() ? real : null;
-  } catch (cause) {
-    if (isAbsent(cause)) return null;
-    throw cannotInspect(path, cause);
-  }
+  });
 }
 
 // The one reading of "nothing is there": a missing entry, or a regular file where a directory was
@@ -273,12 +319,7 @@ export function isAbsent(cause: unknown): boolean {
 }
 
 export function readIfPresent(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (cause) {
-    if (isAbsent(cause)) return null;
-    throw cannotInspect(path, cause);
-  }
+  return ifPresent(path, () => readFileSync(path, "utf8"));
 }
 
 export function cannotInspect(path: string, cause: unknown): MaximsError {

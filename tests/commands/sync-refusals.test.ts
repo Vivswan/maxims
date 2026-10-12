@@ -25,8 +25,8 @@ import type { FetchIntent, SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition, Scope } from "../../src/harnesses/contract.ts";
 import { parseBlocks } from "../../src/rulefile/block.ts";
 import type { State } from "../../src/state/schema.ts";
-import { lstatOrNullSync } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import { isSymlink } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
   daysAgo,
@@ -1152,7 +1152,7 @@ describe("what a refused or departed source leaves behind", () => {
         await expect(runSync(options, io)).resolves.toMatchObject({
           heldFiles: heldFiles(rules),
         });
-        expect(lstatOrNullSync(rules)?.isSymbolicLink() ?? false).toBe(options.quiet);
+        expect(isSymlink(rules)).toBe(options.quiet);
         expect(readFileSync(stale, "utf8")).toBe(staleText);
       });
     },

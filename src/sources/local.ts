@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { isLiveLocal, type SourceFrom } from "../contracts/source.ts";
-import { type Change, lstatOrNullSync } from "../util/change.ts";
-import { assertInsideRoot } from "../util/fs.ts";
+import type { Change } from "../util/change.ts";
+import { assertInsideRoot, lstatIfPresent } from "../util/fs.ts";
 import { storePathFor } from "../util/home.ts";
 import type { SourceResolver } from "./contract.ts";
 import { hashFiles, readMemoryTree, type TreeFile, type WarnSink } from "./tree.ts";
@@ -23,8 +23,7 @@ export function createLocalResolver(warn: WarnSink): SourceResolver<LocalSourceF
 // A first install plans no deletion of the entry it has yet to write, so a dry run of it shows none.
 export function materializeLocal(from: LocalSourceFrom, home: string, files: TreeFile[]): Change[] {
   const entry = storePathFor(home, from);
-  const changes: Change[] =
-    lstatOrNullSync(entry) === null ? [] : [{ kind: "delete", path: entry }];
+  const changes: Change[] = lstatIfPresent(entry) === null ? [] : [{ kind: "delete", path: entry }];
   if (isLiveLocal(from)) {
     changes.push({ kind: "symlink", path: entry, target: resolve(from.path) });
     return changes;
