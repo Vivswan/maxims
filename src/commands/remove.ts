@@ -5,7 +5,7 @@ import type { SourceTree } from "../engine/memories.ts";
 import { planSync } from "../engine/plan-sync.ts";
 import type { RuleFileHeld } from "../engine/rules.ts";
 import { selectMemories } from "../engine/select.ts";
-import { isFetchedEntry } from "../engine/sync-refresh.ts";
+import { recordedCopies } from "../engine/sync-refresh.ts";
 import { retainedNames } from "../engine/sync-retained.ts";
 import { readInstalledTree } from "../engine/sync-trees.ts";
 import type { EngineIo, RemoveOptions, RemoveTargetSpec, SyncReport } from "../engine/types.ts";
@@ -159,8 +159,7 @@ async function resolveRemoval(
     removed.push(entry);
     installed.splice(installed.indexOf(item), 1);
     for (const memory of item.tree?.memories ?? []) removedCopies.add(memory.memory.contentHash);
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    for (const facts of Object.values(fetched?.memories ?? {})) removedCopies.add(facts.content);
+    for (const hash of recordedCopies([entry])) removedCopies.add(hash);
     if (options.agents === undefined) {
       if (item.pairs.length === 0) labels.push(key);
       for (const pair of item.pairs) labels.push(pair.localName);
