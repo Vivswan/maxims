@@ -1,7 +1,8 @@
-// Fails if `add` stops honoring its one-commit-point contract: a validation failure (exit 3, 6,
-// 7, 8) that writes anything, a `--list` that fetches under `--no-fetch` or touches state, a
-// re-add that unions instead of replacing the selection, a `.` source that registers a hook, or
-// a sync that stops receiving `fetch: "none"` and the chosen harnesses.
+// Fails if `add` stops honoring its one-commit-point contract: an unresolvable source or a
+// validation failure (exit 2, 3, 6, 7, 8) that writes anything, a `--list` that fetches under
+// `--no-fetch` or touches state, a re-add that unions instead of replacing the selection, a `.`
+// source that registers a hook, or a sync that stops receiving `fetch: "none"` and the chosen
+// harnesses.
 import { expect, test } from "bun:test";
 import {
   chmodSync,
@@ -18,6 +19,7 @@ import { STRINGS } from "../../src/console/strings.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
 import { CURRENT_CONFIG_VERSION } from "../../src/state/migrations/config-ladder.ts";
 import { CURRENT_STATE_VERSION } from "../../src/state/migrations/state-ladder.ts";
+import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { fakeResolvers, fetchedFacts, treeDigest, writeSource } from "../engine/fakes.ts";
 import { TWO_MEMORIES } from "../engine/world.ts";
@@ -304,6 +306,23 @@ test.each(nothingWritten)(
     );
   },
 );
+
+// The source is read before the one commit point, so a path that is not there is refused with the
+// unresolvable-source code and the frame's error line, and nothing is written or synced.
+test("an absent local source exits with the unresolvable-source code and writes nothing", async () => {
+  await withScenario({ project: true }, async (scenario) => {
+    const absent = join(scenario.root, "absent");
+    const before = treeDigest(scenario.root);
+    const run = await runCli(scenario, ["add", absent, "-y"]);
+    expect(run).toEqual({
+      code: ExitCode.SourceUnresolvable,
+      stdout: `|\no  Source: ${absent}\nx  Failed to read directory\n`,
+      stderr: ` ERROR  ${absent} has no memories directory\nTip: name the folder holding memories with --from <path>, or scan all with --full-depth\n`,
+    });
+    expect(treeDigest(scenario.root)).toBe(before);
+    expect(scenario.engine.calls.sync).toEqual([]);
+  });
+});
 
 test("--allow-hidden lets the hidden character through and --rename resolves a known collision", async () => {
   await withScenario({ github: { "a/b": RULES, "a/d": DOTFILES } }, async (scenario) => {

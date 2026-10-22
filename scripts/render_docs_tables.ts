@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { FlagSpec } from "../src/commands/frame/options.ts";
+import { FLAGS, type FlagSpec } from "../src/commands/frame/options.ts";
 import { LAST_ERROR_KINDS } from "../src/contracts/last-error.ts";
 import { DEFAULT_GIT_REF } from "../src/contracts/source.ts";
 import { DEFAULT_COOLDOWN_DAYS } from "../src/engine/context.ts";
@@ -21,14 +21,6 @@ import { ExitCode } from "../src/util/exit-codes.ts";
 import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { renderMatrix } from "./lib/harness_matrix.ts";
 import { markdownTable } from "./lib/markdown_table.ts";
-import {
-  claimedFlags,
-  FLAG_ROWS,
-  type FlagRow,
-  maximsFlag,
-  type UpstreamFlag,
-  upstreamFlag,
-} from "./lib/parity.ts";
 import { regionBounds } from "./lib/region.ts";
 
 const REGENERATE = "bun run docs:tables";
@@ -65,15 +57,15 @@ const typed = (flag: FlagSpec): string =>
   `${flag.short === undefined ? `--${flag.name}` : `-${flag.short}`}${flag.placeholder === undefined ? "" : ` ${flag.placeholder}`}`;
 
 const CONFIG_ROWS: Record<keyof UserConfig, { standsFor: string; unset: string }> = {
-  agents: { standsFor: code(typed(maximsFlag("agent"))), unset: "the detected harnesses" },
-  yes: { standsFor: code(typed(maximsFlag("yes"))), unset: "prompt when interactive" },
-  addHook: { standsFor: code(typed(maximsFlag("add-hook"))), unset: "off" },
-  rule: { standsFor: code(typed(maximsFlag("rule"))), unset: "off" },
+  agents: { standsFor: code(typed(FLAGS.agent)), unset: "the detected harnesses" },
+  yes: { standsFor: code(typed(FLAGS.yes)), unset: "prompt when interactive" },
+  addHook: { standsFor: code(typed(FLAGS.addHook)), unset: "off" },
+  rule: { standsFor: code(typed(FLAGS.rule)), unset: "off" },
   cooldownDays: {
-    standsFor: code(typed(maximsFlag("cooldown"))),
+    standsFor: code(typed(FLAGS.cooldown)),
     unset: String(DEFAULT_COOLDOWN_DAYS),
   },
-  ruleCap: { standsFor: code(typed(maximsFlag("cap"))), unset: String(DEFAULT_RULE_CAP) },
+  ruleCap: { standsFor: code(typed(FLAGS.cap)), unset: String(DEFAULT_RULE_CAP) },
   lastAgents: {
     standsFor: "no flag; the harnesses the last interactive `add` selected",
     unset: "the detected harnesses",
@@ -333,54 +325,6 @@ function renderStateFields(): string {
   return STATE_BULLETS.map((bullet) => `- **${bullet.lead}** ${bullet.text}`).join("\n");
 }
 
-// A flag as its help page spells it: `-g, --global`, `-m, --memory <names>`.
-function spelled(short: string | null | undefined, long: string, placeholder?: string | null) {
-  const forms = [...(short === null || short === undefined ? [] : [`-${short}`]), `--${long}`];
-  return code(
-    `${forms.join(", ")}${placeholder === null || placeholder === undefined ? "" : ` ${placeholder}`}`,
-  );
-}
-const spellUpstream = (flag: UpstreamFlag) => spelled(flag.short, flag.long, flag.placeholder);
-const spellMaxims = (flag: FlagSpec) => spelled(flag.short, flag.name, flag.placeholder);
-
-function parityCells(row: FlagRow): string[] {
-  switch (row.parity) {
-    case "same":
-      return [
-        spellUpstream(upstreamFlag(row.flag)),
-        spellMaxims(maximsFlag(row.flag)),
-        row.parity,
-        row.why,
-      ];
-    case "analog":
-      return [
-        spellUpstream(upstreamFlag(row.upstream)),
-        spellMaxims(maximsFlag(row.maxims)),
-        row.parity,
-        row.why,
-      ];
-    case "diverge":
-      return [
-        row.upstream.map((long) => spellUpstream(upstreamFlag(long))).join(", "),
-        "none",
-        row.parity,
-        row.why,
-      ];
-    case "maxims-only":
-      return [
-        "none",
-        row.maxims.map((long) => spellMaxims(maximsFlag(long))).join(", "),
-        row.parity,
-        row.why,
-      ];
-  }
-}
-
-function renderParityFlags(): string {
-  claimedFlags();
-  return markdownTable(["npx skills", "maxims", "parity", "why"], FLAG_ROWS.map(parityCells));
-}
-
 type Region = { page: string; name: string; render: () => string };
 
 export const REGIONS: readonly Region[] = [
@@ -390,7 +334,6 @@ export const REGIONS: readonly Region[] = [
   { page: "docs/adding-a-harness.md", name: "hook-placeholders", render: renderPlaceholders },
   { page: "docs/write-memories.md", name: "memory-contract", render: renderMemoryContract },
   { page: "docs/state.md", name: "state-fields", render: renderStateFields },
-  { page: "docs/parity.md", name: "parity-flags", render: renderParityFlags },
 ];
 
 // The region body is replaced whole, with a blank line on each side: a table glued to the marker

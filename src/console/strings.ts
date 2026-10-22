@@ -1,6 +1,6 @@
 // The strings of the frame and the messages shared by more than one verb, so the plain and the
 // clack renderers cannot drift from each other and the golden fixtures pin one table. Wording
-// follows `npx skills` where a concept is shared; see the parity table in the CLI reference.
+// follows `npx skills` where a concept is shared.
 
 export function count(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;
