@@ -70,7 +70,11 @@ export const spec = {
         repo: "earendil-works/pi",
         ref: "main",
         path: "packages/coding-agent/src/extensions/mcp/config.ts",
-        claims: ["mcpServers", "mcp.json", 'parsed = JSON.parse(stripBom(readFileSync(path, "utf8")));'],
+        claims: [
+          "mcpServers",
+          "mcp.json",
+          'parsed = JSON.parse(stripBom(readFileSync(path, "utf8")));',
+        ],
         note: "mcpServers in ~/.pi/agent/mcp.json and .pi/mcp.json, read with JSON.parse after a BOM strip, so a comment or a trailing comma fails the whole file",
       },
       {
