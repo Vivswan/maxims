@@ -89,7 +89,7 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
     writeFileSync(summary, "");
     const script =
       'import { announce } from "./scripts/nightly.ts";' +
-      'announce("parity-drift", { status: "pass", summary: "## Parity drift\\n\\nno drift\\n" }, process.env);';
+      'announce("harness-drift", { status: "pass", summary: "## Harness drift\\n\\nno drift\\n" }, process.env);';
     const proc = Bun.spawnSync(["bun", "-e", script], {
       cwd: repoRoot,
       env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
@@ -103,9 +103,9 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
       stepSummary: readFileSync(summary, "utf8"),
     }).toEqual({
       exitCode: 0,
-      stdout: "## Parity drift\n\nno drift\nnightly parity-drift: pass\n",
+      stdout: "## Harness drift\n\nno drift\nnightly harness-drift: pass\n",
       stderr: "",
-      stepSummary: "## Parity drift\n\nno drift\n",
+      stepSummary: "## Harness drift\n\nno drift\n",
     });
   });
 });
@@ -113,7 +113,7 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
 // A failing category's summary often already carries its body (a diff, a table); the log shows
 // each line once, and only what the body adds beyond the summary, ahead of the status line.
 const failBodies: [string, string, string, string][] = [
-  ["equals the summary's tail", "## Parity drift\n\ndrift\n", "drift\n", ""],
+  ["equals the summary's tail", "## Harness drift\n\ndrift\n", "drift\n", ""],
   [
     "shares a prefix with the summary",
     "## Drift\n\n| row |\n",
@@ -134,7 +134,7 @@ test.each(failBodies)(
     const outcome = { status: "fail", summary, report: { title: "T", body } };
     const script =
       'import { announce } from "./scripts/nightly.ts";' +
-      `announce("parity-drift", ${JSON.stringify(outcome)}, {});`;
+      `announce("harness-drift", ${JSON.stringify(outcome)}, {});`;
     const proc = Bun.spawnSync(["bun", "-e", script], {
       cwd: repoRoot,
       env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
@@ -147,7 +147,7 @@ test.each(failBodies)(
       stderr: proc.stderr.toString(),
     }).toEqual({
       exitCode: 0,
-      stdout: `${summary}${extra}nightly parity-drift: fail\n`,
+      stdout: `${summary}${extra}nightly harness-drift: fail\n`,
       stderr: "",
     });
   },

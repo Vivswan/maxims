@@ -7,14 +7,12 @@ import { outsideCheckouts } from "./lib/paths.ts";
 import { runHarnessDrift } from "./nightly/harness_drift.ts";
 import { runLatencyTrend } from "./nightly/latency_trend.ts";
 import { runLiveNetwork } from "./nightly/live_network.ts";
-import { runParityDrift } from "./nightly/parity_drift.ts";
 import { DEFAULT_ITERATIONS, runPropertyDeep } from "./nightly/property_deep.ts";
 import { runPublishedSmoke } from "./nightly/published_smoke.ts";
 import { type Outcome, writeFailureReport, writeStepSummary } from "./nightly/report.ts";
 
 export const CATEGORIES = [
   "property-deep",
-  "parity-drift",
   "harness-drift",
   "live-network",
   "latency-trend",
@@ -32,7 +30,6 @@ const BUNDLE = join(repoRoot, "dist", "cli.js");
 // has no use for.
 type Run =
   | { category: "property-deep"; iterations: number }
-  | { category: "parity-drift" }
   | { category: "harness-drift" }
   | { category: "live-network" }
   | { category: "latency-trend"; trend: string }
@@ -80,7 +77,6 @@ function plan(category: Category, flags: Flags): Run {
       if (raw === undefined) return { category, iterations: DEFAULT_ITERATIONS };
       return { category, iterations: positiveInteger("--iterations", raw, usage) };
     }
-    case "parity-drift":
     case "harness-drift":
     case "live-network":
     case "published-smoke":
@@ -116,8 +112,6 @@ async function runCategory(run: Run): Promise<Outcome> {
   switch (run.category) {
     case "property-deep":
       return runPropertyDeep(run.iterations);
-    case "parity-drift":
-      return runParityDrift();
     case "harness-drift":
       return runHarnessDrift();
     case "live-network":

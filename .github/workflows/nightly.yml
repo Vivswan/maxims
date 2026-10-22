@@ -8,7 +8,7 @@
 #   $RUNNER_TEMP/nightly-report/       -> <category>/report.md, the failure-report contract v1
 #   report (<category>)                -> fuzz-issue report on failure or cancellation, resolve on success
 #
-# The tiers a release must pass (property-deep, parity-drift, harness-drift, container) are defined
+# The tiers a release must pass (property-deep, harness-drift, container) are defined
 # once in release-gate.yml, which the managed ci.yml also runs on the release PR; the nightly calls
 # it and reads one output per tier, because `needs` reports a called workflow as one result for all its jobs.
 #
@@ -167,9 +167,6 @@ jobs:
           - category: property-deep
             result: ${{ needs.release-gate.outputs.property-deep }}
             description: The deep property run failed
-          - category: parity-drift
-            result: ${{ needs.release-gate.outputs.parity-drift }}
-            description: npx skills --help drifted from the parity fixture
           - category: harness-drift
             result: ${{ needs.release-gate.outputs.harness-drift }}
             description: A harness definition's verified source drifted or was unreachable

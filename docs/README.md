@@ -41,7 +41,6 @@ flowchart LR
 | know what lives in the maxims home and what `config.json` holds | [Files on disk](files.md) |
 | know what state records and how it migrates | [State](state.md) |
 | know what a failure keeps, and what two processes at once do | [What sync guarantees](guarantees.md) |
-| compare the flags and verbs with `npx skills` | [Parity with npx skills](parity.md) |
 | declare a harness as data, built in or in `harnesses.json` | [Adding a harness](adding-a-harness.md) |
 | understand the problem, and what came before | [Why maxims](why.md) |
 | know why a behavior is the way it is | [Design decisions](design-decisions.md) |
