@@ -8,6 +8,11 @@ import {
 } from "jsonc-parser";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
+// A UTF-8 BOM an editor left ahead of a config: a bare `JSON.parse` rejects it and Pi strips it, so
+// the judgment below names it, as a strict vendor sees the file, and a planner that edits the file
+// drops it and writes the file back without it.
+const BOM = "\uFEFF";
+
 // Edits to a JSON or JSONC config the user also owns are byte-range splices located through the
 // jsonc-parser tree: only the touched node and the one separator joining it to a neighbour change,
 // so comments, irregular spacing and trailing commas outside it come back byte-identical. Every
@@ -85,9 +90,20 @@ export type JsonDocument =
   | { kind: "syntax"; reason: string }
   | { kind: "dialect"; reason: string };
 
+// The text a planner edits: the config without the BOM an editor left ahead of it.
+export function withoutBom(text: string): string {
+  return text.startsWith(BOM) ? text.slice(BOM.length) : text;
+}
+
+// The notice a planner reports when its write drops the BOM and changes nothing else.
+export function droppedBomNotice(path: string): string {
+  return `dropped the UTF-8 BOM from ${path}`;
+}
+
 // The one judgment of whether a vendor loads a JSON config, shared by the writer that edits the
 // file and the tier probe that reads it, so the two never disagree about the same bytes.
 export function parseJsonDocument(text: string, reader: JsonReader): JsonDocument {
+  if (text.startsWith(BOM)) return { kind: "syntax", reason: "a UTF-8 BOM ahead of the JSON" };
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: true });
   const [first] = errors;

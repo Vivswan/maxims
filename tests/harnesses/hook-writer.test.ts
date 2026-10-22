@@ -182,6 +182,18 @@ describe("planHookRegistryWrite on JSON registries", () => {
     expect(plan(grouped, false, untouched)).toEqual({ changes: [] });
   });
 
+  // Pi strips a UTF-8 BOM before JSON.parse where a bare JSON.parse rejects one, so a registry an
+  // editor saved with a BOM is written back without it even when our hook is current, and a
+  // removal with nothing of ours in it leaves the file as it is.
+  test("a BOM ahead of a current hook earns the write that drops it; one ahead of nothing of ours is left", () => {
+    const added = textOf(plan(grouped, true, untouched));
+    expect(plan(grouped, true, `\uFEFF${added}`)).toEqual({
+      changes: [{ kind: "edit", path: settingsPath, target: settingsPath, content: added }],
+      notice: `dropped the UTF-8 BOM from ${settingsPath}`,
+    });
+    expect(plan(grouped, false, `\uFEFF${untouched}`)).toEqual({ changes: [] });
+  });
+
   test("an entry with an outdated command is rewritten in place inside the user's matcher group", () => {
     const stale = [
       "{",
@@ -1023,6 +1035,14 @@ describe("achievedTier", () => {
       tier: 2,
       unreadable:
         /^settings\.json could not be read \(.*settings\.json: .+ at offset \d+\); assuming hooks off$/,
+    },
+    {
+      name: "a JSON config behind a UTF-8 BOM is tier 2 with the BOM named, until a sync drops it",
+      def: jsonCheck,
+      config: '\uFEFF{ "hooks": { "enabled": true } }',
+      tier: 2,
+      unreadable:
+        /^settings\.json could not be read \(.*settings\.json: a UTF-8 BOM ahead of the JSON\); assuming hooks off$/,
     },
     {
       name: "a JSON config holding a list where the harness reads an object is tier 2 with the reason",

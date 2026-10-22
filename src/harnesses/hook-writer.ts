@@ -17,6 +17,7 @@ import { jsonDocument } from "../util/json.ts";
 import {
   appendChild,
   assertParses,
+  droppedBomNotice,
   type JsonReader,
   jsonReader,
   parseJsonDocument,
@@ -24,6 +25,7 @@ import {
   readPresentFile,
   removeChild,
   replaceValue,
+  withoutBom,
 } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import {
@@ -126,7 +128,10 @@ export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite 
       notice: `registered the maxims hook in ${path}`,
     };
   }
-  const registry = new JsonRegistry(input.def.hook, path, input.currentText, input.def.displayName);
+  // A BOM ahead of the registry goes with the first write, and a current hook behind one still
+  // earns that write: the vendor's strict parser never loads the file while the BOM is there.
+  const currentText = withoutBom(input.currentText);
+  const registry = new JsonRegistry(input.def.hook, path, currentText, input.def.displayName);
   if (input.wanted) {
     if (registry.locateOurs().length === 0) {
       registry.append(handler);
@@ -136,11 +141,16 @@ export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite 
     const [ours] = registry.locateOurs();
     if (ours === undefined) throw new Error("the surviving maxims handler must still be present");
     if (sameJson(getNodeValue(ours), handler)) {
-      if (!duplicates) return null;
-      return {
-        text: registry.validatedText(),
-        notice: `removed duplicate maxims hooks from ${path}`,
-      };
+      if (duplicates) {
+        return {
+          text: registry.validatedText(),
+          notice: `removed duplicate maxims hooks from ${path}`,
+        };
+      }
+      if (currentText !== input.currentText) {
+        return { text: registry.validatedText(), notice: droppedBomNotice(path) };
+      }
+      return null;
     }
     registry.replace(ours, handler);
     return { text: registry.validatedText(), notice: `updated the maxims hook in ${path}` };

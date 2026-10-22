@@ -88,6 +88,24 @@ test("an entry spelled in another key order is current", async () => {
   });
 });
 
+// Pi strips a UTF-8 BOM before JSON.parse where a bare JSON.parse rejects one, so a file an editor
+// saved with a BOM is written back without it even when our entry is current, and left as it is
+// when nothing of ours is in it to remove.
+test("a BOM ahead of a current entry earns the write that drops it; one ahead of nothing of ours is left", async () => {
+  await withTempDir(async (dir) => {
+    const registry = registration(dir, "mcp.json", ["mcpServers"]);
+    const current = `{\n  "mcpServers": {\n    ${ENTRY}\n  }\n}\n`;
+    writeFileSync(registry.path, `\uFEFF${current}`);
+    const currentText = await readConfigText(registry.path);
+    expect(rewriteServers({ registration: registry, wanted: true, currentText })).toEqual({
+      text: current,
+      notice: `dropped the UTF-8 BOM from ${registry.path}`,
+    });
+    writeFileSync(registry.path, '\uFEFF{\n  "mcpServers": {}\n}\n');
+    expect(await plan(registry, false)).toBeNull();
+  });
+});
+
 // The separator is found by the tokenizer: a comma inside a comment beside our entry is the
 // comment's, and searching for the character would cut the comment instead of the separator.
 test("a comma inside a comment beside our entry is not taken for the separator", async () => {
@@ -112,6 +130,11 @@ const creations: [string, string | null, string][] = [
   [
     "a file missing the servers key",
     '{\n  "theme": "dark"\n}\n',
+    '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
+  ],
+  [
+    "a file with a UTF-8 BOM ahead of the JSON",
+    '\uFEFF{\n  "theme": "dark"\n}\n',
     '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
   ],
 ];

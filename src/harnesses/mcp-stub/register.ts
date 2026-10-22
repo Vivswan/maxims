@@ -6,10 +6,12 @@ import { jsonDocument } from "../../util/json.ts";
 import {
   appendChild,
   assertParses,
+  droppedBomNotice,
   type JsonReader,
   jsonReader,
   removeChild,
   replaceValue,
+  withoutBom,
 } from "../../util/jsonc.ts";
 import { PACKAGE_ARGV } from "../../util/package.ts";
 import {
@@ -60,8 +62,14 @@ export type McpRegistrationInput = {
 
 export function rewriteServers(input: McpRegistrationInput): RegistryRewrite | null {
   const { path, serversPath, reader } = input.registration;
-  const planned = editServers(input.currentText, path, serversPath, reader, input.wanted);
-  if (planned === null) return null;
+  const currentText = input.currentText === null ? null : withoutBom(input.currentText);
+  const planned = editServers(currentText, path, serversPath, reader, input.wanted);
+  if (planned === null) {
+    // A current entry behind a BOM still earns the write that drops it; a file holding nothing of
+    // ours to remove is left as it is.
+    if (!input.wanted || currentText === null || currentText === input.currentText) return null;
+    return { text: currentText, notice: droppedBomNotice(path) };
+  }
   assertParses(planned.text, path, reader);
   const { verb } = planned;
   return {

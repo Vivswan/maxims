@@ -15,6 +15,7 @@ import {
   readConfigText,
   removeChild,
   replaceValue,
+  withoutBom,
 } from "../../src/util/jsonc.ts";
 import { outcome } from "../shared/outcome.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
@@ -384,6 +385,22 @@ describe("parseJsonDocument judges a file as its vendor's parser would", () => {
   ];
   const rows = texts.flatMap(([name, text, value, found]) =>
     dialects.map(([dialect, offence]) => ({ name, text, value, dialect, reason: offence(found) })),
+  );
+
+  // Pi strips a UTF-8 BOM before JSON.parse (earendil-works/pi bdd9f03) where a bare JSON.parse and
+  // jsonc-parser reject one, so the judgment names the BOM for every dialect in place of jsonc-parser's
+  // "InvalidSymbol at offset 0", and withoutBom is the text a planner edits.
+  test.each(dialects)(
+    "a UTF-8 BOM ahead of the JSON is named under %s, and withoutBom takes it off",
+    (dialect) => {
+      const text = '\uFEFF{ "a": 1 }\n';
+      expect(parseJsonDocument(text, jsonReader(dialect, "Example"))).toEqual({
+        kind: "syntax",
+        reason: "a UTF-8 BOM ahead of the JSON",
+      });
+      expect(withoutBom(text)).toBe('{ "a": 1 }\n');
+      expect(withoutBom('{ "a": 1 }\n')).toBe('{ "a": 1 }\n');
+    },
   );
 
   test.each(rows)("$name read as $dialect", ({ text, value, dialect, reason }) => {
