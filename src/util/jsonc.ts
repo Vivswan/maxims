@@ -8,6 +8,11 @@ import {
 } from "jsonc-parser";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
+// Decoding through TextDecoder drops a leading UTF-8 BOM, which `readFile(path, "utf8")` keeps. An
+// editor leaves one in a config now and then: Pi strips it before parsing and a bare `JSON.parse`
+// rejects it, so the text is taken without it and written back without it.
+const UTF8 = new TextDecoder();
+
 // Edits to a JSON or JSONC config the user also owns are byte-range splices located through the
 // jsonc-parser tree: only the touched node and the one separator joining it to a neighbour change,
 // so comments, irregular spacing and trailing commas outside it come back byte-identical. Every
@@ -44,7 +49,7 @@ export async function readConfigText(path: string): Promise<string | null> {
 // reason instead of refusing.
 export async function readPresentFile(path: string): Promise<ConfigRead> {
   try {
-    const text = await readFile(path, "utf8");
+    const text = UTF8.decode(await readFile(path));
     return { present: true, text: text.trim() === "" ? null : text };
   } catch (cause) {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {

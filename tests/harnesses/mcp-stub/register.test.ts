@@ -114,6 +114,11 @@ const creations: [string, string | null, string][] = [
     '{\n  "theme": "dark"\n}\n',
     '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
   ],
+  [
+    "a file with a UTF-8 BOM ahead of the JSON",
+    '\uFEFF{\n  "theme": "dark"\n}\n',
+    '{\n  "theme": "dark",\n  "mcp": {\n    "servers": {\n      "maxims": {\n        "command": "npx",\n        "args": [\n          "-y",\n          "@vivswan/maxims",\n          "mcp-serve"\n        ]\n      }\n    }\n  }\n}\n',
+  ],
 ];
 
 test.each(creations)("%s gains exactly one nested entry", async (_, existing, expected) => {

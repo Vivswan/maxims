@@ -105,5 +105,6 @@ Editing a hook registry is surgical everywhere: the writer parses the file, find
 | --- | --- |
 | the write is a temp file, then a rename | a half-written registry has no representation |
 | an unparsable config is never rewritten | the run exits 4 |
+| a UTF-8 BOM ahead of the JSON is dropped on read and not written back | the file loads in every harness's strict parser |
 | a comment or trailing comma the harness's own parser rejects is refused the same way | a hook the harness would skip is never registered |
 | formatting and comments outside the entry survive byte for byte | the user's own hooks and layout are untouched |

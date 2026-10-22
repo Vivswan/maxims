@@ -328,6 +328,18 @@ describe("readConfigText", () => {
       if (caught instanceof MaximsError) expect(caught.code).toBe(ExitCode.DestinationWriteFailed);
     });
   });
+
+  // Pi strips a UTF-8 BOM before JSON.parse (earendil-works/pi bdd9f03) where a bare JSON.parse
+  // rejects one, so a config an editor saved with a BOM reads as the JSON behind it, and a BOM
+  // alone reads as the blank file it is.
+  test("a UTF-8 BOM ahead of the text is dropped, and a BOM alone is a blank file", async () => {
+    await withTempDir(async (dir) => {
+      writeFileSync(join(dir, "bom.json"), '\uFEFF{ "a": 1 }\n');
+      expect(await readConfigText(join(dir, "bom.json"))).toBe('{ "a": 1 }\n');
+      writeFileSync(join(dir, "bom-only.json"), "\uFEFF");
+      expect(await readConfigText(join(dir, "bom-only.json"))).toBeNull();
+    });
+  });
 });
 
 // The dialects are what the vendors' own parsers take, which nothing here enforces for us: a
