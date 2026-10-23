@@ -15,7 +15,7 @@ export const spec = {
   displayName: "Codex",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-10",
+    date: "2026-10-23",
     sources: [
       {
         kind: "schema",
@@ -93,7 +93,7 @@ export const spec = {
         kind: "file",
         repo: "openai/codex",
         ref: "main",
-        path: "codex-rs/config/src/hook_config.rs",
+        path: "codex-rs/protocol/src/hooks.rs",
         claims: [
           'rename = "SessionStart"',
           'rename = "timeout"',

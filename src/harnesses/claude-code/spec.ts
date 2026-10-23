@@ -9,7 +9,7 @@ export const spec = {
   displayName: "Claude Code",
   tier: 1,
   verifiedAgainst: {
-    date: "2026-10-10",
+    date: "2026-10-23",
     sources: [
       {
         kind: "schema",
@@ -28,7 +28,7 @@ export const spec = {
           "`.claude/rules/`",
           "`~/.claude/rules/`",
           "paths:",
-          "Claude Code loads a CLAUDE.md file of up to 4 MiB in full and skips a larger file.",
+          "Claude Code skips a file over 4 MiB and loads none of it.",
           "@path/to/import",
         ],
         why: "Claude Code is closed source and the SchemaStore schema covers settings keys, not the rules directories; this is the page's markdown rendition",
