@@ -58,16 +58,28 @@ const cases: [name: string, def: HarnessDefinition, row: string][] = [
         global: null,
       },
       byteBudget: { project: 12_000, global: 6000 },
+      scopeFrontmatter: { render: () => null, byteBudget: 40_000 },
       mcp: {
         path: (scope, ctx) => (scope === "global" ? `${ctx.home}/mcp.json` : null),
         serversPath: [],
         format: "jsonc",
       },
     },
-    "| `cursor` | Example | 2 | `RULES.md` block, written into the first existing of `A.md`, `RULES.md` | none | B | none | - | `~/mcp.json` | counted | project 12,000 bytes, global 6,000 bytes |",
+    "| `cursor` | Example | 2 | `RULES.md` block, written into the first existing of `A.md`, `RULES.md` | none | B | none | - | `~/mcp.json` | counted | project 12,000 bytes, global 6,000 bytes, 40,000 bytes path-scoped |",
   ],
 ];
 
+const onDemandOnly: HarnessDefinition = {
+  ...base,
+  scopeFrontmatter: { render: () => null, byteBudget: 40_000 },
+};
+
 test.each(cases)("%s", (_name, def, row) => {
   expect(renderMatrix([def]).split("\n")[2]).toBe(row);
+});
+
+// The legend reads `-` as no enforced budget, and a budget declared on the scoping alone is one.
+test("a budget declared on the scoping alone renders as the path-scoped figure, not as none", () => {
+  const row = renderMatrix([onDemandOnly]).split("\n")[2] ?? "";
+  expect(row.endsWith("| 40,000 bytes path-scoped |")).toBe(true);
 });

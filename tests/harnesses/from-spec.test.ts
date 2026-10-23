@@ -45,7 +45,7 @@ const rendering = specOf({
   markers: "counted",
   expands: [],
   detect: { dirs: ["."] },
-  scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list" },
+  scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list", byteBudget: 40_000 },
   mcp: {
     path: { project: null, global: "mcp.json" },
     serversPath: ["servers", "mcp"],
@@ -112,8 +112,9 @@ test("frontmatter without a scoped form refuses paths out loud and fences the al
     kind: "threw",
     error: { name: "MaximsError", code: ExitCode.Usage },
   });
-  expect(def.scopeFrontmatter?.([])).toBeNull();
-  expect(def.scopeFrontmatter?.(globs)).toBe("---\npaths:\n  - src/**\n  - docs/**\n---\n");
+  expect(def.scopeFrontmatter?.render([])).toBeNull();
+  expect(def.scopeFrontmatter?.render(globs)).toBe("---\npaths:\n  - src/**\n  - docs/**\n---\n");
+  expect(def.scopeFrontmatter?.byteBudget).toBe(40_000);
 });
 
 // Cursor reads `globs` between `description` and `alwaysApply`; a YAML reader does not care, but

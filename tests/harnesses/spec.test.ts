@@ -298,6 +298,16 @@ const refusals: [string, Mutation, string][] = [
     "byteBudget: a per-scope budget names at least one scope",
   ],
   [
+    "an on-demand budget on a target's scoped frontmatter, which no writer reads",
+    at(["targets", "project", "frontmatter", "scoped"], {
+      fields: {},
+      pathsKey: "globs",
+      pathsAs: "list",
+      byteBudget: 100,
+    }),
+    'targets.project.frontmatter.scoped: Unrecognized key: "byteBudget"',
+  ],
+  [
     "a definition verified against no source",
     at(["verifiedAgainst", "sources"], []),
     "verifiedAgainst.sources.0: Invalid input: expected object, received undefined",

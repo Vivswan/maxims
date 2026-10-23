@@ -129,27 +129,40 @@ function perScope<T extends z.ZodType>(inner: T) {
 
 const Fields = z.record(z.string(), z.json());
 
+const ByteCount = z.number().int().positive();
+
 // A path-scoped install puts the globs under `pathsKey`, as a YAML list or one comma-joined
 // string, beside `fields`; a harness with no scoped form declares none and refuses `--paths`.
 // Naming `pathsKey` inside `fields` with `null` fixes where the globs land among the other keys
 // (Cursor lists `globs` before `alwaysApply`); left out, they land last.
-const ScopedFrontmatter = z
-  .strictObject({
-    fields: Fields,
-    pathsKey: z.string().min(1),
-    pathsAs: z.enum(["list", "comma-list"]),
-  })
-  .check((ctx) => {
-    const { fields, pathsKey } = ctx.value;
-    if (Object.hasOwn(fields, pathsKey) && fields[pathsKey] !== null) {
-      ctx.issues.push({
-        code: "custom",
-        input: fields[pathsKey],
-        path: ["fields", pathsKey],
-        message: "the paths key holds null where the paths go, or is left out",
-      });
-    }
-  });
+const scopedFrontmatterShape = {
+  fields: Fields,
+  pathsKey: z.string().min(1),
+  pathsAs: z.enum(["list", "comma-list"]),
+};
+
+function pathsKeyLeftOpen(
+  ctx: z.core.ParsePayload<{ fields: Record<string, unknown>; pathsKey: string }>,
+): void {
+  const { fields, pathsKey } = ctx.value;
+  if (Object.hasOwn(fields, pathsKey) && fields[pathsKey] !== null) {
+    ctx.issues.push({
+      code: "custom",
+      input: fields[pathsKey],
+      path: ["fields", pathsKey],
+      message: "the paths key holds null where the paths go, or is left out",
+    });
+  }
+}
+
+const ScopedFrontmatter = z.strictObject(scopedFrontmatterShape).check(pathsKeyLeftOpen);
+
+// The definition-level form alone carries `byteBudget`, the smaller limit the harness reads a
+// path-scoped file under: a target-level `scoped` has no reader for one, so the key is refused
+// there rather than parsed and dropped.
+const ScopeFrontmatter = z
+  .strictObject({ ...scopedFrontmatterShape, byteBudget: ByteCount.optional() })
+  .check(pathsKeyLeftOpen);
 
 const Frontmatter = z.strictObject({
   always: Fields,
@@ -461,8 +474,6 @@ const Hook = z.discriminatedUnion("kind", [
   FileHook,
 ]);
 
-const ByteCount = z.number().int().positive();
-
 // A per-scope budget that names neither scope would parse as "no cap anywhere" and hide a typo;
 // the spread re-types the scope each branch has just found present.
 const PerScopeBudget = z
@@ -584,7 +595,7 @@ const SPEC_SHAPE = {
   byteBudget: ByteBudgetField.optional(),
   detect: Detect,
   hook: Hook,
-  scopeFrontmatter: ScopedFrontmatter.optional(),
+  scopeFrontmatter: ScopeFrontmatter.optional(),
   mcp: Mcp.optional(),
 };
 
@@ -674,6 +685,7 @@ export const UserHarnessSpecSchema = z
 export type HarnessSpec = z.infer<typeof HarnessSpecSchema>;
 export type UserHarnessSpec = z.infer<typeof UserHarnessSpecSchema>;
 export type ScopedFrontmatterSpec = z.infer<typeof ScopedFrontmatter>;
+export type ScopeFrontmatterSpec = z.infer<typeof ScopeFrontmatter>;
 export type FrontmatterSpec = z.infer<typeof Frontmatter>;
 export type GlobalRootSpec = z.infer<typeof GlobalRoot>;
 export type RootEnvSpec = z.infer<typeof RootEnv>;

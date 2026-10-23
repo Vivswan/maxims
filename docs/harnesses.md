@@ -15,7 +15,7 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 
 | id | harness | tier | project target | global target | strategy | hook | stdout | mcp stub | markers | byte budget |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | - | stripped | 4,194,304 bytes |
+| `claude-code` | Claude Code | 1, or 2 when `disableAllHooks` is `true` | `.claude/rules/maxims-<source>.md` | `~/.claude/rules/maxims-<source>.md` | A | `SessionStart` entry in `.claude/settings.json` or `~/.claude/settings.json`, async | `plain` | - | stripped | 4,194,304 bytes, 40,000 bytes path-scoped |
 | `codex` | Codex | 1, or 2 when `features.hooks` is `false` | `AGENTS.md` block, written into the first existing of `AGENTS.override.md`, `AGENTS.md` | `~/.codex/AGENTS.md` block, written into the first non-empty of `~/.codex/AGENTS.override.md`, `~/.codex/AGENTS.md` | B | `SessionStart` entry in `.codex/hooks.json` or `~/.codex/hooks.json`, async | `plain` | - | counted | - |
 | `gemini-cli` | Gemini CLI | 1 | `GEMINI.md` block | `~/.gemini/GEMINI.md` block | B | `SessionStart` entry in `.gemini/settings.json` or `~/.gemini/settings.json` | `json:hookSpecificOutput.additionalContext` | - | counted | - |
 | `copilot` | GitHub Copilot | 1 | `.github/instructions/maxims-<source>.instructions.md` | `~/.copilot/instructions/maxims-<source>.instructions.md` | A | maxims-owned file `.github/hooks/maxims.json` or `~/.copilot/hooks/maxims.json` | `json:additionalContext` | - | counted | - |
@@ -39,7 +39,7 @@ Ids in the first column are what `--agent` accepts. A project target is written 
 - **`stdout`** is how sync's output reaches the agent: `plain` text becomes context, a `json:` value names the key inside the one JSON object the harness reads, `none` means the hook passes nothing of sync's on, and `-` means no declared stdout variant, a custom hook or no hook.
 - **`mcp stub`** is the MCP servers file, per scope, where sync registers the bundled stub server whose start runs one sync; it follows the same `--add-hook` intent as the hook, and `remove` takes it back with the last source. `-` when the definition names none.
 - **`markers`** is `stripped` when the harness drops HTML comments before injection, so the marker pair is free, and `counted` when they ride into context.
-- **`byte budget`** is the largest rule file the writer will produce for the harness; past it the newest source whose block the run changes is held, one at a time, until it fits. `-` when the definition declares no budget, so the writer enforces none.
+- **`byte budget`** is the largest rule file the writer will produce for the harness; past it the newest source whose block the run changes is held, one at a time, until it fits. `-` when the definition declares no budget, so the writer enforces none. A second figure marked path-scoped is the smaller limit the harness reads a `--paths` file under.
 
 Memory bodies do not vary by harness. They live in the maxims store and rule lines point at them; a project install links them into `.agents/memories/` for every harness, the convention `npx skills` set with `.agents/skills/`.
 

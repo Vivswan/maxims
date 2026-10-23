@@ -108,7 +108,7 @@ Two pins of one repository install side by side when their installed names are d
 
 `--paths <glob>` writes the rule file in the target harness's own path-scoping syntax and is stored per source. A harness with no scoping mechanism warns and skips it.
 
-A scoped rule loads only when matching files are touched, so it trades away "every session". It is opt-in and never a default.
+A scoped rule loads only when matching files are touched, so it trades away "every session". It is opt-in and never a default. A harness may read such a file under a smaller limit than an always-on one (Claude Code: 40,000 characters against 4 MiB), and the writer holds a scoped install to it; the [matrix](harnesses.md#the-matrix) shows it after the always-on budget.
 
 ## Name collisions and renames
 

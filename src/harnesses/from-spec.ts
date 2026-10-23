@@ -25,6 +25,7 @@ import {
   placeholdersIn,
   rootVariables,
   type ScopedFrontmatterSpec,
+  type ScopeFrontmatterSpec,
   type TargetSpec,
 } from "./spec.ts";
 
@@ -237,10 +238,13 @@ function compileFrontmatter(
 }
 
 function compileScopeFrontmatter(
-  scoped: ScopedFrontmatterSpec | undefined,
+  scoped: ScopeFrontmatterSpec | undefined,
 ): HarnessDefinition["scopeFrontmatter"] {
   if (scoped === undefined) return undefined;
-  return (globs) => (globs.length === 0 ? null : fenced(scopedFields(scoped, globs)));
+  return {
+    render: (globs) => (globs.length === 0 ? null : fenced(scopedFields(scoped, globs))),
+    ...(scoped.byteBudget === undefined ? {} : { byteBudget: scoped.byteBudget }),
+  };
 }
 
 // Overwriting a key the fields already hold keeps its position, so a `null` placeholder in the
