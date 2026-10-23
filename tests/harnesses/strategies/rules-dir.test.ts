@@ -57,8 +57,14 @@ const declared: RulesDirTarget = {
   frontmatter: ({ paths }) =>
     paths === undefined ? "---\nalwaysApply: true\n---" : `---\nglobs: ${paths.join(",")}\n---\n`,
 };
-const scoped = definition({
-  scopeFrontmatter: (globs) => `---\npaths: [${globs.join(", ")}]\n---\n`,
+const scopeFrontmatter = (globs: string[]) => `---\npaths: [${globs.join(", ")}]\n---\n`;
+const scoped = definition({ scopeFrontmatter: { render: scopeFrontmatter } });
+// Claude Code reads a path-scoped rules file on demand under 40,000 characters where a launch-time
+// file goes to 4 MiB (memory.md, since v2.1.309), so a scoped install is held to the smaller limit
+// and an always-on one to the larger.
+const onDemand = definition({
+  byteBudget: block.length + 100,
+  scopeFrontmatter: { render: scopeFrontmatter, byteBudget: block.length - 1 },
 });
 
 const SLUG = "a-b" as SourceSlug;
@@ -87,6 +93,14 @@ describe("planRulesDirWrite", () => {
       target: plain,
       scope: "global",
       path: "/home/user/.claude/rules/maxims-a-b.md",
+      content: block,
+    },
+    {
+      name: "a file over the on-demand budget but under the always-on one is written when it has no paths",
+      def: onDemand,
+      target: plain,
+      scope: "project",
+      path: "/home/user/project/.claude/rules/maxims-a-b.md",
       content: block,
     },
     {
@@ -166,6 +180,20 @@ describe("planRulesDirWrite", () => {
           ctx,
           sourceSlug: SLUG,
           block,
+        }),
+      code: ExitCode.RuleCapExceeded,
+    },
+    {
+      name: "a path-scoped file over the on-demand budget, under the always-on one",
+      run: () =>
+        planRulesDirWrite({
+          def: onDemand,
+          target: plain,
+          scope: "project",
+          ctx,
+          sourceSlug: SLUG,
+          block,
+          paths: ["src/**"],
         }),
       code: ExitCode.RuleCapExceeded,
     },

@@ -39,7 +39,7 @@ A relative value resolves against the working directory, as a shell would. `abso
 
 A `rules-dir` target is `{ kind: "rules-dir", dir, fileName, frontmatter? }`. The file name must contain `{{slug}}`, which becomes the source slug.
 
-`frontmatter.always` holds the always-on fields and `frontmatter.scoped` adds `{ fields, pathsKey, pathsAs }` for a `--paths` install; a target with `always` but no `scoped` refuses `--paths`. A target with no `frontmatter` takes its `--paths` preamble from the spec's `scopeFrontmatter`.
+`frontmatter.always` holds the always-on fields and `frontmatter.scoped` adds `{ fields, pathsKey, pathsAs }` for a `--paths` install; a target with `always` but no `scoped` refuses `--paths`. A target with no `frontmatter` takes its `--paths` preamble from the spec's `scopeFrontmatter`, whose optional `byteBudget` is the smaller limit the harness reads a path-scoped file under; the writer holds a `--paths` install to it.
 
 The paths land after the scoped `fields` unless `fields` names `pathsKey` with the value `null`, which fixes their place among the other keys. Cursor lists `globs` between `description` and `alwaysApply`, so its scoped fields are `{ "description": "...", "globs": null, "alwaysApply": false }`. Any other value under that key is refused, because the paths would overwrite it.
 

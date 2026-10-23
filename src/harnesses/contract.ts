@@ -87,6 +87,19 @@ export function byteBudgetFor(budget: ByteBudget | undefined, scope: Scope): num
   return typeof budget === "number" ? budget : budget?.[scope];
 }
 
+// The budget one rule file is held to, or undefined where the harness declares none.
+export function ruleFileBudget(
+  def: Pick<HarnessDefinition, "byteBudget" | "scopeFrontmatter">,
+  scope: Scope,
+  onDemand: boolean,
+): number | undefined {
+  const limits = [
+    byteBudgetFor(def.byteBudget, scope),
+    onDemand ? def.scopeFrontmatter?.byteBudget : undefined,
+  ].filter((limit): limit is number => limit !== undefined);
+  return limits.length === 0 ? undefined : Math.min(...limits);
+}
+
 export type HookSpec = {
   command: string;
   args: string[];
@@ -281,7 +294,10 @@ export interface HarnessDefinition {
   expands: ExpansionSyntax[];
   byteBudget?: ByteBudget;
   detect: (ctx: HarnessContext) => boolean;
-  scopeFrontmatter?: (globs: string[]) => string | null;
+  // `render` opens a path-scoped rule file; `byteBudget` is the smaller limit the harness loads
+  // such a file under when it reads it on demand (Claude Code: 40,000 characters against 4 MiB
+  // at launch). Declared inside the frontmatter, so no harness without path scoping can carry one.
+  scopeFrontmatter?: { render: (globs: string[]) => string | null; byteBudget?: number };
   verifiedAgainst: VerifiedAgainst;
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;

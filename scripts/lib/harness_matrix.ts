@@ -126,13 +126,16 @@ function renderBudget(def: HarnessDefinition): string {
   const declared = budgets.filter(
     (entry): entry is { scope: Scope; bytes: number } => entry.bytes !== undefined,
   );
-  if (declared.length === 0) return "-";
   const format = (bytes: number) => `${bytes.toLocaleString("en-US")} bytes`;
   const distinct = new Set(declared.map(({ bytes }) => bytes));
-  if (distinct.size === 1 && declared.length === SCOPES.length) {
-    return format(declared[0]?.bytes ?? 0);
-  }
-  return declared.map(({ scope, bytes }) => `${scope} ${format(bytes)}`).join(", ");
+  const alwaysOn =
+    distinct.size === 1 && declared.length === SCOPES.length
+      ? [format(declared[0]?.bytes ?? 0)]
+      : declared.map(({ scope, bytes }) => `${scope} ${format(bytes)}`);
+  const onDemand = def.scopeFrontmatter?.byteBudget;
+  const scoped = onDemand === undefined ? [] : [`${format(onDemand)} path-scoped`];
+  const cells = [...alwaysOn, ...scoped];
+  return cells.length === 0 ? "-" : cells.join(", ");
 }
 
 export function renderRow(def: HarnessDefinition): readonly string[] {

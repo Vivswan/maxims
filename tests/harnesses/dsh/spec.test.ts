@@ -371,7 +371,7 @@ test("a block at the dsh line passes the budget and one byte past it is refused"
     error: {
       name: "MaximsError",
       code: ExitCode.RuleCapExceeded,
-      message: expect.stringContaining("64512-byte limit DeepSeek Harness loads"),
+      message: expect.stringContaining("64512-byte budget kept for DeepSeek Harness"),
     },
   });
 });

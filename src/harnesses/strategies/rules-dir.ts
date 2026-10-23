@@ -4,9 +4,9 @@ import type { Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import {
-  byteBudgetFor,
   type HarnessContext,
   type HarnessDefinition,
+  ruleFileBudget,
   type Scope,
   type SourceSlug,
   scopeRoot,
@@ -33,7 +33,7 @@ export type RulesDirWriteInput = RulesDirLocation & {
 export function planRulesDirWrite(input: RulesDirWriteInput): Change[] {
   const path = rulesDirPath(input);
   const content = `${rulesDirFrontmatter(input)}${input.block}`;
-  assertWithinBudget(input.def, input.scope, path, content);
+  assertWithinBudget(input.def, input.scope, path, content, scopedPaths(input.paths) !== undefined);
   return [{ kind: "write", path, content }];
 }
 
@@ -57,13 +57,13 @@ export function rulesDirPath(input: RulesDirLocation): RootedPath {
 export function rulesDirFrontmatter(
   input: Pick<RulesDirWriteInput, "def" | "target" | "paths">,
 ): string {
-  const paths = input.paths === undefined || input.paths.length === 0 ? undefined : input.paths;
+  const paths = scopedPaths(input.paths);
   const declared =
     input.target.frontmatter !== undefined
       ? input.target.frontmatter({ paths })
       : paths === undefined
         ? null
-        : (input.def.scopeFrontmatter?.(paths) ?? null);
+        : (input.def.scopeFrontmatter?.render(paths) ?? null);
   if (declared === null || declared === "") return "";
   return declared.endsWith("\n") ? declared : `${declared}\n`;
 }
@@ -80,19 +80,27 @@ export class BudgetExceeded extends MaximsError {
   ) {
     super(
       ExitCode.RuleCapExceeded,
-      `${path} would be ${size} bytes, over the ${budget}-byte limit ${displayName} loads`,
+      `${path} would be ${size} bytes, over the ${budget}-byte budget kept for ${displayName}`,
       { hint: "narrow the install with --memory or split the source" },
     );
   }
 }
 
+// An empty paths list is no scoping, so a file with none loads at launch like one with no list.
+function scopedPaths(paths: string[] | undefined): string[] | undefined {
+  return paths === undefined || paths.length === 0 ? undefined : paths;
+}
+
+// `onDemand` says the file carries a path filter, so the harness reads it on demand and its
+// smaller limit, where declared, is the one that holds.
 export function assertWithinBudget(
-  def: Pick<HarnessDefinition, "byteBudget" | "displayName" | "id">,
+  def: Pick<HarnessDefinition, "byteBudget" | "displayName" | "id" | "scopeFrontmatter">,
   scope: Scope,
   path: string,
   content: string,
+  onDemand = false,
 ): void {
-  const budget = byteBudgetFor(def.byteBudget, scope);
+  const budget = ruleFileBudget(def, scope, onDemand);
   if (budget === undefined) return;
   const size = Buffer.byteLength(content);
   if (size <= budget) return;

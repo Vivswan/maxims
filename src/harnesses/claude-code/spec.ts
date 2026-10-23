@@ -29,10 +29,11 @@ export const spec = {
           "`~/.claude/rules/`",
           "paths:",
           "Claude Code skips a file over 4 MiB and loads none of it.",
+          "**200K context window**: 40,000 characters",
           "@path/to/import",
         ],
         why: "Claude Code is closed source and the SchemaStore schema covers settings keys, not the rules directories; this is the page's markdown rendition",
-        note: "the rules directories, the paths frontmatter, the 4 MiB cap and @imports",
+        note: "the rules directories, the paths frontmatter, the 4 MiB cap, the 40,000-character on-demand limit and @imports",
       },
       {
         kind: "page",
@@ -96,7 +97,9 @@ export const spec = {
       unreadable: "skips-the-file",
     },
   },
-  scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list" },
+  // A path-scoped rules file loads on demand under 40,000 characters, the page's 200K-context
+  // figure and the smallest it gives; a byte count never undercounts characters, so it is safe here.
+  scopeFrontmatter: { fields: {}, pathsKey: "paths", pathsAs: "list", byteBudget: 40_000 },
   fixtures: { config: "settings.json", hookStdin: "hook-stdin.json" },
 } satisfies HarnessSpec;
 
