@@ -30,6 +30,28 @@ const RESULT_LINE = /^\((pass|fail|skip)\) (.+?)(?: \[(\d+(?:\.\d+)?)ms\])?$/;
 const SUMMARY_LINE = /^Ran (\d+) tests? across (\d+) files?\./;
 const ABSENT: SmokeRowResult = { status: "absent" };
 
+function smokeRowResult(status: string | undefined, ms: string | undefined): SmokeRowResult {
+  if (status === "skip") return { status: "skip" };
+  return { status: status === "pass" ? "pass" : "fail", ms: ms === undefined ? null : Number(ms) };
+}
+
+function smokeRow(
+  line: string,
+  titles: Map<string, HarnessSmokeCli>,
+): [HarnessSmokeCli, SmokeRowResult] | null {
+  const result = RESULT_LINE.exec(line);
+  if (result === null) return null;
+  const cli = titles.get(result[2] ?? "");
+  if (cli === undefined) return null;
+  return [cli, smokeRowResult(result[1], result[3])];
+}
+
+function summaryOf(line: string): SuiteEvidence["summary"] {
+  const ran = SUMMARY_LINE.exec(line);
+  if (ran?.[1] === undefined || ran[2] === undefined) return null;
+  return { tests: Number(ran[1]), files: Number(ran[2]) };
+}
+
 // Reads bun's console reporter as it prints without color: one `(status) <describe> > <title>
 // [<ms>]` line per test, and the summary line last. A row with no line is absent, which is what
 // a file bun never collected looks like.
@@ -44,21 +66,14 @@ export function readSuiteEvidence(output: string): SuiteEvidence {
   const titles = new Map(HARNESS_SMOKE_CLIS.map((cli) => [`${HARNESS_SMOKE_SUITE} > ${cli}`, cli]));
   let summary: SuiteEvidence["summary"] = null;
   for (const line of output.split(/\r?\n/)) {
-    const result = RESULT_LINE.exec(line);
-    if (result !== null) {
-      const cli = titles.get(result[2] ?? "");
-      if (cli === undefined) continue;
-      const ms = result[3] === undefined ? null : Number(result[3]);
-      rows[cli] =
-        result[1] === "skip"
-          ? { status: "skip" }
-          : { status: result[1] === "pass" ? "pass" : "fail", ms };
+    const row = smokeRow(line, titles);
+    if (row !== null) {
+      const [cli, result] = row;
+      rows[cli] = result;
       continue;
     }
-    const ran = SUMMARY_LINE.exec(line);
-    if (ran?.[1] !== undefined && ran[2] !== undefined) {
-      summary = { tests: Number(ran[1]), files: Number(ran[2]) };
-    }
+    const ran = summaryOf(line);
+    if (ran !== null) summary = ran;
   }
   return { rows, summary };
 }

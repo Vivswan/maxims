@@ -18,6 +18,7 @@ import { harnessContext } from "../../engine/context.ts";
 import { disabledNames } from "../../engine/select.ts";
 import { sourceSlug } from "../../engine/slug.ts";
 import type { CliIo } from "../../engine/types.ts";
+import type { HarnessContext, HarnessDefinition, SourceSlug } from "../../harnesses/contract.ts";
 import { type Memory, type MemoryName, renamed } from "../../memory/contract.ts";
 import { DEFAULT_GH_HOST } from "../../sources/github/host.ts";
 import type { RenameMap, Select, State } from "../../state/schema.ts";
@@ -189,6 +190,20 @@ export function showProvenance(console: Console, provenance: Provenance): void {
   );
 }
 
+// The place one harness will read this add: a bodies-only add names the bodies folder where the
+// harness has one, since no rules file is written for it.
+function plannedPath(
+  def: HarnessDefinition,
+  request: AddRequest,
+  ctx: HarnessContext,
+  slug: SourceSlug,
+): string | null {
+  const destination = request.destination;
+  if (destination.scope === "out") return destination.path;
+  if (request.rule) return targetPath(def, destination, ctx, slug);
+  return def.bodiesDir(destination.scope, ctx) ?? targetPath(def, destination, ctx, slug);
+}
+
 // One line per destination: two harnesses reading one file or folder are one place the memories go.
 function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): string {
   const ctx = harnessContext(io);
@@ -196,28 +211,23 @@ function planBody(request: AddRequest, ids: readonly HarnessId[], io: CliIo): st
   const lines = ids.map((id) => {
     const def = io.harnesses.find((candidate) => candidate.id === id);
     if (def === undefined) return id;
-    const destination = request.destination;
-    const path =
-      destination.scope === "out"
-        ? destination.path
-        : request.rule
-          ? targetPath(def, destination, ctx, slug)
-          : (def.bodiesDir(destination.scope, ctx) ?? targetPath(def, destination, ctx, slug));
+    const path = plannedPath(def, request, ctx, slug);
     return `${sourceTitle(request.from)} -> ${tildify(path ?? "(no target)", io.userHome)}`;
   });
   return [...new Set(lines)].join("\n");
 }
 
+function titleSegments(from: SourceFrom): string[] {
+  if (from.type === "github") return from.repo.split("/");
+  if (from.type === "git")
+    return [stripGitSuffix(parseRemote(from.url)?.segments.at(-1) ?? from.url)];
+  return [basename(from.path)];
+}
+
 // `Octocat/rules` reads as `Octocat Rules` on the plan screen, as `skills` titles a source. A git
 // remote titles by its repository segment, read the way the store path and the owner read it.
 export function sourceTitle(from: SourceFrom): string {
-  const raw =
-    from.type === "github"
-      ? from.repo.split("/")
-      : from.type === "git"
-        ? [stripGitSuffix(parseRemote(from.url)?.segments.at(-1) ?? from.url)]
-        : [basename(from.path)];
-  return raw
+  return titleSegments(from)
     .flatMap((part) => part.split(/[-_]+/))
     .filter((word) => word !== "")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

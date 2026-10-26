@@ -16,6 +16,7 @@ import type {
   RemoveOptions,
   RemoveTarget,
 } from "../engine/types.ts";
+import type { Destination, Select, State } from "../state/schema.ts";
 import { renderPlan } from "../util/change.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { cooldownCapConfig, loadIntentFor, persistConfig } from "./frame/cli-context.ts";
@@ -155,45 +156,73 @@ export function removeOptions(target: RemoveTarget, common: CommonOptions): Remo
   }
 }
 
+// The flags a removal target is read with. `-a '*'` parses to "no filter", which on a whole
+// source means every harness; on a memory or a narrowed selection any `-a` is refused, the
+// wildcard included, so `agentFlag` says whether one was typed at all.
+type RemoveFlags = {
+  destination: Destination | null;
+  agents: HarnessId[] | null;
+  agentFlag: boolean;
+  memoryFlag: boolean;
+  select: Select | null;
+};
+
+// `--all` names nothing: no source, no `-m`, no destination.
+function allTarget(positional: string | undefined, flags: RemoveFlags): RemoveTarget {
+  if (positional !== undefined || flags.memoryFlag) throw usage(STRINGS.allWithNames);
+  if (flags.destination !== null) throw usage("--all removes every source; drop -g, -p or -o");
+  return { kind: "all", agents: flags.agents };
+}
+
+// A source has one recorded destination; `-m` narrows it to memories, where `-a` has no meaning.
+function sourceTarget(key: string, flags: RemoveFlags): RemoveTarget {
+  if (flags.destination !== null) {
+    throw usage(`${key} has one recorded destination; drop -g, -p or -o`);
+  }
+  if (flags.select === null || flags.select === "*") {
+    return { kind: "source", key, agents: flags.agents };
+  }
+  if (flags.agentFlag) throw usage(`-a applies to a whole source; drop -m to unlink ${key}`);
+  return { kind: "memories", source: key, names: flags.select };
+}
+
+// A memory is named bare or as `@owner/repo/name`; `-m`, `-a` and a destination are refused on it.
+async function memoryTarget(
+  positional: string,
+  flags: RemoveFlags,
+  state: State,
+  io: CliIo,
+): Promise<RemoveTarget> {
+  if (flags.memoryFlag) {
+    throw usage(`${positional} names a memory; -m narrows a source, so name the source instead`);
+  }
+  if (flags.agentFlag) {
+    throw usage(agentsOnMemory(positional), { hint: STRINGS.agentsOnMemoryHint });
+  }
+  if (flags.destination !== null) {
+    throw usage(`${positional} names a memory of one recorded source; drop -g, -p or -o`);
+  }
+  const resolved: ResolvedMemory = await resolveMemoryName(state, io, positional);
+  return { kind: "memories", source: resolved.key, names: [resolved.name] };
+}
+
 // `-a` drops harnesses from a whole source; on a memory or a narrowed selection it has no
 // meaning, so the two are refused here, once, and the target type cannot hold them together.
 async function removeTarget(args: Args, ctx: CommandContext, all: boolean): Promise<RemoveTarget> {
   const positional = args.positionals[0];
-  const destination = parseDestination(args, ctx.io.cwd, ctx.io.projectRoot);
-  const agents = agentIds(args, ctx.io) ?? null;
-  // `-a '*'` parses to "no filter", which on a whole source means every harness; on a memory or
-  // a narrowed selection any `-a` is refused, the wildcard included.
-  const agentFlag = args.list(FLAGS.agent).length > 0;
-  const select = parseSelect(args);
-  if (all) {
-    if (positional !== undefined || args.list(FLAGS.memory).length > 0) {
-      throw usage(STRINGS.allWithNames);
-    }
-    if (destination !== null) throw usage("--all removes every source; drop -g, -p or -o");
-    return { kind: "all", agents };
-  }
+  const flags: RemoveFlags = {
+    destination: parseDestination(args, ctx.io.cwd, ctx.io.projectRoot),
+    agents: agentIds(args, ctx.io) ?? null,
+    agentFlag: args.list(FLAGS.agent).length > 0,
+    memoryFlag: args.list(FLAGS.memory).length > 0,
+    select: parseSelect(args),
+  };
+  if (all) return allTarget(positional, flags);
   if (positional === undefined) throw usage("Missing required argument: source or memory name");
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const key = installedSourceOrNull(state, positional, ctx.io);
-  if (key !== null) {
-    if (destination !== null) {
-      throw usage(`${key} has one recorded destination; drop -g, -p or -o`);
-    }
-    if (select === null || select === "*") return { kind: "source", key, agents };
-    if (agentFlag) throw usage(`-a applies to a whole source; drop -m to unlink ${key}`);
-    return { kind: "memories", source: key, names: select };
-  }
-  if (args.list(FLAGS.memory).length > 0) {
-    throw usage(`${positional} names a memory; -m narrows a source, so name the source instead`);
-  }
-  if (agentFlag) {
-    throw usage(agentsOnMemory(positional), { hint: STRINGS.agentsOnMemoryHint });
-  }
-  if (destination !== null) {
-    throw usage(`${positional} names a memory of one recorded source; drop -g, -p or -o`);
-  }
-  const resolved: ResolvedMemory = await resolveMemoryName(state, ctx.io, positional);
-  return { kind: "memories", source: resolved.key, names: [resolved.name] };
+  if (key !== null) return sourceTarget(key, flags);
+  return memoryTarget(positional, flags, state, ctx.io);
 }
 
 function describeTarget(target: RemoveTarget): string {

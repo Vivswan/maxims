@@ -109,6 +109,15 @@ function splitLines(fileText: string, from: number): MarkdownLine[] {
   return lines;
 }
 
+function leafLineKinds(
+  kind: "fence" | "html",
+  opening: string,
+): [first: MarkdownLine["kind"], rest: MarkdownLine["kind"]] {
+  if (kind === "fence") return ["fenced", "fenced"];
+  if (opening.startsWith("<!--")) return ["comment", "comment-continuation"];
+  return ["html", "html"];
+}
+
 // Leaf blocks never share a line and come in document order, so the lines a token covers are the
 // run from the first line reaching its start to the last line starting before its end.
 function markLines(
@@ -124,16 +133,9 @@ function markLines(
   while (index < lines.length && lines[index].end <= start) index += 1;
   const first = index;
   const opening = lines[first].text.slice(start - lines[first].start).replace(/^[ \t]+/, "");
-  const comment = kind === "html" && opening.startsWith("<!--");
+  const [openingKind, laterKind] = leafLineKinds(kind, opening);
   while (index < lines.length && lines[index].start < end) {
-    lines[index].kind =
-      kind === "fence"
-        ? "fenced"
-        : !comment
-          ? "html"
-          : index === first
-            ? "comment"
-            : "comment-continuation";
+    lines[index].kind = index === first ? openingKind : laterKind;
     index += 1;
   }
   return index;

@@ -54,14 +54,17 @@ function underDir(dir: string, env: Record<string, string>): Record<string, stri
   );
 }
 
-function filesOf(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Files {
+function rulePathOf(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): string | null {
   const target = def.targets[scope];
-  const rule =
-    target === null
-      ? null
-      : target.kind === "rules-dir"
-        ? rulesDirPath({ def, target, scope, ctx, sourceSlug: slug })
-        : sharedBlockPath({ def, target, scope, ctx });
+  if (target === null) return null;
+  if (target.kind === "rules-dir") {
+    return rulesDirPath({ def, target, scope, ctx, sourceSlug: slug });
+  }
+  return sharedBlockPath({ def, target, scope, ctx });
+}
+
+function filesOf(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): Files {
+  const rule = rulePathOf(def, scope, ctx);
   const hook = hasHook(def, "registry") || hasHook(def, "file") ? hookPath(def, scope, ctx) : null;
   return { rule, hook, mcp: def.mcp?.path(scope, ctx) ?? null };
 }
@@ -409,76 +412,86 @@ test.each(installRows)(
 // compiles for the platform the suite runs on, so each platform's definition is compiled here;
 // `./` values and the expected paths are relative to a temporary directory holding `home/` and
 // the row's directories.
-type PlatformRow = [
-  label: string,
-  spec: HarnessSpec,
-  platform: NodeJS.Platform,
-  env: Record<string, string>,
-  dirs: string[],
-  files: Files,
-  installed: boolean,
-];
+type PlatformRow = {
+  label: string;
+  spec: HarnessSpec;
+  platform: NodeJS.Platform;
+  env: Record<string, string>;
+  dirs: string[];
+  files: Files;
+  installed: boolean;
+};
 
 const PER_PLATFORM: PlatformRow[] = [
-  [
-    "zed on Linux, where paths.rs reads $XDG_CONFIG_HOME",
-    zedSpec,
-    "linux",
-    { XDG_CONFIG_HOME: "./xdg" },
-    ["xdg/zed/"],
-    { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
-    true,
-  ],
-  [
-    "zed under Flatpak on Linux, where paths.rs reads $FLATPAK_XDG_CONFIG_HOME ahead of $XDG_CONFIG_HOME",
-    zedSpec,
-    "linux",
-    { FLATPAK_XDG_CONFIG_HOME: "./flatpak", XDG_CONFIG_HOME: "./xdg" },
-    ["flatpak/zed/", "xdg/zed/"],
-    { rule: "flatpak/zed/AGENTS.md", hook: null, mcp: "flatpak/zed/settings.json" },
-    true,
-  ],
-  [
-    "zed on FreeBSD, where paths.rs reads $XDG_CONFIG_HOME",
-    zedSpec,
-    "freebsd",
-    { XDG_CONFIG_HOME: "./xdg" },
-    ["xdg/zed/"],
-    { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
-    true,
-  ],
-  [
-    "zed on Linux with a relative $XDG_CONFIG_HOME, which the XDG spec calls invalid and dirs ignores",
-    zedSpec,
-    "linux",
-    { XDG_CONFIG_HOME: "xdg" },
-    ["xdg/zed/"],
-    { rule: "home/.config/zed/AGENTS.md", hook: null, mcp: "home/.config/zed/settings.json" },
-    false,
-  ],
-  [
-    "zed on macOS, where paths.rs fixes ~/.config/zed and ignores $XDG_CONFIG_HOME",
-    zedSpec,
-    "darwin",
-    { XDG_CONFIG_HOME: "./xdg" },
-    ["xdg/zed/"],
-    { rule: "home/.config/zed/AGENTS.md", hook: null, mcp: "home/.config/zed/settings.json" },
-    false,
-  ],
-  [
-    "zed on Windows, where the docs put settings.json under %APPDATA%\\Zed",
-    zedSpec,
-    "win32",
-    { APPDATA: "./appdata", XDG_CONFIG_HOME: "./xdg" },
-    ["appdata/Zed/", "xdg/zed/"],
-    { rule: "appdata/Zed/AGENTS.md", hook: null, mcp: "appdata/Zed/settings.json" },
-    true,
-  ],
+  {
+    label: "zed on Linux, where paths.rs reads $XDG_CONFIG_HOME",
+    spec: zedSpec,
+    platform: "linux",
+    env: { XDG_CONFIG_HOME: "./xdg" },
+    dirs: ["xdg/zed/"],
+    files: { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
+    installed: true,
+  },
+  {
+    label:
+      "zed under Flatpak on Linux, where paths.rs reads $FLATPAK_XDG_CONFIG_HOME ahead of $XDG_CONFIG_HOME",
+    spec: zedSpec,
+    platform: "linux",
+    env: { FLATPAK_XDG_CONFIG_HOME: "./flatpak", XDG_CONFIG_HOME: "./xdg" },
+    dirs: ["flatpak/zed/", "xdg/zed/"],
+    files: { rule: "flatpak/zed/AGENTS.md", hook: null, mcp: "flatpak/zed/settings.json" },
+    installed: true,
+  },
+  {
+    label: "zed on FreeBSD, where paths.rs reads $XDG_CONFIG_HOME",
+    spec: zedSpec,
+    platform: "freebsd",
+    env: { XDG_CONFIG_HOME: "./xdg" },
+    dirs: ["xdg/zed/"],
+    files: { rule: "xdg/zed/AGENTS.md", hook: null, mcp: "xdg/zed/settings.json" },
+    installed: true,
+  },
+  {
+    label:
+      "zed on Linux with a relative $XDG_CONFIG_HOME, which the XDG spec calls invalid and dirs ignores",
+    spec: zedSpec,
+    platform: "linux",
+    env: { XDG_CONFIG_HOME: "xdg" },
+    dirs: ["xdg/zed/"],
+    files: {
+      rule: "home/.config/zed/AGENTS.md",
+      hook: null,
+      mcp: "home/.config/zed/settings.json",
+    },
+    installed: false,
+  },
+  {
+    label: "zed on macOS, where paths.rs fixes ~/.config/zed and ignores $XDG_CONFIG_HOME",
+    spec: zedSpec,
+    platform: "darwin",
+    env: { XDG_CONFIG_HOME: "./xdg" },
+    dirs: ["xdg/zed/"],
+    files: {
+      rule: "home/.config/zed/AGENTS.md",
+      hook: null,
+      mcp: "home/.config/zed/settings.json",
+    },
+    installed: false,
+  },
+  {
+    label: "zed on Windows, where the docs put settings.json under %APPDATA%\\Zed",
+    spec: zedSpec,
+    platform: "win32",
+    env: { APPDATA: "./appdata", XDG_CONFIG_HOME: "./xdg" },
+    dirs: ["appdata/Zed/", "xdg/zed/"],
+    files: { rule: "appdata/Zed/AGENTS.md", hook: null, mcp: "appdata/Zed/settings.json" },
+    installed: true,
+  },
 ];
 
 test.each(PER_PLATFORM)(
-  "%s: the global files land where it reads them",
-  async (_label, spec, platform, env, dirs, files, installed) => {
+  "$label: the global files land where it reads them",
+  async ({ spec, platform, env, dirs, files, installed }) => {
     await withTempDir((dir) => {
       for (const entry of dirs) make(dir, entry);
       const home = join(dir, "home");

@@ -10,7 +10,7 @@ import { STALE_REASON, type Staleness } from "../rulefile/types.ts";
 import type { Fetched, SourceEntry, State } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
 import { actsHere, type EngineContext } from "./context.ts";
-import { DAY_MS, type FetchedEntry, refreshSource } from "./fetch.ts";
+import { DAY_MS, type FetchedEntry, type RefreshResult, refreshSource } from "./fetch.ts";
 import type { SourceTree } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import type { EngineIo, FetchIntent, HarnessFilter, SyncOptions, SyncReport } from "./types.ts";
@@ -53,6 +53,28 @@ export type Refreshed = {
   refuse(key: string): void;
 };
 
+// What a fresh refresh earns to say once it has survived admission.
+function freshLines(key: string, result: Extract<RefreshResult, { outcome: "fresh" }>): string[] {
+  const lines = [`maxims: ${key} refreshed (${shortSha(result.tree.sha)})`];
+  if (result.newUpstream.length > 0) {
+    const names = result.newUpstream.join(", ");
+    lines.push(`maxims: ${key} has new memories not in your selection: ${names}`);
+  }
+  return lines;
+}
+
+// Until a transient failure is said out loud, the run's non-zero exit has this line to explain
+// it; none once the staleness notice says it, or for a failure that is said at once.
+function failureAside(
+  key: string,
+  result: Extract<RefreshResult, { outcome: "failed" | "no-valid" }>,
+  ctx: EngineContext,
+): string | null {
+  if (STALE_AT_ONCE.has(result.error.kind)) return null;
+  if (staleness(result.entry.fetched, ctx.now, ctx.cooldownDays) !== undefined) return null;
+  return `maxims: ${key}: fetch failed (${STALE_REASON[result.error.kind]}); kept last-good`;
+}
+
 // A failed fetch is never a stop: the source keeps last-good and the failure is reported, so the
 // caller decides what a manual run's exit says about it. A hold is traced line by line here; the
 // install pass says it to the user, since a standing hold is said at every run.
@@ -83,39 +105,26 @@ export async function refreshAll(
     });
     sources[key] = result.entry;
     switch (result.outcome) {
-      case "fresh": {
+      case "fresh":
         fetchedKeys.push(key);
         freshTrees.set(key, result.tree);
         storeChanges.set(key, result.storeChanges);
-        const earned = [`maxims: ${key} refreshed (${shortSha(result.tree.sha)})`];
         changeLines.set(key, result.changeLines);
-        if (result.newUpstream.length > 0) {
-          const names = result.newUpstream.join(", ");
-          earned.push(`maxims: ${key} has new memories not in your selection: ${names}`);
-        }
-        lines.set(key, earned);
+        lines.set(key, freshLines(key, result));
         break;
-      }
       case "held": {
         pendingChanges.set(key, result.storeChanges);
         for (const line of result.summary) notices.trace(`${key}: held ${line}`);
         break;
       }
       case "failed":
-      case "no-valid":
+      case "no-valid": {
         notices.trace(`${key}: fetch failed (${result.error.kind}): ${result.error.message}`);
         failed.push({ key, message: result.error.message, kind: result.error.kind });
-        // Until a transient failure is said out loud, the run's non-zero exit has this line to
-        // explain it.
-        if (
-          !STALE_AT_ONCE.has(result.error.kind) &&
-          staleness(result.entry.fetched, ctx.now, ctx.cooldownDays) === undefined
-        ) {
-          notices.aside(
-            `maxims: ${key}: fetch failed (${STALE_REASON[result.error.kind]}); kept last-good`,
-          );
-        }
+        const aside = failureAside(key, result, ctx);
+        if (aside !== null) notices.aside(aside);
         break;
+      }
       case "skipped":
       case "not-due":
       case "unchanged":

@@ -143,13 +143,19 @@ export const FIXTURE_CONFIG_CONTENT = '{"instructions":["rules"]}\n';
 // The `config.json` it leaves once they are not: emptied, never deleted.
 export const FIXTURE_CONFIG_EMPTIED = "{}\n";
 
+function configEditTarget(wanted: boolean, text: string | null): string | null {
+  if (wanted) return FIXTURE_CONFIG_CONTENT;
+  if (text === null) return null;
+  return FIXTURE_CONFIG_EMPTIED;
+}
+
 // The rules-dir fixture whose rules directory needs a `config.json` entry, reconciled like a hook (listed when wanted, emptied when not), so a config too takes the planner's one edit per file.
 export const configEditHarness: HarnessDefinition = {
   ...rulesDirHarness,
   configEdit: async (_scope, ctx, wanted) => {
     const path = assertInsideRoot(ctx.home, join(ctx.home, FIXTURE_DIR, "config.json"));
     const rewrite = (text: string | null) => {
-      const next = wanted ? FIXTURE_CONFIG_CONTENT : text === null ? null : FIXTURE_CONFIG_EMPTIED;
+      const next = configEditTarget(wanted, text);
       return next === null || next === text ? null : { text: next };
     };
     return [{ root: ctx.home, path, entry: ["instructions"], rewrite }];

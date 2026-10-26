@@ -94,15 +94,7 @@ const TAIL_ADVICE = {
 // is judged only once `add` knows whether a `--pin` replaces it. The tail advice names the flags
 // that say the same thing and never an `@owner/repo` shorthand, which an enterprise shell would
 // re-host under GH_HOST.
-function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
-  const remoteHost = normalizeGithubHost(remote.host);
-  const isGithubCom = remoteHost === DEFAULT_GH_HOST;
-  const ghHost = options.ghHost === undefined ? undefined : normalizeGithubHost(options.ghHost);
-  if (!isGithubCom && remoteHost !== ghHost) {
-    if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
-    return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
-  }
-  const host = isGithubCom ? undefined : enterpriseHost(options);
+function githubUrlFrom(arg: string, remote: GitRemote, host: string | undefined): SourceFrom {
   const [owner, repoName, kind, ...rest] = remote.segments;
   const repo = `${owner ?? ""}/${stripGitSuffix(repoName ?? "")}`;
   const isTreeUrl = kind === "tree" && rest.length >= 1;
@@ -117,6 +109,20 @@ function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptio
   if (rest.length > 1) throw usage(`${arg}: ${TAIL_ADVICE.tree}`);
   const ref = isTreeUrl ? (rest[0] ?? DEFAULT_GIT_REF) : DEFAULT_GIT_REF;
   return github(repo, arg, host, ref);
+}
+
+// A remote on github.com or the GH_HOST shell is a GitHub source; any other host is a plain git
+// URL, tracking its default branch.
+function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
+  const remoteHost = normalizeGithubHost(remote.host);
+  const isGithubCom = remoteHost === DEFAULT_GH_HOST;
+  const ghHost = options.ghHost === undefined ? undefined : normalizeGithubHost(options.ghHost);
+  if (!isGithubCom && remoteHost !== ghHost) {
+    if (!isUsableRemote(arg)) throw usage(`${arg} has no usable repository path`);
+    return { type: "git", url: arg, ref: DEFAULT_GIT_REF };
+  }
+  const host = isGithubCom ? undefined : enterpriseHost(options);
+  return githubUrlFrom(arg, remote, host);
 }
 
 // A field the state file stores is parsed by its own state schema at the door that mints its

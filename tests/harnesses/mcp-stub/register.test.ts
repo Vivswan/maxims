@@ -19,7 +19,7 @@ import { zed } from "../../../src/harnesses/zed/spec.ts";
 import { ExitCode } from "../../../src/util/exit-codes.ts";
 import { assertInsideRoot } from "../../../src/util/fs.ts";
 import { JSONC, readConfigText } from "../../../src/util/jsonc.ts";
-import { asyncOutcome } from "../../shared/outcome.ts";
+import { asyncOutcome, type Outcome } from "../../shared/outcome.ts";
 import { CHMOD_DENIES } from "../../shared/platform.ts";
 import { srcPath } from "../../shared/src_path.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
@@ -290,6 +290,32 @@ test.each(declared)(
   },
 );
 
+function commentVerdict(planned: Outcome<string | null>): unknown {
+  if (planned.kind === "threw") {
+    return { refused: planned.error instanceof Error ? planned.error.message : planned.error };
+  }
+  return {
+    keepsComment: planned.value?.includes("// keep") ?? false,
+    registers: planned.value?.includes('"mcp-serve"') ?? false,
+  };
+}
+
+function expectedCommentVerdict(
+  def: HarnessDefinition,
+  comments: (typeof declared)[number]["comments"],
+): unknown {
+  if (comments === "refused") {
+    return {
+      refused: expect.stringMatching(
+        new RegExp(
+          `^cannot edit .*: a comment at line 3, column 5; ${RegExp.escape(def.displayName)} reads strict JSON$`,
+        ),
+      ),
+    };
+  }
+  return { keepsComment: true, registers: true };
+}
+
 // The comment sits at line 3, column 5 of the file as written here; the refusal names it so the
 // user can take it out, and names the vendor so they know who would skip the file.
 test.each(declared.filter((row) => row.comments !== "unverified"))(
@@ -309,26 +335,9 @@ test.each(declared.filter((row) => row.comments !== "unverified"))(
         if (registry === null) continue;
         mkdirSync(dirname(registry.path), { recursive: true });
         writeFileSync(registry.path, `{\n  ${JSON.stringify(key)}: {\n    // keep\n  }\n}\n`);
-        const verdict = await asyncOutcome(() => plan(registry, true));
-        seen[scope] =
-          verdict.kind === "threw"
-            ? { refused: verdict.error instanceof Error ? verdict.error.message : verdict.error }
-            : {
-                keepsComment: verdict.value?.includes("// keep") ?? false,
-                registers: verdict.value?.includes('"mcp-serve"') ?? false,
-              };
+        seen[scope] = commentVerdict(await asyncOutcome(() => plan(registry, true)));
       }
-      const expected =
-        comments === "refused"
-          ? {
-              refused: expect.stringMatching(
-                new RegExp(
-                  `^cannot edit .*: a comment at line 3, column 5; ${RegExp.escape(def.displayName)} reads strict JSON$`,
-                ),
-              ),
-            }
-          : { keepsComment: true, registers: true };
-      expect(seen).toEqual(perScope(def, expected));
+      expect(seen).toEqual(perScope(def, expectedCommentVerdict(def, comments)));
     });
   },
 );

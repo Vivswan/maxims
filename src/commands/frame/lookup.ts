@@ -296,6 +296,17 @@ export function installedElsewhere(key: string, root: string): MaximsError {
   );
 }
 
+function destinationFlag(destination: Destination): string {
+  switch (destination.scope) {
+    case "global":
+      return "-g";
+    case "project":
+      return "-p";
+    case "out":
+      return `-o ${destination.path}`;
+  }
+}
+
 // A re-add at another scope would move the source: its files at the recorded scope would leave
 // with nothing said about them. The refusal names where it is and the one order that moves it.
 export function installedAtOtherScope(
@@ -303,8 +314,7 @@ export function installedAtOtherScope(
   recorded: Destination,
   wanted: Destination,
 ): MaximsError {
-  const flag =
-    wanted.scope === "global" ? "-g" : wanted.scope === "project" ? "-p" : `-o ${wanted.path}`;
+  const flag = destinationFlag(wanted);
   return new MaximsError(ExitCode.Usage, `${key} is installed ${describeScope(recorded)}`, {
     hint: `run maxims remove ${key} first, then add it with ${flag}`,
   });
@@ -343,29 +353,37 @@ function describeScope(destination: Destination): string {
 
 export type ResolvedMemory = { key: string; name: MemoryName };
 
-// A bare name is looked up across every source's effective set; two owners make it ambiguous and
-// the qualified `@owner/repo/name` forms are the way out. A qualified name looks up one source.
-export async function resolveMemoryName(
+type MemoryLookupIo = Pick<CliIo, "home" | "installInternal" | "projectRoot">;
+
+// `@owner/repo/name` looks up one source: an owner not installed or not acting here, and a name
+// the source does not provide, are refused.
+async function resolveQualifiedName(
   state: State,
-  io: Pick<CliIo, "home" | "installInternal" | "projectRoot">,
+  io: MemoryLookupIo,
+  owner: string,
+  rawName: string,
+): Promise<ResolvedMemory> {
+  const key = findSourceKey(state, owner);
+  const name = parseMemoryName(rawName);
+  if (key === null) throw new MaximsError(ExitCode.Usage, notInstalled(owner));
+  if (name === null) throw new MaximsError(ExitCode.Usage, `"${rawName}" is not a memory name`);
+  const entry = state.sources[key];
+  if (entry === undefined || !actsHere(entry, io)) {
+    throw new MaximsError(ExitCode.Usage, notInstalled(owner));
+  }
+  if (!(await effectiveNames(entry, io)).includes(name)) {
+    throw new MaximsError(ExitCode.Usage, `${key} does not provide ${name}`);
+  }
+  return { key, name };
+}
+
+// A bare name is looked up across every source's effective set; two owners make it ambiguous and
+// the qualified `@owner/repo/name` forms are the way out.
+async function resolveBareName(
+  state: State,
+  io: MemoryLookupIo,
   raw: string,
 ): Promise<ResolvedMemory> {
-  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
-  if (qualified !== null && qualified[1] !== undefined && qualified[2] !== undefined) {
-    const key = findSourceKey(state, qualified[1]);
-    const name = parseMemoryName(qualified[2]);
-    if (key === null) throw new MaximsError(ExitCode.Usage, notInstalled(qualified[1]));
-    if (name === null)
-      throw new MaximsError(ExitCode.Usage, `"${qualified[2]}" is not a memory name`);
-    const entry = state.sources[key];
-    if (entry === undefined || !actsHere(entry, io)) {
-      throw new MaximsError(ExitCode.Usage, notInstalled(qualified[1]));
-    }
-    if (!(await effectiveNames(entry, io)).includes(name)) {
-      throw new MaximsError(ExitCode.Usage, `${key} does not provide ${name}`);
-    }
-    return { key, name };
-  }
   const name = parseMemoryName(raw);
   if (name === null)
     throw new MaximsError(ExitCode.Usage, `"${raw}" is not a kebab-case memory name`);
@@ -384,6 +402,20 @@ export async function resolveMemoryName(
   const owner = owners[0];
   if (owner === undefined) throw new Error("unreachable: owners has one element");
   return { key: owner, name };
+}
+
+// A qualified `@owner/repo/name` names one source to look in; a bare name is searched across every
+// source acting here.
+export async function resolveMemoryName(
+  state: State,
+  io: MemoryLookupIo,
+  raw: string,
+): Promise<ResolvedMemory> {
+  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
+  if (qualified !== null && qualified[1] !== undefined && qualified[2] !== undefined) {
+    return resolveQualifiedName(state, io, qualified[1], qualified[2]);
+  }
+  return resolveBareName(state, io, raw);
 }
 
 export function tildify(path: string, userHome: string): string {

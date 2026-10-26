@@ -10,6 +10,22 @@ const FIXED_DEPTH: ReadonlyMap<string, number> = new Map([
 const GIT_MIN_DEPTH = 3;
 const OWNER_DEPTH = 2;
 
+// The directories and links under `dir`, in name order; `null` when it cannot be listed, an absent
+// one silently and any other failure said.
+function listedDirs(dir: string, warn: (line: string) => void): string[] | null {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (!isAbsent(error)) {
+      warn(`cannot list ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return null;
+  }
+}
+
 // Every entry under `root` no source in state derives, as `delete` changes. `expected` holds the
 // entry paths intent derives to; an entry is kept when it is one of them, descended when one lies
 // beneath it, and swept when neither. The pending root is laid out like the store, so one walk
@@ -21,29 +37,18 @@ export function planOrphanSweep(
 ): Change[] {
   const changes: Change[] = [];
   const walk = (dir: string, segments: string[]): void => {
-    let names: string[];
-    try {
-      names = readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-        .map((entry) => entry.name);
-    } catch (error) {
-      if (!isAbsent(error)) {
-        warn(`cannot list ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      return;
-    }
-    for (const name of names.sort()) {
+    const names = listedDirs(dir, warn);
+    if (names === null) return;
+    for (const name of names) {
       const path = join(dir, name);
       const here = [...segments, name];
       if (expected.has(path)) continue;
       const ancestorOfExpected = [...expected].some((entry) => entry.startsWith(`${path}${sep}`));
-      if (ancestorOfExpected) {
+      if (ancestorOfExpected || !isEntryPosition(here)) {
         walk(path, here);
         continue;
       }
-      if (isEntryPosition(here))
-        changes.push({ kind: "delete", path: assertInsideRoot(root, path) });
-      else walk(path, here);
+      changes.push({ kind: "delete", path: assertInsideRoot(root, path) });
     }
   };
   walk(root, []);

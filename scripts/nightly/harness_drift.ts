@@ -160,6 +160,37 @@ function duplicateKey(node: Node): DuplicateKey | undefined {
   return undefined;
 }
 
+function readPointers(root: Node, paths: readonly PointerCheck[]): Reading {
+  const missing: string[] = [];
+  const differing: string[] = [];
+  for (const check of paths) {
+    const pointer = typeof check === "string" ? check : check.pointer;
+    const node = findPointer(root, pointer);
+    if (node === undefined) {
+      missing.push(pointer);
+      continue;
+    }
+    if (typeof check === "string") continue;
+
+    const value: unknown = getNodeValue(node);
+    if (value !== check.equals)
+      differing.push(
+        `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
+      );
+  }
+
+  if (missing.length === 0 && differing.length === 0)
+    return {
+      verdict: "match",
+      result: count(paths.length, "pointer resolves", "pointers resolve"),
+    };
+
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push(`missing: ${quoted(missing)}`);
+  for (const part of differing) parts.push(part);
+  return { verdict: "DRIFT", result: parts.join("; ") };
+}
+
 function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
@@ -168,39 +199,23 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
     const reason = `${printParseErrorCode(first.error)} at offset ${first.offset}`;
     return { verdict: "UNREACHABLE", result: `not JSON: ${reason}` };
   }
+
   if (root === undefined) return { verdict: "UNREACHABLE", result: "not JSON: no value" };
+
   if (root.type !== "object")
     return {
       verdict: "UNREACHABLE",
       result: `not a JSON object: ${JSON.stringify(getNodeValue(root))}`,
     };
+
   const duplicate = duplicateKey(root);
   if (duplicate !== undefined)
     return {
       verdict: "UNREACHABLE",
       result: `duplicate key ${JSON.stringify(duplicate.key)} at offset ${duplicate.offset}`,
     };
-  const missing: string[] = [];
-  const differing: string[] = [];
-  for (const check of paths) {
-    const pointer = typeof check === "string" ? check : check.pointer;
-    const node = findPointer(root, pointer);
-    if (node === undefined) missing.push(pointer);
-    else if (typeof check !== "string") {
-      const value: unknown = getNodeValue(node);
-      if (value !== check.equals)
-        differing.push(
-          `${JSON.stringify(pointer)} is ${JSON.stringify(value)}, not ${JSON.stringify(check.equals)}`,
-        );
-    }
-  }
-  if (missing.length === 0 && differing.length === 0)
-    return {
-      verdict: "match",
-      result: count(paths.length, "pointer resolves", "pointers resolve"),
-    };
-  const parts = [...(missing.length === 0 ? [] : [`missing: ${quoted(missing)}`]), ...differing];
-  return { verdict: "DRIFT", result: parts.join("; ") };
+
+  return readPointers(root, paths);
 }
 
 // A text source (a file or a page) that answers one of these is UNREACHABLE: its claims were written against a raw file or a markdown rendition, and nav text or embedded data would hold them by accident.

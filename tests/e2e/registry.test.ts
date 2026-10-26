@@ -256,6 +256,49 @@ function serverEntries(def: HarnessDefinition, text: string): [string, unknown][
   return util.isObject(servers) ? Object.entries(servers) : [];
 }
 
+function destinationFor(scope: Scope, home: Home): Destination {
+  if (scope === "project") return { scope: "project", root: realpathSync(home.project) };
+  return { scope: "global" };
+}
+
+function expectRuleFile(
+  def: HarnessDefinition,
+  scope: Scope,
+  target: string,
+  source: string,
+): void {
+  expect(regularFile(target)).toEqual({ file: true, link: false });
+  const text = readFileSync(target, "utf8");
+  const declared = def.targets[scope];
+  const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
+  expect(text.startsWith(preamble)).toBe(true);
+  expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
+  expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("rules").sort());
+}
+
+// A seeded MCP registry gains exactly the stub server entry; a fixture that is no hook's
+// registry, no quirk's file and no MCP registry is never touched.
+function expectSeededAfterAdd(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: HarnessContext,
+  seeded: Seeded | null,
+): void {
+  if (seeded === null) return;
+  const servers = def.mcp?.path(scope, ctx) ?? null;
+  if (seeded.path === servers) {
+    expect(readFileSync(seeded.path, "utf8")).not.toBe(seeded.text);
+    expect(serverEntries(def, readFileSync(seeded.path, "utf8"))).toEqual([
+      ...serverEntries(def, seeded.text),
+      ["maxims", { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] }],
+    ]);
+    return;
+  }
+  const hookArtifact =
+    hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;
+  if (!hookArtifact) expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
+}
+
 type Row = [id: string, scope: Scope, def: HarnessDefinition];
 
 const rows: Row[] = HARNESSES.flatMap((def) =>
@@ -297,38 +340,15 @@ describe.each(rows)("%s at the %s scope", (_id, scope, def) => {
         const seeded = seedFixture(def, scope, ctx);
         const source = fixtureRepo(dir, "rules");
         const slug = sourceSlug({ type: "local", path: source });
-        const destination: Destination =
-          scope === "project"
-            ? { scope: "project", root: realpathSync(home.project) }
-            : { scope: "global" };
-        const target = targetPath(def, destination, ctx, slug);
+        const target = targetPath(def, destinationFor(scope, home), ctx, slug);
         if (target === null) throw new Error("the row was derived from a non-null target");
         const scopeFlag = scope === "global" ? "-g" : "-p";
         const argv = ["add", source, scopeFlag, "--rule", "--add-hook", "-a", def.id, "-y"];
         ok(await runMaxims(bundle, home, argv, { cwd: home.project }));
 
-        expect(regularFile(target)).toEqual({ file: true, link: false });
-        const text = readFileSync(target, "utf8");
-        const declared = def.targets[scope];
-        const preamble = declared?.kind === "rules-dir" ? (declared.frontmatter?.({}) ?? "") : "";
-        expect(text.startsWith(preamble)).toBe(true);
-        expect(text).toContain(`<!-- maxims:begin ${source} sha=`);
-        expect(ruleDescriptions(text).sort()).toEqual(fixtureDescriptions("rules").sort());
+        expectRuleFile(def, scope, target, source);
         await expectHookInstalled(def, scope, ctx, seeded);
-        // A seeded MCP registry gains exactly the stub server entry; a fixture that is no hook's
-        // registry, no quirk's file and no MCP registry is never touched.
-        const servers = def.mcp?.path(scope, ctx) ?? null;
-        if (seeded !== null && seeded.path === servers) {
-          expect(readFileSync(seeded.path, "utf8")).not.toBe(seeded.text);
-          expect(serverEntries(def, readFileSync(seeded.path, "utf8"))).toEqual([
-            ...serverEntries(def, seeded.text),
-            ["maxims", { command: "npx", args: ["-y", "@vivswan/maxims", "mcp-serve"] }],
-          ]);
-        }
-        const hookArtifact =
-          hasHook(def, "registry") || hasHook(def, "custom") || def.configEdit !== undefined;
-        if (seeded !== null && !hookArtifact && seeded.path !== servers)
-          expect(readFileSync(seeded.path, "utf8")).toBe(seeded.text);
+        expectSeededAfterAdd(def, scope, ctx, seeded);
 
         ok(await runMaxims(bundle, home, ["remove", source, "-y"], { cwd: home.project }));
         expect(existsSync(target)).toBe(false);

@@ -286,15 +286,65 @@ test("the clack and plain renderers print the same lines minus glyphs, ANSI and 
 });
 
 // The non-interactive matrix, row by row: which rows show the banner and which ever prompt.
-const matrix: [string, { isTTY: boolean }, boolean, string | null, boolean, boolean, boolean][] = [
-  ["tty, no agent, no yes", { isTTY: true }, true, null, false, true, false],
-  ["tty out, piped in", { isTTY: true }, false, null, false, false, false],
-  ["tty, no agent, yes", { isTTY: true }, true, null, true, false, false],
-  ["tty, agent", { isTTY: true }, true, "claude", false, false, true],
-  ["no tty", { isTTY: false }, true, "claude", false, false, false],
+type ModeRow = {
+  name: string;
+  stdout: { isTTY: boolean };
+  stdinTty: boolean;
+  agent: string | null;
+  yes: boolean;
+  prompts: boolean;
+  banner: boolean;
+};
+
+const matrix: ModeRow[] = [
+  {
+    name: "tty, no agent, no yes",
+    stdout: { isTTY: true },
+    stdinTty: true,
+    agent: null,
+    yes: false,
+    prompts: true,
+    banner: false,
+  },
+  {
+    name: "tty out, piped in",
+    stdout: { isTTY: true },
+    stdinTty: false,
+    agent: null,
+    yes: false,
+    prompts: false,
+    banner: false,
+  },
+  {
+    name: "tty, no agent, yes",
+    stdout: { isTTY: true },
+    stdinTty: true,
+    agent: null,
+    yes: true,
+    prompts: false,
+    banner: false,
+  },
+  {
+    name: "tty, agent",
+    stdout: { isTTY: true },
+    stdinTty: true,
+    agent: "claude",
+    yes: false,
+    prompts: false,
+    banner: true,
+  },
+  {
+    name: "no tty",
+    stdout: { isTTY: false },
+    stdinTty: true,
+    agent: "claude",
+    yes: false,
+    prompts: false,
+    banner: false,
+  },
 ];
 
-test.each(matrix)("mode row %s", (_name, stdout, stdinTty, agent, yes, prompts, banner) => {
+test.each(matrix)("mode row $name", ({ stdout, stdinTty, agent, yes, prompts, banner }) => {
   const mode = consoleMode({ stdout, stdinTty, agent, yes, quiet: false, json: false });
   let out = "";
   createPlainConsole(mode, { write: (chunk: string) => (out += chunk) }).intro();

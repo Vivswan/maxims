@@ -474,11 +474,9 @@ function scanLevel(scanner: Scanner, content: Content, tail: number): Step {
 }
 
 function leafKind(block: OpenBlock): MarkdownLine["kind"] {
-  return block.kind === "fence"
-    ? "fenced"
-    : block.kind === "comment"
-      ? "comment-continuation"
-      : "html";
+  if (block.kind === "fence") return "fenced";
+  if (block.kind === "comment") return "comment-continuation";
+  return "html";
 }
 
 // How many of the open items, whose content columns rise outward to inward, a line's indent
@@ -498,22 +496,24 @@ function contentColumn(scanner: Scanner, depth: number): number {
   return depth === 0 ? 0 : scanner.items[depth - 1];
 }
 
-// A setext underline is the one line that continues a paragraph and also ends it, unless the
-// paragraph is only link reference definitions; no underline reaches a paragraph inside an open
-// blockquote lazily. A `>` reaches the open blockquote's scanner only while no item was opened
-// before it on this line.
-function openBlocks(scanner: Scanner, content: Content, column: number, tail: number): Step {
-  if (scanner.paragraph && scanner.quote !== null && !startsBlock(content, tail)) {
-    scanner.definitions = advanceDefinitions(scanner.definitions, content);
-    return "text";
-  }
-  if (scanner.paragraph && scanner.quote === null && !interruptsParagraph(content, tail)) {
-    if (isSetextUnderline(content) && !onlyDefinitions(scanner.definitions)) {
-      scanner.paragraph = false;
-    }
-    scanner.definitions = advanceDefinitions(scanner.definitions, content);
-    return "text";
-  }
+// Whether the line lazily continues the open paragraph instead of starting a block: inside an open
+// blockquote any line short of a block start does, at the top level any line short of an
+// interruption.
+function continuesParagraph(scanner: Scanner, content: Content, tail: number): boolean {
+  if (!scanner.paragraph) return false;
+  if (scanner.quote !== null) return !startsBlock(content, tail);
+  return !interruptsParagraph(content, tail);
+}
+
+// The list items the line opens, outward to inward, each ending the paragraph and dropping the
+// blockquote an outer line held; `null` when the line is spent: a thematic break, or an empty item
+// whose content waits for the next line.
+function openItems(
+  scanner: Scanner,
+  content: Content,
+  column: number,
+  tail: number,
+): { rest: Content; quote: Scanner | null } | null {
   let quote = scanner.quote;
   scanner.quote = null;
   let rest = content;
@@ -521,10 +521,10 @@ function openBlocks(scanner: Scanner, content: Content, column: number, tail: nu
   for (;;) {
     if (isThematicBreak(rest, tail)) {
       scanner.paragraph = false;
-      return "text";
+      return null;
     }
     const item = listItem(rest);
-    if (item === null) break;
+    if (item === null) return { rest, quote };
     itemColumn += item.width;
     scanner.items.push(itemColumn);
     scanner.paragraph = false;
@@ -532,19 +532,39 @@ function openBlocks(scanner: Scanner, content: Content, column: number, tail: nu
     rest = item.content;
     if (rest.body === "") {
       scanner.emptyItem = true;
-      return "text";
+      return null;
     }
   }
+}
+
+// A leaf opened on this line stays open unless the line closes it too (an HTML block of one line);
+// a fence never closes on its opening line.
+function openedLeaf(scanner: Scanner, rest: Content, opened: OpenBlock): Step {
+  scanner.paragraph = false;
+  if (opened.kind === "fence" || !closes(rest, opened)) scanner.leaf = opened;
+  return opened.kind === "fence" ? "fenced" : opened.kind;
+}
+
+// A setext underline is the one line that continues a paragraph and also ends it, unless the
+// paragraph is only link reference definitions; no underline reaches a paragraph inside an open
+// blockquote lazily. A `>` reaches the open blockquote's scanner only while no item was opened
+// before it on this line.
+function openBlocks(scanner: Scanner, content: Content, column: number, tail: number): Step {
+  if (continuesParagraph(scanner, content, tail)) {
+    const underlines = scanner.quote === null && isSetextUnderline(content);
+    if (underlines && !onlyDefinitions(scanner.definitions)) scanner.paragraph = false;
+    scanner.definitions = advanceDefinitions(scanner.definitions, content);
+    return "text";
+  }
+  const items = openItems(scanner, content, column, tail);
+  if (items === null) return "text";
+  const { rest, quote } = items;
   if (rest.indent <= 3 && rest.body.startsWith(">")) {
     scanner.quote = quote ?? newScanner();
     return { quote: scanner.quote, content: contentAfter(rest.body.slice(1), 1, rest.column + 1) };
   }
   const opened = opens(rest, false);
-  if (opened !== null) {
-    scanner.paragraph = false;
-    if (opened.kind === "fence" || !closes(rest, opened)) scanner.leaf = opened;
-    return opened.kind === "fence" ? "fenced" : opened.kind;
-  }
+  if (opened !== null) return openedLeaf(scanner, rest, opened);
   scanner.paragraph = rest.indent < 4 && !isAtxHeading(rest);
   scanner.definitions = advanceDefinitions("complete", rest);
   return "text";
@@ -580,6 +600,26 @@ function onlyDefinitions(state: Definitions): boolean {
   return state === "complete" || state === "title";
 }
 
+function advanceTitle(body: string): Definitions {
+  if (TITLE_LINE.test(body)) return "complete";
+  const open = UNTERMINATED_TITLE_LINE.exec(body);
+  return open === null ? startDefinition(body) : quotedBy(open[0]);
+}
+
+function advanceLabel(state: "label" | "label-blank", body: string): Definitions {
+  const close = LABEL_CLOSE.exec(body);
+  if (close !== null) {
+    return state === "label" || /\S/.test(close[1]) ? afterLabel(close[2]) : "none";
+  }
+  if (!LABEL_CONTINUES.test(body)) return "none";
+  return state === "label" || /\S/.test(body) ? "label" : "label-blank";
+}
+
+function advanceQuoted(state: keyof typeof TITLE_CLOSES, body: string): Definitions {
+  if (TITLE_CLOSES[state].test(body)) return "complete";
+  return TITLE_CONTINUES[state].test(body) ? state : "none";
+}
+
 // A line that fits nowhere turns the paragraph to prose for good, since CommonMark reads
 // definitions only off its front. The pieces of a definition are matched as commonmark.js and
 // markdown-it read them, each one way only, so an unterminated label cannot make a rule backtrack
@@ -599,25 +639,15 @@ function advanceDefinitions(state: Definitions, rest: Content): Definitions {
       return startDefinition(body);
     case "destination":
       return readDestination(body);
-    case "title": {
-      if (TITLE_LINE.test(body)) return "complete";
-      const open = UNTERMINATED_TITLE_LINE.exec(body);
-      return open === null ? startDefinition(body) : quotedBy(open[0]);
-    }
+    case "title":
+      return advanceTitle(body);
     case "label":
-    case "label-blank": {
-      const close = LABEL_CLOSE.exec(body);
-      if (close !== null) {
-        return state === "label" || /\S/.test(close[1]) ? afterLabel(close[2]) : "none";
-      }
-      if (!LABEL_CONTINUES.test(body)) return "none";
-      return state === "label" || /\S/.test(body) ? "label" : "label-blank";
-    }
+    case "label-blank":
+      return advanceLabel(state, body);
     case "quoted-double":
     case "quoted-single":
     case "quoted-paren":
-      if (TITLE_CLOSES[state].test(body)) return "complete";
-      return TITLE_CONTINUES[state].test(body) ? state : "none";
+      return advanceQuoted(state, body);
   }
 }
 
@@ -644,11 +674,9 @@ function readDestination(body: string): Definitions {
 }
 
 function quotedBy(title: string): Definitions {
-  return title.startsWith('"')
-    ? "quoted-double"
-    : title.startsWith("'")
-      ? "quoted-single"
-      : "quoted-paren";
+  if (title.startsWith('"')) return "quoted-double";
+  if (title.startsWith("'")) return "quoted-single";
+  return "quoted-paren";
 }
 
 // The length of the line's tail made of one of `-`, `_` or `*` and whitespace holding at least

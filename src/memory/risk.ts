@@ -88,6 +88,20 @@ const CLOSERS: Readonly<Record<string, string>> = {
   "(": ")",
 };
 
+function pastSlashes(line: string, at: number): number {
+  let index = at;
+  while (line[index] === "/" || line[index] === "\\") index++;
+  return index;
+}
+
+// Where the authority that starts at `start` ends: the first character that ends one, the markup's
+// closer, or `limit`.
+function authorityEnd(line: string, start: number, limit: number, closer: string | null): number {
+  let end = start;
+  while (end < limit && !endsAuthority(line[end] ?? "", closer)) end++;
+  return end;
+}
+
 // Finding a URL is a regex job, but naming its host is not: any hand-rolled authority parsing
 // disagrees with the real parser somewhere, and a "trusted@evil.example" a browser resolves to
 // evil.example must never read as trusted. So each "://" candidate hands its authority to the WHATWG
@@ -112,10 +126,8 @@ function url(line: string): Hit | null {
     while (span !== undefined && span.end <= match.index) span = spans[++cursor];
     const limit = span !== undefined && span.start <= match.index ? span.end : line.length;
     const closer = CLOSERS[openerBefore(line, match.index)] ?? null;
-    let start = match.index + match[0].length;
-    while (line[start] === "/" || line[start] === "\\") start++;
-    let end = start;
-    while (end < limit && !endsAuthority(line[end] ?? "", closer)) end++;
+    const start = pastSlashes(line, match.index + match[0].length);
+    const end = authorityEnd(line, start, limit, closer);
     const host = hostOf(`${match[0]}${line.slice(start, end)}`);
     if (host !== null) return { column: match.index, detail: host };
   }

@@ -18,6 +18,12 @@ import { projectLockChange } from "./frame/project-lock-io.ts";
 
 const DISABLE_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.agent];
 
+// Without -g or -p the edit lands at the project the command runs in, else at the user scope.
+function impliedScope(projectRoot: string | null): ScopeAt {
+  if (projectRoot === null) return { scope: "global" };
+  return { scope: "project", root: projectRoot };
+}
+
 // A disabled memory stays in state and loses its rule line and link at one scope. The list is per
 // scope, so a harness cannot be named: `-a` has no representation there and is refused.
 async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
@@ -31,12 +37,7 @@ async function resolveEdit(args: Args, ctx: CommandContext, verb: string) {
   }
   const destination = parseDestination(args, ctx.io.cwd, ctx.io.projectRoot);
   if (destination?.scope === "out") throw usage(`${verb} takes -g or -p, not -o`);
-  const at: ScopeAt =
-    destination === null
-      ? ctx.io.projectRoot === null
-        ? { scope: "global" }
-        : { scope: "project", root: ctx.io.projectRoot }
-      : destination;
+  const at: ScopeAt = destination ?? impliedScope(ctx.io.projectRoot);
   const { state } = await loadIntentFor(ctx.io.home, ctx.global.dryRun);
   const resolved = await resolveMemoryName(state, ctx.io, positional);
   return { at, name: resolved.name, key: resolved.key };

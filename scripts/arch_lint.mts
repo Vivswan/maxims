@@ -57,22 +57,11 @@ function isStringListRecord(value: unknown): value is Record<string, string[]> {
   );
 }
 
-/** The declaration at `path`, shape-checked: a typo in a layer name under edges is an error here, not a silent pass. */
-export function readArchitecture(path: string, label = path): Architecture {
-  const parsed: unknown = Bun.YAML.parse(readFileSync(path, "utf8"));
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${label}: the declaration must be a mapping with layers, exclude, and edges`);
-  }
-  const { layers, exclude = [], edges = {} } = parsed as Record<string, unknown>;
-  if (!isStringListRecord(layers) || Object.keys(layers).length === 0) {
-    throw new Error(`${label}: layers must map each layer name to a list of paths`);
-  }
-  if (!isStringList(exclude)) {
-    throw new Error(`${label}: exclude must be a list of glob patterns`);
-  }
-  if (!isStringListRecord(edges)) {
-    throw new Error(`${label}: edges must map each layer name to a list of layer names`);
-  }
+function requireEdgesNameLayers(
+  layers: Architecture["layers"],
+  edges: Architecture["edges"],
+  label: string,
+): void {
   for (const [from, targets] of Object.entries(edges)) {
     for (const name of [from, ...targets]) {
       if (!Object.hasOwn(layers, name)) {
@@ -80,6 +69,9 @@ export function readArchitecture(path: string, label = path): Architecture {
       }
     }
   }
+}
+
+function requireRepositoryRelativePaths(layers: Architecture["layers"], label: string): void {
   for (const [layer, paths] of Object.entries(layers)) {
     for (const path of paths) {
       if (path.startsWith("/") || path.split("/").includes("..")) {
@@ -93,26 +85,56 @@ export function readArchitecture(path: string, label = path): Architecture {
       }
     }
   }
-  // layerOf takes the first match in YAML order, so an overlap would hand
-  // one layer's files to another silently; the declaration refuses it instead.
+}
+
+/** Two layer paths overlap when they are the same path, or one is a directory the other sits under. */
+function pathsOverlap(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.endsWith("/") && b.startsWith(a)) return true;
+  return b.endsWith("/") && a.startsWith(b);
+}
+
+// layerOf takes the first match in YAML order, so an overlap would hand
+// one layer's files to another silently; the declaration refuses it instead.
+function requireDisjointLayers(layers: Architecture["layers"], label: string): void {
   const owned = Object.entries(layers).flatMap(([layer, paths]) =>
     paths.map((path) => ({ layer, path })),
   );
   for (const [i, a] of owned.entries()) {
     for (const b of owned.slice(i + 1)) {
-      if (a.layer === b.layer) continue;
-      const overlap =
-        a.path === b.path ||
-        (a.path.endsWith("/") && b.path.startsWith(a.path)) ||
-        (b.path.endsWith("/") && a.path.startsWith(b.path));
-      if (overlap) {
-        const inner = a.path.length >= b.path.length ? a.path : b.path;
-        throw new Error(
-          `${label}: layers ${a.layer} and ${b.layer} overlap on ${inner}; a file has one owner`,
-        );
-      }
+      if (a.layer === b.layer || !pathsOverlap(a.path, b.path)) continue;
+
+      const inner = a.path.length >= b.path.length ? a.path : b.path;
+      throw new Error(
+        `${label}: layers ${a.layer} and ${b.layer} overlap on ${inner}; a file has one owner`,
+      );
     }
   }
+}
+
+/** The declaration at `path`, shape-checked: a typo in a layer name under edges is an error here, not a silent pass. */
+export function readArchitecture(path: string, label = path): Architecture {
+  const parsed: unknown = Bun.YAML.parse(readFileSync(path, "utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${label}: the declaration must be a mapping with layers, exclude, and edges`);
+  }
+
+  const { layers, exclude = [], edges = {} } = parsed as Record<string, unknown>;
+  if (!isStringListRecord(layers) || Object.keys(layers).length === 0) {
+    throw new Error(`${label}: layers must map each layer name to a list of paths`);
+  }
+
+  if (!isStringList(exclude)) {
+    throw new Error(`${label}: exclude must be a list of glob patterns`);
+  }
+
+  if (!isStringListRecord(edges)) {
+    throw new Error(`${label}: edges must map each layer name to a list of layer names`);
+  }
+
+  requireEdgesNameLayers(layers, edges, label);
+  requireRepositoryRelativePaths(layers, label);
+  requireDisjointLayers(layers, label);
   return { layers, exclude, edges };
 }
 
@@ -232,16 +254,46 @@ function scanRoots(arch: Architecture): string[] {
   return [...roots].sort();
 }
 
+function rootLevelSources(root: string, arch: Architecture): string[] {
+  const files: string[] = [];
+  for (const paths of Object.values(arch.layers)) {
+    for (const path of paths) {
+      if (path.includes("/") || !SOURCE_EXTENSIONS.some((ext) => path.endsWith(ext))) continue;
+      if (isFile(join(root, path))) files.push(path);
+    }
+  }
+  return files;
+}
+
+// A file behind a symlink, under a symlinked directory, or on a hidden path is source too; each
+// of the three defaults would drop one of them before isFile sees it.
+function scannedSources(root: string, arch: Architecture): string[] {
+  const sources = new Bun.Glob(`**/*{${SOURCE_EXTENSIONS.join(",")}}`);
+  const scan = { onlyFiles: false, followSymlinks: true, dot: true };
+  const files: string[] = [];
+  for (const scanRoot of scanRoots(arch)) {
+    if (!existsSync(join(root, scanRoot))) continue;
+
+    for (const entry of sources.scanSync({ cwd: join(root, scanRoot), ...scan })) {
+      const file = toPosix(join(scanRoot, entry));
+      if (isFile(join(root, file))) files.push(file);
+    }
+  }
+  return files;
+}
+
 /**
- * The lint verdict for the tree at `root`. Empty means the declaration is
- * exactly the tree. `configLabel` is how the messages name the declaration file.
+ * Every source file both lints read, repo-relative and sorted: the files under the scan roots plus
+ * a layer's root-level file (main.ts, which no scan root reaches), minus the exclude globs. One
+ * list for both lints, so a file the import lint skips is never a vocabulary hit.
  */
-export function lintArchitecture(
-  root: string,
-  arch: Architecture,
-  configLabel = DEFAULT_CONFIG,
-): string[] {
-  const drawn = new Map<string, string[]>();
+function sourcesOf(root: string, arch: Architecture): string[] {
+  const excluded = arch.exclude.map((pattern) => new Bun.Glob(pattern));
+  const files = new Set([...rootLevelSources(root, arch), ...scannedSources(root, arch)]);
+  return [...files].filter((file) => !excluded.some((glob) => glob.match(file))).sort();
+}
+
+function layerPathProblems(root: string, arch: Architecture): string[] {
   const problems: string[] = [];
   for (const [layer, paths] of Object.entries(arch.layers)) {
     for (const path of paths) {
@@ -255,12 +307,27 @@ export function lintArchitecture(
       }
     }
   }
+  return problems;
+}
+
+interface DrawnEdges {
+  /** `from -> to` for every cross-layer import, with the `file -> target` pairs that draw it. */
+  drawn: Map<string, string[]>;
+
+  /** A source file, or an import target, that no layer owns. */
+  problems: string[];
+}
+
+function drawnEdges(root: string, arch: Architecture, configLabel: string): DrawnEdges {
+  const drawn = new Map<string, string[]>();
+  const problems: string[] = [];
   for (const file of sourcesOf(root, arch)) {
     const from = layerOf(arch, file);
     if (from === undefined) {
       problems.push(`${file} belongs to no layer in ${configLabel}`);
       continue;
     }
+
     const absolute = join(root, file);
     for (const specifier of importSpecifiers(readFileSync(absolute, "utf8"), file)) {
       const target = toPosix(relative(root, resolveImport(absolute, specifier)));
@@ -273,16 +340,26 @@ export function lintArchitecture(
       }
     }
   }
+  return { drawn, problems };
+}
+
+function edgeProblems(
+  drawn: ReadonlyMap<string, string[]>,
+  arch: Architecture,
+  configLabel: string,
+): string[] {
   const declared = new Set(
     Object.entries(arch.edges).flatMap(([from, targets]) =>
       targets.map((to) => `${from} -> ${to}`),
     ),
   );
+  const problems: string[] = [];
   for (const [key, sites] of [...drawn].sort()) {
     if (!declared.has(key)) {
       problems.push(`forbidden import ${key}: ${sites.join(", ")}; move it or declare the edge`);
     }
   }
+
   for (const key of [...declared].sort()) {
     if (!drawn.has(key)) {
       problems.push(`stale allowance ${key}: no file draws it; remove it from ${configLabel}`);
@@ -292,31 +369,17 @@ export function lintArchitecture(
 }
 
 /**
- * Every source file both lints read, repo-relative and sorted: the files under the scan roots plus
- * a layer's root-level file (main.ts, which no scan root reaches), minus the exclude globs. One
- * list for both lints, so a file the import lint skips is never a vocabulary hit.
+ * The lint verdict for the tree at `root`. Empty means the declaration is
+ * exactly the tree. `configLabel` is how the messages name the declaration file.
  */
-function sourcesOf(root: string, arch: Architecture): string[] {
-  const excluded = arch.exclude.map((pattern) => new Bun.Glob(pattern));
-  const files = new Set<string>();
-  for (const paths of Object.values(arch.layers)) {
-    for (const path of paths) {
-      if (path.includes("/") || !SOURCE_EXTENSIONS.some((ext) => path.endsWith(ext))) continue;
-      if (isFile(join(root, path))) files.add(path);
-    }
-  }
-  // A file behind a symlink, under a symlinked directory, or on a hidden path is source too; each
-  // of the three defaults would drop one of them before isFile sees it.
-  const sources = new Bun.Glob(`**/*{${SOURCE_EXTENSIONS.join(",")}}`);
-  const scan = { onlyFiles: false, followSymlinks: true, dot: true };
-  for (const scanRoot of scanRoots(arch)) {
-    if (!existsSync(join(root, scanRoot))) continue;
-    for (const entry of sources.scanSync({ cwd: join(root, scanRoot), ...scan })) {
-      const file = toPosix(join(scanRoot, entry));
-      if (isFile(join(root, file))) files.add(file);
-    }
-  }
-  return [...files].filter((file) => !excluded.some((glob) => glob.match(file))).sort();
+export function lintArchitecture(
+  root: string,
+  arch: Architecture,
+  configLabel = DEFAULT_CONFIG,
+): string[] {
+  const problems = layerPathProblems(root, arch);
+  const edges = drawnEdges(root, arch, configLabel);
+  return [...problems, ...edges.problems, ...edgeProblems(edges.drawn, arch, configLabel)];
 }
 
 // --- accommodation vocabulary ------------------------------------------------

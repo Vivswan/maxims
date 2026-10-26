@@ -160,6 +160,27 @@ type ReadMetadata =
   | { ok: true; metadata: MemoryMetadata; warning?: string }
   | { ok: false; reason: string };
 
+// A `type` outside the contract's list stays under `extra` with a warning, never a refusal.
+function readType(metadata: MemoryMetadata, type: unknown): string[] {
+  if (type === undefined) return [];
+  if (isMemoryType(type)) {
+    metadata.type = type;
+    return [];
+  }
+  metadata.extra.type = type;
+  return [`metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`];
+}
+
+function readInternal(metadata: MemoryMetadata, internal: unknown): string[] {
+  if (internal === undefined) return [];
+  if (typeof internal === "boolean") {
+    metadata.internal = internal;
+    return [];
+  }
+  metadata.extra.internal = internal;
+  return [`metadata.internal ${show(internal)} is not a boolean`];
+}
+
 function readMetadata(value: unknown): ReadMetadata {
   if (value === undefined || value === null) return { ok: true, metadata: { extra: {} } };
   if (!util.isObject(value)) return { ok: false, reason: "metadata is not a mapping" };
@@ -171,21 +192,7 @@ function readMetadata(value: unknown): ReadMetadata {
   if (nodeType === "memory") metadata.nodeType = "memory";
   if (typeof scope === "string") metadata.scope = scope;
   else if (scope !== undefined) extra.scope = scope;
-  const warnings: string[] = [];
-  if (type !== undefined) {
-    if (isMemoryType(type)) metadata.type = type;
-    else {
-      extra.type = type;
-      warnings.push(`metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`);
-    }
-  }
-  if (internal !== undefined) {
-    if (typeof internal === "boolean") metadata.internal = internal;
-    else {
-      extra.internal = internal;
-      warnings.push(`metadata.internal ${show(internal)} is not a boolean`);
-    }
-  }
+  const warnings = [...readType(metadata, type), ...readInternal(metadata, internal)];
   return warnings.length === 0
     ? { ok: true, metadata }
     : { ok: true, metadata, warning: warnings.join("; ") };

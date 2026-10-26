@@ -11,6 +11,7 @@ import { RuleFileHeld } from "../engine/rules.ts";
 import { disabledNames } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
 import { findSourceKey } from "../engine/source-key.ts";
+import type { CliIo } from "../engine/types.ts";
 import type { AchievedTier, HarnessDefinition, Scope } from "../harnesses/contract.ts";
 import { rulesDirFrontmatter } from "../harnesses/strategies/rules-dir.ts";
 import { type MemoryName, parseMemoryName, renamed } from "../memory/contract.ts";
@@ -57,6 +58,27 @@ type HarnessReport = {
 type ExpectReport = { name: string; met: boolean; checked: number; missing: string[] };
 
 const DOCTOR_FLAGS: readonly FlagSpec[] = [FLAGS.expect];
+const FINDING_SYMBOLS: Record<Finding["kind"], string> = { ok: "ok", warn: "! ", fail: "x " };
+
+// Per source: a project whose folder is gone, and a revision waiting for review. The wait is a
+// warning, never a failure: the harness loads exactly what state asks for, the last-good block,
+// and the user chose to look before it changes.
+function sourceFindings(state: State, here: Here): Finding[] {
+  const findings: Finding[] = [];
+  for (const [key, entry] of Object.entries(state.sources)) {
+    const { destination } = entry.intent;
+    if (destination.scope === "project" && pathAbsent(destination.root)) {
+      findings.push({
+        kind: "warn",
+        text: `${key}: project folder ${destination.root} is missing`,
+      });
+    }
+    if ("pending" in entry && entry.pending !== undefined && here(entry)) {
+      findings.push({ kind: "warn", text: heldFinding(key, entry.pending.summary.length) });
+    }
+  }
+  return findings;
+}
 
 export const doctor: Command = {
   summary: "check that each harness loads the rule files and hook state asks for",
@@ -69,21 +91,8 @@ export const doctor: Command = {
     const findings: Finding[] = notices.map((text) => ({ kind: "warn", text }));
     const unresolved = unresolvedHarnessIds(state, io.harnesses);
     for (const id of unresolved) findings.push({ kind: "warn", text: notDefinedHere(id) });
-    for (const [key, entry] of Object.entries(state.sources)) {
-      const { destination } = entry.intent;
-      if (destination.scope === "project" && pathAbsent(destination.root)) {
-        findings.push({
-          kind: "warn",
-          text: `${key}: project folder ${destination.root} is missing`,
-        });
-      }
-      // A waiting revision is a warning, never a failure: the harness loads exactly what state
-      // asks for, the last-good block, and the user chose to look before it changes.
-      if ("pending" in entry && entry.pending !== undefined && actsHere(entry, io)) {
-        findings.push({ kind: "warn", text: heldFinding(key, entry.pending.summary.length) });
-      }
-    }
     const here = (entry: SourceEntry): boolean => actsHere(entry, io);
+    for (const finding of sourceFindings(state, here)) findings.push(finding);
     const reports: HarnessReport[] = [];
     for (const def of io.harnesses) {
       for (const scope of scopesFor(def.id, state, here)) {
@@ -114,7 +123,8 @@ export const doctor: Command = {
       };
       io.stdout.write(jsonDocument(body));
     } else if (!ctx.global.quiet) {
-      for (const finding of findings) io.stdout.write(`${symbol(finding.kind)}  ${finding.text}\n`);
+      for (const finding of findings)
+        io.stdout.write(`${FINDING_SYMBOLS[finding.kind]}  ${finding.text}\n`);
       io.stdout.write(`${defaults}\n`);
     }
     return failed ? ExitCode.Usage : ExitCode.Ok;
@@ -135,10 +145,6 @@ function unresolvedHarnessIds(state: State, defs: readonly HarnessDefinition[]):
   return [...named].filter((id) => !known.has(id)).sort();
 }
 
-function symbol(kind: Finding["kind"]): string {
-  return kind === "ok" ? "ok" : kind === "warn" ? "! " : "x ";
-}
-
 // A harness is checked at every scope some intent names it for; a harness nothing names here is
 // not reported, since sync wants no hook and no file for it here. `here` says whether an entry
 // is this project's or the user's; another project's is not checked from here, since its files
@@ -154,6 +160,28 @@ function scopesFor(id: HarnessId, state: State, here: Here): Scope[] {
     scopes.add(entry.intent.destination.scope);
   }
   return [...scopes];
+}
+
+// A file behind a marker the grammar refuses reports the hold; any other reports whether this
+// source's block is in it and whether the preamble the harness needs opens it.
+function ruleFileReport(
+  def: HarnessDefinition,
+  scope: Scope,
+  key: string,
+  entry: SourceEntry,
+  path: string,
+): RuleFileReport {
+  const blocks = ruleBlocks(path);
+  if (blocks instanceof RuleFileHeld) {
+    return { source: key, path, held: { message: blocks.message, hint: blocks.hint ?? null } };
+  }
+  return {
+    source: key,
+    path,
+    held: null,
+    present: (blocks ?? []).some((block) => block.source === key),
+    preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
+  };
 }
 
 // A rule file counts as present when the engine's own parser finds this source's managed block in
@@ -184,18 +212,7 @@ async function checkHarness(
       sourceSlug(entry.intent.from),
     );
     if (path === null) continue;
-    const blocks = ruleBlocks(path);
-    ruleFiles.push(
-      blocks instanceof RuleFileHeld
-        ? { source: key, path, held: { message: blocks.message, hint: blocks.hint ?? null } }
-        : {
-            source: key,
-            path,
-            held: null,
-            present: (blocks ?? []).some((block) => block.source === key),
-            preamble: preambleCheck(def, scope, entry, readIfPresent(path)),
-          },
-    );
+    ruleFiles.push(ruleFileReport(def, scope, key, entry, path));
   }
   const hook = await hookStatus(
     def,
@@ -244,51 +261,69 @@ function preambleCheck(
   return { ok: false, lost: target.frontmatter === undefined ? "path-scope" : "always-on" };
 }
 
+// What a rule file lacks for this source: the block itself, or the preamble the harness needs to
+// load it. A held file is reported once per file, by its caller, not per source.
+function ruleFileFailures(
+  file: RuleFileReport,
+  def: HarnessDefinition,
+  scope: Scope,
+  shown: string,
+): string[] {
+  if (file.held !== null) return [];
+  if (!file.present) {
+    if (def.targets[scope]?.kind === "shared-block") {
+      return [`${shown} has no block for ${file.source}`];
+    }
+    return [`${shown} is missing`];
+  }
+  if (file.preamble === null || file.preamble.ok) return [];
+  if (file.preamble.lost === "always-on") {
+    return [`${shown} lacks the frontmatter ${def.displayName} needs to load it every session`];
+  }
+  return [`${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`];
+}
+
 // A shared file is checked once per source it should carry and reported once as a file: one ok
 // line when every block is in place, otherwise a fail line naming each source whose block is not.
-function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
+function ruleFileFindings(
+  files: RuleFileReport[],
+  shown: string,
+  prefix: string,
+  def: HarnessDefinition,
+  scope: Scope,
+): Finding[] {
+  const held = files.find((file) => file.held !== null)?.held ?? null;
+  const failed = files.flatMap((file) => ruleFileFailures(file, def, scope, shown));
+  // One hold per file, however many sources share it: the hint sits where the hook row puts its fix.
+  if (held !== null) {
+    failed.push(held.hint === null ? held.message : `${held.message} (${held.hint})`);
+  }
   const findings: Finding[] = [];
-  const prefix = `${def.id}:`;
-  const byPath = new Map<string, RuleFileReport[]>();
-  for (const file of report.ruleFiles) {
-    byPath.set(file.path, [...(byPath.get(file.path) ?? []), file]);
-  }
-  for (const [path, files] of byPath) {
-    const shown = tildify(path, userHome);
-    const held = files.find((file) => file.held !== null)?.held ?? null;
-    const failed = files.flatMap((file) => {
-      if (file.held !== null) return [];
-      if (!file.present) {
-        return def.targets[report.scope]?.kind === "shared-block"
-          ? [`${shown} has no block for ${file.source}`]
-          : [`${shown} is missing`];
-      }
-      if (file.preamble !== null && !file.preamble.ok) {
-        return [
-          file.preamble.lost === "always-on"
-            ? `${shown} lacks the frontmatter ${def.displayName} needs to load it every session`
-            : `${shown} lacks the path filter for --paths; ${def.displayName} loads it for every file`,
-        ];
-      }
-      return [];
-    });
-    // One hold per file, however many sources share it: the hint sits where the hook row puts its fix.
-    if (held !== null) {
-      failed.push(held.hint === null ? held.message : `${held.message} (${held.hint})`);
-    }
-    for (const what of failed) findings.push({ kind: "fail", text: `${prefix} ${what}` });
-    if (failed.length === 0) findings.push({ kind: "ok", text: `${prefix} ${shown}` });
-  }
+  for (const what of failed) findings.push({ kind: "fail", text: `${prefix} ${what}` });
+  if (failed.length === 0) findings.push({ kind: "ok", text: `${prefix} ${shown}` });
+  return findings;
+}
+
+function hookFinding(report: HarnessReport, prefix: string): Finding | null {
   const hook = hookStatusText(report.hook);
-  if (hook !== null) {
-    const hint =
-      typeof report.hook === "object" ? report.hook.hint : "run maxims add <source> --add-hook";
-    findings.push(
-      report.hook === "current"
-        ? { kind: "ok", text: `${prefix} ${hook}` }
-        : { kind: "fail", text: `${prefix} ${hook}${hint === null ? "" : ` (${hint})`}` },
-    );
+  if (hook === null) return null;
+  if (report.hook === "current") return { kind: "ok", text: `${prefix} ${hook}` };
+  const hint =
+    typeof report.hook === "object" ? report.hook.hint : "run maxims add <source> --add-hook";
+  return { kind: "fail", text: `${prefix} ${hook}${hint === null ? "" : ` (${hint})`}` };
+}
+
+function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
+  const prefix = `${def.id}:`;
+  const findings: Finding[] = [];
+  for (const [path, files] of Map.groupBy(report.ruleFiles, (file) => file.path)) {
+    const shown = tildify(path, userHome);
+    for (const finding of ruleFileFindings(files, shown, prefix, def, report.scope)) {
+      findings.push(finding);
+    }
   }
+  const hook = hookFinding(report, prefix);
+  if (hook !== null) findings.push(hook);
   if (report.tier.tier === 2) {
     findings.push({ kind: "warn", text: `${prefix} tier 2 on this machine` });
   }
@@ -298,32 +333,38 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
   return findings;
 }
 
-// `--expect name` or `--expect @owner/repo/name`: the memory must have a rule line in every rule
-// file its source targets; a name two sources provide is checked for each. Met means every
-// inspected file carries it AND at least one file was inspected: a source with no rule flag or no
-// target is not a passing check.
-async function checkExpect(
-  raw: string,
+type Owner = [key: string, entry: SourceEntry];
+
+// The rule-writing sources acting here whose effective set provides the name; `@owner/repo`
+// narrows the candidates to that one source, or to none when it is not installed.
+async function expectOwners(
   state: State,
-  ctx: CommandContext,
+  io: CliIo,
   here: Here,
-): Promise<ExpectReport> {
-  const io = ctx.io;
-  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
-  const nameRaw = qualified?.[2] ?? raw;
-  const name = parseMemoryName(nameRaw);
-  if (name === null) throw usage(`--expect "${raw}" is not a memory name or @owner/repo/name`);
+  owner: string | undefined,
+  name: MemoryName,
+): Promise<Owner[]> {
   let entries = Object.entries(state.sources);
-  if (qualified?.[1] !== undefined) {
-    const key = findSourceKey(state, qualified[1]);
+  if (owner !== undefined) {
+    const key = findSourceKey(state, owner);
     entries = key === null ? [] : entries.filter(([candidate]) => candidate === key);
   }
-  const owners: typeof entries = [];
+  const owners: Owner[] = [];
   for (const candidate of entries) {
     const [, entry] = candidate;
     if (!entry.intent.rule || !here(entry)) continue;
     if ((await effectiveNames(entry, io)).includes(name)) owners.push(candidate);
   }
+  return owners;
+}
+
+// Every rule file the owners target is inspected for the line. A harness not defined on this
+// machine counts as inspected and missing, since nothing here can say the line is in place.
+function inspectRuleFiles(
+  owners: Owner[],
+  name: MemoryName,
+  io: CliIo,
+): { checked: number; missing: string[] } {
   const harnessCtx = harnessContext(io);
   const missing: string[] = [];
   let checked = 0;
@@ -348,6 +389,26 @@ async function checkExpect(
         missing.push(tildify(path, io.userHome));
     }
   }
+  return { checked, missing };
+}
+
+// `--expect name` or `--expect @owner/repo/name`: the memory must have a rule line in every rule
+// file its source targets; a name two sources provide is checked for each. Met means every
+// inspected file carries it AND at least one file was inspected: a source with no rule flag or no
+// target is not a passing check.
+async function checkExpect(
+  raw: string,
+  state: State,
+  ctx: CommandContext,
+  here: Here,
+): Promise<ExpectReport> {
+  const io = ctx.io;
+  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
+  const nameRaw = qualified?.[2] ?? raw;
+  const name = parseMemoryName(nameRaw);
+  if (name === null) throw usage(`--expect "${raw}" is not a memory name or @owner/repo/name`);
+  const owners = await expectOwners(state, io, here, qualified?.[1], name);
+  const { checked, missing } = inspectRuleFiles(owners, name, io);
   return { name: raw, met: checked > 0 && missing.length === 0, checked, missing };
 }
 
@@ -372,6 +433,13 @@ function expectFinding(report: ExpectReport): Finding {
   return { kind: "fail", text: `expect ${report.name}: no rule line in ${where}` };
 }
 
+function syncAgeText(minutes: number): string {
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(minutes / 60 / 24)}d ago`;
+}
+
 // The age is null when no sync has stamped and when the stamp cannot be read; the finding tells
 // the two apart, since a stamp nobody can read is not a machine that never synced.
 function lastSyncAge(home: string, now: Date): { age: string | null; finding: Finding } {
@@ -382,11 +450,6 @@ function lastSyncAge(home: string, now: Date): { age: string | null; finding: Fi
     return { age: null, finding: { kind: "warn", text: `last sync unknown: ${stamp.reason}` } };
   }
   const minutes = Math.max(0, Math.round((now.getTime() - stamp.at.getTime()) / 60_000));
-  const age =
-    minutes < 60
-      ? `${minutes}m ago`
-      : Math.round(minutes / 60) < 48
-        ? `${Math.round(minutes / 60)}h ago`
-        : `${Math.round(minutes / 60 / 24)}d ago`;
+  const age = syncAgeText(minutes);
   return { age, finding: { kind: "ok", text: `last sync ${age}` } };
 }

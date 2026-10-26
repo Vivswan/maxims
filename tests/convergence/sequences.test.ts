@@ -161,6 +161,35 @@ function provided(model: Model, fixture: Fixture, name: string): boolean {
   return installed !== undefined && selectedNames(fixture, installed).includes(name);
 }
 
+function removeMemoryFromModel(model: Model, step: Extract<Op, { kind: "remove-memory" }>): number {
+  const installed = model.sources.get(step.fixture);
+  if (installed === undefined) return 1;
+  const selected = selectedNames(step.fixture, installed);
+  if (!selected.includes(step.name)) return 0;
+  const remaining = selected.filter((name) => name !== step.name);
+  if (remaining.length === 0) model.sources.delete(step.fixture);
+  else model.sources.set(step.fixture, { ...installed, selection: remaining });
+  return 0;
+}
+
+function linkInModel(model: Model, step: Extract<Op, { kind: "link" }>): number {
+  const installed = model.sources.get(step.fixture);
+  if (installed === undefined) return 1;
+  if (installed.harnesses.includes(step.harness)) return 3;
+  installed.harnesses = [...installed.harnesses, step.harness];
+  return 0;
+}
+
+function unlinkInModel(model: Model, step: Extract<Op, { kind: "unlink" }>): number {
+  const installed = model.sources.get(step.fixture);
+  if (installed === undefined) return 1;
+  if (!installed.harnesses.includes(step.harness)) return 0;
+  const remaining = installed.harnesses.filter((harness) => harness !== step.harness);
+  if (remaining.length === 0) model.sources.delete(step.fixture);
+  else installed.harnesses = remaining;
+  return 0;
+}
+
 // Applies one op to the model and returns the exit the command line must answer with: 1 is a
 // usage error, 3 nothing to resolve, 0 an applied change or a notice.
 function applyToModel(model: Model, step: Op): number {
@@ -173,16 +202,8 @@ function applyToModel(model: Model, step: Op): number {
       return 0;
     case "remove":
       return model.sources.delete(step.fixture) ? 0 : 1;
-    case "remove-memory": {
-      const installed = model.sources.get(step.fixture);
-      if (installed === undefined) return 1;
-      const selected = selectedNames(step.fixture, installed);
-      if (!selected.includes(step.name)) return 0;
-      const remaining = selected.filter((name) => name !== step.name);
-      if (remaining.length === 0) model.sources.delete(step.fixture);
-      else model.sources.set(step.fixture, { ...installed, selection: remaining });
-      return 0;
-    }
+    case "remove-memory":
+      return removeMemoryFromModel(model, step);
     case "disable":
       if (!provided(model, step.fixture, step.name)) return 1;
       model.disabled.add(step.name);
@@ -191,22 +212,10 @@ function applyToModel(model: Model, step: Op): number {
       if (!provided(model, step.fixture, step.name)) return 1;
       model.disabled.delete(step.name);
       return 0;
-    case "link": {
-      const installed = model.sources.get(step.fixture);
-      if (installed === undefined) return 1;
-      if (installed.harnesses.includes(step.harness)) return 3;
-      installed.harnesses = [...installed.harnesses, step.harness];
-      return 0;
-    }
-    case "unlink": {
-      const installed = model.sources.get(step.fixture);
-      if (installed === undefined) return 1;
-      if (!installed.harnesses.includes(step.harness)) return 0;
-      const remaining = installed.harnesses.filter((harness) => harness !== step.harness);
-      if (remaining.length === 0) model.sources.delete(step.fixture);
-      else installed.harnesses = remaining;
-      return 0;
-    }
+    case "link":
+      return linkInModel(model, step);
+    case "unlink":
+      return unlinkInModel(model, step);
     case "update":
       return model.sources.has(step.fixture) ? 0 : 1;
     case "sync":
@@ -508,6 +517,27 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
+function plantOrphans(store: string): string[] {
+  const orphans = [
+    join(store, "_git", "git.example.com", "team", "orphan"),
+    join(store, "_local", "orphan-0badcafe"),
+  ];
+  for (const orphan of orphans) {
+    mkdirSync(join(orphan, "memories"), { recursive: true });
+    writeFileSync(join(orphan, "memories", "stray.md"), "stray\n");
+  }
+  return orphans;
+}
+
+// The sweep removes the orphan entry itself and may leave the folders planted around it, so a
+// path new since is allowed only as a directory.
+function expectOnlyDirsAdded(before: Map<string, string>, after: Map<string, string>): void {
+  for (const key of after.keys()) {
+    if (!before.has(key)) expect(after.get(key)).toBe("dir");
+  }
+  for (const [key, digest] of before) expect(after.get(key)).toBe(digest);
+}
+
 test(
   "orphan sweep: a stray store entry is removed and nothing else changes",
   async () => {
@@ -520,22 +550,10 @@ test(
           fc.pre(existsSync(homePaths(world.maximsHome).state));
           expect((await runReal(world, ["sync"])).code).toBe(0);
           const before = snapshot(world.userHome, RUN_RECORDS);
-          const store = homePaths(world.maximsHome).store;
-          const orphans = [
-            join(store, "_git", "git.example.com", "team", "orphan"),
-            join(store, "_local", "orphan-0badcafe"),
-          ];
-          for (const orphan of orphans) {
-            mkdirSync(join(orphan, "memories"), { recursive: true });
-            writeFileSync(join(orphan, "memories", "stray.md"), "stray\n");
-          }
+          const orphans = plantOrphans(homePaths(world.maximsHome).store);
           expect((await runReal(world, ["sync"])).code).toBe(0);
           for (const orphan of orphans) expect(existsSync(orphan)).toBe(false);
-          const after = snapshot(world.userHome, RUN_RECORDS);
-          for (const key of after.keys()) {
-            if (!before.has(key)) expect(after.get(key)).toBe("dir");
-          }
-          for (const [key, digest] of before) expect(after.get(key)).toBe(digest);
+          expectOnlyDirsAdded(before, snapshot(world.userHome, RUN_RECORDS));
         });
       }),
     );

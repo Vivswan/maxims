@@ -23,6 +23,7 @@ import {
   homeRelative,
   placeholderPattern,
   placeholdersIn,
+  type RootEnvSpec,
   rootVariables,
   type ScopedFrontmatterSpec,
   type ScopeFrontmatterSpec,
@@ -174,6 +175,11 @@ function sessionDirectory(cwd: string): string {
   }
 }
 
+function rootEnvEntries(env: GlobalRootSpec["env"]): RootEnvSpec[] {
+  if (env === undefined) return [];
+  return Array.isArray(env) ? env : [env];
+}
+
 // The override is resolved like a shell would resolve a relative `$CODEX_HOME`: against the
 // working directory, not against HOME. A variable the vendor drops when relative, or reads on
 // other platforms only, is passed over as if unset; the default stands in with no notice, since
@@ -183,7 +189,7 @@ function compileGlobalRoot(
   platform: NodeJS.Platform,
 ): (ctx: HarnessContext) => string {
   const fallback = homeRelative(root.default);
-  const entries = root.env === undefined ? [] : Array.isArray(root.env) ? root.env : [root.env];
+  const entries = rootEnvEntries(root.env);
   const entry = entries.find((candidate) => candidate.platforms?.includes(platform) !== false);
   const variables = entry === undefined ? [] : rootVariables(entry);
   const subdir = entry?.subdir;

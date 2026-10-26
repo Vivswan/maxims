@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { findNodeAtLocation, getNodeValue } from "jsonc-parser";
+import { findNodeAtLocation, getNodeValue, type Node } from "jsonc-parser";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { assertInsideRoot, type RootedPath } from "../../util/fs.ts";
 import { jsonDocument } from "../../util/json.ts";
@@ -80,6 +80,27 @@ export function rewriteServers(input: McpRegistrationInput): RegistryRewrite | n
 
 type Edit = { text: string; verb: "registered" | "updated" | "removed" };
 
+// The entry at the servers object: taken out, registered, updated, or `null` when the file
+// already says what the intent wants.
+function entryEdit(text: string, container: Node, wanted: boolean): Edit | null {
+  const current = findNodeAtLocation(container, [MCP_SERVER_KEY]);
+  const property = current?.parent;
+  if (!wanted) {
+    if (property === undefined) return null;
+    return { text: removeChild(text, container, property), verb: "removed" };
+  }
+  if (current === undefined) {
+    return {
+      text: appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY),
+      verb: "registered",
+    };
+  }
+  if (isDeepStrictEqual(JSON.parse(JSON.stringify(getNodeValue(current))), MCP_SERVER_ENTRY)) {
+    return null;
+  }
+  return { text: replaceValue(text, current, MCP_SERVER_ENTRY), verb: "updated" };
+}
+
 // `null` when the file already says what the intent wants.
 function editServers(
   text: string | null,
@@ -117,20 +138,5 @@ function editServers(
     }
     container = child;
   }
-  const current = findNodeAtLocation(container, [MCP_SERVER_KEY]);
-  const property = current?.parent;
-  if (!wanted) {
-    if (property === undefined) return null;
-    return { text: removeChild(text, container, property), verb: "removed" };
-  }
-  if (current === undefined) {
-    return {
-      text: appendChild(text, container, MCP_SERVER_KEY, MCP_SERVER_ENTRY),
-      verb: "registered",
-    };
-  }
-  if (isDeepStrictEqual(JSON.parse(JSON.stringify(getNodeValue(current))), MCP_SERVER_ENTRY)) {
-    return null;
-  }
-  return { text: replaceValue(text, current, MCP_SERVER_ENTRY), verb: "updated" };
+  return entryEdit(text, container, wanted);
 }

@@ -180,17 +180,17 @@ test.each(jsonTargets)(
           log,
         ];
         const bench = runBench(["--runs", "1", "--json", jsonArg, "--", ...command], dir);
-        if (refusal !== undefined) {
+        if (refusal === undefined) {
+          expect(bench.stderr.toString()).toBe("");
+          expect(bench.exitCode).toBe(0);
+          expect(readFileSync(log, "utf8")).toBe("x");
+          expect(JSON.parse(readFileSync(target, "utf8")).runs).toBe(1);
+        } else {
           expect(bench.exitCode).toBe(2);
           expect(bench.stdout.toString()).toBe("");
           for (const fragment of refusal) expect(bench.stderr.toString()).toContain(fragment);
           expect(existsSync(log)).toBe(false);
           expect(existsSync(target)).toBe(false);
-        } else {
-          expect(bench.stderr.toString()).toBe("");
-          expect(bench.exitCode).toBe(0);
-          expect(readFileSync(log, "utf8")).toBe("x");
-          expect(JSON.parse(readFileSync(target, "utf8")).runs).toBe(1);
         }
       } finally {
         removeStrays();

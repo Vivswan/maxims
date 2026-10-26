@@ -21,6 +21,22 @@ export function projectLockPath(projectRoot: string): string {
   return join(projectRoot, PROJECT_LOCK_RELATIVE_PATH);
 }
 
+// The lock's text as this run judges it: a planned write's content, else the file's; `null` when
+// the file is absent or a planned deletion takes it out.
+async function lockText(path: string, pending: Change | undefined): Promise<string | null> {
+  if (pending?.kind === "delete") return null;
+  if (pending?.kind === "write") return pending.content;
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
+      cause: error,
+    });
+  }
+}
+
 // `keys` are the state keys the entries stand for, so a lock entry and its state entry are found
 // by one string. The manifest is committed and edited by teammates, so a shape error, or an entry
 // this checkout cannot honor (a local path leaving it), is reported whole rather than installing
@@ -32,23 +48,11 @@ export async function readProjectLock(
   planned: readonly Change[] = [],
 ): Promise<LoadedProjectLock> {
   const path = projectLockPath(projectRoot);
-  const pending = planned.find((change) => change.path === path);
-  if (pending?.kind === "delete") return { kind: "absent" };
-  let text: string;
-  if (pending?.kind === "write") {
-    text = pending.content;
-  } else {
-    try {
-      text = await readFile(path, "utf8");
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT")
-        return { kind: "absent" };
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new MaximsError(ExitCode.DestinationWriteFailed, `cannot read ${path}: ${detail}`, {
-        cause: error,
-      });
-    }
-  }
+  const text = await lockText(
+    path,
+    planned.find((change) => change.path === path),
+  );
+  if (text === null) return { kind: "absent" };
   const parsed = parseProjectLock(text);
   if (parsed.ok === "corrupt") return { kind: "corrupt", path, issues: parsed.issues };
   const keys: string[] = [];

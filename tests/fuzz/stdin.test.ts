@@ -160,10 +160,11 @@ test(
       // caller reads an unknown invoker and stays silent instead of printing into the harness.
       if (played.tty) expect(text).toBeNull();
       else if (decoded(played.chunks) === "") {
-        if (played.ending !== "error") expect(text).toBeNull();
-        else {
+        if (played.ending === "error") {
           expect(text).not.toBeNull();
           expect(classifyInvoker(text)).toEqual({ kind: "unknown-json" });
+        } else {
+          expect(text).toBeNull();
         }
       } else {
         expect(text).not.toBeNull();

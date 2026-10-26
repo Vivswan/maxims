@@ -5,6 +5,7 @@
 //   a rename accepted at one entry's prompt  -> what the entries planned after it validate against
 //   the manifest                             -> how a fresh clone learns what to add
 
+import type { Console } from "../console/contract.ts";
 import {
   foundInManifest,
   installed,
@@ -19,6 +20,7 @@ import {
   readProjectLock,
   sourceFromLock,
 } from "../engine/project-lock-read.ts";
+import type { CliIo } from "../engine/types.ts";
 import { resolveWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import type { LockSource } from "../state/project-lock.ts";
@@ -41,6 +43,38 @@ import {
 import { finish, mergePlans } from "./frame/output.ts";
 
 const INSTALL_FLAGS: readonly FlagSpec[] = [FLAGS.agent, FLAGS.yes, FLAGS.strict];
+
+function assertDistinctSources(entries: [string, LockSource][], projectRoot: string): void {
+  const keys = new Map<string, string>();
+  for (const [lockKey, entry] of entries) {
+    const key = canonicalSourceKey(sourceFromLock(entry, projectRoot));
+    const twin = keys.get(key);
+    if (twin !== undefined) {
+      throw usage(`manifest entries ${twin} and ${lockKey} name the same source ${key}`);
+    }
+    keys.set(key, lockKey);
+  }
+}
+
+// Each entry is planned against its siblings as staged, and a rename accepted at one entry's
+// prompt is what the entries planned after it validate against. Null when the user cancelled.
+async function planEntries(
+  staged: readonly StagedAdd[],
+  ctx: CommandContext,
+  console: Console,
+): Promise<PreparedAdd[] | null> {
+  const prepared: PreparedAdd[] = [];
+  const current = [...staged];
+  for (const [index, item] of current.entries()) {
+    const siblings = current.filter((other) => other !== item);
+    const outcome = await planAdd(item, ctx, console, siblings);
+    if (outcome.kind === "cancelled") return null;
+    if (outcome.kind !== "prepared") continue;
+    prepared.push(outcome.prepared);
+    current[index] = { ...item, request: { ...item.request, rename: outcome.prepared.rename } };
+  }
+  return prepared;
+}
 
 export const install: Command = {
   summary: "replay the project manifest: add every source it names, then sync",
@@ -69,15 +103,7 @@ export const install: Command = {
     );
     const agentFilter = parseAgents(args, knownHarnessIds(ctx.io));
     const strict = args.flag(FLAGS.strict);
-    const keys = new Map<string, string>();
-    for (const [lockKey, entry] of entries) {
-      const key = canonicalSourceKey(sourceFromLock(entry, io.projectRoot));
-      const twin = keys.get(key);
-      if (twin !== undefined) {
-        throw usage(`manifest entries ${twin} and ${lockKey} name the same source ${key}`);
-      }
-      keys.set(key, lockKey);
-    }
+    assertDistinctSources(entries, io.projectRoot);
     const staged: StagedAdd[] = [];
     for (const [, entry] of entries) {
       console.gap();
@@ -90,16 +116,8 @@ export const install: Command = {
         staged.push({ ...stage.staged, disabledByManifest: lock.disabled ?? [] });
       }
     }
-    const prepared: PreparedAdd[] = [];
-    const current = [...staged];
-    for (const [index, item] of current.entries()) {
-      const siblings = current.filter((other) => other !== item);
-      const outcome = await planAdd(item, ctx, console, siblings);
-      if (outcome.kind === "cancelled") return ExitCode.Ok;
-      if (outcome.kind !== "prepared") continue;
-      prepared.push(outcome.prepared);
-      current[index] = { ...item, request: { ...item.request, rename: outcome.prepared.rename } };
-    }
+    const prepared = await planEntries(staged, ctx, console);
+    if (prepared === null) return ExitCode.Ok;
     await assertBatchConsistent(prepared, ctx);
     const commit = await commitAdd(prepared, ctx, {
       writeManifest: false,
@@ -127,14 +145,7 @@ export const install: Command = {
   },
 };
 
-// Entries are planned against each other's names as STAGED; a rename answered at a prompt can
-// move a name after a sibling validated against it. The final batch is therefore checked once
-// more for distinct local names and for wikilinks, against the names it will really record plus
-// the sources outside the batch, before anything is written.
-async function assertBatchConsistent(
-  prepared: readonly PreparedAdd[],
-  ctx: CommandContext,
-): Promise<void> {
+function assertDistinctNames(prepared: readonly PreparedAdd[]): void {
   const owners = new Map<string, string>();
   for (const item of prepared) {
     for (const name of item.names) {
@@ -147,15 +158,26 @@ async function assertBatchConsistent(
       owners.set(name, item.request.key);
     }
   }
+}
+
+// The local names installed here by the sources outside the batch.
+async function namesOutsideBatch(
+  prepared: readonly PreparedAdd[],
+  io: CliIo,
+): Promise<Set<string>> {
   const outside = new Set<string>();
   const batchKeys = new Set(prepared.map((item) => item.request.key));
   const first = prepared[0];
-  if (first !== undefined) {
-    for (const [key, entry] of sourcesHere(first.staged, ctx.io)) {
-      if (batchKeys.has(key)) continue;
-      for (const name of await effectiveNames(entry, ctx.io)) outside.add(name);
-    }
+  if (first === undefined) return outside;
+  for (const [key, entry] of sourcesHere(first.staged, io)) {
+    if (batchKeys.has(key)) continue;
+    for (const name of await effectiveNames(entry, io)) outside.add(name);
   }
+  return outside;
+}
+
+// Each entry's wikilinks resolve against the names outside the batch plus its siblings' own.
+function assertBatchLinksMet(prepared: readonly PreparedAdd[], outside: Set<string>): void {
   for (const item of prepared) {
     const others = new Set(outside);
     for (const sibling of prepared) {
@@ -163,12 +185,24 @@ async function assertBatchConsistent(
     }
     const { unmet } = resolveWikilinks(item.chosen, others, item.rename);
     const missing = unmet[0];
-    if (missing !== undefined) {
-      throw new MaximsError(ExitCode.UnmetDependency, linksTo(missing.memory, missing.link), {
-        hint: `install a source providing ${missing.link} first`,
-      });
-    }
+    if (missing === undefined) continue;
+    throw new MaximsError(ExitCode.UnmetDependency, linksTo(missing.memory, missing.link), {
+      hint: `install a source providing ${missing.link} first`,
+    });
   }
+}
+
+// Entries are planned against each other's names as STAGED; a rename answered at a prompt can
+// move a name after a sibling validated against it. The final batch is therefore checked once
+// more for distinct local names and for wikilinks, against the names it will really record plus
+// the sources outside the batch, before anything is written.
+async function assertBatchConsistent(
+  prepared: readonly PreparedAdd[],
+  ctx: CommandContext,
+): Promise<void> {
+  assertDistinctNames(prepared);
+  const outside = await namesOutsideBatch(prepared, ctx.io);
+  assertBatchLinksMet(prepared, outside);
 }
 
 // The lock carries intent only: a field it omits is one `add` recorded at its default, and the

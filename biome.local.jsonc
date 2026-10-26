@@ -1,0 +1,95 @@
+// The repository's own biome layer: exclusions, the formatter, extra rules, and per-path overrides with their
+// reasons. The managed biome.json extends this file and applies last, so the floor cannot be lowered here; the one
+// relaxation is a per-path `overrides` entry below with its reason beside it (docs/modules/typescript.md).
+{
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!dist",
+      "!.github/repo-platform-manifest.json",
+      "!bun.lock",
+      "!src/harnesses/*/fixtures"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended",
+      "correctness": { "noUnusedImports": "error", "noUnusedVariables": "error" },
+      "style": { "useImportType": "error", "useNodejsImportProtocol": "error" }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["bun", "bun:*"],
+                    "message": "src/ ships as dist/cli.js under node. bun-types also declares the Bun globals from inside these modules, so even a type import would hide them from the Node floor typecheck."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["tests/**", "!tests/container/runner.ts", "!tests/shared/preload.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "node:os": "A test's scratch directory lives under the launcher HOME (tests/shared/temp_dir.ts), never under the OS tmpdir."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    // A test table is data, not a function body: the platform took the same exception (repo-platform #531).
+    {
+      "includes": ["tests/**"],
+      "linter": { "rules": { "complexity": { "noExcessiveLinesPerFunction": "off" } } }
+    },
+    // scanDocument is one walk over micromark's flow events that threads four pieces of state (leaf, quoteDepth, lineIndex, itemColumns) through its branches; a split would hand a mutable walk record to four helpers for no gain.
+    {
+      "includes": ["tests/rulefile/scanner-oracle.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": { "maxAllowedComplexity": 30 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -594,6 +594,25 @@ describe("followLinks", () => {
       throw cause;
     }
   };
+
+  function plantTree(at: Place, separator: string): void {
+    mkdirSync(at("rules/sub"), { recursive: true });
+    writeFileSync(at("notes.md"), "notes\n");
+    writeFileSync(at("maxims-x.md"), "root\n");
+    writeFileSync(at("rules/notes.md"), "under rules\n");
+    writeFileSync(at("rules/plain.md"), "rules\n");
+    symlinkSync(`..${separator}notes.md`, at("rules/maxims-x.md"));
+    symlinkSync(`..${separator}notes.md`, at("rules/sub/bridge.md"));
+    symlinkSync(at("rules/sub"), at("jump"));
+    symlinkSync("rules", at("alias"));
+  }
+
+  function plantChain(at: Place, planted: number): void {
+    for (let i = 1; i <= planted; i++) {
+      symlinkSync(i === planted ? "notes.md" : `L${i + 1}`, at(`L${i}`));
+    }
+  }
+
   // The Windows table runs on every host, since a POSIX link keeps the backslashes in its target;
   // the POSIX table only on POSIX hosts, since a Windows link may rewrite its target's separators.
   for (const { platform, separator, rows } of tables) {
@@ -605,18 +624,8 @@ describe("followLinks", () => {
       async ({ route, link, planted, text, chain }) => {
         await withTempDir((dir) => {
           const at: Place = (rel) => join(dir, ...rel.split("/"));
-          mkdirSync(at("rules/sub"), { recursive: true });
-          writeFileSync(at("notes.md"), "notes\n");
-          writeFileSync(at("maxims-x.md"), "root\n");
-          writeFileSync(at("rules/notes.md"), "under rules\n");
-          writeFileSync(at("rules/plain.md"), "rules\n");
-          symlinkSync(`..${separator}notes.md`, at("rules/maxims-x.md"));
-          symlinkSync(`..${separator}notes.md`, at("rules/sub/bridge.md"));
-          symlinkSync(at("rules/sub"), at("jump"));
-          symlinkSync("rules", at("alias"));
-          for (let i = 1; i <= (planted ?? 0); i++) {
-            symlinkSync(i === planted ? "notes.md" : `L${i + 1}`, at(`L${i}`));
-          }
+          plantTree(at, separator);
+          plantChain(at, planted ?? 0);
           const linkAt = at(link ?? "AGENTS.md");
           symlinkSync(route, linkAt);
           const read = followLinks(linkAt, platform);

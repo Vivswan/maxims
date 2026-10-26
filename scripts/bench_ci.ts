@@ -137,12 +137,17 @@ function parseArgs(argv: string[]): Options {
   return { base: values.base, runs, out };
 }
 
+function statusOf(ratio: number, gate: Gate): Status {
+  if (ratio > FAIL_RATIO) return gate;
+  if (ratio > WARN_RATIO) return "warn";
+  return "ok";
+}
+
 // The ratio is rounded to a millionth before the compare: 24.4 ms to 30.5 ms is exactly 25% in
 // decimal but lands a hair above it in binary, and a gate must not fail on that hair.
 export function judge(signal: Signal): Judged {
   const ratio = Math.round(((signal.head - signal.base) / signal.base) * 1e6) / 1e6;
-  const status: Status = ratio > FAIL_RATIO ? signal.gate : ratio > WARN_RATIO ? "warn" : "ok";
-  return { ...signal, ratio, status };
+  return { ...signal, ratio, status: statusOf(ratio, signal.gate) };
 }
 
 export function verdict(report: Report): Verdict {
@@ -172,43 +177,82 @@ type Timed =
   | { paths: Record<SideName, Series>[]; baseBytes: number }
   | { heads: Series[]; notComparable: string };
 
+// The base side as the timing sees it: a bundle of so many bytes, or the reason it is not timed.
+type BaseState = { bytes: number } | { notComparable: string };
+
+// A bundle under the floor is a placeholder, not a CLI: the argument parser alone bundles past it,
+// and the version-only stub that once stood where the CLI now is was 160 bytes. A delta against
+// such a base fails by construction, so the base is reported as not comparable instead.
+function comparableBase(base: Bytes["base"]): BaseState {
+  if (typeof base !== "number") return base;
+  if (base >= MIN_COMPARABLE_BUNDLE_BYTES) return { bytes: base };
+
+  const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
+  return {
+    notComparable: `its bundle is ${quantity(base, "bytes")}, under the ${floor}-byte floor`,
+  };
+}
+
 // The pair swaps order every run: with the base always first, the head drew the cooler second
 // slot of every pair and the same bytes read up to 7% faster on a settling runner.
-async function timeSides(runs: number, bytes: Bytes, sample: Sampler): Promise<Timed> {
-  let base: { bytes: number } | { notComparable: string } =
-    typeof bytes.base === "number" ? { bytes: bytes.base } : bytes.base;
-  // A bundle under the floor is a placeholder, not a CLI: the argument parser alone bundles past it,
-  // and the version-only stub that once stood where the CLI now is was 160 bytes. A delta against
-  // such a base fails by construction, so the base is reported as not comparable instead.
-  if ("bytes" in base && base.bytes < MIN_COMPARABLE_BUNDLE_BYTES) {
-    const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
-    base = {
-      notComparable: `its bundle is ${quantity(base.bytes, "bytes")}, under the ${floor}-byte floor`,
-    };
+function sideOrder(run: number): SideName[] {
+  if (run % 2 === 0) return ["base", "head"];
+  return ["head", "base"];
+}
+
+async function sampleBase(argv: string[], sample: Sampler): Promise<number | BaseState> {
+  try {
+    return await sample("base", argv);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { notComparable: `timing its bundle failed: ${reason}` };
   }
+}
+
+interface TimedStarts {
+  starts: Record<SideName, number[]>;
+  base: BaseState;
+}
+
+// The head is timed on every run even after the base stopped being comparable, so the head's own
+// figures still print; the base is skipped from its first failed start on.
+async function timePath(
+  argv: string[],
+  runs: number,
+  base: BaseState,
+  sample: Sampler,
+): Promise<TimedStarts> {
+  const starts: Record<SideName, number[]> = { base: [], head: [] };
+  let state = base;
+  for (let run = 0; run <= runs; run++) {
+    for (const side of sideOrder(run)) {
+      if (side === "head") {
+        starts.head.push(await sample("head", argv));
+        continue;
+      }
+      if ("notComparable" in state) continue;
+
+      const start = await sampleBase(argv, sample);
+      if (typeof start === "number") starts.base.push(start);
+      else state = start;
+    }
+  }
+  return { starts, base: state };
+}
+
+async function timeSides(runs: number, bytes: Bytes, sample: Sampler): Promise<Timed> {
+  let base = comparableBase(bytes.base);
   const heads: Series[] = [];
   const bases: Series[] = [];
   for (const path of TIMED_PATHS) {
-    const starts: Record<SideName, number[]> = { base: [], head: [] };
-    for (let run = 0; run <= runs; run++) {
-      const order: SideName[] = run % 2 === 0 ? ["base", "head"] : ["head", "base"];
-      for (const side of order) {
-        if (side === "head") {
-          starts.head.push(await sample("head", path.argv));
-        } else if ("bytes" in base) {
-          try {
-            starts.base.push(await sample("base", path.argv));
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            base = { notComparable: `timing its bundle failed: ${reason}` };
-          }
-        }
-      }
-    }
-    heads.push(series(starts.head));
-    if ("bytes" in base) bases.push(series(starts.base));
+    const timed = await timePath(path.argv, runs, base, sample);
+    base = timed.base;
+    heads.push(series(timed.starts.head));
+    if ("bytes" in base) bases.push(series(timed.starts.base));
   }
+
   if ("notComparable" in base) return { heads, notComparable: base.notComparable };
+
   return {
     paths: heads.map((head, index) => ({ head, base: bases[index] })),
     baseBytes: base.bytes,

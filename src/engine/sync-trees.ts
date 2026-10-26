@@ -45,6 +45,42 @@ type ReadTrees = {
   failed: SyncReport["failed"];
 };
 
+// A live source reads its own directory, so its sha is the tree's and its store entry is a link
+// to it; a fetched one stands at the recorded sha and lands with the store swap its refresh planned.
+function workFor(
+  key: string,
+  entry: SourceEntry,
+  storeEntry: RootedPath,
+  tree: SourceTree,
+  refreshed: Refreshed,
+  ctx: EngineContext,
+): SourceWork {
+  const { intent } = entry;
+  const { from } = intent;
+  const live = isLiveLocal(from);
+  const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
+  return {
+    key,
+    entry,
+    intent,
+    scopeKind: intent.destination.scope,
+    storeEntry,
+    tree,
+    sha: !live && fetched !== undefined ? fetched.sha : tree.sha,
+    stale: staleness(fetched, ctx.now, ctx.cooldownDays),
+    ownedUpstreamNames: selectMemories({
+      memories: tree.memories,
+      intent,
+      installInternal: ctx.installInternal,
+      disabled: new Set(),
+      detailPath: () => "",
+    }).ownedUpstreamNames,
+    storeChanges: live
+      ? liveStoreChanges(from, storeEntry, ctx.home)
+      : (refreshed.storeChanges.get(key) ?? []),
+  };
+}
+
 // A source with nothing readable keeps whatever blocks it has on disk; a live source's read is its
 // refresh, so one that fails is reported like a failed fetch.
 export async function readTrees(
@@ -60,9 +96,6 @@ export async function readTrees(
   for (const key of Object.keys(refreshed.sources).sort()) {
     const entry = refreshed.sources[key];
     if (entry === undefined) continue;
-    const { intent } = entry;
-    const { from } = intent;
-    const scopeKind = intent.destination.scope;
     if (!actsHere(entry, ctx)) {
       notices.trace(`${key}: installed for another project; skipped`);
       continue;
@@ -71,36 +104,17 @@ export async function readTrees(
       unreadable.push({ key, entry });
       continue;
     }
-    const storeEntry = storePathFor(ctx.home, from);
-    const live = isLiveLocal(from);
+    const storeEntry = storePathFor(ctx.home, entry.intent.from);
     const read = await treeFor(key, entry, storeEntry, refreshed.freshTrees, overlay, notices);
     if (read.kind === "unreadable") {
       notices.notice(`maxims: ${key}: ${read.reason}; kept whatever is installed`);
-      if (live) failed.push({ key, message: read.reason, kind: read.cause });
+      if (isLiveLocal(entry.intent.from)) {
+        failed.push({ key, message: read.reason, kind: read.cause });
+      }
       unreadable.push({ key, entry });
       continue;
     }
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    works.push({
-      key,
-      entry,
-      intent,
-      scopeKind,
-      storeEntry,
-      tree: read.tree,
-      sha: !live && fetched !== undefined ? fetched.sha : read.tree.sha,
-      stale: staleness(fetched, ctx.now, ctx.cooldownDays),
-      ownedUpstreamNames: selectMemories({
-        memories: read.tree.memories,
-        intent,
-        installInternal: ctx.installInternal,
-        disabled: new Set(),
-        detailPath: () => "",
-      }).ownedUpstreamNames,
-      storeChanges: live
-        ? liveStoreChanges(from, storeEntry, ctx.home)
-        : (refreshed.storeChanges.get(key) ?? []),
-    });
+    works.push(workFor(key, entry, storeEntry, read.tree, refreshed, ctx));
   }
   return { works, unreadable, failed };
 }
