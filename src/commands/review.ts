@@ -95,13 +95,13 @@ async function acceptHeld(key: string, held: Held, io: CliIo): Promise<Acceptanc
   };
 }
 
+// `accepted` is the keys whose held revision landed; a key with nothing held, or whose files were
+// gone, is said in `lines` and not counted.
 type Applied = {
   state: State;
   changes: Change[];
   notices: string[];
   lines: string[];
-  // The keys whose held revision landed; a key with nothing held, or whose files were gone, is
-  // said in `lines` and not counted.
   accepted: string[];
 };
 

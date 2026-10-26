@@ -25,10 +25,7 @@ import {
 /** @public */
 export const PROJECT_LOCK_RELATIVE_PATH = join(".agents", "maxims.lock");
 
-// The lock is committed with the project and read on every machine that checks it out, so a local
-// source is named relative to the project root. The win32 grammar is the stricter judge and
-// covers the posix one: a leading `/`, a drive (`C:/memories` and drive-relative `C:memories`)
-// or a UNC share is one machine's path even when the machine writing the lock runs Linux.
+// The win32 grammar is the stricter judge and covers the posix one: a leading `/`, a drive (`C:/memories`, `C:memories`) or a UNC share is one machine's path even when the lock is written on Linux.
 const RelativePath = markerSafe(
   z
     .string()
@@ -40,29 +37,31 @@ const RelativePath = markerSafe(
   "a path",
 );
 
-// The repository identity without a ref: the ref is the entry's `pin`, absent when the source
-// tracks the default branch, so a tracking entry and a pinned one differ in exactly one field.
+// The repository identity without a ref; `pin` on the entry carries it.
 const LockGithubFrom = z.strictObject({
   type: z.literal("github"),
   repo: GithubRepoSchema,
   host: HostnameSchema.optional(),
 });
+
+// The URL without a ref; `pin` on the entry carries it.
 const LockGitFrom = z.strictObject({ type: z.literal("git"), url: GitUrlSchema });
+
+// Named relative to the project root: the lock is committed with the project and read on every machine that checks it out.
 const LockLocalFrom = z.strictObject({
   type: z.literal("local"),
   path: RelativePath,
   live: z.literal(true).optional(),
 });
 
-// Intent only, and only what a project shares: no destination (always the project), no fetch
-// facts and no timestamps, which belong to the machine that fetched. `memoryPath`, `fullDepth`
-// and `copy` are written only when they differ from what `add` records without a flag, so an
-// entry says what its author typed and a default install keeps its short form.
+// Intent only, and only what a project shares: no destination (always the project), no fetch facts and no timestamps, which belong to the machine that fetched.
 const LockIntentFields = {
   select: SelectSchema,
   rename: RenameMapSchema.optional(),
   rule: z.boolean(),
   harnesses: z.array(HarnessIdSchema),
+  // `memoryPath`, `fullDepth` and `copy` are written only when they differ from what `add` records
+  // without a flag, so an entry says what its author typed and a default install keeps its short form.
   memoryPath: z.string().min(1).optional(),
   fullDepth: z.boolean().optional(),
   copy: z.boolean().optional(),
@@ -70,22 +69,27 @@ const LockIntentFields = {
   auth: z.boolean().optional(),
   allowHidden: z.boolean().optional(),
 };
-// A local directory has no ref: its variant admits no `pin` value, in the type as in the parser.
+
+// `pin` is absent when the source tracks the default branch, so a tracking entry and a pinned one differ in exactly one field.
 const RemoteLockSource = z.strictObject({
   from: z.union([LockGithubFrom, LockGitFrom]),
   pin: GitRefSchema.optional(),
   ...LockIntentFields,
 });
+
+// A local directory has no ref: its variant admits no `pin` value, in the type as in the parser.
 const LocalLockSource = z.strictObject({
   from: LockLocalFrom,
   pin: z.never().optional(),
   ...LockIntentFields,
 });
+
+// The variants share every field but `pin`, so `from.type` is the one discriminant.
 export const LockSourceSchema = z.union([RemoteLockSource, LocalLockSource]);
+
 export type LockSource = z.infer<typeof LockSourceSchema>;
 type RemoteLockSource = z.infer<typeof RemoteLockSource>;
 
-// The variants share every field but `pin`, so `from.type` is the one discriminant.
 function isRemote(source: LockSource): source is RemoteLockSource {
   return source.from.type !== "local";
 }

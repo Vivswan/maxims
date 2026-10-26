@@ -128,11 +128,11 @@ export function fetchTimeoutMs(env: NodeJS.ProcessEnv): number {
   return (seconds > 0 ? seconds : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000;
 }
 
-// gh's own names and precedence. A token is offered only to the host class it was named for, so a
-// github.com token never reaches an enterprise server, nor an enterprise token a tenant.
 const DOTCOM_TOKEN_NAMES = ["GH_TOKEN", "GITHUB_TOKEN"];
 const ENTERPRISE_TOKEN_NAMES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
+// gh's own names and precedence. A token is offered only to the host class it was named for, so a
+// github.com token never reaches an enterprise server, nor an enterprise token a tenant.
 export function tokenFor(env: NodeJS.ProcessEnv, host: string): string | undefined {
   const names = isDotcomClass(host) ? DOTCOM_TOKEN_NAMES : ENTERPRISE_TOKEN_NAMES;
   for (const name of names) {
@@ -278,8 +278,7 @@ export function cloneRung(
   };
 }
 
-// The most actionable failure wins when every rung fails: a rate limit or a login problem tells
-// the user what to do, while a network error is the one everything else degrades into.
+// The most actionable failure wins when every rung fails: a rate limit or a login problem tells the user what to do, while a network error is the one everything else degrades into.
 const FAILURE_PRIORITY: FetchFailureKind[] = ["ratelimit", "auth", "missing", "invalid", "network"];
 
 // A rung may only end in an outcome: whatever it throws instead is a failure of that rung, never
@@ -415,8 +414,7 @@ function parseLsRemote(text: string, ref: string, candidates: string[]): RungOut
   return failed("missing", `ref ${ref} does not exist on the remote`);
 }
 
-// Patterns are tried top to bottom, so a 403 that mentions the rate limit is a rate limit before it
-// is an auth failure, and a "not found" from git is a missing repo before it is a network fault.
+// Tried top to bottom, so a 403 that mentions the rate limit is a rate limit before it is an auth failure.
 const GH_PATTERNS: [FetchFailureKind, RegExp][] = [
   ["ratelimit", /rate limit/i],
   ["missing", /HTTP 404|No commit found for SHA/i],
@@ -426,6 +424,7 @@ const GH_PATTERNS: [FetchFailureKind, RegExp][] = [
   ["network", /context deadline exceeded|server misbehaving|error connecting to/i],
 ];
 
+// Tried top to bottom, so a "not found" from git is a missing repo before it is a network fault.
 const GIT_PATTERNS: [FetchFailureKind, RegExp][] = [
   ["ratelimit", /returned error: 429|rate limit/i],
   ["missing", /repository not found|not found|does not appear to be a git repository/i],
@@ -494,8 +493,7 @@ function firstLine(text: string): string {
   );
 }
 
-// Everything a child could use to open a prompt, a pager, or an editor is dropped from its
-// environment: a hook runs with no terminal to answer.
+// Everything a child could use to open a prompt, a pager, or an editor: a hook runs with no terminal to answer.
 const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "EDITOR",
   "VISUAL",
@@ -512,8 +510,7 @@ const SCRUBBED_ENV: ReadonlySet<string> = new Set([
   "GIT_EXTERNAL_DIFF",
 ]);
 
-// Every git tracing switch goes too: a trace line carries the full remote URL, password included,
-// and git's stderr is what a failure message is made of.
+// Every git tracing switch goes too: a trace line carries the full remote URL, password included, and git's stderr is what a failure message is made of.
 const TRACE_ENV = /^(GIT_TRACE|GIT_CURL_VERBOSE)/i;
 
 // LFS pointers stay pointers: a smudge would download every large file in a repo whose memories
@@ -562,9 +559,6 @@ export function systemRunner(env: NodeJS.ProcessEnv = process.env): Runner {
   };
 }
 
-// What git alone gets, beyond the common scrub: no GitHub token, because git never reads one and
-// simple-git would echo it to its debug log, and an ssh that fails instead of asking, because
-// GIT_TERMINAL_PROMPT=0 says nothing to OpenSSH's own passphrase and host-key questions.
 const TOKEN_ENV: ReadonlySet<string> = new Set([
   "GITHUB_TOKEN",
   "GH_TOKEN",
@@ -576,6 +570,9 @@ function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
+// What git alone gets, beyond the common scrub: no GitHub token, because git never reads one and
+// simple-git would echo it to its debug log, and an ssh that fails instead of asking, because
+// GIT_TERMINAL_PROMPT=0 says nothing to OpenSSH's own passphrase and host-key questions.
 export function gitEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(childEnvironment(base))) {
@@ -649,12 +646,13 @@ export type GitRunnerOptions = {
   timeoutMs?: number;
 };
 
-// `protocol.allow=never` closes `ext::` and any other transport that runs a command named in a
-// URL; the listed ones are re-opened one by one. A `core.askPass` from the user's own gitconfig
-// would still open a prompt with the environment scrubbed, so it is emptied per command.
 const GIT_CONFIG = [
+  // A `core.askPass` from the user's own gitconfig would still open a prompt with the environment
+  // scrubbed, so it is emptied per command.
   "core.askPass=",
   "credential.interactive=false",
+  // `protocol.allow=never` closes `ext::` and any other transport that runs a command named in a
+  // URL; the listed ones are re-opened one by one.
   "protocol.allow=never",
   "protocol.https.allow=always",
   "protocol.http.allow=always",
@@ -663,10 +661,6 @@ const GIT_CONFIG = [
   "protocol.file.allow=always",
 ];
 
-// The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
-// upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
-// repository. simple-git refuses a guarded variable unless `allowEnvironment` lists it, so an
-// unlisted one is dropped rather than failing the fetch.
 const isGuardedEnvKey = (key: string): boolean => {
   const normalized = key.toLowerCase().trim();
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
@@ -674,6 +668,10 @@ const isGuardedEnvKey = (key: string): boolean => {
 const ALLOWED_GUARDED_ENV =
   /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
 
+// The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
+// upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
+// repository. simple-git refuses a guarded variable unless `allowEnvironment` lists it, so an
+// unlisted one is dropped rather than failing the fetch.
 function guardedEnvironment(env: Record<string, string>): {
   env: Record<string, string>;
   allowEnvironment: string[];

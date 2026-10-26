@@ -35,6 +35,9 @@ import {
 // The three engine verbs as the command line dispatches them: parse, hand the typed options to
 // the engine, and let the engine speak. Its output is the frame here: the `--json` document, the
 // dry-run plan, the hook protocol under `--quiet`, the notices and the summary interactively.
+//   remove   the prompt is the command line's, so the engine takes a confirmed removal or none:
+//            without `-y` on a terminal the user is asked; without one anywhere else the run stops
+//            before the engine, as `skills remove` does
 
 function agentIds(args: Args, io: CliIo): HarnessId[] | undefined {
   const selection = parseAgents(args, knownHarnessIds(io));
@@ -92,9 +95,6 @@ const REMOVE_FLAGS: readonly FlagSpec[] = [
   FLAGS.all,
 ];
 
-// The prompt is the command line's: the engine takes a confirmed removal or none. Without `-y`
-// on a terminal the user is asked; without one anywhere else the run stops before the engine,
-// as `skills remove` does.
 export const remove: Command = {
   summary: "take a source or a memory out of state, then sync",
   usage: "remove <source or memory>",

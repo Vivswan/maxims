@@ -20,27 +20,25 @@ import { flattenIssues } from "../util/zod-issues.ts";
 import { versionOf } from "./migrations/runner.ts";
 import { CURRENT_STATE_VERSION } from "./migrations/state-ladder.ts";
 
+// maxims never installs a name the grammar refuses, so one in state is a hand edit, refused whole like the rest.
 export const MemoryNameSchema = z.custom<MemoryName>(
   (value) => typeof value === "string" && parseMemoryName(value) !== null,
   { error: "expected a kebab-case memory name" },
 );
 
-// State holds a sha in the minted form only: a hand edit in upper case is refused whole like an
-// unsorted list below, never folded on the way in.
+// State holds a sha in the minted form only: a hand edit in upper case is refused whole like an unsorted list below, never folded on the way in.
 const GitShaSchema = z.custom<GitSha>(
   (value) => typeof value === "string" && parseGitSha(value) === value,
   { error: "expected a 40-character lower-case hex sha" },
 );
 
-// A project destination carries the real path of the project root the source was added in, so an
-// entry says which project it belongs to and a run acts only on the entries of the project it runs
-// in. State holds one entry per source, so a source recorded for one project is refused elsewhere
-// until it is removed there.
+// A project destination carries the real path of the project root the source was added in, so an entry says which project it belongs to and a run acts only on the entries of the project it runs in.
 export const DestinationSchema = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("global") }),
   z.strictObject({ scope: z.literal("project"), root: AbsolutePathSchema }),
   z.strictObject({ scope: z.literal("out"), path: AbsolutePathSchema }),
 ]);
+
 /** @public */
 export type Destination = z.infer<typeof DestinationSchema>;
 
@@ -79,7 +77,6 @@ function scopedLists<L extends z.ZodType>(list: L) {
   });
 }
 
-// Names the user has switched off.
 export const DisabledNamesSchema = sortedUniqueList(MemoryNameSchema);
 
 const IntentFields = {
@@ -210,17 +207,15 @@ export const SourceEntrySchema = z.union([
 /** @public */
 export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 
-// State owns the disabled names of BOTH scopes: the global list, and one list per project keyed
-// by its root. A project's lock file carries a committed copy of its list for `install` to read,
-// never the answer itself, so there is one place to change and nothing to reconcile.
+// State owns the disabled names of BOTH scopes; a project's lock carries a committed copy of its list for `install` to read, never the answer itself, so there is one place to change and nothing to reconcile.
 const DisabledSchema = scopedLists(DisabledNamesSchema);
+
 /** @public */
 export type Disabled = z.infer<typeof DisabledSchema>;
 
-// The harnesses whose session hook the user asked for, per scope: a project's `--add-hook` says
-// nothing about the user scope and the other way round, so a project add without the flag can
-// never inherit a hook from a global one.
+// Per scope: a project's `--add-hook` says nothing about the user scope and the other way round, so a project add without the flag can never inherit a hook from a global one.
 const HooksSchema = scopedLists(sortedUniqueList(HarnessIdSchema));
+
 /** @public */
 export type Hooks = z.infer<typeof HooksSchema>;
 
@@ -230,6 +225,8 @@ export const StateSchema = z
     writtenBy: z.string().min(1),
     hooks: HooksSchema.optional(),
     overrides: z.record(z.string(), z.unknown()).optional(),
+    // One entry per source, so a source recorded for one project is refused elsewhere until it is
+    // removed there.
     sources: z.record(z.string(), SourceEntrySchema),
     disabled: DisabledSchema.optional(),
   })

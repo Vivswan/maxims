@@ -32,9 +32,6 @@ function namedBlocks(text: string, spans: readonly HeldSpan[]): RuleBlock[] {
   }));
 }
 
-// The renderer wraps a detail token holding a reference-looking `@` in backticks, comma
-// included, so the path is read up to the comma with an optional fence on either side. dotAll:
-// a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
 const DETAIL_PATH = /\(detail: `?(.+?),`? [0-9a-f]{7}\)$/s;
 
 export type ParsedRuleLine = { name: MemoryName; text: string };
@@ -48,6 +45,9 @@ export function parseRuleLines(blockText: string): ParsedRuleLine[] {
   return lines;
 }
 
+// The renderer wraps a detail token holding a reference-looking `@` in backticks, comma
+// included, so the path is read up to the comma with an optional fence on either side. dotAll:
+// a local-source path may carry U+2028 or U+2029, which `.` alone would refuse.
 export function ruleLineName(line: string): MemoryName | null {
   const match = DETAIL_PATH.exec(line);
   return match === null ? null : parseMemoryName(detailStem(match[1] ?? ""));

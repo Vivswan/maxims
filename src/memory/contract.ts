@@ -31,10 +31,10 @@ export function contentHashLiteral(literal: string): ContentHash {
   return parsed;
 }
 
-// A name reaches disk as `<name>.md` inside a directory, so the grammar admits nothing a path
-// builder could misread: no separators, no dots, no case to fold. The length cap keeps the
-// filename under every common filesystem's 255-byte limit with room for the extension.
+// A name reaches disk as `<name>.md` inside a directory, so the grammar admits nothing a path builder could misread: no separators, no dots, no case to fold.
 export const MEMORY_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// Keeps the filename under every common filesystem's 255-byte limit with room for the extension.
 export const MEMORY_NAME_MAX_LENGTH = 200;
 
 // The local name a rename map gives a memory, or its own name. A plain object lookup would hand
@@ -230,7 +230,6 @@ export type HiddenCharacter =
   | { kind: "html-comment"; index: number };
 
 const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
-// The code points with a name of their own; the rest are reported by their kind.
 const HIDDEN_LABELS = new Map<number, string>([
   [0x200b, "zero-width space"],
   [0x200c, "zero-width non-joiner"],
@@ -245,6 +244,7 @@ export function hiddenCharacterLabel(hidden: HiddenCharacter): string {
   const hex = `U+${hidden.codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
   return `${hex} ${HIDDEN_LABELS.get(hidden.codePoint) ?? `${hidden.kind} character`}`;
 }
+
 // The Bidi_Control marks outside the two embedding ranges: ALM, LRM and RLM.
 const BIDI_MARKS = new Set([0x061c, 0x200e, 0x200f]);
 

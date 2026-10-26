@@ -1,3 +1,7 @@
+// Read-only: `doctor` compares what each harness would load against what state asks for and never
+// takes the lock or writes. Each `x` line is one harness that will not load a rule the user
+// believes is installed, or an unmet `--expect`; the exit code says whether there was any.
+
 import { heldFinding, notDefinedHere } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import { actsHere, harnessContext } from "../engine/context.ts";
@@ -54,9 +58,6 @@ type ExpectReport = { name: string; met: boolean; checked: number; missing: stri
 
 const DOCTOR_FLAGS: readonly FlagSpec[] = [FLAGS.expect];
 
-// Read-only: `doctor` compares what each harness would load against what state asks for and never
-// takes the lock or writes. Each `x` line is one harness that will not load a rule the user
-// believes is installed; the exit code says whether there was any.
 export const doctor: Command = {
   summary: "check that each harness loads the rule files and hook state asks for",
   usage: "doctor",

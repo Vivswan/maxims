@@ -15,11 +15,11 @@ export const CONFIG_LADDER: Ladder = {
   steps: MIGRATIONS,
 };
 
+const VERSION_BEFORE_ENVELOPE = 1;
+
 // config.json was written without a version before the envelope existed, and that shape is
 // version 1 by definition, whatever FIRST_VERSION later becomes: once rung 1 retires such a file
 // is unreachable and refused, never stamped current.
-const VERSION_BEFORE_ENVELOPE = 1;
-
 export function envelope(json: unknown): unknown {
   if (!util.isObject(json) || "version" in json) return json;
   return { version: VERSION_BEFORE_ENVELOPE, ...json };

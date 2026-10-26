@@ -1,3 +1,8 @@
+// `link` and `unlink` edit one intent field, the source's harness list, and never refetch. `unlink`
+// is the engine's own removal with `-a`: the entry stays while other harnesses still use it and
+// leaves with its last one. The prompt was `link`'s to skip: dropping a harness's copy is what the
+// user asked for by name, so the removal is confirmed here.
+
 import { noTargetAtScope, notInstalled } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import type { HarnessFilter } from "../engine/types.ts";
@@ -31,7 +36,6 @@ const LINK_FLAGS: readonly FlagSpec[] = [FLAGS.agent];
 
 type LinkTarget = { key: string; ids: HarnessFilter };
 
-// `link` and `unlink` edit one intent field, the source's harness list, and never refetch.
 async function linkTarget(
   args: Args,
   ctx: CommandContext,
@@ -113,9 +117,6 @@ export const link: Command = {
   },
 };
 
-// The harness drop is the engine's own removal with `-a`: the entry stays while other harnesses
-// still use it and leaves with its last one. The prompt was `link`'s to skip: dropping a
-// harness's copy is what the user asked for by name, so the removal is confirmed here.
 export const unlink: Command = {
   summary: "drop a harness from a source's recorded list, then sync",
   usage: "unlink <source> -a <harness>",

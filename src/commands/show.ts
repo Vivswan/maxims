@@ -1,3 +1,7 @@
+// `show` is read-only: the facts come from state and the body from the store copy, never from a
+// harness's destination, so what prints is what the next sync would install. It never takes the
+// lock and never settles the state file.
+
 import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { notInstalled, STRINGS } from "../console/strings.ts";
@@ -61,9 +65,6 @@ export type ShowLookup = { notices: string[] } & (
   | { kind: "ambiguous"; keys: string[] }
 );
 
-// Read-only: the facts come from state and the body from the store copy, never from a harness's
-// destination, so what prints is what the next sync would install. It never takes the lock and
-// never settles the state file.
 export const show: Command = {
   summary: "print one installed memory in full, or a source's facts and held changes",
   usage: "show <memory or source>",

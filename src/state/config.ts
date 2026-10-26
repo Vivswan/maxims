@@ -1,3 +1,8 @@
+// User defaults live in `<home>/config.json`, apart from state: state records what is installed,
+// this records how the user likes to install. Strict, like state, so a misspelled key is refused
+// rather than silently ignored. UserConfigSchema's keys are the ones `config set` offers; the file
+// carries them under the version envelope, which is never a key.
+
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { HarnessIdSchema } from "../contracts/harness-id.ts";
@@ -6,10 +11,6 @@ import { flattenIssues } from "../util/zod-issues.ts";
 import { CONFIG_LADDER, CURRENT_CONFIG_VERSION, envelope } from "./migrations/config-ladder.ts";
 import { migrate, versionOf } from "./migrations/runner.ts";
 
-// User defaults live in `<home>/config.json`, apart from state: state records what is installed,
-// this records how the user likes to install. Strict, like state, so a misspelled key is refused
-// rather than silently ignored. These are the keys `config set` offers; the file carries them
-// under the version envelope below, which is never a key.
 export const UserConfigSchema = z.strictObject({
   agents: z.array(HarnessIdSchema).optional(),
   yes: z.boolean().optional(),

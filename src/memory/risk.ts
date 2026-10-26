@@ -21,16 +21,6 @@ type Hit = { column: number; detail: string };
 type Detector = (line: string) => Hit | null;
 
 const FETCH = /\b(?:curl|wget|iwr|invoke-webrequest)\b/i;
-// The interpreter may sit behind "sudo" and "/usr/bin/env"; "iex" is PowerShell's alias for
-// Invoke-Expression, the canonical Windows one-liner. The sudo flags and the python version are
-// bounded because every backtrack into them re-runs the trailing lookahead over the rest of the
-// line: "python1.1.1...", unbounded, went quadratic.
-//
-// sudo's short flags that take an argument always consume the next token, so "sudo -u bash tee"
-// names a user, not a shell; a flag free to drop its argument would fire on it. The other flags
-// never take one, so "sudo -E bash now" still fires, also when clustered ahead of an argument flag
-// ("sudo -Eu root bash"). Under the i flag -a, -h and -p would swallow the bare -A, -H and -P, so
-// those three read as bare: "sudo -H bash" fires, "sudo -h host bash" does not.
 const SUDO_ARG_FLAGS = "cdgrtu";
 const SUDO_BARE_FLAGS = [..."abcdefghijklmnopqrstuvwxyz"]
   .filter((letter) => !SUDO_ARG_FLAGS.includes(letter))
@@ -48,6 +38,17 @@ const SUBSHELL_FETCH = /\$\(\s*(?:curl|wget|iwr|invoke-webrequest)\b/i;
 
 // Each sub-shape scans from its own anchor once, never retrying a later anchor, so a line of many
 // "curl" tokens cannot drive the seek-to-pipe scan quadratic. The earliest sub-shape wins.
+//
+// In PIPE_INTO the interpreter may sit behind "sudo" and "/usr/bin/env"; "iex" is PowerShell's
+// alias for Invoke-Expression, the canonical Windows one-liner. The sudo flags and the python
+// version are bounded because every backtrack into them re-runs the trailing lookahead over the
+// rest of the line: "python1.1.1...", unbounded, went quadratic.
+//
+// sudo's short flags that take an argument always consume the next token, so "sudo -u bash tee"
+// names a user, not a shell; a flag free to drop its argument would fire on it. The other flags
+// never take one, so "sudo -E bash now" still fires, also when clustered ahead of an argument flag
+// ("sudo -Eu root bash"). Under the i flag -a, -h and -p would swallow the bare -A, -H and -P, so
+// those three read as bare: "sudo -H bash" fires, "sudo -h host bash" does not.
 function shellPipe(line: string): Hit | null {
   const hits: Hit[] = [];
   const fetch = FETCH.exec(line);
@@ -71,23 +72,8 @@ function shellPipe(line: string): Hit | null {
   return leftmost(hits);
 }
 
-// Finding a URL is a regex job, but naming its host is not: any hand-rolled authority parsing
-// disagrees with the real parser somewhere, and a "trusted@evil.example" a browser resolves to
-// evil.example must never read as trusted. So each "://" candidate hands its authority to the WHATWG
-// URL parser rather than a regex; a bare "https://" names no host.
 const SCHEME = /https?:\/\//gi;
 const AUTHORITY_END = /[\s\\/?#]/;
-
-// The character that opens a URL says where its markup closes it (the keys are openers, the values
-// closers); an unquoted href value ("=") ends at the tag's ">". A code span is not an opener but a
-// region: its own end bounds any URL inside it (codeSpans). Nothing else closes a URL early, so a
-// quote or bracket glued inside an unopened authority ('trusted.example"@evil.example') stays the
-// userinfo the parser resolves past. Code spans are read without HTML tag precedence, so a backtick
-// inside a tag's attribute opens one. Three shapes are the recorded price of those rules:
-//
-//   [docs](https://user:p)w@example.com)                  -> no url (")" in userinfo ends the link)
-//   destination=https://trusted.example>@evil.example/x   -> trusted.example (">" ends the href)
-//   <a title="`" href="https://trusted.example`@evil.example">  -> trusted.example (span in a tag)
 const CLOSERS: Readonly<Record<string, string>> = {
   '"': '"',
   "'": "'",
@@ -96,6 +82,21 @@ const CLOSERS: Readonly<Record<string, string>> = {
   "(": ")",
 };
 
+// Finding a URL is a regex job, but naming its host is not: any hand-rolled authority parsing
+// disagrees with the real parser somewhere, and a "trusted@evil.example" a browser resolves to
+// evil.example must never read as trusted. So each "://" candidate hands its authority to the WHATWG
+// URL parser rather than a regex; a bare "https://" names no host.
+//
+// The character that opens a URL says where its markup closes it (CLOSERS' keys are openers, its
+// values closers); an unquoted href value ("=") ends at the tag's ">". A code span is not an opener
+// but a region: its own end bounds any URL inside it (codeSpans). Nothing else closes a URL early,
+// so a quote or bracket glued inside an unopened authority ('trusted.example"@evil.example') stays
+// the userinfo the parser resolves past. Code spans are read without HTML tag precedence, so a
+// backtick inside a tag's attribute opens one. Three shapes are the recorded price of those rules:
+//
+//   [docs](https://user:p)w@example.com)                  -> no url (")" in userinfo ends the link)
+//   destination=https://trusted.example>@evil.example/x   -> trusted.example (">" ends the href)
+//   <a title="`" href="https://trusted.example`@evil.example">  -> trusted.example (span in a tag)
 function url(line: string): Hit | null {
   const spans = codeSpans(line);
   let cursor = 0;
@@ -188,10 +189,6 @@ function firstAfter(sorted: readonly number[], index: number): number | undefine
   return sorted[low];
 }
 
-// Prose wraps a URL in punctuation, markdown emphasis included, and may follow the wrapper with a
-// colon ("[guide](https://example.com:443): more"); all of it trails and is stripped. A bare
-// trailing colon stays: it is a dangling port the parser tolerates, and inside an IPv6 literal
-// whose "]" was just stripped, "::" is address syntax.
 const TRAILING_WRAPPERS = ").,;!?}]'\"`>*_";
 const WRAPPER_CHAR = /["'<>`|]/;
 
@@ -234,6 +231,10 @@ function tryHost(candidate: string): string | null {
   return host === "" ? null : host;
 }
 
+// Prose wraps a URL in punctuation, markdown emphasis included, and may follow the wrapper with a
+// colon ("[guide](https://example.com:443): more"); all of it trails and is stripped. A bare
+// trailing colon stays: it is a dangling port the parser tolerates, and inside an IPv6 literal
+// whose "]" was just stripped, "::" is address syntax.
 function trimTrailing(text: string): string {
   let end = text.length;
   while (end > 0) {
@@ -254,10 +255,10 @@ const FOREIGN_SCRIPTS: readonly (readonly [string, RegExp])[] = [
   ["Greek", /\p{Script=Greek}/u],
   ["Armenian", /\p{Script=Armenian}/u],
 ];
-// Combining marks join their base letter into one token, so a homoglyph hidden behind an accent
-// cannot split into two single-script words that each read as clean.
 const WORD = /[\p{L}\p{M}]+/gu;
 
+// Combining marks join their base letter into one token (WORD), so a homoglyph hidden behind an
+// accent cannot split into two single-script words that each read as clean.
 function mixedScript(line: string): Hit | null {
   for (const match of line.matchAll(WORD)) {
     const word = match[0];
