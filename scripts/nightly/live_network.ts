@@ -27,11 +27,9 @@ const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-c
 // Where REFERENCE_ADD lands: claude-code's global rules directory and the clean slug of @Vivswan/skills (src/engine/slug.ts).
 const REFERENCE_RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
 
-/**
- * One rung of the ladder; `judge` reads back what the rung left in its HOME after it exited.
- *   home  -> which throwaway HOME the rung runs in; rungs sharing one see each other's state
- *   judge -> the problems found, empty when the rung did what it was for
- */
+// One rung of the ladder; `judge` reads back what the rung left in its HOME after it exited.
+//   home  -> which throwaway HOME the rung runs in; rungs sharing one see each other's state
+//   judge -> the problems found, empty when the rung did what it was for
 export type Step = {
   name: string;
   argv: readonly string[];

@@ -31,7 +31,7 @@ export type CommandRunner = (command: Command) => Promise<CommandResult>;
 
 export type World = { home: string; version: string };
 
-/** One step of the round trip; `argv` follows the package spec on the npx command line. */
+// One step of the round trip; `argv` follows the package spec on the npx command line.
 export type Step = {
   name: string;
   argv: readonly string[];

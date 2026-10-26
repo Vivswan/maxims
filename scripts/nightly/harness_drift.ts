@@ -31,11 +31,10 @@ const WORD = "[A-Za-z0-9_-]";
 const WORD_FIRST = new RegExp(`^${WORD}`);
 const WORD_LAST = new RegExp(`${WORD}$`);
 
-/**
- * Whether `claim` holds in `text` as a literal phrase, case-sensitive. `text` has been through normalizeText, and the claim's own whitespace runs are read as one space here to match it, so a claim holds across a line break.
- *   `hooks`         -> never holds on `webhooks`: a claim that begins or ends in an ASCII word character must do so at a word boundary
- *   `.claude/rules` -> needs no boundary before its dot
- */
+// Whether `claim` holds in `text` as a literal phrase, case-sensitive.
+// `text` has been through normalizeText, and the claim's own whitespace runs are read as one space here to match it, so a claim holds across a line break.
+//   `hooks`         -> never holds on `webhooks`: a claim that begins or ends in an ASCII word character must do so at a word boundary
+//   `.claude/rules` -> needs no boundary before its dot
 export function claimPresent(text: string, claim: string): boolean {
   const literal = RegExp.escape(squashWhitespace(claim));
   const before = WORD_FIRST.test(claim) ? `(?<!${WORD})` : "";
