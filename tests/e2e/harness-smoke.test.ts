@@ -1,9 +1,14 @@
 // Fails if an installed harness CLI stops running the session-start hook maxims registered, stops
 // loading the rule file maxims wrote where maxims wrote it, or drifts in the redirect, dummy-auth
 // or headless knobs the container tier relies on, and if the built bundle stops running its
-// install and sync verbs under node. The real rows run only inside the container
-// tier (the image sets MAXIMS_CONTAINER_TIER=1); locally they skip by name, and a stub CLI that
-// speaks the Claude Code shape proves the smoke's own logic, including its two failure findings.
+// install and sync verbs under node.
+//
+// The real rows run only inside the container tier (the image sets MAXIMS_CONTAINER_TIER=1);
+// locally they skip by name, and a stub CLI that speaks the Claude Code shape proves the smoke's
+// own logic, including its two failure findings.
+//
+// Cold starts inside the container take a few seconds each; the CLI deadline's kill is what turns
+// a CLI waiting on a prompt into a named failure instead of a hung suite.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -23,18 +28,18 @@ import { type CapturedRequest, startFakeLlm, type Wire, wireFor } from "./fake-l
 
 const PROMPT = "Reply with the single word ok.";
 const FAKE_TOKEN = "fake-token";
-// Cold starts inside the container take a few seconds each; the deadline kill is what turns a CLI
-// waiting on a prompt into a named failure instead of a hung suite.
 const CLI_DEADLINE_MS = 90_000;
 const ROW_TIMEOUT_MS = 150_000;
 const TAIL_CHARS = 800;
 
+/**
+ * One installed CLI: how a row runs it against the fake and what proves the run.
+ *   authHeader -> its presence on the request that carried the rule line proves the dummy credential reached the wire; the value is never asserted
+ */
 type Row = {
   command: readonly string[];
   harness: BuiltInHarnessId;
   wire: Wire;
-  // The header whose presence proves the dummy credential reached the wire; its value is never
-  // asserted.
   authHeader: string;
   argv: (prompt: string) => string[];
   env: (home: string, baseUrl: string) => Record<string, string>;
@@ -170,11 +175,6 @@ const COPILOT: Row = {
   succeeded: (stdout) => jsonLines(stdout).some((line) => line.type === "result"),
 };
 
-// OpenCode 2.0 serves `@opencode/plugin` to the plugin file from the host, so nothing is installed
-// for it; the models.dev refresh is the one request the container cannot serve. The 1.x provider
-// block below is read through 2.0's config migration. Its json output is one `text` line per
-// assistant text part and an `error` line on a failed step, with no step-finish line, so the
-// text part is the success marker.
 const OPENCODE: Row = {
   command: ["opencode"],
   harness: "opencode",
@@ -187,8 +187,10 @@ const OPENCODE: Row = {
     XDG_CACHE_HOME: join(home, ".cache"),
     XDG_STATE_HOME: join(home, ".local", "state"),
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    // OpenCode 2.0 serves `@opencode/plugin` to the plugin file from the host, so nothing is installed for it; the models.dev refresh is the one request the container cannot serve.
     OPENCODE_DISABLE_MODELS_FETCH: "1",
   }),
+  // The 1.x provider block, read through 2.0's config migration.
   files: (baseUrl) => ({
     ".config/opencode/opencode.json": `${JSON.stringify(
       {
@@ -209,6 +211,7 @@ const OPENCODE: Row = {
       2,
     )}\n`,
   }),
+  // The json output is one `text` line per assistant text part and an `error` line on a failed step, with no step-finish line, so the text part is the success marker.
   succeeded: (stdout) =>
     jsonLines(stdout).some((line) => {
       const part = line.part;
@@ -221,7 +224,6 @@ const OPENCODE: Row = {
     }),
 };
 
-// Keyed by the names the container tier reads back out of the suite's output.
 const REAL_ROWS: Readonly<Record<HarnessSmokeCli, Row>> = {
   claude: CLAUDE,
   codex: CODEX,
@@ -230,9 +232,6 @@ const REAL_ROWS: Readonly<Record<HarnessSmokeCli, Row>> = {
   opencode: OPENCODE,
 };
 
-// A harness stand-in in the Claude Code shape: it runs the SessionStart hooks from the settings
-// file maxims writes, loads the rules directory maxims writes, and sends both to the Anthropic
-// route. MAXIMS_STUB_WITHHOLD names the step it skips, so each smoke finding can be seen red.
 const STUB_SOURCE = `
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -547,8 +546,11 @@ function stubRow(): Row {
   return { ...CLAUDE, command: [process.execPath, ready().stub] };
 }
 
-// A stub that withholds nothing is the positive control; one that withholds a step must fail on
-// that step's finding and no other.
+// STUB_SOURCE is a harness stand-in in the Claude Code shape: it runs the SessionStart hooks from
+// the settings file maxims writes, loads the rules directory maxims writes, and sends both to the
+// Anthropic route. MAXIMS_STUB_WITHHOLD names the step it skips, so each smoke finding can be seen red.
+//   nothing withheld -> the positive control
+//   a step withheld  -> must fail on that step's finding and no other
 type StubRow = [label: string, withhold: string, verdict: unknown];
 
 const stubRows: StubRow[] = [

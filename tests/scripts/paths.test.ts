@@ -23,8 +23,7 @@ interface Landing {
   expected: { path: string } | { refusal: string };
 }
 
-// The fixture directory is canonicalized the helper's way: macOS reaches its temp dir through a
-// symlink and Windows spells it with a short name.
+// The fixture directory is canonicalized the helper's way: macOS reaches its temp dir through a symlink and Windows spells it with a short name.
 const landings: [string, (dir: string) => Landing][] = [
   [
     "a missing tail below a symlinked directory",

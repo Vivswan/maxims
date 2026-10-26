@@ -36,14 +36,14 @@ const SHA = "1".repeat(40);
 const STAMP = "2026-09-20T12:00:00.000Z";
 const ADD = ["add", KEY, "-g", "-a", "claude-code", "--auth", "-y"];
 
-// gh answers 401, git says the repository is gone, the API fallback answers 404: three rungs,
-// three reasons, and `auth` wins the recorded failure.
 const RUNGS = [
   "gh api: HTTP 401: Bad credentials",
   "git ls-remote: fatal: repository 'https://github.com/a/b.git/' not found",
   "https://api.github.com/repos/a/b/commits/HEAD: HTTP 404",
 ];
 
+// gh answers 401, git says the repository is gone, the API fallback answers 404: three rungs,
+// three reasons, and `auth` wins the recorded failure.
 function threeRungRunner(): ScriptedRunner {
   return scriptedRunner({
     exec: ghScript(() => exited(1, "", "HTTP 401: Bad credentials")),
@@ -57,13 +57,13 @@ function threeRungRunner(): ScriptedRunner {
   });
 }
 
-// gh is logged in but refused on both calls the ladder makes (the ref, then the tarball) and git
-// answers each time: a rung reason per refused call beside a fetch that succeeded.
 const GH_DENIED = {
   commits: "gh api: HTTP 401: Bad credentials",
   tarball: "gh api: HTTP 401: Requires authentication",
 };
 
+// gh is logged in but refused on both calls the ladder makes (the ref, then the tarball) and git
+// answers each time: a rung reason per refused call beside a fetch that succeeded.
 function ghDeniedGitAnswers(upstream: string): ScriptedRunner {
   return scriptedRunner({
     exec: ghScript((args) =>

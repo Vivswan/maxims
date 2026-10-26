@@ -54,8 +54,6 @@ export type RunOptions = {
 
 export type Run = { code: number; stdout: string; stderr: string };
 
-// SIGKILL is the runner's own kill at the budget, nothing else sends it; a binary that dies by
-// any other signal returns 128 plus the signal number with the output it wrote first.
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const INHERITED = ["PATH", "TMPDIR", "LANG"];
@@ -80,6 +78,8 @@ export function childEnv(home: Home, extra: Record<string, string> = {}): Record
   };
 }
 
+// SIGKILL is the runner's own kill at the budget, nothing else sends it; a binary that dies by
+// any other signal returns 128 plus the signal number with the output it wrote first.
 export async function runMaxims(
   bundle: Bundle,
   home: Home,

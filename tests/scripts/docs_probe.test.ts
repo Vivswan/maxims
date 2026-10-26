@@ -147,8 +147,6 @@ test.each(tableCases)("%s", (_name, body, expected) => {
   expect(probePage(page(body), "page.md", options)).toEqual(expected);
 });
 
-// A block the stream omits still occupies source lines; a table it quotes must not be where the
-// next real table's header is found.
 const quoted = "| demo | sample |\n| --- | --- |";
 const skippedCases: [name: string, skipped: string, bodyLine: number][] = [
   ["a fenced code block", `\`\`\`md\n${quoted}\n\`\`\``, 10],
@@ -168,6 +166,8 @@ const skippedCases: [name: string, skipped: string, bodyLine: number][] = [
   ["a code block opening a list item", `-     | demo | sample |\n      | --- | --- |`, 8],
 ];
 
+// A block the stream omits still occupies source lines; a table it quotes must not be where the
+// next real table's header is found.
 test.each(skippedCases)(
   "a table after %s quoting a table lands on its own lines",
   (_name, skipped, bodyLine) => {
@@ -176,11 +176,6 @@ test.each(skippedCases)(
   },
 );
 
-// A tight item's line is its first visible word, wherever the item's fences, quotes, tags, and
-// badges sit around it, and a paragraph after the item keeps its own line even when a fence in the
-// item quotes it word for word. A link's line is pinned too: a link whose label shows nothing has
-// no words to find and still sits where it is written. The pages carry no title so the expected
-// lines are the source lines the reader counts.
 const itemCases: [name: string, text: string, placed: string[]][] = [
   [
     "a fence opening a list item quotes the paragraph after the item, as a list item of its own",
@@ -249,6 +244,11 @@ const itemCases: [name: string, text: string, placed: string[]][] = [
   ],
 ];
 
+// Where a unit inside a list item lands; the pages carry no title, so the expected lines are the
+// source lines the reader counts.
+//   a tight item                      -> its line is its first visible word, wherever the item's fences, quotes, tags, and badges sit around it
+//   a paragraph after the item        -> keeps its own line even when a fence in the item quotes it word for word
+//   a link whose label shows nothing  -> has no words to find and still sits where it is written
 test.each(itemCases)("%s", (_name, text, placed) => {
   const scan = scanPage(text);
   expect([
@@ -257,13 +257,6 @@ test.each(itemCases)("%s", (_name, text, placed) => {
   ]).toEqual(placed);
 });
 
-// A unit's line survives whatever the reader does not see near it: a comment or tag continued over
-// a line, a badge, an image, a definition, an empty fence, or a fence quoting the very line before it.
-// A code span or link with no letters sits where it is written. The rest pin what the reader's
-// renderer does and the parser's raw tokens do not: a reference resolves through its definition on
-// the label as written, a cell's escaped pipe reads as a pipe, a row's cells past the header's count
-// are dropped, an autolink is a link, and a generated region hides its units wherever they are
-// aggregated. The pages carry no title so the expected lines are the source lines the reader counts.
 const positionCases: [name: string, text: string, placed: string[]][] = [
   [
     "a comment continued on the next line hides that line from the paragraph after it",
@@ -385,6 +378,16 @@ const positionCases: [name: string, text: string, placed: string[]][] = [
   ],
 ];
 
+// A unit's line survives whatever the reader does not see near it, and the rest pin what the
+// reader's renderer does and the parser's raw tokens do not. The pages carry no title, so the
+// expected lines are the source lines the reader counts.
+//   not seen near a unit           -> a comment or tag continued over a line, a badge, an image, a definition, an empty fence, a fence quoting the very line before it
+//   no letters                     -> a code span or link with none sits where it is written
+//   a reference                    -> resolves through its definition, on the label as written
+//   a cell's escaped pipe          -> reads as a pipe
+//   cells past the header's count  -> dropped
+//   an autolink                    -> a link
+//   a generated region             -> hides its units wherever they are aggregated
 test.each(positionCases)("%s", (_name, text, placed) => {
   const scan = scanPage(text);
   expect([
@@ -394,8 +397,6 @@ test.each(positionCases)("%s", (_name, text, placed) => {
   ]).toEqual(placed);
 });
 
-// Word counts that depend on the unit's shape, not on its lines: what a tight item holds, and
-// what a task list's checkbox and a strikethrough's markers are not.
 const itemWordCases: [name: string, text: string, findings: ReturnType<typeof paragraph>[]][] = [
   [
     "a tight item's prose is one unit around a nested list and a heading",
@@ -451,15 +452,12 @@ const itemWordCases: [name: string, text: string, findings: ReturnType<typeof pa
   ],
 ];
 
+// Word counts that depend on the unit's shape, not on its lines: what a tight item holds, and
+// what a task list's checkbox and a strikethrough's markers are not.
 test.each(itemWordCases)("%s", (_name, text, expected) => {
   expect(probePage(text, "page.md", { ...options, maxWords: 2 })).toEqual(expected);
 });
 
-// A fragment is judged against the ids the target page renders: each heading's slug as GitHub
-// and the docs site (github-slugger) make it, with a repeat numbered, and any explicit id on an
-// HTML tag outside a comment. A `{#id}` suffix is heading text: the fleet writes its links for
-// GitHub, which renders no custom ids. A fragment on a page that does not exist is not judged
-// twice, and one on a file that is not markdown is not judged at all.
 const TARGET_PAGE = [
   "# Title",
   "",
@@ -521,6 +519,12 @@ const anchorCases: [name: string, href: string, message: string | null][] = [
   ],
 ];
 
+// A fragment is judged against the ids the target page renders; the fleet writes its links for
+// GitHub, which renders no custom ids.
+//   a heading                      -> its slug as GitHub and the docs site (github-slugger) make it, a repeat numbered; a `{#id}` suffix is heading text
+//   an HTML tag outside a comment  -> its explicit id
+//   a page that does not exist     -> not judged twice
+//   a file that is not markdown    -> not judged at all
 test.each(anchorCases)("%s", async (_name, href, message) => {
   await withTempDir((dir) => {
     writeFileSync(join(dir, "target.md"), TARGET_PAGE);
@@ -532,10 +536,6 @@ test.each(anchorCases)("%s", async (_name, href, message) => {
   });
 });
 
-// Git tracks `docs/page.md`, `README.md`, and `..notes/kept.md` and nothing under `.claude`, so
-// each verdict holds with or without a planted `.claude/`. The stale `docs/gone.md` is the
-// positive control. A token resolving to the root names the repository, and a directory whose
-// name opens with `..` sits inside it.
 const ownershipCases: [token: string, message: string | null][] = [
   [".claude/settings.json", null],
   ["docs/gone.md", "`docs/gone.md` does not exist"],
@@ -549,6 +549,10 @@ const ownershipCases: [token: string, message: string | null][] = [
 ];
 const ownershipPage = (token: string) => `# Title\n\nRead \`${token}\` first.\n`;
 
+// Git tracks `docs/page.md`, `README.md`, and `..notes/kept.md` and nothing under `.claude`, so
+// each verdict holds with or without a planted `.claude/`. The stale `docs/gone.md` is the
+// positive control. A token resolving to the root names the repository, and a directory whose
+// name opens with `..` sits inside it.
 test.each(ownershipCases)(
   "%s is judged by what git tracks, with and without a planted untracked directory",
   async (token, message) => {
@@ -570,13 +574,13 @@ test.each(ownershipCases)(
   },
 );
 
-// The command reads the listing from the root's own repository: a `GIT_INDEX_FILE` a git hook
-// hands down names no index here, and git then lists nothing with exit 0.
 const inheritedGitEnv: [name: string, env: (dir: string) => Record<string, string>][] = [
   ["a clean environment", () => ({})],
   ["an inherited GIT_INDEX_FILE", (dir) => ({ GIT_INDEX_FILE: join(dir, "no-such-index") })],
 ];
 
+// The command reads the listing from the root's own repository: a `GIT_INDEX_FILE` a git hook
+// hands down names no index here, and git then lists nothing with exit 0.
 test.each(inheritedGitEnv)(
   "the command lists the root's tracked files through git under %s",
   async (_name, env) => {

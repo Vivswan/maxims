@@ -2,6 +2,9 @@
 // without anyone noticing until the runner runs, if a bundle that exits 0 and installs nothing
 // passes the ladder, if a rung that fails stops failing the run with its stderr, or if a remote's
 // credentials could reach the issue body.
+//
+// The ladder rows skip on Windows: the mirror picks executables by POSIX mode bits and symlinks
+// them by bare name, which is not how a Windows PATH resolves a program.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,12 +22,13 @@ import { withTempDir } from "../shared/temp_dir.ts";
 
 type Call = { argv: readonly string[]; env: Record<string, string> };
 
+// As the first and fourth rungs spell it; the ladder must hand it to the bundle unchanged.
 const ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
 
-// Where `maxims add @Vivswan/skills -g --rule -a claude-code` puts its rule file under HOME: the
-// claude-code global rules directory and the source's slug (src/engine/slug.ts). Spelled
-// here rather than imported so a ladder that reads a different path fails on this file.
+// Where that add puts its rule file under HOME: the claude-code global rules directory and the source's slug (src/engine/slug.ts), spelled here rather than imported so a ladder that reads a different path fails on this file.
 const RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
+
+// The path as the ladder's problem lines print it, HOME shortened to `~`.
 const RULE_FILE_SHOWN = `~/${RULE_FILE}`;
 
 // What a working bundle leaves in the rule file: one rule line between the block markers.
@@ -34,13 +38,15 @@ const INSTALLED = [
   "<!-- maxims:end @Vivswan/skills -->",
   "",
 ].join("\n");
+
+// The markers with no rule line between them: a bundle that wrote the block and installed no rule.
 const EMPTY_BLOCK = [
   "<!-- maxims:begin @Vivswan/skills sha=0123456789abcdef0123456789abcdef01234567 version=1 -->",
   "<!-- maxims:end @Vivswan/skills -->",
   "",
 ].join("\n");
-// The renderer fences a detail path holding an `@`, comma included, as a HOME under a runner's
-// temp dir can hold one (src/rulefile/block.ts); the judge must read that line as a rule too.
+
+// The renderer fences a detail path holding an `@`, comma included, as a HOME under a runner's temp dir can hold one (src/rulefile/block.ts); the judge must read that line as a rule too.
 const INSTALLED_FENCED = INSTALLED.replace(
   "(detail: ~/.agents/memories/real-file.md, 0123456)",
   "(detail: `/tmp/runner@2/home/.agents/memories/real-file.md,` 0123456)",
@@ -65,8 +71,7 @@ function fakeBundle(
   return { calls, run };
 }
 
-// The ladder as the step summary and the report print it, spelled once for every expected table
-// and report below.
+// The ladder as the step summary and the report print it, spelled once for every expected table and report below.
 const RUNGS = [
   {
     name: "add through a sparse clone",
@@ -100,11 +105,14 @@ const RUNGS = [
   },
 ] as const;
 
+/**
+ * One row of an expected table or report.
+ *   stderr -> as the report prints it: redacted and trimmed
+ */
 type Rung = {
   exit: number;
   verdict: "ok" | "FAIL";
   problems?: readonly string[];
-  // As the report prints it: redacted and trimmed.
   stderr?: string;
 };
 
@@ -155,8 +163,6 @@ const failed = (rungs: readonly Rung[]): Outcome => ({
   },
 });
 
-// The mirror picks executables by POSIX mode bits and symlinks them by bare name, which is not
-// how a Windows PATH resolves a program.
 const posixPath = test.skipIf(WINDOWS);
 
 posixPath(

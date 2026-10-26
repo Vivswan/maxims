@@ -1,6 +1,4 @@
-// The container image declares this variable (tests/container/Dockerfile), so every process in
-// a container run sees it and nothing outside one does: the tests that drive the image's
-// installed harness CLIs run when it is set and skip by name otherwise.
+// The container image declares this variable (tests/container/Dockerfile), so every process in a container run sees it and nothing outside one does; the harness smoke rows run when it is set and skip by name otherwise.
 export const CONTAINER_TIER_ENV = "MAXIMS_CONTAINER_TIER";
 
 export function inContainerTier(env: Record<string, string | undefined>): boolean {
@@ -10,6 +8,7 @@ export function inContainerTier(env: Record<string, string | undefined>): boolea
 // The rows the tier reads back out of the suite's output. The smoke test builds its rows from
 // this list and titles them with these names under this describe, so the tier and the test
 // cannot name different rows.
+
 export const HARNESS_SMOKE_FILE = "tests/e2e/harness-smoke.test.ts";
 export const HARNESS_SMOKE_SUITE = "installed harness CLIs against the fake endpoint";
 export const HARNESS_SMOKE_CLIS = ["claude", "codex", "gemini", "copilot", "opencode"] as const;
@@ -20,9 +19,12 @@ export type SmokeRowResult =
   | { status: "pass" | "fail"; ms: number | null }
   | { status: "skip" | "absent" };
 
+/**
+ * What the tier reads back out of the suite's output.
+ *   summary -> bun's closing `Ran N tests across M files.` line; null when the suite never got there
+ */
 export type SuiteEvidence = {
   rows: Record<HarnessSmokeCli, SmokeRowResult>;
-  // bun's closing `Ran N tests across M files.` line; null when the suite never got there.
   summary: { tests: number; files: number } | null;
 };
 

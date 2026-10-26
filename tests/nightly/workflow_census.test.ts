@@ -36,14 +36,11 @@ const workflow = read(".github/workflows/nightly.yml") as Workflow;
 const gate = read(GATE_PATH) as Gate;
 const settings = read(".github/settings.local.yml") as Settings;
 
-// The container tier runs through its own script rather than the dispatcher and writes no
-// failure report, so it is the one tracked category with a report job of its own.
 const TRACKED = [...CATEGORIES, "container"].sort();
 const report = workflow.jobs.report;
 const legs = report?.strategy?.matrix.include ?? [];
 const tiers = Object.keys(gate.jobs);
 
-// A category declared in both files is caught by the census below, not hidden by this preference.
 const tierJob = (category: string): Job | undefined =>
   gate.jobs[category] ?? workflow.jobs[category];
 
@@ -62,14 +59,12 @@ function evaluate(
   return new Evaluator(tree, dictionary, table).evaluate();
 }
 
-// The status functions a job-level `if` reads off its needed jobs' results. cancelled() asks
-// whether the workflow run was cancelled, which a timed-out category never is, so a simulated
-// night keeps it false.
 const statusFunctions = (results: Result[]): FunctionDefinition[] =>
   Object.entries({
     always: true,
     success: results.every((result) => result === "success"),
     failure: results.includes("failure"),
+    // Asks whether the workflow run was cancelled, which a timed-out category never is, so a simulated night keeps it false.
     cancelled: false,
   }).map(([name, value]) => ({
     name,
@@ -169,6 +164,9 @@ const DECISIONS: Record<Result, string[]> = {
   success: ["resolve"],
 };
 
+// The container tier runs through its own script rather than the dispatcher and writes no
+// failure report, so it is the one tracked category with a report job of its own. A category
+// declared in both files fails here rather than hiding behind tierJob's gate-first lookup.
 test("every tracked category has one job a night, here or in the release gate, and nothing else has one", () => {
   const inline = Object.keys(workflow.jobs).filter((name) => TRACKED.includes(name));
   expect([...inline, ...tiers].sort()).toEqual(TRACKED);
@@ -187,10 +185,11 @@ test("every release-gate job carries its own timeout", () => {
   expect(missing).toEqual([]);
 });
 
-// A second caller runs every tier twice per release with no error from GitHub. The managed
-// ci.yml is the platform's caller and is left out: it changes by sync, never here. A call names
-// the file by a local path, by this repository's coordinate with a ref, or by the `$/` shorthand.
+// A call names the file by a local path, by this repository's coordinate with a ref, or by the `$/` shorthand.
 const CALLS_GATE = new RegExp(`(^\\./|^\\$/|/)${RegExp.escape(GATE_PATH)}(@|$)`);
+
+// A second caller runs every tier twice per release with no error from GitHub. The managed
+// ci.yml is the platform's caller and is left out: it changes by sync, never here.
 test("nightly.yml is the one repository-owned caller of the release gate", () => {
   const callers = readdirSync(resolve(repoRoot, ".github/workflows"))
     .filter((file) => /\.ya?ml$/.test(file) && file !== "ci.yml")

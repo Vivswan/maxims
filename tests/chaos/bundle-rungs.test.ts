@@ -54,10 +54,10 @@ import {
 let bundleDir = "";
 let bundle: Bundle;
 
-// Every row here fetches over git://, so a machine without the daemon helper skips them all, with
-// the reason printed once, rather than failing each on the same missing binary. Git for Windows
-// and Apple's git are not verified to ship it.
+// Every row fetches over git://, and Git for Windows and Apple's git are not verified to ship the daemon helper, so a machine without it skips every row with the reason printed once instead of failing each on the same missing binary.
 const gitDaemon = probeGitDaemon();
+
+// `test` for a row that needs the daemon and nothing more; a row with a second condition spells its own skipIf.
 const row = test.skipIf(gitDaemon.kind === "unavailable");
 
 beforeAll(() => {
@@ -139,8 +139,7 @@ type NetworkRow = {
   staleLine: boolean;
 };
 
-// Past the seven-day mark a failing source earns one staleness line inside its block; the
-// eight-day row pins that the line is the only difference.
+// Past the seven-day mark a failing source earns one staleness line inside its block; the eight-day row pins that the line is the only difference.
 const networkRows: NetworkRow[] = [
   { label: "two days old under a one-day cooldown", ageDays: 2, cooldownDays: 1, staleLine: false },
   { label: "eight days old", ageDays: 8, cooldownDays: 7, staleLine: true },
@@ -265,8 +264,7 @@ row(
   SLOW_ROW_MS,
 );
 
-// The lock, the debounce stamp and the log are a run's own records; every other byte under the
-// home is what a run that cannot take the lock must leave alone.
+// The lock, the debounce stamp and the log are a run's own records; every other byte under the home is what a run that cannot take the lock must leave alone.
 const LOCK_ROW_RECORDS = [
   ".agents/maxims/state.json.lock",
   ".agents/maxims/last-sync",

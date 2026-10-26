@@ -77,16 +77,16 @@ function contextFor(home: Home): HarnessContext {
   return { home: home.root, projectRoot: home.project, cwd: home.project, env: childEnv(home) };
 }
 
-// Where a definition's hand-formatted fixture lives on a machine: its hook registry, else its
-// MCP registry (the machine-wide one when the scope has none), else the file its quirk edits. A
-// definition whose fixture fits none of these has no row to prove it survives, which the census
-// below turns into a failure.
 const QUIRK_FIXTURE_HOMES: Partial<
   Record<string, (def: HarnessDefinition, scope: Scope, ctx: HarnessContext) => string | null>
 > = {
   dsh: (def, _scope, ctx) => join(scopeRoot(def, "global", ctx), "cordis.patch.yml"),
 };
 
+// Where a definition's hand-formatted fixture lives on a machine: its hook registry, else its
+// MCP registry (the machine-wide one when the scope has none), else the file its quirk edits. A
+// definition whose fixture fits none of these has no row to prove it survives, which the census
+// below turns into a failure.
 function fixtureHome(def: HarnessDefinition, scope: Scope, ctx: HarnessContext): string | null {
   if (def.fixtures?.config === undefined) return null;
   if (hasHook(def, "registry")) return hookPath(def, scope, ctx);

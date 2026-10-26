@@ -36,12 +36,12 @@ const shape = (gate: Signal["gate"], base: number, head: number): Signal => ({
   head,
 });
 
-// Each row sits on one side of a threshold. The exact-threshold rows guard the strict compare, and
-// the 24.4 to 30.5 row is 25% in decimal but a hair above it in binary.
 const verdicts: [Signal, Pick<Judged, "ratio" | "status">][] = [
+  // Each row sits on one side of a threshold; the exact-threshold rows guard the strict compare.
   [shape("fail", 100, 110), { ratio: 0.1, status: "ok" }],
   [shape("fail", 100, 111), { ratio: 0.11, status: "warn" }],
   [shape("fail", 100, 125), { ratio: 0.25, status: "warn" }],
+  // 25% in decimal but a hair above it in binary.
   [shape("fail", 24.4, 30.5), { ratio: 0.25, status: "warn" }],
   [shape("fail", 100, 126), { ratio: 0.26, status: "fail" }],
   [shape("warn", 100, 126), { ratio: 0.26, status: "warn" }],
@@ -62,6 +62,7 @@ const COMMANDS = [
 const frame = {
   base: { ref: "origin/main", sha: BASE_SHA },
   head: { sha: HEAD_SHA },
+  // Five runs: the trimmed mean drops one start from each end, so flat's series keeps three and trims two.
   runs: 5,
   commands: COMMANDS,
 };
@@ -78,7 +79,6 @@ const baseDies =
     if (side === "base") throw new Error(message);
     return head[argv[0] === "sync" ? 0 : 1];
   };
-// Five runs trim one start from each end.
 const flat = (ms: number): Series => ({ warmup: ms, kept: [ms, ms, ms], trimmed: [ms, ms] });
 
 const headOnly = (notComparable: string, head: PathMs, bundleBytes: number): Report => ({
@@ -109,11 +109,9 @@ const judgedMs = (
   status,
 });
 
-// A base under the floor is never timed: its cold start dies, and the report must not carry that
-// death as the reason. A base whose cold start dies is skipped for that reason, and the head is
-// measured in full on both. The base at the floor is compared.
 const comparisons: [string, Record<SideName, number>, Sampler, Report, "pass" | "fail" | "skip"][] =
   [
+    // A base under the floor is never timed: its cold start dies, and the report must not carry that death as the reason; the base at the floor is compared.
     [
       "a version-only stub as base",
       { base: 160, head: 1200000 },
@@ -128,6 +126,7 @@ const comparisons: [string, Record<SideName, number>, Sampler, Report, "pass" | 
       headOnly("its bundle is 16,383 bytes, under the 16,384-byte floor", [130, 210], 1200000),
       "skip",
     ],
+    // Skipped for the death itself, and the head is measured in full.
     [
       "a base whose cold start dies",
       { base: 1000000, head: 1200000 },
@@ -191,8 +190,7 @@ test.each(comparisons)("compare with %s", async (_name, bytes, sample, report, e
   expect(verdict(actual)).toBe(expected);
 });
 
-// A head that cannot be timed is the run's own failure whatever the base is; only the base's
-// cold start is caught into a skip.
+// A head that cannot be timed is the run's own failure whatever the base is; only the base's cold start is caught into a skip.
 const headDies: [string, Record<SideName, number>][] = [
   ["a version-only stub", { base: 160, head: 1200000 }],
   ["a real bundle", { base: 1250000, head: 1200000 }],
@@ -208,18 +206,18 @@ test.each(headDies)("compare against %s propagates a head timing failure", async
   );
 });
 
+/**
+ * One of the three merges this gate blocked on unchanged bundles; the same bytes on both sides make a profile the runner's drift alone.
+ *   profile     -> milliseconds per cold start of the hook path, in the order the starts would run: the ten the head took first, then the ten the base took, then two more of the settled runner
+ *   trimmedMean -> the figures the swapped-pair schedule and the trimmed mean read off the same profile
+ */
 interface FalseFailure {
   name: string;
-  // Milliseconds per cold start of the hook path, in the order the starts would run: the ten the
-  // head took first, then the ten the base took, then two more of the settled runner.
   profile: number[];
-  // The figures the swapped-pair schedule and the trimmed mean read off the same profile.
   trimmedMean: Record<SideName, number>;
 }
 
-// Hand-written profiles shaped after the three merges this gate blocked on unchanged bundles: each
-// matches the rounded median, min, and max the job printed, nothing finer. The same bytes on both
-// sides make a profile the runner's drift alone.
+// Hand-written profiles shaped after those merges: each matches the rounded median, min, and max the job printed, nothing finer.
 const falseFailures: FalseFailure[] = [
   {
     name: "a head read at 173 ms over a base at 99",
@@ -363,13 +361,13 @@ const passing: Report = {
   ],
 };
 
-// Three runs trim nothing.
 const failing: Report = {
   base: {
     ref: "fedcba9876543210fedcba9876543210fedcba98",
     sha: "fedcba9876543210fedcba9876543210fedcba98",
   },
   head: { sha: "89abcdef0123456789abcdef0123456789abcdef" },
+  // Three runs trim nothing.
   runs: 3,
   commands: [["node", "dist/cli.js", "sync", "--quiet"]],
   signals: [
@@ -411,8 +409,6 @@ const failing: Report = {
   ],
 };
 
-// The JSON line is pinned byte for byte: a parse-and-compare would let key order, whitespace, or a
-// stray prefix drift under it.
 const reports: [string, Report, "pass" | "fail" | "skip", string, string][] = [
   [
     "a passing report with a warning on the interactive path",
@@ -550,6 +546,8 @@ const reports: [string, Report, "pass" | "fail" | "skip", string, string][] = [
   ],
 ];
 
+// The JSON line is pinned byte for byte: a parse-and-compare would let key order, whitespace, or a
+// stray prefix drift under it.
 test.each(reports)(
   "%s renders the comment markdown and one JSON line",
   (_name, report, expected, markdown, json) => {
@@ -559,9 +557,7 @@ test.each(reports)(
   },
 );
 
-// A ref no repository holds. Argument checks run before the ref lookup, so a refusal that has
-// regressed stops at the lookup with status 1 and a git error instead of building and timing
-// both bundles and writing a report into the checkout.
+// A ref no repository holds: argument checks run before the ref lookup, so a refusal that has regressed stops there with status 1 and a git error instead of building and timing both bundles and writing a report into the checkout.
 const UNRESOLVED_BASE = "refs/heads/bench-ci-test-unresolved";
 
 function runBenchCi(args: string[]) {
@@ -600,10 +596,8 @@ interface OutTarget {
 const insideRepo = (dir: string): string =>
   `refusing to write measured data inside the repository: ${dir}`;
 
-// Names carry the test's own temp-dir token so a directory another run left behind cannot
-// collide. The harness runs with the repository as cwd, which is what makes the /proc alias
-// point at it.
 const outTargets: [string, (dir: string, token: string) => OutTarget][] = [
+  // Names carry the test's own temp-dir token so a directory another run left behind cannot collide.
   [
     "a relative path inside the repository",
     (_dir, token) => ({
@@ -628,6 +622,7 @@ const outTargets: [string, (dir: string, token: string) => OutTarget][] = [
   ],
   ...(process.platform === "linux"
     ? ([
+        // The harness runs with the repository as cwd, which is what makes the /proc alias point at it.
         [
           "a /proc/self/cwd alias of the repository",
           (_dir, token) => ({

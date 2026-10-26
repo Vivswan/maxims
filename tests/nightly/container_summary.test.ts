@@ -41,13 +41,14 @@ test("imageSize asks the runtime for the size and refuses anything but a positiv
   }
 });
 
-// The suite run (the one `run` ending in `bun run test`) answers with the smallest output the
-// tier accepts: every smoke row passing and bun's summary line.
+// The suite run (the one `run` ending in `bun run test`) answers with the smallest output the tier accepts: every smoke row passing and bun's summary line.
 const PASSING_SUITE = [
   ...HARNESS_SMOKE_CLIS.map((cli) => `(pass) ${HARNESS_SMOKE_SUITE} > ${cli} [1.00ms]`),
   "Ran 5 tests across 1 file. [5.00ms]",
   "",
 ];
+
+// bun prints its results on stderr, so the suite's answer goes there.
 const FAKE_DOCKER = [
   "#!/bin/sh",
   'case "$1" in',

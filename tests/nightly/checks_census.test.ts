@@ -13,9 +13,8 @@ type Workflow = { jobs: Record<string, { steps: { run?: string }[] }> };
 const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
 const workflow = parse(read(".github/workflows/checks.yml")) as Workflow;
 
-// Every link of the chain must be a `bun run <name>`: a link of another shape (a bare `bun x`, a
-// shell pipeline) would otherwise drop out of the comparison without failing it.
 const chained = scripts.check.split("&&").map((link) => {
+  // A link of another shape (a bare `bun x`, a shell pipeline) would otherwise drop out of the comparison without failing it.
   const match = /^bun run (\S+)$/.exec(link.trim());
   if (match === null) throw new Error(`check chains a link that is not "bun run <name>": ${link}`);
   return match[1];

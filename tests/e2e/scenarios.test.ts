@@ -62,8 +62,7 @@ afterAll(() => {
   rmSync(bundleDir, { recursive: true, force: true });
 });
 
-// A run that does its work stamps `last-sync` and appends to the log; every other byte under
-// the home must hold still. A run that promises to write nothing is held to the bare snapshot.
+// A run that does its work stamps `last-sync` and appends to the log, and every other byte under the home must hold still; a run that promises to write nothing is held to the bare snapshot.
 const SYNC_TOUCHES = [".agents/maxims/log/refresh.log", ".agents/maxims/last-sync"];
 
 function homeSnapshot(home: Home): Map<string, string> {

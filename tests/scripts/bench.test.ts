@@ -28,7 +28,6 @@ const repoRoot = resolve(import.meta.dir, "..", "..");
 const realRepoRoot = realpathSync.native(repoRoot);
 const USAGE = "usage: bun scripts/bench.ts [--runs N] [--json path] -- <command...>\n";
 
-// Samples where the mean and the median differ, so a switch to the mean fails these cases.
 const summaries: [number[], ReturnType<typeof summarize>][] = [
   [[1, 2, 99], { medianMs: 2, minMs: 1, maxMs: 99 }],
   [[99, 1, 2], { medianMs: 2, minMs: 1, maxMs: 99 }],
@@ -37,6 +36,7 @@ const summaries: [number[], ReturnType<typeof summarize>][] = [
   [[0.0004, 1.0005, 2.00051], { medianMs: 1.001, minMs: 0, maxMs: 2.001 }],
 ];
 
+// Samples where the mean and the median differ, so a switch to the mean fails these cases.
 test.each(summaries)(
   "summarize(%p) is the median, min, and max to the microsecond",
   (samples, expected) => {
@@ -91,17 +91,18 @@ test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 t
 });
 
 interface JsonTarget {
+  // The path as the bench receives it, in whatever spelling the row tests.
   jsonArg: string;
-  // Where the bytes would land: the temp file for an accepted path, the file inside the
-  // repository a lexical-only guard would let through for a refused one.
+
+  // Where the bytes would land: the temp file for an accepted path, the file inside the repository a lexical-only guard would let through for a refused one.
   target: string;
+
   // Fragments the refusal on stderr must name; undefined when the path is accepted.
   refusal: string[] | undefined;
 }
 
-// Names carry the test's own temp-dir token so a file another run left behind cannot collide.
-// The bench runs with the repository as cwd, which is what makes the /proc alias point at it.
 const jsonTargets: [string, (dir: string, token: string) => JsonTarget][] = [
+  // Names carry the test's own temp-dir token so a file another run left behind cannot collide.
   [
     "a plain path in the temp dir",
     (dir, token) => {
@@ -150,6 +151,7 @@ const jsonTargets: [string, (dir: string, token: string) => JsonTarget][] = [
   ],
   ...(process.platform === "linux"
     ? ([
+        // The bench runs with the repository as cwd, which is what makes the /proc alias point at it.
         [
           "a /proc/self/cwd alias of the repository",
           (_dir, token) => {
@@ -296,18 +298,18 @@ test.each(worktreeTargets)(
   },
 );
 
+/**
+ * One way git fails the bench's listing of the repository's checkouts.
+ *   fragments -> fragments the refusal on stderr must carry: git's own words and the bench's reason
+ */
 interface GitFailure {
   bench: string;
   env: Record<string, string>;
-  // Fragments the refusal on stderr must carry: git's own words and the bench's reason.
   fragments: string[];
 }
 
-// A copy of the bench in a checkout whose own .git is damaged asks git about a repository it
-// cannot read, while that checkout's linked worktrees may still exist. The ceiling keeps git from
-// adopting a repository that happens to enclose the fixture. With an empty PATH only git goes
-// missing: the bench and its child are named by absolute path.
 const gitFailures: [string, (dir: string) => GitFailure][] = [
+  // A copy of the bench in a checkout whose own .git is damaged asks git about a repository it cannot read, while that checkout's linked worktrees may still exist; the ceiling keeps git from adopting a repository that happens to enclose the fixture.
   [
     "a checkout whose own .git is damaged",
     (dir) => {
@@ -322,6 +324,7 @@ const gitFailures: [string, (dir: string) => GitFailure][] = [
       };
     },
   ],
+  // With an empty PATH only git goes missing: the bench and its child are named by absolute path.
   [
     "no git on PATH",
     (dir) => {
