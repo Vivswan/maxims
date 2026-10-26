@@ -1,85 +1,33 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": true
-  },
-  "files": {
-    "includes": [
-      "**",
-      "!dist",
-      "!.github/repo-platform-manifest.json",
-      "!bun.lock",
-      "!src/harnesses/*/fixtures"
-    ]
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 100,
-    "lineEnding": "lf"
-  },
+  "extends": ["./biome.local.jsonc"],
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended",
-      "correctness": {
-        "noUnusedImports": "error",
-        "noUnusedVariables": "error"
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": { "maxAllowedComplexity": 15 }
+        },
+        "noExcessiveLinesPerFunction": { "level": "error", "options": { "maxLines": 80 } },
+        "useMaxParams": { "level": "error", "options": { "max": 6 } }
       },
       "style": {
-        "useImportType": "error",
-        "useNodejsImportProtocol": "error"
-      }
-    }
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "double",
-      "semicolons": "always",
-      "trailingCommas": "all",
-      "arrowParentheses": "always"
+        "noNestedTernary": "error",
+        "noUselessElse": "error",
+        "noNegationElse": "error",
+        "noParameterAssign": "error"
+      },
+      "suspicious": { "noAssignInExpressions": "error", "noUnusedExpressions": "error" },
+      "performance": { "noBarrelFile": "error", "noReExportAll": "error" },
+      "correctness": { "noInvalidUseBeforeDeclaration": "error" }
     }
   },
   "overrides": [
     {
-      "includes": ["src/**"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["bun", "bun:*"],
-                    "message": "src/ ships as dist/cli.js under node. bun-types also declares the Bun globals from inside these modules, so even a type import would hide them from the Node floor typecheck."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["tests/**", "!tests/container/runner.ts", "!tests/shared/preload.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "paths": {
-                  "node:os": "A test's scratch directory lives under the launcher HOME (tests/shared/temp_dir.ts), never under the OS tmpdir."
-                }
-              }
-            }
-          }
-        }
-      }
+      "includes": ["biome.json", ".github/repo-platform-manifest.json"],
+      "formatter": { "enabled": false },
+      "assist": { "enabled": false }
     }
   ]
 }
