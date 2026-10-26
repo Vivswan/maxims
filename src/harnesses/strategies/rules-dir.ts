@@ -51,19 +51,24 @@ export function rulesDirPath(input: RulesDirLocation): RootedPath {
   return assertInsideRoot(root, join(dir, input.target.fileName(input.sourceSlug)));
 }
 
+// The preamble a target declares for itself, else the definition's path filter; `null` when the
+// file opens with neither.
+function declaredFrontmatter(
+  input: Pick<RulesDirWriteInput, "def" | "target">,
+  paths: string[] | undefined,
+): string | null {
+  if (input.target.frontmatter !== undefined) return input.target.frontmatter({ paths });
+  if (paths === undefined) return null;
+  return input.def.scopeFrontmatter?.render(paths) ?? null;
+}
+
 // A target that declares its own frontmatter owns the whole preamble, path filter included; the
 // definition-level `scopeFrontmatter` serves harnesses whose always-on form needs none. The
 // result ends in a newline or is empty, so a reader can compare a file's opening bytes to it.
 export function rulesDirFrontmatter(
   input: Pick<RulesDirWriteInput, "def" | "target" | "paths">,
 ): string {
-  const paths = scopedPaths(input.paths);
-  const declared =
-    input.target.frontmatter !== undefined
-      ? input.target.frontmatter({ paths })
-      : paths === undefined
-        ? null
-        : (input.def.scopeFrontmatter?.render(paths) ?? null);
+  const declared = declaredFrontmatter(input, scopedPaths(input.paths));
   if (declared === null || declared === "") return "";
   return declared.endsWith("\n") ? declared : `${declared}\n`;
 }

@@ -88,6 +88,52 @@ type Span = { start: number; end: number; indent: string };
 // One splice target: a lone row, or a whole operation carrying `rows` of ours.
 type OurRow = { span: Span; wholeOperation: boolean; rows: number };
 
+function appendedRow(
+  text: string,
+  doc: Document | null,
+  row: Record<string, unknown> | null,
+): string {
+  if (row === null) return text;
+  const rendered = stringify([{ insert: [row] }]);
+  const emptyList = doc === null ? null : emptyListSpan(text, doc);
+  if (emptyList !== null) return splice(text, emptyList, rendered);
+  const separator = text === "" || text.endsWith("\n") ? "" : "\n";
+  return `${text}${separator}${rendered}`;
+}
+
+function replacedRow(
+  text: string,
+  first: OurRow,
+  duplicates: OurRow[],
+  row: Record<string, unknown> | null,
+): string {
+  let rendered = "";
+  if (row !== null) {
+    const operation = first.wholeOperation ? [{ insert: [row] }] : [row];
+    rendered = indentBlock(stringify(operation), first.span.indent);
+  }
+  let next = text;
+  for (const duplicate of duplicates.reverse()) next = splice(next, duplicate.span, "");
+  next = splice(next, first.span, rendered);
+  if (row === null && parseDocument(next).contents === null) {
+    const separator = next === "" || next.endsWith("\n") ? "" : "\n";
+    next = `${next}${separator}[]\n`;
+  }
+  return next;
+}
+
+function assertRowCount(next: string, path: string, expected: number): void {
+  const check = parseBlockList(next, path);
+  const remaining =
+    check === null ? 0 : findOurRows(next, check, path).reduce((sum, our) => sum + our.rows, 0);
+  if (remaining !== expected) {
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `refusing to write ${path}: the edited patch file would not carry the expected row`,
+    );
+  }
+}
+
 // The document API is used to FIND our rows; the edit itself is a text splice of exactly the bytes
 // our own renderer produces, because re-serializing the document would reflow the user's flow
 // sequences, comment spacing, and quoting everywhere else in the file. The first row carrying our
@@ -100,42 +146,9 @@ type OurRow = { span: Span; wholeOperation: boolean; rows: number };
 function editPatch(text: string, path: string, row: Record<string, unknown> | null): string {
   const doc = parseBlockList(text, path);
   const [first, ...duplicates] = doc === null ? [] : findOurRows(text, doc, path);
-  let next: string;
-  if (first === undefined) {
-    if (row === null) return text;
-    const rendered = stringify([{ insert: [row] }]);
-    const emptyList = doc === null ? null : emptyListSpan(text, doc);
-    if (emptyList === null) {
-      const separator = text === "" || text.endsWith("\n") ? "" : "\n";
-      next = `${text}${separator}${rendered}`;
-    } else {
-      next = splice(text, emptyList, rendered);
-    }
-  } else {
-    const rendered =
-      row === null
-        ? ""
-        : indentBlock(
-            stringify(first.wholeOperation ? [{ insert: [row] }] : [row]),
-            first.span.indent,
-          );
-    next = text;
-    for (const duplicate of duplicates.reverse()) next = splice(next, duplicate.span, "");
-    next = splice(next, first.span, rendered);
-    if (row === null && parseDocument(next).contents === null) {
-      const separator = next === "" || next.endsWith("\n") ? "" : "\n";
-      next = `${next}${separator}[]\n`;
-    }
-  }
-  const check = parseBlockList(next, path);
-  const remaining =
-    check === null ? 0 : findOurRows(next, check, path).reduce((sum, our) => sum + our.rows, 0);
-  if (remaining !== (row === null ? 0 : 1)) {
-    throw new MaximsError(
-      ExitCode.DestinationWriteFailed,
-      `refusing to write ${path}: the edited patch file would not carry the expected row`,
-    );
-  }
+  const next =
+    first === undefined ? appendedRow(text, doc, row) : replacedRow(text, first, duplicates, row);
+  assertRowCount(next, path, row === null ? 0 : 1);
   return next;
 }
 
@@ -172,31 +185,38 @@ function emptyListSpan(text: string, doc: Document): Span | null {
   return { start, end: lineEnd(text, nodeEnd), indent: "" };
 }
 
+function locatedSpan(text: string, node: unknown, path: string): Span {
+  const span = spanOf(text, node);
+  if (span === null) {
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `cannot locate the maxims row in ${path}; left untouched`,
+    );
+  }
+  return span;
+}
+
+// The splice targets one `insert` operation holds: its rows carrying our id, or the operation
+// whole when it carries nothing else.
+function ourRowsIn(text: string, item: unknown, path: string): OurRow[] {
+  if (!isMap(item)) return [];
+  const inserted = item.get("insert");
+  if (!isSeq(inserted)) return [];
+  const ours = inserted.items.filter((entry) => isMap(entry) && entry.get("id") === BRIDGE_ROW_ID);
+  if (ours.length === 0) return [];
+  const wholeOperation = ours.length === inserted.items.length && item.items.length === 1;
+  const nodes = wholeOperation ? [item] : ours;
+  return nodes.map((node) => ({
+    span: locatedSpan(text, node, path),
+    wholeOperation,
+    rows: wholeOperation ? ours.length : 1,
+  }));
+}
+
 // Every splice target holding a row with our id, in document order.
 function findOurRows(text: string, doc: Document, path: string): OurRow[] {
   if (!isSeq(doc.contents)) return [];
-  const rows: OurRow[] = [];
-  for (const item of doc.contents.items) {
-    if (!isMap(item)) continue;
-    const inserted = item.get("insert");
-    if (!isSeq(inserted)) continue;
-    const ours = inserted.items.filter(
-      (entry) => isMap(entry) && entry.get("id") === BRIDGE_ROW_ID,
-    );
-    if (ours.length === 0) continue;
-    const wholeOperation = ours.length === inserted.items.length && item.items.length === 1;
-    for (const node of wholeOperation ? [item] : ours) {
-      const span = spanOf(text, node);
-      if (span === null) {
-        throw new MaximsError(
-          ExitCode.DestinationWriteFailed,
-          `cannot locate the maxims row in ${path}; left untouched`,
-        );
-      }
-      rows.push({ span, wholeOperation, rows: wholeOperation ? ours.length : 1 });
-    }
-  }
-  return rows;
+  return doc.contents.items.flatMap((item) => ourRowsIn(text, item, path));
 }
 
 // The span of a block sequence item from its `- ` indicator through its trailing newline; null

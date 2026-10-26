@@ -118,6 +118,41 @@ export type RegistryWriteInput = HookIntent & {
   currentText: string | null;
 };
 
+function lineEndingOf(text: string): string {
+  if (text.endsWith("\r\n")) return "\r\n";
+  if (text.endsWith("\n")) return "\n";
+  return "";
+}
+
+// The registry with our handler current: appended when absent, replaced when stale, its hand-made
+// duplicates dropped; `null` when it already says so and nothing else earns the write.
+function wantedRewrite(
+  registry: JsonRegistry,
+  handler: Record<string, unknown>,
+  path: string,
+  bomDropped: boolean,
+): RegistryRewrite | null {
+  if (registry.locateOurs().length === 0) {
+    registry.append(handler);
+    return { text: registry.validatedText(), notice: `registered the maxims hook in ${path}` };
+  }
+  const duplicates = registry.dropDuplicates();
+  const [ours] = registry.locateOurs();
+  if (ours === undefined) throw new Error("the surviving maxims handler must still be present");
+  if (sameJson(getNodeValue(ours), handler)) {
+    if (duplicates) {
+      return {
+        text: registry.validatedText(),
+        notice: `removed duplicate maxims hooks from ${path}`,
+      };
+    }
+    if (bomDropped) return { text: registry.validatedText(), notice: droppedBomNotice(path) };
+    return null;
+  }
+  registry.replace(ours, handler);
+  return { text: registry.validatedText(), notice: `updated the maxims hook in ${path}` };
+}
+
 export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite | null {
   const path = hookPath(input.def, input.scope, input.ctx);
   const handler = input.def.hook.handler(hookSpecFor(input.def));
@@ -133,27 +168,7 @@ export function rewriteHookRegistry(input: RegistryWriteInput): RegistryRewrite 
   const currentText = withoutBom(input.currentText);
   const registry = new JsonRegistry(input.def.hook, path, currentText, input.def.displayName);
   if (input.wanted) {
-    if (registry.locateOurs().length === 0) {
-      registry.append(handler);
-      return { text: registry.validatedText(), notice: `registered the maxims hook in ${path}` };
-    }
-    const duplicates = registry.dropDuplicates();
-    const [ours] = registry.locateOurs();
-    if (ours === undefined) throw new Error("the surviving maxims handler must still be present");
-    if (sameJson(getNodeValue(ours), handler)) {
-      if (duplicates) {
-        return {
-          text: registry.validatedText(),
-          notice: `removed duplicate maxims hooks from ${path}`,
-        };
-      }
-      if (currentText !== input.currentText) {
-        return { text: registry.validatedText(), notice: droppedBomNotice(path) };
-      }
-      return null;
-    }
-    registry.replace(ours, handler);
-    return { text: registry.validatedText(), notice: `updated the maxims hook in ${path}` };
+    return wantedRewrite(registry, handler, path, currentText !== input.currentText);
   }
   if (registry.locateOurs().length === 0) return null;
   registry.removeAll();
@@ -310,8 +325,7 @@ class JsonRegistry {
   finish(): string {
     const root = this.root();
     if (this.commentFree(root) && sameJson(getNodeValue(root), this.hook.wrapper ?? {})) {
-      const eol = this.text.endsWith("\r\n") ? "\r\n" : this.text.endsWith("\n") ? "\n" : "";
-      return `{}${eol}`;
+      return `{}${lineEndingOf(this.text)}`;
     }
     return this.text;
   }

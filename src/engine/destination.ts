@@ -70,6 +70,21 @@ function slugFor(request: Pick<TargetRequest, "sourceSlug">): SourceSlug {
   return request.sourceSlug;
 }
 
+function locateTarget(
+  def: HarnessDefinition,
+  target: Target,
+  scope: Scope,
+  ctx: HarnessContext,
+  request: Pick<TargetRequest, "sourceSlug">,
+): Pick<HarnessTarget, "path" | "realKey"> {
+  if (target.kind === "rules-dir") {
+    const path = rulesDirPath({ def, target, scope, ctx, sourceSlug: slugFor(request) });
+    return { path, realKey: realKeyOf(path) };
+  }
+  const path = sharedBlockPath({ def, target, scope, ctx });
+  return { path, realKey: sharedFileKey(path) };
+}
+
 // Where one source's rule lines go at one scope: one target per harness the intent names, minus
 // the ones this run cannot or should not write. A harness the user named with `-a` is written or
 // the run fails; one the intent merely lists is skipped with a reason when its project config
@@ -99,12 +114,8 @@ export function resolveTargets(request: TargetRequest): TargetResolution {
       skipped.push({ id, reason: conflict, kind: "unreachable" });
       continue;
     }
-    const path =
-      target.kind === "rules-dir"
-        ? rulesDirPath({ def, target, scope, ctx: harnessCtx, sourceSlug: slugFor(request) })
-        : sharedBlockPath({ def, target, scope, ctx: harnessCtx });
-    const realKey = target.kind === "shared-block" ? sharedFileKey(path) : realKeyOf(path);
-    targets.push({ def, scope, target, ctx: harnessCtx, path, realKey });
+    const located = locateTarget(def, target, scope, harnessCtx, request);
+    targets.push({ def, scope, target, ctx: harnessCtx, ...located });
   }
   return { targets, skipped };
 }

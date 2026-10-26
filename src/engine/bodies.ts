@@ -1,9 +1,15 @@
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { type ContentHash, contentHashOf, memoryStem, parseMemory } from "../memory/contract.ts";
 import type { Change } from "../util/change.ts";
-import { assertInsideRoot, isAbsent, isInside, realpathOfExistingPrefix } from "../util/fs.ts";
+import {
+  assertInsideRoot,
+  isAbsent,
+  isInside,
+  type RootedPath,
+  realpathOfExistingPrefix,
+} from "../util/fs.ts";
 import type { SymlinkSupport } from "./types.ts";
 
 export type BodyFile = {
@@ -38,6 +44,47 @@ export type BodiesPlan = {
   notices: string[];
 };
 
+// A regular file at the path that is not a copy of ours is the user's, in either mode.
+function isUsersFile(
+  path: string,
+  existing: Stats | undefined,
+  knownCopies: ReadonlySet<ContentHash>,
+): boolean {
+  if (existing === undefined || existing.isSymbolicLink()) return false;
+  return !existing.isFile() || !isOurCopy(path, knownCopies);
+}
+
+// The link into the store, over a copy maxims wrote when this run may replace it; nothing when
+// the link already resolves to the canonical path, or the copy waits for an interactive run.
+function linkChanges(
+  path: RootedPath,
+  existing: Stats | undefined,
+  input: BodiesInput,
+  file: BodyFile,
+): Change[] {
+  const changes: Change[] = [];
+  if (existing?.isFile()) {
+    if (!input.replaceCopies) return [];
+    changes.push({ kind: "delete", path });
+  }
+  const target = relative(
+    realpathOfExistingPrefix(dirname(path)),
+    inStore(input.store, file.storeFile),
+  );
+  if (existing?.isSymbolicLink() && readlinkSync(path) === target) return [];
+  changes.push({ kind: "symlink", path, target });
+  return changes;
+}
+
+// The text written in place, a link there unlinked first; a copy already holding the text is no
+// change.
+function copyChanges(path: RootedPath, existing: Stats | undefined, text: string): Change[] {
+  const write: Change = { kind: "write", path, content: text };
+  if (existing?.isSymbolicLink()) return [{ kind: "unlink", path }, write];
+  if (existing?.isFile() && readFileSync(path, "utf8") === text) return [];
+  return [write];
+}
+
 // Bodies link into the store by a RELATIVE target, so a home moved as a whole keeps resolving;
 // the target is computed between the REAL directories at both ends, since the kernel resolves a
 // relative link from where the link really sits, not from the spelling that reached it. `copy`
@@ -58,31 +105,33 @@ export function planBodies(input: BodiesInput): BodiesPlan {
   for (const file of input.files) {
     const path = assertInsideRoot(input.root, join(input.dir, `${file.localName}.md`));
     const existing = lstatSync(path, { throwIfNoEntry: false });
-    // A regular file at the path that is not a copy of ours is the user's, in either mode.
-    if (existing !== undefined && !existing.isSymbolicLink()) {
-      if (!existing.isFile() || !isOurCopy(path, input.knownCopies)) {
-        notices.push(`${path} exists and is not a link; left alone`);
-        continue;
-      }
+    if (isUsersFile(path, existing, input.knownCopies)) {
+      notices.push(`${path} exists and is not a link; left alone`);
+      continue;
     }
-    if (link) {
-      if (existing?.isFile()) {
-        if (!input.replaceCopies) continue;
-        changes.push({ kind: "delete", path });
-      }
-      const target = relative(
-        realpathOfExistingPrefix(dirname(path)),
-        inStore(input.store, file.storeFile),
-      );
-      if (existing?.isSymbolicLink() && readlinkSync(path) === target) continue;
-      changes.push({ kind: "symlink", path, target });
-    } else {
-      if (existing?.isSymbolicLink()) changes.push({ kind: "unlink", path });
-      else if (existing?.isFile() && readFileSync(path, "utf8") === file.text) continue;
-      changes.push({ kind: "write", path, content: file.text });
-    }
+    const planned = link
+      ? linkChanges(path, existing, input, file)
+      : copyChanges(path, existing, file.text);
+    changes.push(...planned);
   }
   return { changes, notices };
+}
+
+// A link into the store is unlinked and a copy maxims wrote is deleted; anything else is the
+// user's.
+function sweptBody(
+  path: RootedPath,
+  entry: Stats,
+  store: string,
+  knownCopies: ReadonlySet<ContentHash>,
+): Change | null {
+  if (entry.isSymbolicLink()) {
+    const target = resolve(realpathOfExistingPrefix(dirname(path)), readlinkSync(path));
+    if (!isInside(realpathOfExistingPrefix(store), target)) return null;
+    return { kind: "unlink", path };
+  }
+  if (entry.isFile() && isOurCopy(path, knownCopies)) return { kind: "delete", path };
+  return null;
 }
 
 // Links in a bodies directory that resolve into the store and name no wanted memory are ours
@@ -108,20 +157,12 @@ export function planBodySweep(input: {
   const changes: Change[] = [];
   for (const name of entries) {
     const localName = memoryStem(name);
-    if (localName === null) continue;
-    if (input.wanted.has(localName)) continue;
+    if (localName === null || input.wanted.has(localName)) continue;
     const path = assertInsideRoot(input.root, join(input.dir, name));
     const entry = lstatSync(path, { throwIfNoEntry: false });
     if (entry === undefined) continue;
-    if (entry.isSymbolicLink()) {
-      const target = resolve(realpathOfExistingPrefix(dirname(path)), readlinkSync(path));
-      if (isInside(realpathOfExistingPrefix(input.store), target)) {
-        changes.push({ kind: "unlink", path });
-      }
-      continue;
-    }
-    if (entry.isFile() && isOurCopy(path, input.knownCopies))
-      changes.push({ kind: "delete", path });
+    const change = sweptBody(path, entry, input.store, input.knownCopies);
+    if (change !== null) changes.push(change);
   }
   return changes;
 }

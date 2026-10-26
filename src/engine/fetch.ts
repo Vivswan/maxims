@@ -12,7 +12,7 @@ import {
   parseMemoryName,
 } from "../memory/contract.ts";
 import { pruneRenames, shortHash } from "../rulefile/dedupe.ts";
-import { FetchFailure, needsFetch } from "../sources/contract.ts";
+import { FetchFailure, type FetchResult, needsFetch } from "../sources/contract.ts";
 import type { TreeFile } from "../sources/tree.ts";
 import type { Fetched, Pending, RenameMap, Select, SourceEntry } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
@@ -93,6 +93,119 @@ export function isDue(
   return time - Date.parse(at) >= FAILED_FETCH_RETRY_MS;
 }
 
+//   lastGood -> the facts a store copy stands behind; none when never fetched or the copy is gone,
+//               so a reviewed source has nothing to keep behind a hold and applies
+type Refresh = {
+  key: string;
+  entry: FetchedEntry;
+  entryPath: RootedPath;
+  lastGood: Fetched | undefined;
+  now: string;
+  ctx: EngineContext;
+  notices: Notices;
+};
+
+// Upstream standing at the installed revision has nothing to apply, and a hold it may have left
+// behind is withdrawn: what was held is no longer what upstream has. Standing at the held
+// revision, the hold waits and nothing is downloaded twice.
+function settledUpstream(refresh: Refresh, sha: string): RefreshResult | null {
+  const { entry, lastGood, now } = refresh;
+  if (lastGood === undefined) return null;
+  if (!needsFetch(entry.intent.from, lastGood.sha, sha)) {
+    if (entry.pending !== undefined) {
+      refresh.notices.trace(`${refresh.key}: held revision withdrawn upstream`);
+    }
+    return { outcome: "unchanged", entry: withoutPending(touched(entry, now)) };
+  }
+  if (sha === entry.pending?.sha) return { outcome: "unchanged", entry: touched(entry, now) };
+  return null;
+}
+
+function unusableSha(sha: string, at: string): LastError {
+  return {
+    kind: "invalid",
+    message: `the source reported an unusable commit id ${JSON.stringify(sha)}`,
+    at,
+  };
+}
+
+function treeFiles(memories: readonly SourceMemory[]): TreeFile[] {
+  return memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
+}
+
+// A reviewed source's revision parked under the pending root, its summary read against last-good.
+function heldResult(
+  refresh: Refresh,
+  result: FetchResult,
+  memories: readonly SourceMemory[],
+  summary: string[],
+): RefreshResult {
+  const { entry, now } = refresh;
+  const held = heldEntry(entry, result.sha, now, summary);
+  if (held === null) return failed(entry, unusableSha(result.sha, now), "failed");
+  const pendingPath = pendingPathFor(refresh.ctx.home, entry.intent.from);
+  return {
+    outcome: "held",
+    entry: held,
+    summary,
+    storeChanges: swapStoreEntry(pendingPath, treeFiles(memories)),
+  };
+}
+
+// The revision applied: the fresh facts, the store swap, and the memories upstream added that the
+// selection does not name yet.
+function freshResult(
+  refresh: Refresh,
+  result: FetchResult,
+  tree: Pick<SourceTree, "memories" | "invalid">,
+  changeLines: string[],
+): RefreshResult {
+  const { entry, now } = refresh;
+  const { memories, invalid } = tree;
+  const next = fetchedFactsFor(entry, memories, result.memoryPath, { sha: result.sha, at: now });
+  if (next === null) return failed(entry, unusableSha(result.sha, now), "failed");
+  const names = memories.map((memory) => memory.memory.name);
+  const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
+  const newUpstream =
+    entry.intent.select === "*"
+      ? []
+      : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
+  return {
+    outcome: "fresh",
+    entry: next,
+    tree: { sha: result.sha, memories, invalid },
+    storeChanges: swapStoreEntry(refresh.entryPath, treeFiles(memories)),
+    newUpstream,
+    changeLines,
+  };
+}
+
+// The fetched revision judged: one the record or the hold already stands at applies nothing, one
+// with no valid memory fails as `invalid`, a reviewed source's is held, any other is applied.
+async function fetchedResult(refresh: Refresh, result: FetchResult): Promise<RefreshResult> {
+  const { entry, now } = refresh;
+  const settled = settledUpstream(refresh, result.sha);
+  if (settled !== null) return settled;
+  const { memories, invalid } = validateMemoryFiles(result.files);
+  for (const bad of invalid) {
+    refresh.notices.notice(`${refresh.key}: skipped ${bad.relPath}: ${bad.reason}`);
+  }
+  if (memories.length === 0) {
+    const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
+    return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
+  }
+  const changeLines = await visibleChangeLines(
+    entry,
+    memories,
+    refresh.entryPath,
+    refresh.ctx.installInternal,
+  );
+  if (entry.intent.review === true && refresh.lastGood !== undefined) {
+    return heldResult(refresh, result, memories, changeLines);
+  }
+  return freshResult(refresh, result, { memories, invalid }, changeLines);
+}
+
 // One source's step 2. A failure at any rung keeps the last-good record and store copy and writes
 // only `lastError`; a fetch with zero valid memories is the same, classified `invalid`. A remote
 // standing at the sha of a revision already held is unchanged: the hold waits, nothing is fetched
@@ -115,24 +228,20 @@ export async function refreshSource(
   const { from } = entry.intent;
   const resolver = io.resolvers(from);
   const auth = entry.intent.auth;
-  const now = ctx.now.toISOString();
-  const lastGood = storePresent ? entry.fetched : undefined;
-  // Upstream standing at the installed revision has nothing to apply, and a hold it may have left
-  // behind is withdrawn: what was held is no longer what upstream has. Standing at the held
-  // revision, the hold waits and nothing is downloaded twice.
-  const settled = (sha: string): RefreshResult | null => {
-    if (lastGood === undefined) return null;
-    if (!needsFetch(from, lastGood.sha, sha)) {
-      if (entry.pending !== undefined) notices.trace(`${key}: held revision withdrawn upstream`);
-      return { outcome: "unchanged", entry: withoutPending(touched(entry, now)) };
-    }
-    if (sha === entry.pending?.sha) return { outcome: "unchanged", entry: touched(entry, now) };
-    return null;
+  const refresh: Refresh = {
+    key,
+    entry,
+    entryPath,
+    lastGood: storePresent ? entry.fetched : undefined,
+    now: ctx.now.toISOString(),
+    ctx,
+    notices,
   };
   return withScratchDir("maxims-fetch-", async (tempDir) => {
     try {
-      if (resolver.resolveRef !== undefined && lastGood !== undefined) {
-        const byRef = settled(await resolver.resolveRef(from, undefined, { auth }));
+      if (resolver.resolveRef !== undefined && refresh.lastGood !== undefined) {
+        const sha = await resolver.resolveRef(from, undefined, { auth });
+        const byRef = settledUpstream(refresh, sha);
         if (byRef !== null) return byRef;
       }
       const result = await resolver.fetch(from, {
@@ -141,53 +250,9 @@ export async function refreshSource(
         tempDir,
         auth,
       });
-      const byFetch = settled(result.sha);
-      if (byFetch !== null) return byFetch;
-      const { memories, invalid } = validateMemoryFiles(result.files);
-      for (const bad of invalid) notices.notice(`${key}: skipped ${bad.relPath}: ${bad.reason}`);
-      if (memories.length === 0) {
-        const message = `no valid memories at ${result.memoryPath} (layout probably changed upstream)`;
-        return failed(entry, { kind: "invalid", message, at: now }, "no-valid");
-      }
-      const unusable: LastError = {
-        kind: "invalid",
-        message: `the source reported an unusable commit id ${JSON.stringify(result.sha)}`,
-        at: now,
-      };
-      const files = memories.map((memory) => ({ relPath: memory.relPath, text: memory.text }));
-      const changeLines = await visibleChangeLines(entry, memories, entryPath, ctx.installInternal);
-      if (entry.intent.review === true && lastGood !== undefined) {
-        const summary = changeLines;
-        const held = heldEntry(entry, result.sha, now, summary);
-        if (held === null) return failed(entry, unusable, "failed");
-        return {
-          outcome: "held",
-          entry: held,
-          summary,
-          storeChanges: swapStoreEntry(pendingPathFor(ctx.home, from), files),
-        };
-      }
-      const names = memories.map((memory) => memory.memory.name);
-      const next = fetchedFactsFor(entry, memories, result.memoryPath, {
-        sha: result.sha,
-        at: now,
-      });
-      if (next === null) return failed(entry, unusable, "failed");
-      const previous = new Set(Object.keys(entry.fetched?.memories ?? {}));
-      const newUpstream =
-        entry.intent.select === "*"
-          ? []
-          : names.filter((name) => !previous.has(name) && !inSelect(entry.intent.select, name));
-      return {
-        outcome: "fresh",
-        entry: next,
-        tree: { sha: result.sha, memories, invalid },
-        storeChanges: swapStoreEntry(entryPath, files),
-        newUpstream,
-        changeLines,
-      };
+      return await fetchedResult(refresh, result);
     } catch (error) {
-      const classified = classifyFetchError(error, now);
+      const classified = classifyFetchError(error, refresh.now);
       if (classified === null) throw error;
       return failed(entry, classified, "failed");
     }

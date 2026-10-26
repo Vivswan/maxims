@@ -34,6 +34,35 @@ import type { EngineIo } from "./types.ts";
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 export const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
+// The local names a source's selection keeps, read from its installed copy through the selection
+// (so a hidden internal memory is left out), or from the fetch record through the renames when the
+// copy is a live local directory or is gone.
+function selectedNames(
+  entry: SourceEntry,
+  installed: SourceTree | null,
+  ctx: EngineContext,
+): MemoryName[] {
+  const { intent } = entry;
+  if (installed !== null && !isLiveLocal(intent.from)) {
+    return selectMemories({
+      memories: installed.memories,
+      intent,
+      installInternal: ctx.installInternal,
+      disabled: new Set(),
+      detailPath: () => "",
+    }).selected.map((selected) => selected.localName);
+  }
+  const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
+  const names: MemoryName[] = [];
+  for (const upstream of Object.keys(fetched?.memories ?? {})) {
+    const parsed = parseMemoryName(upstream);
+    if (parsed !== null && inSelect(intent.select, parsed)) {
+      names.push(renamed(intent.rename, parsed));
+    }
+  }
+  return names;
+}
+
 // The local names a source holds installed right now, read from what the last run left behind. A
 // copy carries no owner of its own: one whose bytes match no current memory, because the memory
 // has since changed, names no owner either, and the dedupe rule decides the name.
@@ -50,33 +79,13 @@ export async function retainedNames(
   ambiguous: ReadonlySet<ContentHash> = new Set(),
   installedSnapshot?: SourceTree | null,
 ): Promise<MemoryName[]> {
-  const names = new Set<MemoryName>();
   const { intent } = entry;
   const storeEntry = storePathFor(ctx.home, intent.from);
-  const live = isLiveLocal(intent.from);
   const installed =
     installedSnapshot === undefined
       ? await installedTree(installedRoot(entry, ctx), intent)
       : installedSnapshot;
-  if (installed !== null && !live) {
-    for (const selected of selectMemories({
-      memories: installed.memories,
-      intent,
-      installInternal: ctx.installInternal,
-      disabled: new Set(),
-      detailPath: () => "",
-    }).selected) {
-      names.add(selected.localName);
-    }
-  } else {
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    for (const upstream of Object.keys(fetched?.memories ?? {})) {
-      const parsed = parseMemoryName(upstream);
-      if (parsed !== null && inSelect(intent.select, parsed)) {
-        names.add(renamed(intent.rename, parsed));
-      }
-    }
-  }
+  const names = new Set<MemoryName>(selectedNames(entry, installed, ctx));
   for (const name of retainedBlockNames(key, entry, ctx, io, hold)) names.add(name);
   // A source installed for another project has no body in this one; `readTrees` skips it before
   // sync reads anything, and `list` reads every entry.
@@ -91,6 +100,17 @@ export async function retainedNames(
     for (const name of installedBodies(dir.dir, entryReal, own)) names.add(name);
   }
   return [...names];
+}
+
+// The blocks of a rule file as the grammar reads them; a marker it refuses is returned beside the
+// blocks read as held (`heldRuleBlocks`).
+function ruleBlocksOf(text: string): { blocks: RuleBlock[]; refused: MarkerRefused | null } {
+  try {
+    return { blocks: parseRuleBlocks(text), refused: null };
+  } catch (error) {
+    if (!(error instanceof MarkerRefused)) throw error;
+    return { blocks: heldRuleBlocks(text), refused: error };
+  }
 }
 
 // The one read that raises a hold for a refused marker, on every verb. The source owns the hold
@@ -113,15 +133,7 @@ export function retainedBlockNames(
   for (const path of retainedRuleFiles(entry, ctx, io)) {
     const text = regularFileText(path);
     if (text === null) continue;
-    let blocks: RuleBlock[];
-    let refused: MarkerRefused | null = null;
-    try {
-      blocks = parseRuleBlocks(text);
-    } catch (error) {
-      if (!(error instanceof MarkerRefused)) throw error;
-      refused = error;
-      blocks = heldRuleBlocks(text);
-    }
+    const { blocks, refused } = ruleBlocksOf(text);
     const block = blocks.find((candidate) => candidate.source === key);
     if (refused !== null) hold(new RuleFileHeld(path, refused), block !== undefined);
     for (const name of block?.names ?? []) {
@@ -133,14 +145,9 @@ export function retainedBlockNames(
 
 // A directory that exists but cannot be listed stops the run: read as empty, it would hand every
 // installed name to whichever source is older and let a write repoint another source's body.
-function installedBodies(
-  dir: string,
-  entryReal: string,
-  own: ReadonlySet<ContentHash>,
-): MemoryName[] {
-  let entries: string[];
+function listedBodies(dir: string): string[] {
   try {
-    entries = readdirSync(dir);
+    return readdirSync(dir);
   } catch (error) {
     if (isAbsent(error)) return [];
     const reason = error instanceof Error ? error.message : String(error);
@@ -148,21 +155,40 @@ function installedBodies(
       hint: "fix the directory's permissions and run maxims sync again",
     });
   }
+}
+
+// The memory a body file at a derived name holds for this source: a link into its store entry, or
+// a copy whose bytes the source owns.
+function installedBody(
+  dir: string,
+  name: string,
+  entryReal: string,
+  own: ReadonlySet<ContentHash>,
+): MemoryName | null {
+  const stem = memoryStem(name);
+  if (stem === null) return null;
+  const path = join(dir, name);
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat === undefined) return null;
+  const parsed = parseMemoryName(stem);
+  if (parsed === null) return null;
+  if (stat.isSymbolicLink()) {
+    const target = resolve(realpathOfExistingPrefix(dir), readlinkSync(path));
+    return isInside(entryReal, target) ? parsed : null;
+  }
+  if (stat.isFile() && own.has(contentHashOf(readFileSync(path, "utf8")))) return parsed;
+  return null;
+}
+
+function installedBodies(
+  dir: string,
+  entryReal: string,
+  own: ReadonlySet<ContentHash>,
+): MemoryName[] {
   const names: MemoryName[] = [];
-  for (const name of entries) {
-    const stem = memoryStem(name);
-    if (stem === null) continue;
-    const path = join(dir, name);
-    const stat = lstatSync(path, { throwIfNoEntry: false });
-    if (stat === undefined) continue;
-    const parsed = parseMemoryName(stem);
-    if (parsed === null) continue;
-    if (stat.isSymbolicLink()) {
-      const target = resolve(realpathOfExistingPrefix(dir), readlinkSync(path));
-      if (isInside(entryReal, target)) names.push(parsed);
-    } else if (stat.isFile() && own.has(contentHashOf(readFileSync(path, "utf8")))) {
-      names.push(parsed);
-    }
+  for (const name of listedBodies(dir)) {
+    const installed = installedBody(dir, name, entryReal, own);
+    if (installed !== null) names.push(installed);
   }
   return names;
 }

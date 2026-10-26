@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import {
   type HarnessDefinition,
   type Scope,
+  type SharedBlockTarget,
   type SourceSlug,
   scopeRoot,
   type Target,
@@ -125,127 +126,6 @@ export class RuleFileHeld extends Error {
   }
 }
 
-// One target file: every block this run renders for it, spliced over whatever the file holds, plus
-// the removal of blocks no intent derives any more. Identical output means no change. A block with
-// no rule line (every memory of its source disabled at this scope) is rendered by nobody: a
-// rules-dir file holding it leaves, and a shared file loses it like a block whose source left.
-export async function planRuleFile(
-  file: RuleFile,
-  options: RuleFileOptions,
-): Promise<RuleFilePlan> {
-  try {
-    return await planReadableRuleFile(file, options);
-  } catch (error) {
-    if (error instanceof MarkerRefused) throw new RuleFileHeld(file.path, error);
-    throw error;
-  }
-}
-
-async function planReadableRuleFile(
-  file: RuleFile,
-  options: RuleFileOptions,
-): Promise<RuleFilePlan> {
-  const notices: string[] = [];
-  const tokens: RuleFilePlan["tokens"] = [];
-  const { linked, current, spans, rendering, gone, rendered, unreadable } =
-    await renderRuleFile(file);
-  for (const line of unreadable) notices.push(`maxims: ${line}`);
-  for (const { block, text } of rendered) {
-    notices.push(...blockChangeNotices(file.path, block, text, current, spans));
-  }
-  const writes: Change[] = [];
-  const removals: Change[] = [];
-  if (ownedWhole(file)) {
-    const [entry, ...extra] = rendered;
-    if (entry === undefined) {
-      if (linked || current !== null) removals.push({ kind: "delete", path: file.path });
-      return { writes, removals, notices, tokens };
-    }
-    if (extra.length > 0) {
-      const keys = rendered.map((each) => each.block.key).join(", ");
-      throw new Error(`${file.path} is one file for several sources (${keys})`);
-    }
-    const content =
-      file.kind === "out" ? entry.text : rulesDirContent(file, entry.text, entry.block);
-    if (content !== current) {
-      writes.push({ kind: "write", path: file.path, content });
-      tokens.push({ path: file.path, tokens: estimateTokens(content, rendering.markers) });
-    }
-    return { writes, removals, notices, tokens };
-  }
-  const targets = file.kind === "harness" ? file.targets : [];
-  const [primary] = targets;
-  if (primary === undefined || primary.target.kind !== "shared-block") {
-    throw new Error(`${file.path} is held as a shared file by no shared-block reader`);
-  }
-  // One shared file carries a block per source. The blocks are spliced here with the grammar's
-  // own splicer (which closes a construct the user left open) and the byte budget is judged once,
-  // on the finished text, against every reader of the file: a per-block write would judge the
-  // second of two blocks on the text with the first already replaced, and refuse a source that
-  // grew while a later one shrank even when the finished file fits.
-  const sharedTarget = primary.target;
-  // The file is the user's (a symlink into a dotfiles checkout included), so every write edits it
-  // where its bytes live; a link maxims cannot follow holds the file whole, since only the user
-  // can repoint it. A file the strip leaves blank is deleted, unless any reader reaches it
-  // through a link, which is the user's to keep: the blocks leave and the file stays, empty.
-  const held = <T>(plan: () => T): T => {
-    try {
-      return plan();
-    } catch (error) {
-      if (!(error instanceof MaximsError)) throw error;
-      throw new RuleFileHeld(file.path, error);
-    }
-  };
-  const root = scopeRoot(primary.def, primary.scope, primary.ctx);
-  const edit = (content: string): Change => held(() => editInPlace(root, file.path)(content));
-  const aliases = file.kind === "harness" ? file.aliases : [];
-  const aliased = linked || aliases.length > 0 || targets.some((target) => isSymlink(target.path));
-  const emptied = (): Change => (aliased ? edit("") : { kind: "delete", path: file.path });
-  const remove = (source: string, from: string): Change | undefined =>
-    held(
-      () =>
-        planSharedBlockRemove({
-          def: primary.def,
-          target: sharedTarget,
-          scope: primary.scope,
-          ctx: primary.ctx,
-          source,
-          currentText: from,
-        })[0],
-    );
-  let text = current ?? "";
-  for (const entry of rendered) text = replaceBlock(text, entry.block.key, entry.text);
-  // A still-installed source whose block renders empty leaves with this run's write, so the
-  // budget is judged on the text the harness will load, not on a block about to go.
-  for (const block of gone) {
-    const change = remove(block.key, text);
-    if (change?.kind === "delete") {
-      removals.push(emptied());
-      return { writes, removals, notices, tokens };
-    }
-    if (change?.kind === "write") text = change.content;
-  }
-  if (rendered.length > 0) {
-    for (const target of targets) assertWithinBudget(target.def, target.scope, file.path, text);
-  }
-  if (text !== (current ?? "")) {
-    writes.push(edit(text));
-    tokens.push({ path: file.path, tokens: estimateTokens(text, rendering.markers) });
-  }
-  const wanted = new Set([...rendered.map((entry) => entry.block.key), ...options.keep]);
-  let stripped = text;
-  let blank = false;
-  for (const span of parseBlocks(text).blocks) {
-    if (wanted.has(span.source) || blank) continue;
-    const change = remove(span.source, stripped);
-    if (change?.kind === "delete") blank = true;
-    else if (change?.kind === "write") stripped = change.content;
-  }
-  if (blank && current !== null) removals.push(emptied());
-  else if (stripped !== text) removals.push(edit(stripped));
-  return { writes, removals, notices, tokens };
-}
-
 //   spans       -> the blocks the file holds, read once by the scanner in `renderRuleFile`: a
 //                  marker it refuses holds the file before any branch of `planReadableRuleFile`
 //                  writes or deletes it, since a whole-file write never reads it again
@@ -261,17 +141,20 @@ type RenderedFile = {
   unreadable: string[];
 };
 
-// The blocks as this run draws them, beside what the file holds. A rule file maxims owns whole is
-// always a real file: a link at its path reads as absent, and the replacing write is planned even
-// when the linked content matches. A shared file is the user's: a link there is read through to a
-// regular file, and anything else behind it reads as nothing, for the edit to refuse by name.
+// A rule file maxims owns whole is always a real file: a link at its path reads as absent, and the
+// replacing write is planned even when the linked content matches. A shared file is the user's: a
+// link there is read through to a regular file, and anything else behind it reads as nothing, for
+// the edit to refuse by name.
+function currentText(file: RuleFile, linked: boolean): string | null {
+  if (!linked) return readIfPresent(file.path);
+  if (ownedWhole(file)) return null;
+  return regularFileText(file.path);
+}
+
+// The blocks as this run draws them, beside what the file holds.
 async function renderRuleFile(file: RuleFile): Promise<RenderedFile> {
   const linked = isSymlink(file.path);
-  const current = linked
-    ? ownedWhole(file)
-      ? null
-      : regularFileText(file.path)
-    : readIfPresent(file.path);
+  const current = currentText(file, linked);
   const spans = current === null ? [] : parseBlocks(current).blocks;
   const rendering = renderingFor(file);
   const live = file.blocks.filter((block) => block.lines.length > 0);
@@ -436,53 +319,6 @@ export type RulesDirSweepInput = {
   hold: (held: RuleFileHeld) => void;
 };
 
-// Rule files maxims wrote for an intent that no longer derives them: a file in a rules directory
-// this run can reach, carrying a managed block, whose path this run did not plan. A directory
-// holding nothing but such files goes with them, so add-then-remove leaves no empty folder.
-export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
-  const changes: Change[] = [];
-  const harnessCtx = harnessContext(input.ctx);
-  for (const def of input.harnesses) {
-    if (!agentsAllowed(input.agents, def.id)) continue;
-    for (const scope of input.scopes) {
-      const target = def.targets[scope];
-      if (target === null || target.kind !== "rules-dir") continue;
-      const root = scopeRoot(def, scope, harnessCtx);
-      const dir = join(root, target.dir);
-      let names: string[];
-      try {
-        names = readdirSync(dir);
-      } catch (error) {
-        if (!isAbsent(error)) input.warn(`cannot list ${dir}: ${describe(error)}`);
-        continue;
-      }
-      const orphans = names.filter((name) => {
-        const path = join(dir, name);
-        if (input.planned.has(realKeyOf(path))) return false;
-        try {
-          const text = regularFileText(path);
-          return text !== null && claimedByMaxims(text);
-        } catch (error) {
-          if (error instanceof MarkerRefused) input.hold(new RuleFileHeld(path, error));
-          else input.warn(describe(error));
-          return false;
-        }
-      });
-      if (orphans.length === 0) continue;
-      const realDir = realpathOfExistingPrefix(dir);
-      const plannedHere = [...input.planned].some((path) => dirname(path) === realDir);
-      if (orphans.length === names.length && !plannedHere) {
-        changes.push({ kind: "delete", path: assertInsideRoot(root, dir) });
-        continue;
-      }
-      for (const name of orphans) {
-        changes.push({ kind: "delete", path: assertInsideRoot(root, join(dir, name)) });
-      }
-    }
-  }
-  return changes;
-}
-
 // A file at a name maxims derives is ours to remove only while it carries a managed block; the
 // user may keep a file of their own at that name once the rules that wrote it are gone. A block
 // behind a marker the grammar refuses is nobody's to remove: the read throws `MarkerRefused`, and
@@ -509,4 +345,247 @@ export function regularFileText(path: string): string | null {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+//   emptied -> the strip that leaves the file blank: the delete, or the empty write when a reader
+//              reaches the file through a link
+type SharedFileEditor = {
+  edit: (content: string) => Change;
+  emptied: () => Change;
+  remove: (source: string, from: string) => Change | undefined;
+};
+
+// A refusal the grammar or the link raises inside `plan` holds the file whole.
+function holdingFile<T>(path: string, plan: () => T): T {
+  try {
+    return plan();
+  } catch (error) {
+    if (!(error instanceof MaximsError)) throw error;
+    throw new RuleFileHeld(path, error);
+  }
+}
+
+// The file is the user's (a symlink into a dotfiles checkout included), so every write edits it
+// where its bytes live; a link maxims cannot follow holds the file whole, since only the user can
+// repoint it. A file the strip leaves blank is deleted, unless any reader reaches it through a
+// link (`aliased`), which is the user's to keep: the blocks leave and the file stays, empty.
+function sharedFileEditor(
+  path: RootedPath,
+  reader: HarnessTarget,
+  target: SharedBlockTarget,
+  aliased: boolean,
+): SharedFileEditor {
+  const root = scopeRoot(reader.def, reader.scope, reader.ctx);
+  const edit = (content: string): Change =>
+    holdingFile(path, () => editInPlace(root, path)(content));
+  const emptied = (): Change => (aliased ? edit("") : { kind: "delete", path });
+  const remove = (source: string, from: string): Change | undefined =>
+    holdingFile(
+      path,
+      () =>
+        planSharedBlockRemove({
+          def: reader.def,
+          target,
+          scope: reader.scope,
+          ctx: reader.ctx,
+          source,
+          currentText: from,
+        })[0],
+    );
+  return { edit, emptied, remove };
+}
+
+// The rendered blocks spliced over the file with the grammar's own splicer (which closes a
+// construct the user left open), then the blocks of still-installed sources that render empty
+// taken out, so the budget is judged on the text the harness will load, not on a block about to
+// go; `null` when such a removal leaves the file blank.
+function splicedText(
+  current: string,
+  drawn: RenderedFile,
+  editor: SharedFileEditor,
+): string | null {
+  let text = current;
+  for (const entry of drawn.rendered) text = replaceBlock(text, entry.block.key, entry.text);
+  for (const block of drawn.gone) {
+    const change = editor.remove(block.key, text);
+    if (change?.kind === "delete") return null;
+    if (change?.kind === "write") text = change.content;
+  }
+  return text;
+}
+
+// Every block no intent derives any more taken out, each removal planned over the text the one
+// before it left. `blank` says a removal left nothing, and `text` is then the strip up to it.
+function stripUnwanted(
+  text: string,
+  wanted: ReadonlySet<string>,
+  editor: SharedFileEditor,
+): { text: string; blank: boolean } {
+  let stripped = text;
+  for (const span of parseBlocks(text).blocks) {
+    if (wanted.has(span.source)) continue;
+    const change = editor.remove(span.source, stripped);
+    if (change?.kind === "delete") return { text: stripped, blank: true };
+    if (change?.kind === "write") stripped = change.content;
+  }
+  return { text: stripped, blank: false };
+}
+
+// One shared file carries a block per source. The byte budget is judged once, on the finished
+// text, against every reader of the file: a per-block write would judge the second of two blocks
+// on the text with the first already replaced, and refuse a source that grew while a later one
+// shrank even when the finished file fits.
+function planSharedFile(
+  file: RuleFile,
+  drawn: RenderedFile,
+  options: RuleFileOptions,
+  notices: string[],
+): RuleFilePlan {
+  const plan: RuleFilePlan = { writes: [], removals: [], notices, tokens: [] };
+  const targets = file.kind === "harness" ? file.targets : [];
+  const [primary] = targets;
+  if (primary === undefined || primary.target.kind !== "shared-block") {
+    throw new Error(`${file.path} is held as a shared file by no shared-block reader`);
+  }
+  const aliases = file.kind === "harness" ? file.aliases : [];
+  const aliased =
+    drawn.linked || aliases.length > 0 || targets.some((target) => isSymlink(target.path));
+  const editor = sharedFileEditor(file.path, primary, primary.target, aliased);
+  const current = drawn.current ?? "";
+  const text = splicedText(current, drawn, editor);
+  if (text === null) {
+    plan.removals.push(editor.emptied());
+    return plan;
+  }
+  if (drawn.rendered.length > 0) {
+    for (const target of targets) assertWithinBudget(target.def, target.scope, file.path, text);
+  }
+  if (text !== current) {
+    plan.writes.push(editor.edit(text));
+    plan.tokens.push({ path: file.path, tokens: estimateTokens(text, drawn.rendering.markers) });
+  }
+  const wanted = new Set([...drawn.rendered.map((entry) => entry.block.key), ...options.keep]);
+  const stripped = stripUnwanted(text, wanted, editor);
+  if (stripped.blank && drawn.current !== null) plan.removals.push(editor.emptied());
+  else if (stripped.text !== text) plan.removals.push(editor.edit(stripped.text));
+  return plan;
+}
+
+// A rules-dir file or an `out` file is written whole for its one source, and deleted when it
+// renders nothing.
+function planWholeFile(file: RuleFile, drawn: RenderedFile, notices: string[]): RuleFilePlan {
+  const plan: RuleFilePlan = { writes: [], removals: [], notices, tokens: [] };
+  const [entry, ...extra] = drawn.rendered;
+  if (entry === undefined) {
+    if (drawn.linked || drawn.current !== null) {
+      plan.removals.push({ kind: "delete", path: file.path });
+    }
+    return plan;
+  }
+  if (extra.length > 0) {
+    const keys = drawn.rendered.map((each) => each.block.key).join(", ");
+    throw new Error(`${file.path} is one file for several sources (${keys})`);
+  }
+  const content = file.kind === "out" ? entry.text : rulesDirContent(file, entry.text, entry.block);
+  if (content !== drawn.current) {
+    plan.writes.push({ kind: "write", path: file.path, content });
+    plan.tokens.push({ path: file.path, tokens: estimateTokens(content, drawn.rendering.markers) });
+  }
+  return plan;
+}
+
+function renderNotices(file: RuleFile, drawn: RenderedFile): string[] {
+  const notices = drawn.unreadable.map((line) => `maxims: ${line}`);
+  for (const { block, text } of drawn.rendered) {
+    notices.push(...blockChangeNotices(file.path, block, text, drawn.current, drawn.spans));
+  }
+  return notices;
+}
+
+async function planReadableRuleFile(
+  file: RuleFile,
+  options: RuleFileOptions,
+): Promise<RuleFilePlan> {
+  const drawn = await renderRuleFile(file);
+  const notices = renderNotices(file, drawn);
+  if (ownedWhole(file)) return planWholeFile(file, drawn, notices);
+  return planSharedFile(file, drawn, options, notices);
+}
+
+// One target file: every block this run renders for it, spliced over whatever the file holds, plus
+// the removal of blocks no intent derives any more. Identical output means no change. A block with
+// no rule line (every memory of its source disabled at this scope) is rendered by nobody: a
+// rules-dir file holding it leaves, and a shared file loses it like a block whose source left.
+export async function planRuleFile(
+  file: RuleFile,
+  options: RuleFileOptions,
+): Promise<RuleFilePlan> {
+  try {
+    return await planReadableRuleFile(file, options);
+  } catch (error) {
+    if (error instanceof MarkerRefused) throw new RuleFileHeld(file.path, error);
+    throw error;
+  }
+}
+
+// `null` when the directory cannot be listed: an absent one holds nothing, any other failure is
+// said.
+function listedNames(dir: string, warn: RulesDirSweepInput["warn"]): string[] | null {
+  try {
+    return readdirSync(dir);
+  } catch (error) {
+    if (!isAbsent(error)) warn(`cannot list ${dir}: ${describe(error)}`);
+    return null;
+  }
+}
+
+// A file this run did not plan that carries a managed block. One behind a marker the grammar
+// refuses is held where it is; one that cannot be inspected is said.
+function isOrphan(
+  path: string,
+  input: Pick<RulesDirSweepInput, "planned" | "warn" | "hold">,
+): boolean {
+  if (input.planned.has(realKeyOf(path))) return false;
+  try {
+    const text = regularFileText(path);
+    return text !== null && claimedByMaxims(text);
+  } catch (error) {
+    if (error instanceof MarkerRefused) input.hold(new RuleFileHeld(path, error));
+    else input.warn(describe(error));
+    return false;
+  }
+}
+
+// The orphans of one rules directory. A directory holding nothing but orphans goes with them, so
+// add-then-remove leaves no empty folder, unless a planned file lands in it.
+function sweepRulesDir(root: string, dir: string, input: RulesDirSweepInput): Change[] {
+  const names = listedNames(dir, input.warn);
+  if (names === null) return [];
+  const orphans = names.filter((name) => isOrphan(join(dir, name), input));
+  if (orphans.length === 0) return [];
+  const realDir = realpathOfExistingPrefix(dir);
+  const plannedHere = [...input.planned].some((path) => dirname(path) === realDir);
+  if (orphans.length === names.length && !plannedHere) {
+    return [{ kind: "delete", path: assertInsideRoot(root, dir) }];
+  }
+  return orphans.map(
+    (name): Change => ({ kind: "delete", path: assertInsideRoot(root, join(dir, name)) }),
+  );
+}
+
+// Rule files maxims wrote for an intent that no longer derives them: a file in a rules directory
+// this run can reach, carrying a managed block, whose path this run did not plan.
+export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
+  const changes: Change[] = [];
+  const harnessCtx = harnessContext(input.ctx);
+  for (const def of input.harnesses) {
+    if (!agentsAllowed(input.agents, def.id)) continue;
+    for (const scope of input.scopes) {
+      const target = def.targets[scope];
+      if (target === null || target.kind !== "rules-dir") continue;
+      const root = scopeRoot(def, scope, harnessCtx);
+      changes.push(...sweepRulesDir(root, join(root, target.dir), input));
+    }
+  }
+  return changes;
 }

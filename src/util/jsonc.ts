@@ -189,7 +189,8 @@ export function appendChild(
     const closing = closingOf(container);
     const start = whitespaceStart(text, closing);
     const at = lineCommentEnd(text, start) ?? start;
-    const tail = oneLine ? (at === closing ? `${style.eol}${indent}` : style.eol) : "";
+    const breakBeforeBracket = at === closing ? `${style.eol}${indent}` : style.eol;
+    const tail = oneLine ? breakBeforeBracket : "";
     const inner = `${indent}${style.unit}`;
     return splice(text, at, 0, `${style.eol}${inner}${render(inner)}${tail}`);
   }
@@ -207,6 +208,43 @@ export function replaceValue(text: string, node: Node, value: unknown): string {
   );
 }
 
+function removedBeforeNext(text: string, child: Node, next: Node): string {
+  const end = child.offset + child.length;
+  const comma = commaBetween(text, end, next.offset);
+  if (comma === undefined) return splice(text, child.offset, end - child.offset, "");
+  if (whitespaceOnly(text, end, comma)) {
+    return splice(text, child.offset, whitespaceEnd(text, comma + 1) - child.offset, "");
+  }
+  return splice(splice(text, comma, 1, ""), child.offset, end - child.offset, "");
+}
+
+function removedAfterPrevious(text: string, child: Node, previous: Node): string {
+  const end = child.offset + child.length;
+  const comma = commaBetween(text, previous.offset + previous.length, child.offset);
+  if (comma !== undefined && whitespaceOnly(text, comma + 1, child.offset)) {
+    return splice(text, comma, end - comma, "");
+  }
+  const start = leadStart(text, child.offset);
+  const stop =
+    start === whitespaceStart(text, child.offset) ? end : throughFirstLineBreak(text, end);
+  const out = splice(text, start, stop - start, "");
+  return comma === undefined ? out : splice(out, comma, 1, "");
+}
+
+function removedLone(text: string, container: Node, child: Node): string {
+  const end = child.offset + child.length;
+  const comma = commaBetween(text, end, closingOf(container));
+  const tailFrom = comma !== undefined && whitespaceOnly(text, end, comma) ? comma + 1 : end;
+  const start = leadStart(text, child.offset);
+  const stop =
+    start === whitespaceStart(text, child.offset) &&
+    text.slice(container.offset + 1, start).includes("\n")
+      ? tailFrom
+      : throughFirstLineBreak(text, tailFrom);
+  const out = comma !== undefined && tailFrom === end ? splice(text, comma, 1, "") : text;
+  return splice(out, start, stop - start, "");
+}
+
 // Cuts one member and the one comma that joined it. When nothing but whitespace sits between that
 // comma and the member the whole run goes too, which is the exact inverse of an append; a comment
 // in the gap stays, and a line comment keeps the line break that ends it. A lone member also takes
@@ -222,39 +260,14 @@ export function removeChild(text: string, container: Node, child: Node): string 
   const index = siblings.indexOf(child);
   const previous = siblings[index - 1];
   const next = siblings[index + 1];
-  const end = child.offset + child.length;
   let out: string;
-  if (next !== undefined) {
-    const comma = commaBetween(text, end, next.offset);
-    if (comma === undefined) {
-      out = splice(text, child.offset, end - child.offset, "");
-    } else if (whitespaceOnly(text, end, comma)) {
-      out = splice(text, child.offset, whitespaceEnd(text, comma + 1) - child.offset, "");
-    } else {
-      out = splice(splice(text, comma, 1, ""), child.offset, end - child.offset, "");
-    }
-  } else if (previous !== undefined) {
-    const comma = commaBetween(text, previous.offset + previous.length, child.offset);
-    if (comma !== undefined && whitespaceOnly(text, comma + 1, child.offset)) {
-      out = splice(text, comma, end - comma, "");
-    } else {
-      const start = leadStart(text, child.offset);
-      const stop =
-        start === whitespaceStart(text, child.offset) ? end : throughFirstLineBreak(text, end);
-      out = splice(text, start, stop - start, "");
-      if (comma !== undefined) out = splice(out, comma, 1, "");
-    }
+  if (next === undefined) {
+    out =
+      previous === undefined
+        ? removedLone(text, container, child)
+        : removedAfterPrevious(text, child, previous);
   } else {
-    const comma = commaBetween(text, end, closingOf(container));
-    const tailFrom = comma !== undefined && whitespaceOnly(text, end, comma) ? comma + 1 : end;
-    const start = leadStart(text, child.offset);
-    const stop =
-      start === whitespaceStart(text, child.offset) &&
-      text.slice(container.offset + 1, start).includes("\n")
-        ? tailFrom
-        : throughFirstLineBreak(text, tailFrom);
-    out = comma !== undefined && tailFrom === end ? splice(text, comma, 1, "") : text;
-    out = splice(out, start, stop - start, "");
+    out = removedBeforeNext(text, child, next);
   }
   const closing = closingOf(container) - (text.length - out.length);
   if (whitespaceOnly(out, container.offset + 1, closing)) {

@@ -3,7 +3,7 @@
 // through it.
 
 import { join, relative, sep } from "node:path";
-import type { Scope, SourceSlug } from "../harnesses/contract.ts";
+import type { HarnessDefinition, Scope, SourceSlug } from "../harnesses/contract.ts";
 import { BudgetExceeded } from "../harnesses/strategies/rules-dir.ts";
 import type { MemoryName } from "../memory/contract.ts";
 import { MarkerRefused } from "../rulefile/block.ts";
@@ -181,6 +181,69 @@ export function supportsPathScoping(target: HarnessTarget): boolean {
   return target.target.frontmatter !== undefined || target.def.scopeFrontmatter !== undefined;
 }
 
+// A harness `-a` leaves out is not planned, but a link it reads a visited file by is the user's,
+// and the file must not be deleted under it. It is resolved for that alone, so a destination it
+// cannot resolve (its config folder linked out of the root) costs this run nothing; a harness this
+// run writes fails on the same, as it would for a source.
+function sharedFileReader(
+  def: HarnessDefinition,
+  scope: Scope,
+  ctx: EngineContext,
+  io: EngineIo,
+  allowed: boolean,
+): HarnessTarget | undefined {
+  try {
+    const [only] = resolveTargets({
+      intent: { harnesses: [def.id] },
+      scope,
+      sourceSlug: null,
+      ctx,
+      harnesses: io.harnesses,
+      agents: undefined,
+      explicit: [],
+    }).targets;
+    return only;
+  } catch (error) {
+    if (allowed || !destinationUnresolvable(error)) throw error;
+    return undefined;
+  }
+}
+
+// A file maxims owns whole is refused under this link as under a link a source brings: retiring
+// the file would delete it and leave the link dangling. An orphan reader brings no block, so there
+// is no budget to judge it by.
+function aliasVisited(visited: RuleFile, reader: HarnessTarget): void {
+  if (!isSymlink(reader.path)) return;
+  if (ownedWhole(visited)) throw new LinkedAtRuleFile([], reader.path, visited.path);
+  if (visited.kind === "harness" && !visited.aliases.includes(reader.path)) {
+    visited.aliases.push(reader.path);
+  }
+}
+
+// A file this run already visits gains the reader's link as an alias; one it does not is added
+// for the strip when the harness is planned and the file exists.
+function visitSharedFile(
+  files: Map<string, RuleFile>,
+  reader: HarnessTarget,
+  allowed: boolean,
+): void {
+  const visited = files.get(reader.realKey);
+  if (visited !== undefined) {
+    aliasVisited(visited, reader);
+    return;
+  }
+  if (!allowed || regularFileText(reader.path) === null) return;
+  files.set(reader.realKey, {
+    kind: "harness",
+    owned: "shared",
+    path: reader.path,
+    sourceSlug: null,
+    targets: [reader],
+    aliases: [],
+    blocks: [],
+  });
+}
+
 // Shared files this run planned no block for may still hold blocks of sources that left intent;
 // they are visited so the orphan strip reaches them.
 export function addSharedFilesWithOrphans(
@@ -195,49 +258,8 @@ export function addSharedFilesWithOrphans(
     for (const scope of scopes) {
       const target = def.targets[scope];
       if (target === null || target.kind !== "shared-block") continue;
-      // A harness `-a` leaves out is not planned, but a link it reads a visited file by is the
-      // user's, and the file must not be deleted under it. It is resolved for that alone, so a
-      // destination it cannot resolve (its config folder linked out of the root) costs this run
-      // nothing; a harness this run writes fails on the same, as it would for a source.
-      let only: HarnessTarget | undefined;
-      try {
-        [only] = resolveTargets({
-          intent: { harnesses: [def.id] },
-          scope,
-          sourceSlug: null,
-          ctx,
-          harnesses: io.harnesses,
-          agents: undefined,
-          explicit: [],
-        }).targets;
-      } catch (error) {
-        if (allowed || !destinationUnresolvable(error)) throw error;
-        continue;
-      }
-      if (only === undefined) continue;
-      const visited = files.get(only.realKey);
-      if (visited !== undefined) {
-        // A file maxims owns whole is refused under this link as under a link a source brings:
-        // retiring the file would delete it and leave the link dangling. An orphan reader brings
-        // no block, so there is no budget to judge it by.
-        if (isSymlink(only.path)) {
-          if (ownedWhole(visited)) throw new LinkedAtRuleFile([], only.path, visited.path);
-          if (visited.kind === "harness" && !visited.aliases.includes(only.path)) {
-            visited.aliases.push(only.path);
-          }
-        }
-        continue;
-      }
-      if (!allowed || regularFileText(only.path) === null) continue;
-      files.set(only.realKey, {
-        kind: "harness",
-        owned: "shared",
-        path: only.path,
-        sourceSlug: null,
-        targets: [only],
-        aliases: [],
-        blocks: [],
-      });
+      const reader = sharedFileReader(def, scope, ctx, io, allowed);
+      if (reader !== undefined) visitSharedFile(files, reader, allowed);
     }
   }
 }

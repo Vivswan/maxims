@@ -595,6 +595,18 @@ function batchSshCommand(base: NodeJS.ProcessEnv): string {
   return `${word.raw} -o BatchMode=yes${command.slice(word.raw.length)}`;
 }
 
+// A backslash-newline is sh's line continuation and yields nothing.
+function escapedChar(next: string, quote: string | null): { text: string; consumed: boolean } {
+  if (quote !== null && !/[$`"\\\n]/.test(next)) return { text: "\\", consumed: false };
+  return { text: next === "\n" ? "" : next, consumed: true };
+}
+
+function quoteAfter(char: string, quote: string | null): string | null {
+  if (quote === null && (char === "'" || char === '"')) return char;
+  if (char === quote) return null;
+  return quote;
+}
+
 // The first word of a POSIX command line, as spelled (`raw`) and as sh reads it (`text`). Inside
 // double quotes a backslash stays a character unless it escapes one of sh's five, which is how a
 // Windows path keeps its separators.
@@ -604,15 +616,18 @@ function leadingShellWord(command: string): { raw: string; text: string } {
   for (let index = 0; index < command.length; index += 1) {
     const char = command[index] ?? "";
     if (quote === null && /[\s<>|&;()]/.test(char)) return { raw: command.slice(0, index), text };
-    if (quote === null && (char === "'" || char === '"')) quote = char;
-    else if (char === quote) quote = null;
-    else if (char === "\\" && quote !== "'") {
-      const next = command[index + 1] ?? "";
-      if (quote === null || /[$`"\\\n]/.test(next)) {
-        index += 1;
-        if (next !== "\n") text += next;
-      } else text += char;
-    } else text += char;
+    const quoted = quoteAfter(char, quote);
+    if (quoted !== quote) {
+      quote = quoted;
+      continue;
+    }
+    if (char !== "\\" || quote === "'") {
+      text += char;
+      continue;
+    }
+    const escaped = escapedChar(command[index + 1] ?? "", quote);
+    text += escaped.text;
+    if (escaped.consumed) index += 1;
   }
   return { raw: command, text };
 }
@@ -688,6 +703,29 @@ function guardedEnvironment(env: Record<string, string>): {
   return { env: kept, allowEnvironment };
 }
 
+// An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
+// withheld; credentialConfig pins the result against a second expansion.
+//   header                   as typed: its header is scoped to that URL, so a rewrite leaves it
+//   none, http(s)            whole userinfo goes: git would send it as Basic auth after a 401
+//   not a URL, has userinfo  refused: git prints it as typed, password and all
+async function transportTarget(
+  git: SimpleGit,
+  url: string,
+  credentials: GitCredentials,
+): Promise<string> {
+  const expanded = await effectiveUrl(git, url);
+  if (hasUnparsableUserinfo(expanded)) {
+    throw new Error(
+      `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
+    );
+  }
+  if (credentials.kind === "header") return transportUrl(url);
+  if (credentials.kind === "none" && /^https?:\/\//i.test(expanded)) {
+    return withoutUserinfo(expanded);
+  }
+  return transportUrl(expanded);
+}
+
 // A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
 // prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
 // simple-git's debug channel is switched off for the whole process: under `DEBUG=simple-git:*` it
@@ -720,24 +758,6 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     };
     return simpleGit(settings).env(guarded.env);
   };
-  // An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
-  // withheld; credentialConfig pins the result against a second expansion.
-  //   header                   as typed: its header is scoped to that URL, so a rewrite leaves it
-  //   none, http(s)            whole userinfo goes: git would send it as Basic auth after a 401
-  //   not a URL, has userinfo  refused: git prints it as typed, password and all
-  const target = async (cwd: string, url: string, credentials: GitCredentials): Promise<string> => {
-    const expanded = await effectiveUrl(client([], cwd), url);
-    if (hasUnparsableUserinfo(expanded)) {
-      throw new Error(
-        `${withoutUserinfo(url)}: an insteadOf rule in gitconfig rewrites it to a URL that cannot be parsed, so a password in it could not be withheld; fix the url.<base>.insteadOf rule`,
-      );
-    }
-    if (credentials.kind === "header") return transportUrl(url);
-    if (credentials.kind === "none" && /^https?:\/\//i.test(expanded)) {
-      return withoutUserinfo(expanded);
-    }
-    return transportUrl(expanded);
-  };
   // No git process runs in the caller's cwd: a repository the caller happens to be in would lend
   // its local config (an `insteadOf`) to the lookup, and a fetch run there would register a
   // promisor remote in its config. The lookups run in this scratch directory, the clone in its
@@ -758,7 +778,7 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     ) => Promise<T>,
   ): Promise<T> =>
     withScratchDir("maxims-git-", async (scratch) => {
-      const remote = await target(scratch, url, credentials);
+      const remote = await transportTarget(client([], scratch), url, credentials);
       const file = join(scratch, "config");
       await writeFile(file, credentialConfig(url, remote, credentials), { mode: 0o600 });
       const callEnv =
@@ -808,6 +828,15 @@ function hasUnparsableUserinfo(url: string): boolean {
   return authority.includes("@");
 }
 
+// Git decodes and prints the whole authority on git:// and ssh://, so the cut lands on an encoded
+// `:` too; only http's credential code splits the userinfo, on the literal `:` before decoding,
+// where `u:@host` keeps its colon ("no password") and `u@host` means "ask".
+function transportUserinfo(parsed: URL, typed: string, http: boolean): string {
+  if (http) return `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`;
+  const colon = typed.search(/:|%3a/i);
+  return colon === -1 ? typed : typed.slice(0, colon);
+}
+
 // Git decodes a URL before parsing it and prints the authority in pieces no redaction can know, so
 // the password comes off here and host, port and path stay as typed. Its one whole-URL print keeps
 // a `//u:p@` run, which redactUserinfo removes.
@@ -828,15 +857,7 @@ function transportUrl(url: string): string {
   const start = afterScheme + slashes.length;
   const authority = url.slice(start).split(http ? /[/\\?]/ : /[/?]/, 1)[0] ?? "";
   const typed = authority.slice(0, authority.lastIndexOf("@"));
-  // Git decodes and prints the whole authority on git:// and ssh://, so the cut lands on an encoded
-  // `:` too; only http's credential code splits the userinfo, on the literal `:` before decoding,
-  // where `u:@host` keeps its colon ("no password") and `u@host` means "ask".
-  const colon = typed.search(/:|%3a/i);
-  const userinfo = http
-    ? `${parsed.username}${typed.includes(":") ? `:${parsed.password}` : ""}`
-    : colon === -1
-      ? typed
-      : typed.slice(0, colon);
+  const userinfo = transportUserinfo(parsed, typed, http);
   const rest = url.slice(start + typed.length + 1);
   return `${url.slice(0, afterScheme)}//${userinfo === "" ? "" : `${userinfo}@`}${rest}`;
 }
@@ -853,7 +874,7 @@ async function effectiveUrl(git: SimpleGit, url: string): Promise<string> {
 // prefix-scoped entry in the user's gitconfig.
 //   extraheader =, helper =   an empty value resets the user's list; the token's header follows
 //   insteadOf onto itself     the longest rule wins, so a shorter user rule cannot write credentials
-//                             back into a destination target() already resolved
+//                             back into a destination transportTarget() already resolved
 export function credentialConfig(url: string, remote: string, credentials: GitCredentials): string {
   const lines =
     credentials.kind === "inherited"

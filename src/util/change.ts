@@ -115,89 +115,108 @@ function editTarget(root: string, path: RootedPath): RootedPath {
   return assertInsideRoot(root, target);
 }
 
-async function applyOne(change: Change): Promise<boolean> {
-  switch (change.kind) {
-    // The file is the user's, so its mode is theirs too: a 0600 registry stays 0600.
-    case "edit": {
-      const existing = await lstatOrNull(change.target);
-      const current = existing?.isFile()
-        ? await guardedValue(change.target, () => readFile(change.target, "utf8"))
-        : null;
-      if (current === change.content) return false;
-      const mode = POSIX_MODES && existing?.isFile() ? { mode: existing.mode & 0o7777 } : {};
-      writeFileAtomic(change.target, change.content, mode);
-      return true;
-    }
-    case "write": {
-      const existing = await lstatOrNull(change.path);
-      const current = existing?.isFile()
-        ? await guardedValue(change.path, () => readFile(change.path, "utf8"))
-        : null;
-      if (current !== change.content) {
-        writeFileAtomic(change.path, change.content, { mode: change.mode });
-        return true;
-      }
-      // Windows cannot hold a requested mode, so a mode compare there would count a change on every run.
-      if (
-        POSIX_MODES &&
-        change.mode !== undefined &&
-        existing !== null &&
-        (existing.mode & 0o7777) !== change.mode
-      ) {
-        await guarded(change.path, () => chmod(change.path, change.mode as number));
-        return true;
-      }
-      return false;
-    }
-    case "delete": {
-      const entry = await lstatOrNull(change.path);
-      if (entry === null) return false;
-      await guarded(change.path, () =>
-        entry.isSymbolicLink() ? unlink(change.path) : rm(change.path, { recursive: true }),
+// The file is the user's, so its mode is theirs too: a 0600 registry stays 0600.
+async function applyEdit(change: Extract<Change, { kind: "edit" }>): Promise<boolean> {
+  const existing = await lstatOrNull(change.target);
+  const current = existing?.isFile()
+    ? await guardedValue(change.target, () => readFile(change.target, "utf8"))
+    : null;
+  if (current === change.content) return false;
+  const mode = POSIX_MODES && existing?.isFile() ? { mode: existing.mode & 0o7777 } : {};
+  writeFileAtomic(change.target, change.content, mode);
+  return true;
+}
+
+// Windows cannot hold a requested mode, so a mode compare there would count a change on every run.
+async function applyWrite(change: Extract<Change, { kind: "write" }>): Promise<boolean> {
+  const existing = await lstatOrNull(change.path);
+  const current = existing?.isFile()
+    ? await guardedValue(change.path, () => readFile(change.path, "utf8"))
+    : null;
+  if (current !== change.content) {
+    writeFileAtomic(change.path, change.content, { mode: change.mode });
+    return true;
+  }
+  if (
+    POSIX_MODES &&
+    change.mode !== undefined &&
+    existing !== null &&
+    (existing.mode & 0o7777) !== change.mode
+  ) {
+    await guarded(change.path, () => chmod(change.path, change.mode as number));
+    return true;
+  }
+  return false;
+}
+
+async function applyDelete(change: Extract<Change, { kind: "delete" }>): Promise<boolean> {
+  const entry = await lstatOrNull(change.path);
+  if (entry === null) return false;
+  await guarded(change.path, () =>
+    entry.isSymbolicLink() ? unlink(change.path) : rm(change.path, { recursive: true }),
+  );
+  return true;
+}
+
+async function applySymlink(change: Extract<Change, { kind: "symlink" }>): Promise<boolean> {
+  const entry = await lstatOrNull(change.path);
+  if (entry !== null) {
+    if (!entry.isSymbolicLink()) {
+      throw new MaximsError(
+        ExitCode.DestinationWriteFailed,
+        `refusing to replace ${change.path} with a symlink: it is not a symlink`,
       );
-      return true;
     }
-    case "symlink": {
-      const entry = await lstatOrNull(change.path);
-      if (entry !== null) {
-        if (!entry.isSymbolicLink()) {
-          throw new MaximsError(
-            ExitCode.DestinationWriteFailed,
-            `refusing to replace ${change.path} with a symlink: it is not a symlink`,
-          );
-        }
-        if ((await readlink(change.path)) === change.target) return false;
-      }
-      await guarded(change.path, async () => {
-        const dir = dirname(change.path);
-        await mkdir(dir, { recursive: true });
-        const temp = join(dir, `.${randomBytes(6).toString("hex")}.lnk`);
-        await symlink(change.target, temp);
-        await rename(temp, change.path).catch(async (error: unknown) => {
-          await unlink(temp).catch(() => undefined);
-          throw error;
-        });
-      });
-      return true;
-    }
-    case "unlink": {
-      const entry = await lstatOrNull(change.path);
-      if (entry === null) return false;
-      if (!entry.isSymbolicLink()) {
-        throw new MaximsError(
-          ExitCode.DestinationWriteFailed,
-          `refusing to unlink ${change.path}: it is not a symlink`,
-        );
-      }
-      await guarded(change.path, () => unlink(change.path));
-      return true;
-    }
-    case "mkdir": {
-      const entry = await statOrNull(change.path);
-      if (entry?.isDirectory()) return false;
-      await guarded(change.path, () => mkdir(change.path, { recursive: true }));
-      return true;
-    }
+    if ((await readlink(change.path)) === change.target) return false;
+  }
+  await guarded(change.path, async () => {
+    const dir = dirname(change.path);
+    await mkdir(dir, { recursive: true });
+    const temp = join(dir, `.${randomBytes(6).toString("hex")}.lnk`);
+    await symlink(change.target, temp);
+    await rename(temp, change.path).catch(async (error: unknown) => {
+      await unlink(temp).catch(() => undefined);
+      throw error;
+    });
+  });
+  return true;
+}
+
+async function applyUnlink(change: Extract<Change, { kind: "unlink" }>): Promise<boolean> {
+  const entry = await lstatOrNull(change.path);
+  if (entry === null) return false;
+  if (!entry.isSymbolicLink()) {
+    throw new MaximsError(
+      ExitCode.DestinationWriteFailed,
+      `refusing to unlink ${change.path}: it is not a symlink`,
+    );
+  }
+  await guarded(change.path, () => unlink(change.path));
+  return true;
+}
+
+async function applyMkdir(change: Extract<Change, { kind: "mkdir" }>): Promise<boolean> {
+  const entry = await statOrNull(change.path);
+  if (entry?.isDirectory()) return false;
+  await guarded(change.path, () => mkdir(change.path, { recursive: true }));
+  return true;
+}
+
+// Whether the change altered the filesystem: one already in place is reported as nothing done.
+function applyOne(change: Change): Promise<boolean> {
+  switch (change.kind) {
+    case "edit":
+      return applyEdit(change);
+    case "write":
+      return applyWrite(change);
+    case "delete":
+      return applyDelete(change);
+    case "symlink":
+      return applySymlink(change);
+    case "unlink":
+      return applyUnlink(change);
+    case "mkdir":
+      return applyMkdir(change);
   }
 }
 
