@@ -172,30 +172,44 @@ function hiddenRanges(markers: readonly Marker[]): [number, number][] {
 }
 
 /**
+ * The list's events up to its exit, with those inside a nested list or quote dropped: a blank line
+ * there is the nested block's. The nested block's own opening and closing stay, since either ends
+ * a stretch after an item marker.
+ */
+function ownEvents(events: readonly Event[], enter: number): Event[] {
+  const list = events[enter]?.[1];
+  const own: Event[] = [];
+  let nested = 0;
+  for (let i = enter + 1; i < events.length; i++) {
+    const event = events[i];
+    if (event === undefined || event[1] === list) break;
+
+    const [step, token] = event;
+    if (token._container) nested += step === "enter" ? 1 : -1;
+    if (nested === 0 || token._container) own.push(event);
+  }
+  return own;
+}
+
+/** Whether the walk still sits right after an item marker, where a blank line is the item's empty first line, not a separator. */
+function afterMarker(atMarker: boolean, step: Event[0], token: Token): boolean {
+  if (token.type === "listItemPrefix") return step === "exit" || atMarker;
+  if (token.type === "linePrefix") return atMarker;
+  if (token.type === "lineEndingBlank") return step === "exit" && atMarker;
+  return false;
+}
+
+/**
  * Whether the list's items are separated by blank lines, or one holds a blank line between two
  * blocks, read the way micromark's compiler reads it: a blank line directly in the list, not one
  * inside a nested container and not one right after an item marker. Blank lines after the last
  * item sit after the list's exit and are never seen here.
  */
 function isLoose(events: readonly Event[], enter: number): boolean {
-  const list = events[enter]?.[1];
-  let nested = 0;
   let atMarker = false;
-  for (let i = enter + 1; i < events.length; i++) {
-    const event = events[i];
-    if (event === undefined || event[1] === list) break;
-    const [step, token] = event;
-    if (token._container) {
-      atMarker = false;
-      nested += step === "enter" ? 1 : -1;
-    } else if (token.type === "listItemPrefix") {
-      if (step === "exit") atMarker = true;
-    } else if (token.type === "lineEndingBlank") {
-      if (step === "enter" && nested === 0) {
-        if (!atMarker) return true;
-        atMarker = false;
-      }
-    } else if (token.type !== "linePrefix") atMarker = false;
+  for (const [step, token] of ownEvents(events, enter)) {
+    if (token.type === "lineEndingBlank" && step === "enter" && !atMarker) return true;
+    atMarker = afterMarker(atMarker, step, token);
   }
   return false;
 }
@@ -225,6 +239,49 @@ interface Media {
   href: string | null;
 }
 
+/** The state of one page's event walk; `scan` is what it yields once the last token has closed. */
+interface Walk {
+  /** The whole stream: a list's looseness is read ahead from where it opens. */
+  readonly events: readonly Event[];
+
+  /** The line ranges a BEGIN/END GENERATED region hides. */
+  readonly hidden: readonly [number, number][];
+
+  /** What the page yields, filled as tokens close. */
+  readonly scan: Scan;
+
+  /** One per page: GitHub numbers a repeated heading in document order, and so does the site. */
+  readonly slugger: GithubSlugger;
+
+  /** The open lists and quotes, innermost last. */
+  readonly scopes: Scope[];
+
+  /** The open collected and sunk tokens, innermost last. */
+  readonly collectors: Collector[];
+
+  /** The open links and images, innermost last. */
+  readonly media: Media[];
+
+  /** Closed links, resolved against the definitions once the whole page is read. */
+  readonly pendingLinks: Media[];
+
+  /** By normalized label; a definition's line is where a reference link's destination is written, and where it is fixed. */
+  readonly definitions: Map<string, { href: string; line: number }>;
+
+  /** The definition being read, registered when its whole token closes: an empty destination (`<>`) has no destination string. */
+  definition: { label: string; href: string; line: number };
+
+  /** The header's cell count: GFM keeps as many cells per row and drops the rest unrendered. */
+  columns: number;
+
+  /** The index of the cell being read within its row. */
+  column: number;
+
+  /** Whether the cell being read is one GFM drops. */
+  overflow: boolean;
+}
+
+/** Text the reader sees; the rest of the inline stream is markup (sequences, markers, padding, a task list's checkbox) or hidden (a destination, a title, an alt text) and contributes nothing. */
 const VISIBLE = new Set([
   "data",
   "codeTextData",
@@ -232,6 +289,8 @@ const VISIBLE = new Set([
   "autolinkProtocol",
   "autolinkEmail",
 ]);
+
+/** Gathered into a collector of its own and dispatched when it closes; a heading's is dropped, its words uncounted, its code spans and links recorded as they closed. */
 const COLLECTED = new Set([
   "paragraph",
   "tableHeader",
@@ -243,177 +302,297 @@ const COLLECTED = new Set([
   "resourceDestinationString",
   "definitionDestinationString",
 ]);
+
+/** Inline content the reader never sees: an image's alt text, a destination's title, the line breaks inside a comment or a tag wrapped over several lines. */
 const SINKS = new Set(["image", "resource", "reference", "definition", "htmlText"]);
 
+/** The GENERATED marker an HTML-flow token spells, with its line range; nothing for any other HTML. */
 const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
   const marker = parseMarker(context.sliceSerialize(token));
   return marker === null ? [] : [{ ...marker, start: token.start.line, end: token.end.line }];
 };
 
+/** Whether a line sits inside a BEGIN/END GENERATED region. */
+function isHidden(walk: Walk, line: number): boolean {
+  return walk.hidden.some(([from, to]) => line >= from && line <= to);
+}
+
+/** Inside an image's alt text or a dropped cell nothing is recorded: the reader never sees it. */
+function muted(walk: Walk): boolean {
+  return walk.overflow || walk.media.some((m) => m.kind === "image");
+}
+
+/** Whether a code span or a link at `line` is one the reader sees, so the probes read it. */
+function record(walk: Walk, line: number): boolean {
+  return !muted(walk) && !isHidden(walk, line);
+}
+
+/** A piece of text lands in the innermost open collector, which takes the line of its first visible character. */
+function append(walk: Walk, piece: string, line: number | null): void {
+  const top = walk.collectors.at(-1);
+  if (top === undefined) return;
+  top.text += piece;
+  if (top.line === null && piece.trim() !== "") top.line = line;
+}
+
+/** Every `id` or `name` the tags of an HTML stretch carry; a comment renders no tag. */
+function tagIds(walk: Walk, html: string): void {
+  const tags = html.replace(/<!--[\s\S]*?-->/g, "").matchAll(TAG_ID);
+  for (const m of tags) if (m[1] !== undefined) walk.scan.anchors.add(m[1]);
+}
+
+/** A new item marker ends the item before it, so the next paragraph opens a unit of its own. */
+function startItem(walk: Walk): void {
+  const list = walk.scopes.at(-1);
+  if (list?.kind === "list") list.unit = null;
+}
+
+/** A comment says nothing; a tag is at most a break between words, and may carry an id. */
+function enterHtmlText(walk: Walk, html: string): void {
+  tagIds(walk, html);
+  append(walk, html.startsWith("<!--") ? "" : " ", null);
+}
+
+function enterVisible(walk: Walk, token: Token, context: TokenizeContext): void {
+  const text = context.sliceSerialize(token);
+  const line = token.start.line;
+  append(walk, text, line);
+
+  if (token.type === "autolinkProtocol" && record(walk, line))
+    walk.scan.links.push({ href: text, line });
+  if (token.type === "autolinkEmail" && record(walk, line))
+    walk.scan.links.push({ href: `mailto:${text}`, line });
+}
+
 /**
- * What one page yields, read off micromark's event stream. Three token classes decide what the reader sees:
- *   VISIBLE   -> text the reader sees; the rest of the inline stream is markup (sequences, markers, padding, a task list's checkbox) or hidden (a destination, a title, an alt text) and contributes nothing
- *   COLLECTED -> gathered into a collector of its own and dispatched when it closes; a heading's is dropped, its words uncounted, its code spans and links recorded as they closed
- *   SINKS     -> inline content the reader never sees: an image's alt text, a destination's title, the line breaks inside a comment or a tag wrapped over several lines
+ * A tight item's prose is one unit however a fence or a heading splits it, so the item keeps
+ * the unit open until its next marker; a loose item's paragraphs stand alone.
  */
+function emitParagraph(walk: Walk, c: Collector): void {
+  if (c.line === null || isHidden(walk, c.line)) return;
+
+  const top = walk.scopes.at(-1);
+  if (top?.kind !== "list" || top.loose) {
+    walk.scan.units.push({ kind: "paragraph", line: c.line, text: c.text });
+  } else if (top.unit === null) {
+    top.unit = { kind: "item", line: c.line, text: c.text };
+    walk.scan.units.push(top.unit);
+  } else top.unit.text += `\n${c.text}`;
+}
+
+/** A cell within the header's column count is a unit; a cell GFM drops is not. */
+function emitCell(walk: Walk, c: Collector): void {
+  if (c.line !== null && !walk.overflow && !isHidden(walk, c.line))
+    walk.scan.units.push({ kind: "cell", line: c.line, text: c.text });
+  walk.overflow = false;
+}
+
+function exitCodeText(walk: Walk, c: Collector, line: number): void {
+  // GFM lets a cell hold a pipe inside code only escaped, and renders the pipe alone; an
+  // escaped backslash stays as written, as in the table extension's own compiler.
+  const code =
+    walk.columns > 0 ? c.text.replace(/\\([\\|])/g, (m, ch) => (ch === "|" ? ch : m)) : c.text;
+  append(walk, code, c.line);
+  if (record(walk, line)) walk.scan.codespans.push({ text: code, line });
+}
+
+/** A closed link waits for the definitions; an image is dropped with its alt text. */
+function exitMedia(walk: Walk): void {
+  const done = walk.media.pop();
+  if (done?.kind === "link" && record(walk, done.line)) walk.pendingLinks.push(done);
+}
+
+/** A label's first definition wins, as CommonMark reads it. */
+function exitDefinition(walk: Walk): void {
+  const key = normalizeIdentifier(walk.definition.label);
+  if (!walk.definitions.has(key))
+    walk.definitions.set(key, { href: walk.definition.href, line: walk.definition.line });
+}
+
+function enterToken(walk: Walk, event: Event, index: number): void {
+  const [, token, context] = event;
+  const type = token.type;
+  const source = () => context.sliceSerialize(token);
+  const target = walk.media.at(-1);
+
+  switch (type) {
+    case "listUnordered":
+    case "listOrdered":
+      walk.scopes.push({ kind: "list", loose: isLoose(walk.events, index), unit: null });
+      break;
+    case "blockQuote":
+      walk.scopes.push({ kind: "quote" });
+      break;
+    case "listItemPrefix":
+      startItem(walk);
+      break;
+    case "table":
+      walk.columns = 0;
+      break;
+    case "tableRow":
+      walk.column = 0;
+      break;
+    case "tableHeader":
+      walk.columns++;
+      break;
+    case "tableData":
+      walk.overflow = walk.column >= walk.columns;
+      walk.column++;
+      break;
+    case "link":
+    case "image":
+      walk.media.push({
+        kind: type,
+        line: token.start.line,
+        label: "",
+        reference: null,
+        href: null,
+      });
+      break;
+    case "referenceString":
+      if (target) target.reference = source();
+      break;
+    case "resource":
+      // `[a]()` is an inline link with an empty destination, not a reference.
+      if (target) target.href = "";
+      break;
+    case "definition":
+      walk.definition = { label: "", href: "", line: token.start.line };
+      break;
+    case "definitionLabelString":
+      walk.definition.label = source();
+      break;
+    case "htmlFlow":
+      tagIds(walk, source());
+      break;
+    case "htmlText":
+      enterHtmlText(walk, source());
+      break;
+    case "characterReference":
+      append(walk, decodeCharacterReference(source()), token.start.line);
+      break;
+    case "lineEnding":
+      append(walk, "\n", null);
+      break;
+    default:
+      if (VISIBLE.has(type)) enterVisible(walk, token, context);
+  }
+
+  if (COLLECTED.has(type) || SINKS.has(type)) walk.collectors.push({ text: "", line: null });
+}
+
+function exitCollected(walk: Walk, token: Token, context: TokenizeContext): void {
+  const c = walk.collectors.pop();
+  if (c === undefined) return;
+
+  const target = walk.media.at(-1);
+  switch (token.type) {
+    case "paragraph":
+      emitParagraph(walk, c);
+      break;
+    case "atxHeading":
+    case "setextHeading":
+      // The rendered text is slugged, so a tag's break and a wrapped line are one space each.
+      walk.scan.anchors.add(walk.slugger.slug(c.text.replace(/\s+/g, " ").trim()));
+      break;
+    case "tableHeader":
+    case "tableData":
+      emitCell(walk, c);
+      break;
+    case "codeText":
+      exitCodeText(walk, c, token.start.line);
+      break;
+    case "labelText":
+      append(walk, c.text, c.line);
+      if (target) target.label = context.sliceSerialize(token);
+      break;
+    case "resourceDestinationString":
+      if (target) {
+        target.href = c.text;
+        target.line = token.start.line;
+      }
+      break;
+    case "definitionDestinationString":
+      walk.definition.href = c.text;
+      walk.definition.line = token.start.line;
+      break;
+  }
+}
+
+function exitToken(walk: Walk, event: Event): void {
+  const [, token, context] = event;
+  const type = token.type;
+
+  switch (type) {
+    case "listUnordered":
+    case "listOrdered":
+    case "blockQuote":
+      walk.scopes.pop();
+      break;
+    case "table":
+      walk.columns = 0;
+      break;
+    case "link":
+    case "image":
+      exitMedia(walk);
+      break;
+    case "definition":
+      exitDefinition(walk);
+      break;
+  }
+
+  if (SINKS.has(type)) walk.collectors.pop();
+  if (COLLECTED.has(type)) exitCollected(walk, token, context);
+}
+
+/** Where a closed link points: its own destination, or its definition's, which is where a reference link is fixed. */
+function resolvedLink(walk: Walk, m: Media): { href: string; line: number } | undefined {
+  if (m.href !== null) return { href: m.href, line: m.line };
+  return walk.definitions.get(normalizeIdentifier(m.reference ?? m.label));
+}
+
+function newWalk(events: readonly Event[]): Walk {
+  const markers = events.flatMap(([step, token, context]) =>
+    step === "enter" && token.type === "htmlFlow" ? regionMarker(token, context) : [],
+  );
+  return {
+    events,
+    hidden: hiddenRanges(markers),
+    scan: { units: [], codespans: [], links: [], anchors: new Set() },
+    slugger: new GithubSlugger(),
+    scopes: [],
+    collectors: [],
+    media: [],
+    pendingLinks: [],
+    definitions: new Map(),
+    definition: { label: "", href: "", line: 0 },
+    columns: 0,
+    column: 0,
+    overflow: false,
+  };
+}
+
+/** What one page yields, read off micromark's event stream: every token's opening and closing moves the walk, and the reference links resolve once every definition is read. */
 export function scanPage(text: string): Scan {
   const events = postprocess(
     parse({ extensions: [gfmStrikethrough(), gfmTable(), gfmTaskListItem()] })
       .document()
       .write(preprocess()(blankFrontMatter(text), undefined, true)),
   );
-  const hidden = hiddenRanges(
-    events.flatMap(([step, token, context]) =>
-      step === "enter" && token.type === "htmlFlow" ? regionMarker(token, context) : [],
-    ),
-  );
-  const isHidden = (line: number) => hidden.some(([from, to]) => line >= from && line <= to);
+  const walk = newWalk(events);
 
-  const units: MutableUnit[] = [];
-  const codespans: Scan["codespans"] = [];
-  const links: Scan["links"] = [];
-  const anchors = new Set<string>();
-  // One slugger per page: GitHub numbers a repeated heading in document order, and so does the site.
-  const slugger = new GithubSlugger();
-  const tagIds = (html: string) => {
-    const tags = html.replace(/<!--[\s\S]*?-->/g, "").matchAll(TAG_ID);
-    for (const m of tags) if (m[1] !== undefined) anchors.add(m[1]);
-  };
-  const pendingLinks: Media[] = [];
-  // A definition's line is where a reference link's destination is written, and where it is fixed.
-  const definitions = new Map<string, { href: string; line: number }>();
-  const scopes: Scope[] = [];
-  const collectors: Collector[] = [];
-  const media: Media[] = [];
-  // A definition's destination string is absent when the destination is empty (`<>`), so the
-  // definition is registered when the whole token closes; a destination on the line after the
-  // label is reported on its own line, where the fix is made.
-  let definition = { label: "", href: "", line: 0 };
-  // GFM keeps as many cells per row as the header declares and drops the rest unrendered.
-  let columns = 0;
-  let column = 0;
-  let overflow = false;
-
-  const append = (piece: string, line: number | null) => {
-    const top = collectors[collectors.length - 1];
-    if (top === undefined) return;
-    top.text += piece;
-    if (top.line === null && piece.trim() !== "") top.line = line;
-  };
-  // Inside an image's alt text or a dropped cell nothing is recorded: the reader never sees it.
-  const muted = () => overflow || media.some((m) => m.kind === "image");
-  const record = (line: number) => !muted() && !isHidden(line);
-
-  // A tight item's prose is one unit however a fence or a heading splits it, so the item keeps
-  // the unit open until its next marker; a loose item's paragraphs stand alone.
-  const emitParagraph = (c: Collector) => {
-    if (c.line === null || isHidden(c.line)) return;
-    const top = scopes[scopes.length - 1];
-    if (top?.kind !== "list" || top.loose) {
-      units.push({ kind: "paragraph", line: c.line, text: c.text });
-    } else if (top.unit === null) {
-      top.unit = { kind: "item", line: c.line, text: c.text };
-      units.push(top.unit);
-    } else top.unit.text += `\n${c.text}`;
-  };
-
-  events.forEach(([step, token, context], index) => {
-    const type = token.type;
-    const source = () => context.sliceSerialize(token);
-    const target = media[media.length - 1];
-    if (step === "enter") {
-      if (type === "listUnordered" || type === "listOrdered")
-        scopes.push({ kind: "list", loose: isLoose(events, index), unit: null });
-      else if (type === "blockQuote") scopes.push({ kind: "quote" });
-      else if (type === "listItemPrefix") {
-        const top = scopes[scopes.length - 1];
-        if (top?.kind === "list") top.unit = null;
-      } else if (type === "table") columns = 0;
-      else if (type === "tableRow") column = 0;
-      else if (type === "tableHeader") columns++;
-      else if (type === "tableData") overflow = column++ >= columns;
-      else if (type === "link" || type === "image") {
-        media.push({ kind: type, line: token.start.line, label: "", reference: null, href: null });
-      } else if (type === "referenceString") {
-        if (target) target.reference = source();
-      } else if (type === "definition")
-        definition = { label: "", href: "", line: token.start.line };
-      else if (type === "definitionLabelString") definition.label = source();
-      else if (type === "resource") {
-        // `[a]()` is an inline link with an empty destination, not a reference.
-        if (target) target.href = "";
-      } else if (type === "htmlFlow") tagIds(source());
-      else if (type === "htmlText") {
-        // A comment says nothing; a tag is at most a break between words, and may carry an id.
-        const html = source();
-        tagIds(html);
-        append(html.startsWith("<!--") ? "" : " ", null);
-      } else if (type === "characterReference")
-        append(decodeCharacterReference(source()), token.start.line);
-      else if (type === "lineEnding") append("\n", null);
-      else if (VISIBLE.has(type)) {
-        append(source(), token.start.line);
-        if (type === "autolinkProtocol" && record(token.start.line))
-          links.push({ href: source(), line: token.start.line });
-        if (type === "autolinkEmail" && record(token.start.line))
-          links.push({ href: `mailto:${source()}`, line: token.start.line });
-      }
-      if (COLLECTED.has(type) || SINKS.has(type)) collectors.push({ text: "", line: null });
-      return;
-    }
-    if (type === "listUnordered" || type === "listOrdered" || type === "blockQuote") scopes.pop();
-    if (type === "table") columns = 0;
-    if (type === "link" || type === "image") {
-      const done = media.pop();
-      if (done?.kind === "link" && record(done.line)) pendingLinks.push(done);
-    }
-    if (SINKS.has(type)) collectors.pop();
-    if (type === "definition") {
-      const key = normalizeIdentifier(definition.label);
-      if (!definitions.has(key))
-        definitions.set(key, { href: definition.href, line: definition.line });
-    }
-    if (!COLLECTED.has(type)) return;
-    const c = collectors.pop();
-    if (c === undefined) return;
-    if (type === "paragraph") emitParagraph(c);
-    else if (type === "atxHeading" || type === "setextHeading") {
-      // The rendered text is slugged, so a tag's break and a wrapped line are one space each.
-      anchors.add(slugger.slug(c.text.replace(/\s+/g, " ").trim()));
-    } else if (type === "tableHeader" || type === "tableData") {
-      if (c.line !== null && !overflow && !isHidden(c.line))
-        units.push({ kind: "cell", line: c.line, text: c.text });
-      overflow = false;
-    } else if (type === "codeText") {
-      // GFM lets a cell hold a pipe inside code only escaped, and renders the pipe alone; an
-      // escaped backslash stays as written, as in the table extension's own compiler.
-      const code =
-        columns > 0 ? c.text.replace(/\\([\\|])/g, (m, ch) => (ch === "|" ? ch : m)) : c.text;
-      append(code, c.line);
-      if (record(token.start.line)) codespans.push({ text: code, line: token.start.line });
-    } else if (type === "labelText") {
-      append(c.text, c.line);
-      if (target) target.label = source();
-    } else if (type === "resourceDestinationString") {
-      if (target) {
-        target.href = c.text;
-        target.line = token.start.line;
-      }
-    } else if (type === "definitionDestinationString") {
-      definition.href = c.text;
-      definition.line = token.start.line;
-    }
-  });
+  for (const [index, event] of events.entries()) {
+    if (event[0] === "enter") enterToken(walk, event, index);
+    else exitToken(walk, event);
+  }
 
   // A reference link is a link only where its definition exists, so the lookup always lands.
-  for (const m of pendingLinks) {
-    if (m.href !== null) links.push({ href: m.href, line: m.line });
-    else {
-      const defined = definitions.get(normalizeIdentifier(m.reference ?? m.label));
-      if (defined !== undefined) links.push(defined);
-    }
+  for (const m of walk.pendingLinks) {
+    const link = resolvedLink(walk, m);
+    if (link !== undefined) walk.scan.links.push(link);
   }
-  return { units, codespans, links, anchors };
+
+  return walk.scan;
 }
 
 export function wordCount(text: string): number {
@@ -422,6 +601,7 @@ export function wordCount(text: string): number {
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const EXTENSION = /\.[a-z0-9]{1,10}$/i;
+const MARKDOWN = /\.(?:md|markdown)$/i;
 
 /** The repository path a backticked token names, or null when the token is not one. */
 export function pathCandidate(token: string): string | null {
@@ -478,79 +658,12 @@ function verdict(
   return dirs.some((base) => owned(resolve(base, first))) ? "missing" : "foreign";
 }
 
-export function probePage(text: string, file: string, options: ProbeOptions): Finding[] {
-  const findings: Finding[] = [];
-  const pageDir = dirname(resolve(options.root, file));
-  const scan = scanPage(text);
-  for (const unit of scan.units) {
-    const words = wordCount(unit.text);
-    if (unit.kind === "cell") {
-      if (words > options.maxCellWords) {
-        findings.push({
-          file,
-          line: unit.line,
-          message: `table cell of ${words} words; the cap is ${options.maxCellWords}. Move the explanation below the table`,
-        });
-      }
-    } else if (words > options.maxWords) {
-      const noun = unit.kind === "item" ? "list item" : "paragraph";
-      findings.push({
-        file,
-        line: unit.line,
-        message: `${noun} of ${words} words; the cap is ${options.maxWords}. Split it, or turn its facts into bullets, a table, or numbered steps`,
-      });
-    }
-  }
-  if (options.tracked === null) return findings;
-  for (const { text: code, line } of scan.codespans) {
-    const path = pathCandidate(code);
-    const state = path ? verdict(options.tracked, options.root, pageDir, path) : "foreign";
-    if (state === "missing") findings.push({ file, line, message: `\`${path}\` does not exist` });
-    if (state === "outside")
-      findings.push({ file, line, message: `\`${path}\` escapes the repository` });
-  }
-  for (const { href, line } of scan.links) {
-    const target = linkFile(href);
-    if (target === "" || SCHEME.test(target) || isAbsolute(target)) continue;
-    const resolved = resolve(pageDir, target);
-    if (!isInside(options.root, resolved)) {
-      findings.push({ file, line, message: `link target ${target} escapes the repository` });
-    } else if (!existsSync(resolved)) {
-      findings.push({ file, line, message: `link target ${target} does not exist` });
-    }
-  }
-  // A fragment is judged on the ids the target page renders. A target that is missing or outside
-  // the repository was reported above, and a fragment on a file that is not markdown (a line
-  // number in a source file) names nothing a heading could answer.
-  const anchorsOf = new Map<string, Set<string>>();
-  for (const { href, line } of scan.links) {
-    const hash = href.indexOf("#");
-    if (hash === -1) continue;
-    const fragment = linkFragment(href.slice(hash + 1));
-    const target = linkFile(href);
-    if (fragment === "" || SCHEME.test(target) || isAbsolute(target)) continue;
-    let anchors = scan.anchors;
-    if (target !== "") {
-      const resolved = resolve(pageDir, target);
-      if (!MARKDOWN.test(resolved) || !isInside(options.root, resolved) || !existsSync(resolved))
-        continue;
-      anchors =
-        anchorsOf.get(resolved) ??
-        (() => {
-          const scanned = scanPage(readFileSync(resolved, "utf8")).anchors;
-          anchorsOf.set(resolved, scanned);
-          return scanned;
-        })();
-    }
-    if (!anchors.has(fragment)) {
-      const page = target === "" ? file : target;
-      findings.push({ file, line, message: `anchor #${fragment} not found on ${page}` });
-    }
-  }
-  return findings.sort((a, b) => a.line - b.line);
+/** The page under probe: `file` as a finding names it, `dir` where its relative paths resolve, `root` the repository they must stay inside. */
+interface Page {
+  readonly file: string;
+  readonly dir: string;
+  readonly root: string;
 }
-
-const MARKDOWN = /\.(?:md|markdown)$/i;
 
 /** The fragment as the browser matches it against an id: percent-escapes decoded when they are valid. */
 function linkFragment(raw: string): string {
@@ -559,6 +672,135 @@ function linkFragment(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+/** The finding's text for a unit over its cap, with the fix the kind calls for. */
+function capMessage(kind: Unit["kind"], words: number, cap: number): string {
+  if (kind === "cell")
+    return `table cell of ${words} words; the cap is ${cap}. Move the explanation below the table`;
+  const noun = kind === "item" ? "list item" : "paragraph";
+  return `${noun} of ${words} words; the cap is ${cap}. Split it, or turn its facts into bullets, a table, or numbered steps`;
+}
+
+/** Every unit over its cap: a cell against the cell cap, a paragraph or an item against the word cap. */
+function wordCapFindings(units: readonly Unit[], page: Page, options: ProbeOptions): Finding[] {
+  const findings: Finding[] = [];
+  for (const unit of units) {
+    const words = wordCount(unit.text);
+    const cap = unit.kind === "cell" ? options.maxCellWords : options.maxWords;
+    if (words > cap)
+      findings.push({
+        file: page.file,
+        line: unit.line,
+        message: capMessage(unit.kind, words, cap),
+      });
+  }
+  return findings;
+}
+
+/** Every backticked path that names nothing git tracks, or resolves outside the repository. */
+function pathFindings(codespans: Scan["codespans"], page: Page, tracked: TrackedPaths): Finding[] {
+  const findings: Finding[] = [];
+  for (const { text: code, line } of codespans) {
+    const path = pathCandidate(code);
+    if (path === null) continue;
+
+    const state = verdict(tracked, page.root, page.dir, path);
+    if (state === "missing")
+      findings.push({ file: page.file, line, message: `\`${path}\` does not exist` });
+    if (state === "outside")
+      findings.push({ file: page.file, line, message: `\`${path}\` escapes the repository` });
+  }
+  return findings;
+}
+
+/** Every relative link whose target is missing or outside the repository; a URL or an absolute path is not judged. */
+function linkTargetFindings(links: Scan["links"], page: Page): Finding[] {
+  const findings: Finding[] = [];
+  for (const { href, line } of links) {
+    const target = linkFile(href);
+    if (target === "" || SCHEME.test(target) || isAbsolute(target)) continue;
+
+    const resolved = resolve(page.dir, target);
+    if (!isInside(page.root, resolved)) {
+      findings.push({
+        file: page.file,
+        line,
+        message: `link target ${target} escapes the repository`,
+      });
+    } else if (!existsSync(resolved)) {
+      findings.push({ file: page.file, line, message: `link target ${target} does not exist` });
+    }
+  }
+  return findings;
+}
+
+/** The fragment and target of a link that names an anchor the probe judges; null for no fragment, a URL, or an absolute path. */
+function anchorLink(href: string): { readonly fragment: string; readonly target: string } | null {
+  const hash = href.indexOf("#");
+  if (hash === -1) return null;
+
+  const fragment = linkFragment(href.slice(hash + 1));
+  const target = linkFile(href);
+  if (fragment === "" || SCHEME.test(target) || isAbsolute(target)) return null;
+
+  return { fragment, target };
+}
+
+/**
+ * The ids a linked page renders, read once per target. A target that is missing or outside the
+ * repository was reported by the link check, and a fragment on a file that is not markdown (a line
+ * number in a source file) names nothing a heading could answer: null, and the fragment is not judged.
+ */
+function targetAnchors(
+  resolved: string,
+  root: string,
+  cache: Map<string, Set<string>>,
+): Set<string> | null {
+  if (!MARKDOWN.test(resolved) || !isInside(root, resolved) || !existsSync(resolved)) return null;
+
+  const cached = cache.get(resolved);
+  if (cached !== undefined) return cached;
+
+  const anchors = scanPage(readFileSync(resolved, "utf8")).anchors;
+  cache.set(resolved, anchors);
+  return anchors;
+}
+
+/** Every fragment that names no heading slug or tag id on its target page, the page's own ids judged from its scan. */
+function anchorFindings(scan: Scan, page: Page): Finding[] {
+  const findings: Finding[] = [];
+  const anchorsOf = new Map<string, Set<string>>();
+  for (const { href, line } of scan.links) {
+    const link = anchorLink(href);
+    if (link === null) continue;
+
+    const anchors =
+      link.target === ""
+        ? scan.anchors
+        : targetAnchors(resolve(page.dir, link.target), page.root, anchorsOf);
+    if (anchors === null || anchors.has(link.fragment)) continue;
+
+    const shown = link.target === "" ? page.file : link.target;
+    findings.push({
+      file: page.file,
+      line,
+      message: `anchor #${link.fragment} not found on ${shown}`,
+    });
+  }
+  return findings;
+}
+
+export function probePage(text: string, file: string, options: ProbeOptions): Finding[] {
+  const page: Page = { file, dir: dirname(resolve(options.root, file)), root: options.root };
+  const scan = scanPage(text);
+  const findings = wordCapFindings(scan.units, page, options);
+  if (options.tracked === null) return findings;
+
+  findings.push(...pathFindings(scan.codespans, page, options.tracked));
+  findings.push(...linkTargetFindings(scan.links, page));
+  findings.push(...anchorFindings(scan, page));
+  return findings.sort((a, b) => a.line - b.line);
 }
 
 const USAGE = [
