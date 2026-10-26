@@ -121,7 +121,7 @@ async function applyHeld(
     ctx.global.dryRun,
     async (current) => {
       let state = current.state;
-      let changes: Change[] = [];
+      const changeLists: Change[][] = [];
       for (const key of keys) {
         const existing = entryOrThrow(state, key);
         const held = heldOf(existing);
@@ -129,7 +129,7 @@ async function applyHeld(
         if (held !== null) {
           const acceptance = await acceptHeld(key, held, io);
           entry = acceptance.entry;
-          changes = changes.concat(acceptance.changes);
+          changeLists.push(acceptance.changes);
           lines.push(acceptance.line);
           if (acceptance.applied) landed.push(key);
         } else if (!clearReview) {
@@ -138,6 +138,7 @@ async function applyHeld(
         if (clearReview) entry = withIntent(entry, ({ review: _lifted, ...rest }) => rest);
         state = { ...state, sources: { ...state.sources, [key]: entry } };
       }
+      const changes = changeLists.flat();
       await admitIntent(ctx, { state, config: ctx.config, changes }, []);
       return { state, changes, notices: [...current.notices] };
     },
