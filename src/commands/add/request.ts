@@ -1,6 +1,8 @@
 import { STRINGS } from "../../console/strings.ts";
 import { GitRefSchema, isLiveLocal, type SourceFrom } from "../../contracts/source.ts";
 import { insideProject } from "../../engine/project-lock-read.ts";
+import type { CliIo } from "../../engine/types.ts";
+import type { MemoryName } from "../../memory/contract.ts";
 import { DEFAULT_RULE_CAP } from "../../rulefile/budget.ts";
 import type { UserConfig } from "../../state/config.ts";
 import {
@@ -60,6 +62,68 @@ export function hookWanted(from: SourceFrom, destination: Destination, wanted: b
   return wanted && !isLiveLocal(from);
 }
 
+type FromFlags = { pin: string | undefined; link: boolean; review: boolean };
+
+function resolveFrom(from: SourceFrom, flags: FromFlags, sourceArg: string): SourceFrom {
+  if (from.type !== "local") {
+    if (flags.link) throw usage("--link applies to a local directory");
+    // Only the ref that survives to storage is judged: a `/tree/<ref>` the state schema refuses is
+    // a fine spelling when `--pin` replaces it.
+    const ref =
+      flags.pin === undefined
+        ? storable(GitRefSchema, from.ref, sourceArg)
+        : gitRefOrUsage(flags.pin);
+    return { ...from, ref };
+  }
+  if (flags.pin !== undefined) {
+    throw usage("--pin applies to a GitHub or git source, not a directory");
+  }
+  // The real path is the identity: state, the store entry and the project manifest then agree
+  // on one location whether the user typed the directory or a symlink to it.
+  const path = realLocal(from).path;
+  const live = flags.link || from.live === true;
+  const resolved: SourceFrom = live ? { type: "local", path, live: true } : { type: "local", path };
+  // A live directory is read in place at every sync, so there is no fetch to hold back.
+  if (flags.review && isLiveLocal(resolved)) {
+    throw usage("--review applies to a fetched source; a live directory is read in place");
+  }
+  return resolved;
+}
+
+// Without -g, -p or -o, a fetched source lands at the project the command runs in and a directory
+// at the user scope.
+function addDestination(args: Args, io: CliIo, from: SourceFrom): Destination {
+  const explicit = parseDestination(args, io.cwd, io.projectRoot);
+  if (explicit !== null) return explicit;
+  if (io.projectRoot !== null && from.type !== "local") {
+    return { scope: "project", root: io.projectRoot };
+  }
+  return { scope: "global" };
+}
+
+// A source the team's lock lists stays the team's: the mark is inherited, as `install` sets it.
+// A `--list` takes nothing over, so it reads no lock.
+async function sharedMark(
+  args: Args,
+  destination: Destination,
+  from: SourceFrom,
+  list: boolean,
+): Promise<boolean> {
+  if (destination.scope !== "project") return false;
+  const shared = args.flag(FLAGS.share) || (!list && (await listedInLock(destination.root, from)));
+  if (shared) assertShareable(from, destination.root);
+  return shared;
+}
+
+// `@owner/repo@name` adds that one memory to the selection; `--all` contradicts it.
+function addSelect(args: Args, memory: MemoryName | null): Select {
+  const explicit = parseSelect(args);
+  if (memory === null) return explicit ?? "*";
+  if (args.flag(FLAGS.all)) throw usage(STRINGS.allWithNames);
+  if (explicit === null || explicit === "*") return [memory];
+  return [...new Set([...explicit, memory])];
+}
+
 export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<AddRequest> {
   const { io, config } = ctx;
   const sourceArg = args.positionals[0];
@@ -71,56 +135,17 @@ export async function parseAddRequest(args: Args, ctx: CommandContext): Promise<
       hint: "an install always fetches; run sync --no-fetch for an offline apply",
     });
   }
-  const pin = args.value(FLAGS.pin);
-  const link = args.flag(FLAGS.link);
   const review = args.flag(FLAGS.review);
-  let from = selector.from;
-  if (from.type === "local") {
-    if (pin !== undefined) throw usage("--pin applies to a GitHub or git source, not a directory");
-    // The real path is the identity: state, the store entry and the project manifest then agree
-    // on one location whether the user typed the directory or a symlink to it.
-    const path = realLocal(from).path;
-    from =
-      link || from.live === true ? { type: "local", path, live: true } : { type: "local", path };
-    // A live directory is read in place at every sync, so there is no fetch to hold back.
-    if (review && isLiveLocal(from)) {
-      throw usage("--review applies to a fetched source; a live directory is read in place");
-    }
-  } else {
-    if (link) throw usage("--link applies to a local directory");
-    // Only the ref that survives to storage is judged: a `/tree/<ref>` the state schema refuses is
-    // a fine spelling when `--pin` replaces it.
-    from = {
-      ...from,
-      ref: pin === undefined ? storable(GitRefSchema, from.ref, sourceArg) : gitRefOrUsage(pin),
-    };
-  }
-  const explicitDestination = parseDestination(args, io.cwd, io.projectRoot);
-  const destination: Destination =
-    explicitDestination ??
-    (io.projectRoot !== null && from.type !== "local"
-      ? { scope: "project", root: io.projectRoot }
-      : { scope: "global" });
+  const flags: FromFlags = { pin: args.value(FLAGS.pin), link: args.flag(FLAGS.link), review };
+  const from = resolveFrom(selector.from, flags, sourceArg);
+  const destination = addDestination(args, io, from);
   if (args.flag(FLAGS.share) && destination.scope !== "project") {
     throw usage("--share applies to a project install; drop -g or -o", {
       hint: "the project lock holds project-scope sources only",
     });
   }
-  // A source the team's lock lists stays the team's: the mark is inherited, as `install` sets it.
-  // A `--list` takes nothing over, so it reads no lock.
-  const shared =
-    destination.scope === "project" &&
-    (args.flag(FLAGS.share) || (!list && (await listedInLock(destination.root, from))));
-  if (shared && destination.scope === "project") assertShareable(from, destination.root);
-  const explicitSelect = parseSelect(args);
-  let select: Select = explicitSelect ?? "*";
-  if (selector.memory !== null) {
-    if (args.flag(FLAGS.all)) throw usage(STRINGS.allWithNames);
-    select =
-      explicitSelect === null || explicitSelect === "*"
-        ? [selector.memory]
-        : [...new Set([...explicitSelect, selector.memory])];
-  }
+  const shared = await sharedMark(args, destination, from, list);
+  const select = addSelect(args, selector.memory);
   const configChanges = cooldownCapConfig(args, config);
   const paths = args.list(FLAGS.paths);
   return {

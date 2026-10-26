@@ -86,6 +86,36 @@ async function writeLog(
   }
 }
 
+function quietLines(outcome: SyncOutcome, visible: string[], options: FinishOptions): string[] {
+  const lines = [...outcome.notices.quietStdout];
+  const files = count(visible.length, "file", "files");
+  const changed = visible.length > 0;
+  if (changed && options.dryRun) {
+    lines.push(`maxims: rules would be refreshed (${files} to update)`);
+  } else if (changed) {
+    lines.push(`maxims: rules refreshed (${files} updated)`);
+  }
+  return lines;
+}
+
+// The engine's notices are the frame's warnings, glyph included, so a sync that refreshed
+// reads like the update that printed the same lines.
+function printInteractive(
+  outcome: SyncOutcome,
+  report: SyncReport,
+  changed: boolean,
+  io: EngineIo,
+  options: FinishOptions,
+): void {
+  if (options.dryRun) io.stdout(renderPlan(outcome.plan));
+  else for (const line of outcome.notices.user) io.stdout(`!  ${line}\n`);
+  for (const line of outcome.notices.stderr) io.stderr(`${line}\n`);
+  if (options.dryRun || options.verb !== "sync") return;
+  if (changed) io.stdout(`${summaryLine(report)}\n`);
+  else if (upToDate(outcome, report))
+    io.stdout(`o  Up to date: ${installedCounts(report.memories, report.rules)}\n`);
+}
+
 // What each channel leaves out, which the code cannot say:
 //
 // --json     `ok` agrees with the exit a manual run maps from it (a failed refresh is 2 or 3)
@@ -104,29 +134,15 @@ function printOutcome(
   // The store and state live under the maxims home; only a file a harness reads counts as a
   // refresh worth a line.
   const visible = report.changed.filter((path) => !isInside(ctx.home, path));
-  const changed = visible.length > 0;
   if (options.json) {
     io.stdout(reportDocument(report, outcome.failures));
     return;
   }
   if (options.quiet) {
-    const lines = [...outcome.notices.quietStdout];
-    const files = count(visible.length, "file", "files");
-    if (changed && options.dryRun)
-      lines.push(`maxims: rules would be refreshed (${files} to update)`);
-    else if (changed) lines.push(`maxims: rules refreshed (${files} updated)`);
-    io.stdout(renderHookStdout(ctx.stdoutVariant, lines));
+    io.stdout(renderHookStdout(ctx.stdoutVariant, quietLines(outcome, visible, options)));
     return;
   }
-  // The engine's notices are the frame's warnings, glyph included, so a sync that refreshed
-  // reads like the update that printed the same lines.
-  if (options.dryRun) io.stdout(renderPlan(outcome.plan));
-  else for (const line of outcome.notices.user) io.stdout(`!  ${line}\n`);
-  for (const line of outcome.notices.stderr) io.stderr(`${line}\n`);
-  if (options.dryRun || options.verb !== "sync") return;
-  if (changed) io.stdout(`${summaryLine(report)}\n`);
-  else if (upToDate(outcome, report))
-    io.stdout(`o  Up to date: ${installedCounts(report.memories, report.rules)}\n`);
+  printInteractive(outcome, report, visible.length > 0, io, options);
 }
 
 function upToDate(outcome: SyncOutcome, report: SyncReport): boolean {

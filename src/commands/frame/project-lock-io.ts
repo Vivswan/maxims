@@ -51,16 +51,76 @@ export async function listedInLock(projectRoot: string, from: SourceFrom): Promi
   );
 }
 
+// What this machine owns in the lock: the identities of the project-scope entries recorded for
+// this root before or after the edit, and the names its shared ones provide. A teammate's
+// `@Acme/rules` is this machine's `@acme/rules`: the lock entry is ours to edit.
+type Owned = { identities: Set<string>; names: Set<MemoryName> };
+
+// The names this machine's shared sources provide, before or after the edit: their disabled state
+// in the lock is this machine's to say. Every other name stays as the file has it: a private
+// source providing a name a teammate switched off says nothing about the teammate's choice.
+async function ownedHere(
+  previous: State,
+  next: State,
+  projectRoot: string,
+  io: Pick<CliIo, "home" | "installInternal">,
+): Promise<Owned> {
+  const owned = [...ownedEntries(previous, projectRoot), ...ownedEntries(next, projectRoot)];
+  const identities = new Set(owned.map(([, entry]) => sourceIdentity(entry.intent.from)));
+  const names = new Set<MemoryName>();
+  for (const [, entry] of owned) {
+    if (entry.intent.shared !== true) continue;
+    for (const name of await effectiveNames(entry, io)) names.add(name);
+  }
+  return { identities, names };
+}
+
+// A teammate's entries and disabled names stay as the file holds them; this machine's own are
+// dropped here and re-projected from state.
+function teammateEntries(
+  current: ProjectLock | null,
+  projectRoot: string,
+  ours: Owned,
+): { sources: Record<string, LockSource>; disabled: Set<MemoryName> } {
+  const sources: Record<string, LockSource> = Object.create(null);
+  const disabled = new Set<MemoryName>();
+  if (current === null) return { sources, disabled };
+  for (const [lockKey, source] of Object.entries(current.sources)) {
+    if (!ours.identities.has(sourceIdentity(sourceFromLock(source, projectRoot)))) {
+      sources[lockKey] = source;
+    }
+  }
+  for (const name of current.disabled ?? []) {
+    if (!ours.names.has(name)) disabled.add(name);
+  }
+  return { sources, disabled };
+}
+
+// The bytes are read back through the lock parser before they are planned: a directory name the
+// manifest grammar refuses (a marker-unsafe segment) would otherwise leave a committed file the
+// next `install` rejects.
+function assertRoundTrips(lock: ProjectLock, content: string, path: string): void {
+  const back = parseProjectLock(content);
+  const expected = Object.keys(lock.sources).sort();
+  const got = back.ok === "parsed" ? Object.keys(back.lock.sources).sort() : [];
+  if (back.ok !== "corrupt" && got.join("\n") === expected.join("\n")) return;
+  const issues =
+    back.ok === "corrupt" ? back.issues.join("; ") : "an entry does not survive the round trip";
+  throw new MaximsError(
+    ExitCode.Usage,
+    `a project source cannot be written into ${path}: ${issues}`,
+    { hint: "rename the directory, or install it with -g" },
+  );
+}
+
 // The lock rewrite an edit of this project's intent calls for. This machine edits only the
 // entries it owns here (the project-scope sources state held for this root before or after the
 // edit, shared or not) and leaves a teammate's entries as the file holds them, since a clone that
 // has not run `install` knows nothing of them; so a private add beside a committed lock changes
 // nothing, a shared add joins the team's entries, an unshare or a removal takes its own out, and a
 // lock that ends up naming nothing is deleted. The `disabled` copy is merged the same way: the
-// names this project's shared sources provide follow state, the rest stay. The bytes are read
-// back through the lock parser before they are planned: a directory name the manifest grammar
-// refuses (a marker-unsafe segment) would otherwise leave a committed file the next `install`
-// rejects. Null when the file would not change.
+// names this project's shared sources provide follow state, the rest stay. Null when the file
+// would not change.
 export async function projectLockChange(
   projectRoot: string,
   previous: State,
@@ -69,30 +129,9 @@ export async function projectLockChange(
 ): Promise<Change | null> {
   const path = assertInsideRoot(projectRoot, projectLockPath(projectRoot));
   const current = manifestOrUsage(await readProjectLock(projectRoot));
-  const owned = [...ownedEntries(previous, projectRoot), ...ownedEntries(next, projectRoot)];
-  // A teammate's `@Acme/rules` is this machine's `@acme/rules`: the lock entry is ours to edit.
-  const ours = new Set(owned.map(([, entry]) => sourceIdentity(entry.intent.from)));
-  // The names this machine's shared sources provide, before or after the edit: their disabled state
-  // in the lock is this machine's to say. Every other name stays as the file has it: a private
-  // source providing a name a teammate switched off says nothing about the teammate's choice.
-  const ownedNames = new Set<MemoryName>();
-  for (const [, entry] of owned) {
-    if (entry.intent.shared !== true) continue;
-    for (const name of await effectiveNames(entry, io)) ownedNames.add(name);
-  }
+  const ours = await ownedHere(previous, next, projectRoot, io);
   const share = await sharedProjection(next, projectRoot, io);
-  const sources: Record<string, LockSource> = Object.create(null);
-  const disabled = new Set<MemoryName>();
-  if (current !== null) {
-    for (const [lockKey, source] of Object.entries(current.sources)) {
-      if (!ours.has(sourceIdentity(sourceFromLock(source, projectRoot)))) {
-        sources[lockKey] = source;
-      }
-    }
-    for (const name of current.disabled ?? []) {
-      if (!ownedNames.has(name)) disabled.add(name);
-    }
-  }
+  const { sources, disabled } = teammateEntries(current, projectRoot, ours);
   for (const [lockKey, source] of Object.entries(share.sources)) {
     if (Object.hasOwn(sources, lockKey)) {
       throw new MaximsError(
@@ -114,18 +153,7 @@ export async function projectLockChange(
   };
   const content = serializeProjectLock(lock);
   if (current !== null && serializeProjectLock(current) === content) return null;
-  const back = parseProjectLock(content);
-  const expected = Object.keys(lock.sources).sort();
-  const got = back.ok === "parsed" ? Object.keys(back.lock.sources).sort() : [];
-  if (back.ok === "corrupt" || got.join("\n") !== expected.join("\n")) {
-    const issues =
-      back.ok === "corrupt" ? back.issues.join("; ") : "an entry does not survive the round trip";
-    throw new MaximsError(
-      ExitCode.Usage,
-      `a project source cannot be written into ${path}: ${issues}`,
-      { hint: "rename the directory, or install it with -g" },
-    );
-  }
+  assertRoundTrips(lock, content, path);
   return { kind: "write", path, content };
 }
 
@@ -189,8 +217,10 @@ async function sharedProjection(
   return { sources, disabled };
 }
 
-function lockSource(intent: SourceIntent, projectRoot: string): LockSource | null {
-  const shared = {
+// The intent fields the lock carries; an optional field at its default is left out, so an entry
+// says what its author typed.
+function sharedFields(intent: SourceIntent): Omit<LockSource, "from" | "pin"> {
+  return {
     select: intent.select,
     ...(Object.keys(intent.rename).length === 0 ? {} : { rename: intent.rename }),
     rule: intent.rule,
@@ -202,23 +232,28 @@ function lockSource(intent: SourceIntent, projectRoot: string): LockSource | nul
     ...(intent.auth ? { auth: true } : {}),
     ...(intent.allowHidden === undefined ? {} : { allowHidden: intent.allowHidden }),
   };
-  const from = intent.from;
+}
+
+type RemoteLockFrom = Extract<LockSource["from"], { type: "github" | "git" }>;
+
+// The repository or URL without its ref, which `pin` on the entry carries.
+function remoteLockFrom(from: Exclude<SourceFrom, { type: "local" }>): RemoteLockFrom {
+  if (from.type === "git") return { type: "git", url: from.url };
+  const host = from.host === undefined ? {} : { host: from.host };
+  return { type: "github", repo: from.repo, ...host };
+}
+
+// Null for a directory outside the checkout: no teammate's checkout can follow its path.
+function lockSource(intent: SourceIntent, projectRoot: string): LockSource | null {
+  const { from } = intent;
   if (from.type === "local") {
     if (!insideProject(projectRoot, from.path)) return null;
     const live = isLiveLocal(from) ? { live: true as const } : {};
     return {
       from: { type: "local", path: projectRelative(projectRoot, from.path), ...live },
-      ...shared,
+      ...sharedFields(intent),
     };
   }
   const pin = from.ref === DEFAULT_GIT_REF ? {} : { pin: from.ref };
-  const lockFrom =
-    from.type === "github"
-      ? {
-          type: "github" as const,
-          repo: from.repo,
-          ...(from.host === undefined ? {} : { host: from.host }),
-        }
-      : { type: "git" as const, url: from.url };
-  return { from: lockFrom, ...pin, ...shared };
+  return { from: remoteLockFrom(from), ...pin, ...sharedFields(intent) };
 }

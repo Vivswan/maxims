@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
 import { notInstalled, STRINGS } from "../console/strings.ts";
 import { actsHere } from "../engine/context.ts";
+import type { SourceTree } from "../engine/memories.ts";
 import { disabledNames, type SelectedMemory, selectMemories } from "../engine/select.ts";
 import { isFetchedEntry, shortSha } from "../engine/sync-refresh.ts";
 import { readInstalledTree } from "../engine/sync-trees.ts";
@@ -36,7 +37,7 @@ import {
   usage,
 } from "./frame/options.ts";
 import { reportedUnderJson } from "./frame/report.ts";
-import { heldLines, sourceFactLines, sourceFacts } from "./show-source.ts";
+import { heldLines, type SourceFacts, sourceFactLines, sourceFacts } from "./show-source.ts";
 
 const SHOW_FLAGS: readonly FlagSpec[] = [FLAGS.global, FLAGS.project, FLAGS.source];
 
@@ -80,6 +81,76 @@ export const show: Command = {
   },
 };
 
+type NamedMemory = { request: ShowRequest; lookup: ShowLookup };
+
+// Null when the word is not a memory name at all.
+async function namedMemory(
+  state: State,
+  io: CliIo,
+  positional: string,
+  source: ShowRequest["source"],
+  scope: ShowRequest["scope"],
+): Promise<NamedMemory | null> {
+  const name = parseMemoryName(positional);
+  if (name === null) return null;
+  const request: ShowRequest = { name, source, scope };
+  return { request, lookup: await lookupMemory(state, io, request) };
+}
+
+// A memory name wins over a source spelled the same, with a tip naming the source; the source's
+// own refusals (recorded for another project, a path that cannot be looked at) wait until no
+// memory answers.
+function printNamedMemory(
+  memory: NamedMemory,
+  state: State,
+  positional: string,
+  ctx: CommandContext,
+  console: Console,
+): number {
+  const alias = memory.lookup.kind === "found" ? sourceAlias(state, positional, ctx.io) : null;
+  if (alias !== null) {
+    console.warn(`${positional} also names a source; maxims show ${alias} prints it`);
+  }
+  return printMemory(memory.lookup, memory.request, ctx, console);
+}
+
+function printHeld(facts: SourceFacts, io: CliIo, console: Console): void {
+  const { held } = facts;
+  if (held === null) return;
+  if ("unreadable" in held) {
+    console.warn(held.unreadable);
+    return;
+  }
+  const title = `Held changes: ${shortSha(facts.sha ?? "")} -> ${shortSha(held.sha)}`;
+  console.note(heldLines(held).join("\n"), title);
+  for (const body of held.bodies) {
+    console.gap();
+    io.stdout.write(`--- ${body.name}\n${body.diff}`);
+  }
+}
+
+async function printSource(
+  state: State,
+  key: string,
+  entry: SourceEntry,
+  ctx: CommandContext,
+  console: Console,
+): Promise<number> {
+  const { io } = ctx;
+  const found = await sourceFacts(state, io, key, entry);
+  for (const line of found.notices) console.warn(line);
+  if (ctx.global.json) {
+    const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
+    io.stdout.write(jsonDocument(body));
+    return ExitCode.Ok;
+  }
+  if (ctx.global.quiet) return ExitCode.Ok;
+  console.intro();
+  console.note(sourceFactLines(found.facts).join("\n"), found.facts.key);
+  printHeld(found.facts, io, console);
+  return ExitCode.Ok;
+}
+
 async function showOne(args: Args, ctx: CommandContext): Promise<number> {
   const { io } = ctx;
   const positional = args.positionals[0];
@@ -92,21 +163,13 @@ async function showOne(args: Args, ctx: CommandContext): Promise<number> {
   const [unusable] = notices;
   if (unusable !== undefined) throw usage(unusable);
   const console = await ctx.openConsole(true);
-  const name = parseMemoryName(positional);
-  const request: ShowRequest | null = name === null ? null : { name, source, scope };
-  const lookup = request === null ? null : await lookupMemory(state, io, request);
-  // A memory name wins over a source spelled the same; the source's own refusals (recorded for
-  // another project, a path that cannot be looked at) wait until no memory answers.
-  if (lookup !== null && request !== null && lookup.kind !== "absent") {
-    const alias = lookup.kind === "found" ? sourceAlias(state, positional, io) : null;
-    if (alias !== null) {
-      console.warn(`${positional} also names a source; maxims show ${alias} prints it`);
-    }
-    return printMemory(lookup, request, ctx, console);
+  const memory = await namedMemory(state, io, positional, source, scope);
+  if (memory !== null && memory.lookup.kind !== "absent") {
+    return printNamedMemory(memory, state, positional, ctx, console);
   }
-  const recorded = recordedSource(state, positional, io, name !== null);
+  const recorded = recordedSource(state, positional, io, memory !== null);
   if (recorded.kind === "absent") {
-    if (lookup !== null && request !== null) return printMemory(lookup, request, ctx, console);
+    if (memory !== null) return printMemory(memory.lookup, memory.request, ctx, console);
     throw usage(notInstalled(positional));
   }
   if (recorded.kind === "elsewhere") throw installedElsewhere(recorded.key, recorded.root);
@@ -114,27 +177,7 @@ async function showOne(args: Args, ctx: CommandContext): Promise<number> {
   if (source !== null) {
     throw usage(`--source narrows a memory lookup; ${recorded.key} is a source`);
   }
-  const found = await sourceFacts(state, io, recorded.key, recorded.entry);
-  for (const line of found.notices) console.warn(line);
-  if (ctx.global.json) {
-    const body = { ok: true, kind: "source", ...found.facts, notices: found.notices };
-    io.stdout.write(jsonDocument(body));
-    return ExitCode.Ok;
-  }
-  if (ctx.global.quiet) return ExitCode.Ok;
-  console.intro();
-  console.note(sourceFactLines(found.facts).join("\n"), found.facts.key);
-  const { held } = found.facts;
-  if (held !== null && "unreadable" in held) console.warn(held.unreadable);
-  if (held !== null && !("unreadable" in held)) {
-    const title = `Held changes: ${shortSha(found.facts.sha ?? "")} -> ${shortSha(held.sha)}`;
-    console.note(heldLines(held).join("\n"), title);
-    for (const body of held.bodies) {
-      console.gap();
-      io.stdout.write(`--- ${body.name}\n${body.diff}`);
-    }
-  }
-  return ExitCode.Ok;
+  return printSource(state, recorded.key, recorded.entry, ctx, console);
 }
 
 // The one shape a `show` refusal takes under `--json`: the failure's fields plus the store
@@ -263,24 +306,73 @@ type Candidate = {
   disabled: boolean;
 };
 
+type ReadSource = { key: string; entry: SourceEntry; tree: SourceTree };
+
 // The sources judged are the ones a run here acts on, narrowed by the scope flag and by
-// `--source`; the name is matched after the selection and the rename map, as the sync installs
-// it, so a memory hidden by `-m` or renamed is found under the name the user sees.
+// `--source`.
+function sourcesJudged(state: State, io: CliIo, request: ShowRequest): [string, SourceEntry][] {
+  const only = request.source === null ? null : findInstalledSource(state, request.source, io);
+  const judged: [string, SourceEntry][] = [];
+  for (const key of Object.keys(state.sources).sort()) {
+    const entry = state.sources[key];
+    if (entry === undefined || !actsHere(entry, io)) continue;
+    if (request.scope !== null && entry.intent.destination.scope !== request.scope) continue;
+    if (only !== null && key !== only) continue;
+    judged.push([key, entry]);
+  }
+  return judged;
+}
+
+// A readable source's memories as the sync installs them: every local name is a suggestion, and
+// each spelled as asked is a candidate, judged against its scope's disabled list.
+function candidatesIn(
+  source: ReadSource,
+  state: State,
+  io: CliIo,
+  name: MemoryName,
+): { names: MemoryName[]; candidates: Candidate[] } {
+  const { key, entry, tree } = source;
+  const { destination } = entry.intent;
+  const disabled = disabledNames(
+    state,
+    destination.scope,
+    destination.scope === "project" ? destination.root : null,
+  );
+  const selection = selectMemories({
+    memories: tree.memories,
+    intent: entry.intent,
+    installInternal: io.installInternal,
+    disabled: new Set(),
+    detailPath: () => "",
+  });
+  const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
+  const names: MemoryName[] = [];
+  const candidates: Candidate[] = [];
+  for (const selected of selection.selected) {
+    names.push(selected.localName);
+    if (selected.localName !== name) continue;
+    candidates.push({
+      key,
+      entry,
+      selected,
+      sha: fetched?.sha ?? tree.sha,
+      disabled: disabled.has(selected.localName),
+    });
+  }
+  return { names, candidates };
+}
+
+// The name is matched after the selection and the rename map, as the sync installs it, so a
+// memory hidden by `-m` or renamed is found under the name the user sees.
 export async function lookupMemory(
   state: State,
   io: CliIo,
   request: ShowRequest,
 ): Promise<ShowLookup> {
-  const only = request.source === null ? null : findInstalledSource(state, request.source, io);
   const notices: string[] = [];
   const names = new Set<MemoryName>();
   const candidates: Candidate[] = [];
-  for (const key of Object.keys(state.sources).sort()) {
-    const entry = state.sources[key];
-    if (entry === undefined || !actsHere(entry, io)) continue;
-    const { destination } = entry.intent;
-    if (request.scope !== null && destination.scope !== request.scope) continue;
-    if (only !== null && key !== only) continue;
+  for (const [key, entry] of sourcesJudged(state, io, request)) {
     const storeEntry = storePathFor(io.home, entry.intent.from);
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
       notices.push(`maxims: ${key}: ${line}`),
@@ -289,30 +381,9 @@ export async function lookupMemory(
       notices.push(`maxims: ${key}: ${tree.reason}`);
       continue;
     }
-    const disabled = disabledNames(
-      state,
-      destination.scope,
-      destination.scope === "project" ? destination.root : null,
-    );
-    const selection = selectMemories({
-      memories: tree.tree.memories,
-      intent: entry.intent,
-      installInternal: io.installInternal,
-      disabled: new Set(),
-      detailPath: () => "",
-    });
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    for (const selected of selection.selected) {
-      names.add(selected.localName);
-      if (selected.localName !== request.name) continue;
-      candidates.push({
-        key,
-        entry,
-        selected,
-        sha: fetched?.sha ?? tree.tree.sha,
-        disabled: disabled.has(selected.localName),
-      });
-    }
+    const found = candidatesIn({ key, entry, tree: tree.tree }, state, io, request.name);
+    for (const name of found.names) names.add(name);
+    candidates.push(...found.candidates);
   }
   const [candidate, ...rest] = candidates;
   if (candidate === undefined) return { kind: "absent", names, notices };

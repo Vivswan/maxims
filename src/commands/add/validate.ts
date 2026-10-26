@@ -1,9 +1,10 @@
 import type { Console } from "../../console/contract.ts";
-import { promptRenames } from "../../console/rename.ts";
+import { promptRenames, type RenameAnswer } from "../../console/rename.ts";
 import { hiddenCharacter, linksTo, ownedBy, renameHint } from "../../console/strings.ts";
 import { DEFAULT_GIT_REF, type SourceFrom } from "../../contracts/source.ts";
 import { sourceSlug } from "../../engine/slug.ts";
 import { sourceIdentity } from "../../engine/source-key.ts";
+import type { CliIo } from "../../engine/types.ts";
 import {
   hiddenCharacterLabel,
   hiddenCharacters,
@@ -11,6 +12,7 @@ import {
   renamed,
 } from "../../memory/contract.ts";
 import { resolveWikilinks } from "../../memory/wikilinks.ts";
+import type { IndexedSource } from "../../rulefile/dedupe.ts";
 import { canonicalSourceKey, type RenameMap, type State } from "../../state/schema.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import {
@@ -44,65 +46,108 @@ function repinRefusal(from: SourceFrom, owners: string[], state: State): MaximsE
   return installedAtOtherRef(canonicalSourceKey(base), repinned.key, repinned.ref, from.ref);
 }
 
-export async function validate(
-  request: AddRequest,
-  chosen: readonly Memory[],
-  state: State,
-  siblings: readonly StagedAdd[],
-  ctx: CommandContext,
-  console: Console,
-): Promise<RenameMap> {
-  if (!request.allowHidden) {
-    for (const memory of chosen) {
-      const hidden = hiddenCharacters(memory.description);
-      const first = hidden[0];
-      if (first !== undefined) {
-        throw new MaximsError(
-          ExitCode.NothingResolved,
-          hiddenCharacter(memory.name, hiddenCharacterLabel(first), first.index + 1),
-          { hint: "pass --allow-hidden to install it anyway" },
-        );
-      }
-    }
-  }
-  const installedNames = new Set<string>();
-  for (const [key, entry] of sourcesHere(state, ctx.io)) {
-    if (key === request.key || siblings.some((sibling) => sibling.request.key === key)) continue;
-    for (const name of await effectiveNames(entry, ctx.io)) installedNames.add(name);
-  }
-  for (const sibling of siblings) {
-    for (const memory of sibling.chosen) {
-      installedNames.add(renamed(sibling.request.rename, memory.name));
-    }
-  }
-  let rename: RenameMap = { ...request.rename };
-  const unknownRenames = Object.keys(rename).filter(
-    (name) => !chosen.some((memory) => memory.name === name),
-  );
-  if (unknownRenames.length > 0) {
+function assertNoHiddenCharacters(chosen: readonly Memory[]): void {
+  for (const memory of chosen) {
+    const first = hiddenCharacters(memory.description)[0];
+    if (first === undefined) continue;
     throw new MaximsError(
       ExitCode.NothingResolved,
-      `--rename names memories the source lacks: ${unknownRenames.join(", ")}`,
+      hiddenCharacter(memory.name, hiddenCharacterLabel(first), first.index + 1),
+      { hint: "pass --allow-hidden to install it anyway" },
     );
   }
-  const { unmet } = resolveWikilinks([...chosen], installedNames, rename);
-  const firstUnmet = unmet[0];
-  if (firstUnmet !== undefined) {
-    throw new MaximsError(ExitCode.UnmetDependency, linksTo(firstUnmet.memory, firstUnmet.link), {
-      hint: `install a source providing ${firstUnmet.link} first`,
-    });
+}
+
+// The local names installed here apart from this source's own and the siblings' recorded entries,
+// plus what the siblings in this add will install: what a wikilink can resolve to.
+async function installedLocalNames(
+  request: AddRequest,
+  siblings: readonly StagedAdd[],
+  state: State,
+  io: CliIo,
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  for (const [key, entry] of sourcesHere(state, io)) {
+    if (key === request.key || siblings.some((sibling) => sibling.request.key === key)) continue;
+    for (const name of await effectiveNames(entry, io)) names.add(name);
   }
-  const installed = [
-    ...(await installedSources(state, ctx.io)).filter(
+  for (const sibling of siblings) {
+    for (const memory of sibling.chosen) names.add(renamed(sibling.request.rename, memory.name));
+  }
+  return names;
+}
+
+function assertRenamesKnown(rename: RenameMap, chosen: readonly Memory[]): void {
+  const unknown = Object.keys(rename).filter(
+    (name) => !chosen.some((memory) => memory.name === name),
+  );
+  if (unknown.length === 0) return;
+  throw new MaximsError(
+    ExitCode.NothingResolved,
+    `--rename names memories the source lacks: ${unknown.join(", ")}`,
+  );
+}
+
+function assertLinksMet(
+  chosen: readonly Memory[],
+  installedNames: Set<string>,
+  rename: RenameMap,
+): void {
+  const { unmet } = resolveWikilinks([...chosen], installedNames, rename);
+  const first = unmet[0];
+  if (first === undefined) return;
+  throw new MaximsError(ExitCode.UnmetDependency, linksTo(first.memory, first.link), {
+    hint: `install a source providing ${first.link} first`,
+  });
+}
+
+// The sources the incoming one is resolved against: those installed here, each sibling of this
+// add standing in for its own recorded entry.
+async function resolutionIndex(
+  siblings: readonly StagedAdd[],
+  state: State,
+  io: CliIo,
+): Promise<IndexedSource[]> {
+  const installed = await installedSources(state, io);
+  return [
+    ...installed.filter(
       (source) => !siblings.some((sibling) => sibling.request.key === source.key),
     ),
     ...siblings.map((sibling) => ({
       key: sibling.request.key,
-      addedAt: ctx.io.now().toISOString(),
+      addedAt: io.now().toISOString(),
       intent: { select: sibling.request.select, rename: sibling.request.rename },
       names: sibling.memories.map((memory) => memory.name),
     })),
   ];
+}
+
+// The prompt answers per LOCAL name; the map is keyed by upstream name, so an answer for a
+// memory already renamed once replaces that memory's entry rather than adding a second hop.
+function withAnswers(
+  rename: RenameMap,
+  answers: Extract<RenameAnswer, { kind: "renamed" }>["rename"],
+  chosen: readonly Memory[],
+): RenameMap {
+  let next = rename;
+  for (const [local, to] of Object.entries(answers)) {
+    const upstream = chosen.find((memory) => renamed(next, memory.name) === local);
+    if (upstream !== undefined) next = { ...next, [upstream.name]: to };
+  }
+  return next;
+}
+
+// Collisions are answered by renames until the incoming set resolves. A repin is refused outright,
+// and a declined prompt refuses on the first collision.
+async function resolveRenames(
+  request: AddRequest,
+  chosen: readonly Memory[],
+  installed: IndexedSource[],
+  installedNames: Set<string>,
+  state: State,
+  console: Console,
+): Promise<RenameMap> {
+  let rename: RenameMap = { ...request.rename };
   for (;;) {
     const outcome = resolveIncoming({
       source: request.key,
@@ -120,11 +165,8 @@ export async function validate(
     if (outcome.ok) return rename;
     if (outcome.code === ExitCode.RuleCapExceeded) throw ruleCapRefusal(request.key, outcome);
     const { collisions } = outcome;
-    const repin = repinRefusal(
-      request.from,
-      [...new Set(collisions.map((collision) => collision.ownedBy))],
-      state,
-    );
+    const owners = [...new Set(collisions.map((collision) => collision.ownedBy))];
+    const repin = repinRefusal(request.from, owners, state);
     if (repin !== null) throw repin;
     const taken = new Set<string>(installedNames);
     for (const memory of chosen) taken.add(renamed(rename, memory.name));
@@ -135,13 +177,24 @@ export async function validate(
         hint: renameHint(first.name),
       });
     }
-    // The prompt answers per LOCAL name; the map is keyed by upstream name, so an answer for a
-    // memory already renamed once replaces that memory's entry rather than adding a second hop.
-    for (const [local, next] of Object.entries(answer.rename)) {
-      const upstream = chosen.find((memory) => renamed(rename, memory.name) === local);
-      if (upstream !== undefined) rename = { ...rename, [upstream.name]: next };
-    }
+    rename = withAnswers(rename, answer.rename, chosen);
   }
+}
+
+export async function validate(
+  request: AddRequest,
+  chosen: readonly Memory[],
+  state: State,
+  siblings: readonly StagedAdd[],
+  ctx: CommandContext,
+  console: Console,
+): Promise<RenameMap> {
+  if (!request.allowHidden) assertNoHiddenCharacters(chosen);
+  const installedNames = await installedLocalNames(request, siblings, state, ctx.io);
+  assertRenamesKnown(request.rename, chosen);
+  assertLinksMet(chosen, installedNames, request.rename);
+  const installed = await resolutionIndex(siblings, state, ctx.io);
+  return resolveRenames(request, chosen, installed, installedNames, state, console);
 }
 
 function renameSuffix(from: SourceFrom): string {

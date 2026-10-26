@@ -7,7 +7,14 @@ import { isFetchedEntry, shortSha } from "../engine/sync-refresh.ts";
 import { readInstalledTree } from "../engine/sync-trees.ts";
 import type { CliIo } from "../engine/types.ts";
 import type { MemoryName } from "../memory/contract.ts";
-import type { Pending, RenameMap, Select, SourceEntry, State } from "../state/schema.ts";
+import type {
+  Destination,
+  Pending,
+  RenameMap,
+  Select,
+  SourceEntry,
+  State,
+} from "../state/schema.ts";
 import { storePathFor } from "../util/home.ts";
 
 export type SourceRef =
@@ -49,6 +56,17 @@ export type SourceFacts = {
 
 export type SourceLookup = { facts: SourceFacts; notices: string[] };
 
+function locationOf(destination: Destination): string | null {
+  switch (destination.scope) {
+    case "global":
+      return null;
+    case "project":
+      return destination.root;
+    case "out":
+      return destination.path;
+  }
+}
+
 export async function sourceFacts(
   state: State,
   io: CliIo,
@@ -85,12 +103,7 @@ export async function sourceFacts(
     ref: refOf(entry),
     fetchedAt: fetched?.at ?? null,
     scope: destination.scope,
-    location:
-      destination.scope === "project"
-        ? destination.root
-        : destination.scope === "out"
-          ? destination.path
-          : null,
+    location: locationOf(destination),
     harnesses: [...intent.harnesses],
     rule: intent.rule,
     select: intent.select,
@@ -116,6 +129,79 @@ function refOf(entry: SourceEntry): SourceRef {
   return from.ref === DEFAULT_GIT_REF
     ? { kind: "tracking", ref: from.ref }
     : { kind: "pinned", ref: from.ref };
+}
+
+type LineChanges = Extract<HeldChanges, { added: unknown }>;
+
+function recordLineChange(
+  changes: LineChanges,
+  name: MemoryName,
+  was: SelectedMemory | undefined,
+  is: SelectedMemory | undefined,
+): void {
+  if (was === undefined && is !== undefined) {
+    changes.added.push({ name, description: is.memory.memory.description });
+  } else if (was !== undefined && is === undefined) {
+    changes.removed.push(name);
+  } else if (was !== undefined && is !== undefined) {
+    const from = was.memory.memory.description;
+    const to = is.memory.memory.description;
+    if (from !== to) changes.changed.push({ name, from, to });
+  }
+}
+
+// A unified diff of the memory's file text, an added or removed one against nothing; null when
+// the text is unchanged.
+function bodyDiff(
+  name: MemoryName,
+  was: SelectedMemory | undefined,
+  is: SelectedMemory | undefined,
+): { name: MemoryName; diff: string } | null {
+  const oldText = was?.memory.text ?? "";
+  const newText = is?.memory.text ?? "";
+  if (oldText === newText) return null;
+  return {
+    name,
+    diff: createTwoFilesPatch(
+      `installed/${name}.md`,
+      `held/${name}.md`,
+      oldText,
+      newText,
+      undefined,
+      undefined,
+      { context: 3 },
+    ),
+  };
+}
+
+// Keyed by upstream name, the identity the hold's summary and the accept compare by: a memory
+// upstream adds under a name a rename already occupies is then listed, as the sync will refuse
+// it, instead of vanishing behind the memory it collides with.
+function heldMemoryChanges(
+  installed: SelectedMemory[],
+  held: SelectedMemory[],
+  pending: Pending,
+): HeldChanges {
+  const before = new Map(installed.map((memory) => [memory.upstreamName, memory]));
+  const after = new Map(held.map((memory) => [memory.upstreamName, memory]));
+  const names = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const changes: LineChanges = {
+    sha: pending.sha,
+    at: pending.at,
+    added: [],
+    removed: [],
+    changed: [],
+    bodies: [],
+  };
+  for (const upstream of names) {
+    const was = before.get(upstream);
+    const is = after.get(upstream);
+    const name = (is ?? was)?.localName ?? upstream;
+    recordLineChange(changes, name, was, is);
+    const body = bodyDiff(name, was, is);
+    if (body !== null) changes.bodies.push(body);
+  }
+  return changes;
 }
 
 async function heldChanges(
@@ -145,51 +231,7 @@ async function heldChanges(
     disabled: new Set(),
     detailPath: () => "",
   }).selected;
-  // Keyed by upstream name, the identity the hold's summary and the accept compare by: a memory
-  // upstream adds under a name a rename already occupies is then listed, as the sync will refuse
-  // it, instead of vanishing behind the memory it collides with.
-  const before = new Map(installed.map((memory) => [memory.upstreamName, memory]));
-  const after = new Map(held.map((memory) => [memory.upstreamName, memory]));
-  const names = [...new Set([...before.keys(), ...after.keys()])].sort();
-  const changes: Extract<HeldChanges, { added: unknown }> = {
-    sha,
-    at,
-    added: [],
-    removed: [],
-    changed: [],
-    bodies: [],
-  };
-  for (const upstream of names) {
-    const was = before.get(upstream);
-    const is = after.get(upstream);
-    const name = (is ?? was)?.localName ?? upstream;
-    if (was === undefined && is !== undefined) {
-      changes.added.push({ name, description: is.memory.memory.description });
-    } else if (was !== undefined && is === undefined) {
-      changes.removed.push(name);
-    } else if (was !== undefined && is !== undefined) {
-      const from = was.memory.memory.description;
-      const to = is.memory.memory.description;
-      if (from !== to) changes.changed.push({ name, from, to });
-    }
-    const oldText = was?.memory.text ?? "";
-    const newText = is?.memory.text ?? "";
-    if (oldText !== newText) {
-      changes.bodies.push({
-        name,
-        diff: createTwoFilesPatch(
-          `installed/${name}.md`,
-          `held/${name}.md`,
-          oldText,
-          newText,
-          undefined,
-          undefined,
-          { context: 3 },
-        ),
-      });
-    }
-  }
-  return changes;
+  return heldMemoryChanges(installed, held, pending);
 }
 
 export function sourceFactLines(facts: SourceFacts): string[] {

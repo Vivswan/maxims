@@ -19,6 +19,7 @@ import {
   GLOBAL_FLAGS,
   GLOBALS,
   globalFlags,
+  type OpenConsole,
   parseVerbArgs,
   usage,
 } from "./frame/options.ts";
@@ -270,6 +271,35 @@ function findVerb(name: string): VerbEntry | undefined {
   return VERBS.find((entry) => entry.name === name || entry.aliases.includes(name));
 }
 
+// The agent is detected only where a person can see the console: a TTY stdout outside --quiet
+// and --json.
+function consoleOpener(deps: CliDeps, quiet: boolean, json: boolean): OpenConsole {
+  return async (yes) => {
+    const agent = deps.stdoutTty.isTTY && !quiet && !json ? await deps.detectAgent() : null;
+    const mode = consoleMode({
+      stdout: deps.stdoutTty,
+      stdinTty: deps.stdinTty,
+      agent,
+      yes,
+      quiet,
+      json,
+    });
+    return createConsole({ mode, output: deps.io.stdout, interactive: deps.interactive });
+  };
+}
+
+// A config.json that cannot be read as one is refused, or run on the defaults with the issue
+// recorded, as the verb declares.
+function userConfigFor(
+  home: string,
+  brokenConfig: VerbEntry["brokenConfig"],
+): Pick<CommandContext, "config" | "configIssue"> {
+  const loaded = readUserConfig(homePaths(home).config);
+  if (loaded.ok) return { config: loaded.config, configIssue: null };
+  if (brokenConfig === "refuse") throw configRefusal(loaded.issue);
+  return { config: {}, configIssue: loaded.issue };
+}
+
 export async function main(argv: readonly string[], deps: CliDeps): Promise<number> {
   const io = deps.io;
   const invocation = scan(argv);
@@ -307,28 +337,16 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const global = globalFlags(args);
     refuseJsonCombinations(command, args, json);
     const rungs = rungLog(failure, entry.name, args.flag(FLAGS.list));
-    const loaded = readUserConfig(homePaths(io.home).config);
-    if (!loaded.ok && entry.brokenConfig === "refuse") throw configRefusal(loaded.issue);
+    const { config, configIssue } = userConfigFor(io.home, entry.brokenConfig);
     const { engine, harnesses, resolvers } = await deps.loadEngine({ quiet, rung: rungs.rung });
     const ctx: CommandContext = {
       io: { ...io, harnesses, resolvers, installInternal: io.env.MAXIMS_INSTALL_INTERNAL === "1" },
       engine,
       global,
-      config: loaded.ok ? loaded.config : {},
-      configIssue: loaded.ok ? null : loaded.issue,
+      config,
+      configIssue,
       flushRungLog: rungs.flush,
-      openConsole: async (yes) => {
-        const agent = deps.stdoutTty.isTTY && !quiet && !json ? await deps.detectAgent() : null;
-        const mode = consoleMode({
-          stdout: deps.stdoutTty,
-          stdinTty: deps.stdinTty,
-          agent,
-          yes,
-          quiet,
-          json,
-        });
-        return createConsole({ mode, output: io.stdout, interactive: deps.interactive });
-      },
+      openConsole: consoleOpener(deps, quiet, json),
     };
     const code = await command.run(args, ctx).finally(rungs.flush);
     if (code !== ExitCode.Ok && quiet) {

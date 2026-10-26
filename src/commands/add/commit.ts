@@ -17,10 +17,17 @@ import type { ScopeAt } from "../../state/scoped.ts";
 import { applyChanges, type Change } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
 import { storePathFor } from "../../util/home.ts";
-import { configWrite, updateIntent, withDisabled } from "../frame/cli-context.ts";
+import {
+  configWrite,
+  type Intent,
+  type IntentUpdate,
+  updateIntent,
+  withDisabled,
+} from "../frame/cli-context.ts";
 import { framed } from "../frame/engine-io.ts";
 import { agentsFilter, type CommandContext, commonOptions } from "../frame/options.ts";
 import { projectLockChange } from "../frame/project-lock-io.ts";
+import type { HarnessChoice } from "./harnesses.ts";
 import type { PreparedAdd } from "./plan.ts";
 import type { AddRequest } from "./request.ts";
 import type { FetchedFiles } from "./stage.ts";
@@ -128,6 +135,132 @@ export type CommitOptions = {
   disabledAtProject?: readonly MemoryName[];
 };
 
+// What the commit gathers while it folds the prepared sources into the state, read back once the
+// update has landed. `everyHarness` widens the sync to every harness once a disabled name changed.
+type Gathered = {
+  changes: Change[];
+  config: UserConfig;
+  configChanged: boolean;
+  touchesProject: boolean;
+  hooked: Map<HarnessId, HookedHarness>;
+  reached: Set<HarnessId>;
+  retired: SourceEntry[];
+  everyHarness: boolean;
+};
+
+function registerHooks(
+  gathered: Gathered,
+  state: State,
+  at: ScopeAt,
+  ids: readonly HarnessId[],
+  io: CliIo,
+): State {
+  const registrations = registrable(ids, io, at);
+  for (const entry of registrations) gathered.hooked.set(entry.id, entry);
+  return withHooks(
+    state,
+    at,
+    registrations.map((entry) => entry.id),
+  );
+}
+
+function takeConfig(gathered: Gathered, request: AddRequest, harnesses: HarnessChoice): void {
+  if (request.configChanges !== null) {
+    gathered.config = { ...gathered.config, ...request.configChanges };
+    gathered.configChanged = true;
+  }
+  if (harnesses.remember) {
+    gathered.config.lastAgents = harnesses.ids;
+    gathered.configChanged = true;
+  }
+}
+
+function commitSource(
+  gathered: Gathered,
+  state: State,
+  item: PreparedAdd,
+  io: CliIo,
+  now: string,
+): State {
+  const { request, harnesses } = item;
+  const previous = state.sources[request.key];
+  for (const id of [...(previous?.intent.harnesses ?? []), ...harnesses.ids]) {
+    gathered.reached.add(id);
+  }
+  if (
+    previous !== undefined &&
+    !sameDestination(previous.intent.destination, request.destination)
+  ) {
+    gathered.retired.push(previous);
+  }
+  const entry = buildEntry({
+    request,
+    rename: item.rename,
+    harnesses: harnesses.ids,
+    tree: item.tree,
+    memories: item.recorded,
+    now,
+    state,
+  });
+  let next: State = { ...state, sources: { ...state.sources, [request.key]: entry } };
+  if (request.addHook && request.destination.scope !== "out") {
+    next = registerHooks(gathered, next, request.destination, harnesses.ids, io);
+  }
+  gathered.changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
+  if (previous?.intent.destination.scope === "project" || request.destination.scope === "project") {
+    gathered.touchesProject = true;
+  }
+  takeConfig(gathered, request, harnesses);
+  return next;
+}
+
+// The names a manifest switches off at the project, folded in before the first sync so no rule
+// line is written for them.
+function disableAtProject(
+  gathered: Gathered,
+  state: State,
+  names: readonly MemoryName[],
+  root: string,
+): State {
+  const at = { scope: "project", root } as const;
+  let next = state;
+  for (const name of names) {
+    const edit = withDisabled(next, at, name, true);
+    next = edit.state;
+    gathered.everyHarness ||= edit.changed;
+  }
+  return next;
+}
+
+async function foldPrepared(
+  current: Intent,
+  prepared: readonly PreparedAdd[],
+  ctx: CommandContext,
+  options: CommitOptions,
+  gathered: Gathered,
+  now: string,
+): Promise<IntentUpdate> {
+  const { io } = ctx;
+  let state = current.state;
+  for (const item of prepared) state = commitSource(gathered, state, item, io, now);
+  state = prunedHooks(state);
+  if (io.projectRoot !== null) {
+    state = disableAtProject(gathered, state, options.disabledAtProject ?? [], io.projectRoot);
+  }
+  if (options.writeManifest && gathered.touchesProject && io.projectRoot !== null) {
+    const lock = await projectLockChange(io.projectRoot, current.state, state, io);
+    if (lock !== null) gathered.changes.push(lock);
+  }
+  const { changes, config } = gathered;
+  if (gathered.configChanged) changes.push(configWrite(io.home, config));
+  await admitIntent(
+    ctx,
+    { state, config, changes },
+    gathered.everyHarness ? [] : [...gathered.reached],
+  );
+  return { state, changes, notices: [...current.notices] };
+}
+
 // Steps 5 and 6: the one durable transition, for one or several prepared sources under one lock.
 // The store entries, the manifest projection and the config file ride in the same plan as the
 // state write; the caller runs the sync that writes destinations.
@@ -138,91 +271,30 @@ export async function commitAdd(
 ): Promise<CommitOutcome> {
   const { io } = ctx;
   const now = io.now().toISOString();
-  const hooked = new Map<HarnessId, HookedHarness>();
-  const reached = new Set<HarnessId>();
-  const retired: SourceEntry[] = [];
-  let everyHarness = false;
-  let config: UserConfig = { ...ctx.config };
+  const gathered: Gathered = {
+    changes: [],
+    config: { ...ctx.config },
+    configChanged: false,
+    touchesProject: false,
+    hooked: new Map(),
+    reached: new Set(),
+    retired: [],
+    everyHarness: false,
+  };
   const update = await updateIntent(
     io.home,
     ctx.global.dryRun,
-    async (current) => {
-      let state = current.state;
-      const changes: Change[] = [];
-      let touchesProject = false;
-      let configChanged = false;
-      for (const item of prepared) {
-        const { request, harnesses } = item;
-        const previous = state.sources[request.key];
-        for (const id of [...(previous?.intent.harnesses ?? []), ...harnesses.ids]) reached.add(id);
-        if (
-          previous !== undefined &&
-          !sameDestination(previous.intent.destination, request.destination)
-        ) {
-          retired.push(previous);
-        }
-        const entry = buildEntry(
-          request,
-          item.rename,
-          harnesses.ids,
-          item.tree,
-          item.recorded,
-          now,
-          state,
-        );
-        state = { ...state, sources: { ...state.sources, [request.key]: entry } };
-        if (request.addHook && request.destination.scope !== "out") {
-          const registrations = registrable(harnesses.ids, io, request.destination);
-          state = withHooks(
-            state,
-            request.destination,
-            registrations.map((entry) => entry.id),
-          );
-          for (const entry of registrations) hooked.set(entry.id, entry);
-        }
-        changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
-        if (
-          previous?.intent.destination.scope === "project" ||
-          request.destination.scope === "project"
-        ) {
-          touchesProject = true;
-        }
-        if (request.configChanges !== null) {
-          config = { ...config, ...request.configChanges };
-          configChanged = true;
-        }
-        if (harnesses.remember) {
-          config.lastAgents = harnesses.ids;
-          configChanged = true;
-        }
-      }
-      state = prunedHooks(state);
-      if (io.projectRoot !== null) {
-        const at = { scope: "project", root: io.projectRoot } as const;
-        for (const name of options.disabledAtProject ?? []) {
-          const edit = withDisabled(state, at, name, true);
-          state = edit.state;
-          everyHarness ||= edit.changed;
-        }
-      }
-      if (options.writeManifest && touchesProject && io.projectRoot !== null) {
-        const lock = await projectLockChange(io.projectRoot, current.state, state, io);
-        if (lock !== null) changes.push(lock);
-      }
-      if (configChanged) changes.push(configWrite(io.home, config));
-      await admitIntent(ctx, { state, config, changes }, everyHarness ? [] : [...reached]);
-      return { state, changes, notices: [...current.notices] };
-    },
+    (current) => foldPrepared(current, prepared, ctx, options, gathered, now),
     (plan) => applyChanges(plan, { dryRun: ctx.global.dryRun }),
   );
   return {
     state: update.state,
-    config,
+    config: gathered.config,
     changes: update.changes,
     notices: update.notices,
-    hooked: [...hooked.values()],
-    harnesses: everyHarness ? [] : [...reached],
-    retired,
+    hooked: [...gathered.hooked.values()],
+    harnesses: gathered.everyHarness ? [] : [...gathered.reached],
+    retired: gathered.retired,
   };
 }
 
@@ -235,15 +307,18 @@ function storeEntryChanges(from: SourceFrom, home: string, files: readonly TreeF
   return swapStoreEntry(storePathFor(home, from), [...files]);
 }
 
-function buildEntry(
-  request: AddRequest,
-  rename: RenameMap,
-  harnesses: HarnessId[],
-  tree: FetchedFiles,
-  memories: readonly Memory[],
-  now: string,
-  state: State,
-): SourceEntry {
+type EntryInput = {
+  request: AddRequest;
+  rename: RenameMap;
+  harnesses: HarnessId[];
+  tree: FetchedFiles;
+  memories: readonly Memory[];
+  now: string;
+  state: State;
+};
+
+function buildEntry(input: EntryInput): SourceEntry {
+  const { request, rename, harnesses, tree, memories, now, state } = input;
   const addedAt = state.sources[request.key]?.addedAt ?? now;
   const base = {
     select: request.select,

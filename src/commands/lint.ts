@@ -67,46 +67,41 @@ export const lint: Command = {
   },
 };
 
-export function lintFolder(
-  root: string,
-  cwd: string,
-  recursive: boolean,
-  cap: number,
-  installInternal: boolean,
-): LintProblem[] {
-  const files = collectMarkdown(root, recursive);
-  const problems: LintProblem[] = [];
-  const memories: { memory: Memory; path: string }[] = [];
-  for (const file of files) {
-    const path = relative(cwd, file) || file;
-    const text = readOrRefuse(file, () => readFileSync(file, "utf8"));
-    const parsed = parseMemory(file, text);
-    if (!parsed.ok) {
-      problems.push({ path, line: keyLine(text, parsed.reason), reason: parsed.reason });
-      continue;
-    }
-    if (parsed.warning !== undefined) {
-      problems.push({ path, line: keyLine(text, "metadata"), reason: parsed.warning });
-    }
-    const hidden = hiddenCharacters(parsed.memory.description);
-    const first = hidden[0];
-    if (first !== undefined) {
-      problems.push({
-        path,
-        line: keyLine(text, "description"),
-        reason: `description carries ${hiddenCharacterLabel(first)} at column ${first.index + 1}`,
-      });
-    }
-    for (const warning of riskWarningsFor([parsed.memory])) {
-      problems.push({
-        path,
-        line: keyLine(text, "description"),
-        reason: `${warning.kind}: ${warning.detail} at column ${warning.column}`,
-      });
-    }
-    memories.push({ memory: parsed.memory, path });
+type LintedMemory = { memory: Memory; path: string };
+
+function lintFile(file: string, path: string): { problems: LintProblem[]; memory: Memory | null } {
+  const text = readOrRefuse(file, () => readFileSync(file, "utf8"));
+  const parsed = parseMemory(file, text);
+  if (!parsed.ok) {
+    const problem = { path, line: keyLine(text, parsed.reason), reason: parsed.reason };
+    return { problems: [problem], memory: null };
   }
+  const problems: LintProblem[] = [];
+  if (parsed.warning !== undefined) {
+    problems.push({ path, line: keyLine(text, "metadata"), reason: parsed.warning });
+  }
+  const first = hiddenCharacters(parsed.memory.description)[0];
+  if (first !== undefined) {
+    problems.push({
+      path,
+      line: keyLine(text, "description"),
+      reason: `description carries ${hiddenCharacterLabel(first)} at column ${first.index + 1}`,
+    });
+  }
+  for (const warning of riskWarningsFor([parsed.memory])) {
+    problems.push({
+      path,
+      line: keyLine(text, "description"),
+      reason: `${warning.kind}: ${warning.detail} at column ${warning.column}`,
+    });
+  }
+  return { problems, memory: parsed.memory };
+}
+
+// A wikilink resolves within the folder alone, as a `*` install of it would.
+function linkProblems(memories: LintedMemory[]): LintProblem[] {
   const names = new Set<string>(memories.map(({ memory }) => memory.name));
+  const problems: LintProblem[] = [];
   for (const { memory, path } of memories) {
     for (const link of extractWikilinks(memory.body)) {
       if (names.has(link)) continue;
@@ -117,6 +112,26 @@ export function lintFolder(
       });
     }
   }
+  return problems;
+}
+
+export function lintFolder(
+  root: string,
+  cwd: string,
+  recursive: boolean,
+  cap: number,
+  installInternal: boolean,
+): LintProblem[] {
+  const files = collectMarkdown(root, recursive);
+  const problems: LintProblem[] = [];
+  const memories: LintedMemory[] = [];
+  for (const file of files) {
+    const path = relative(cwd, file) || file;
+    const linted = lintFile(file, path);
+    problems.push(...linted.problems);
+    if (linted.memory !== null) memories.push({ memory: linted.memory, path });
+  }
+  problems.push(...linkProblems(memories));
   // A folder has no `select`, so the cap measures it as a `*` install would publish it.
   const published = memories.filter(
     ({ memory }) => !isHiddenInternal(memory, "*", installInternal),

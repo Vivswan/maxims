@@ -10,7 +10,14 @@ import { applyChanges } from "../util/change.ts";
 import { ExitCode } from "../util/exit-codes.ts";
 import { jsonDocument } from "../util/json.ts";
 import { configWrite } from "./frame/cli-context.ts";
-import { type Command, closestName, INTEGER, integerOrUsage, usage } from "./frame/options.ts";
+import {
+  type Command,
+  type CommandContext,
+  closestName,
+  INTEGER,
+  integerOrUsage,
+  usage,
+} from "./frame/options.ts";
 import { finish } from "./frame/output.ts";
 
 type ConfigKey = keyof UserConfig;
@@ -59,6 +66,44 @@ function valueFor(key: ConfigKey, raw: string): UserConfig[ConfigKey] {
   }
 }
 
+function printConfig(ctx: CommandContext, rawKey: string | undefined): ExitCode {
+  if (rawKey === undefined) {
+    ctx.io.stdout.write(jsonDocument(ctx.config));
+    return ExitCode.Ok;
+  }
+  const value = ctx.config[keyOrUsage(rawKey)];
+  if (value === undefined) {
+    if (ctx.global.json) ctx.io.stdout.write("null\n");
+    return ExitCode.Ok;
+  }
+  ctx.io.stdout.write(`${JSON.stringify(value)}\n`);
+  return ExitCode.Ok;
+}
+
+function editedConfig(
+  current: UserConfig,
+  action: "set" | "unset",
+  key: ConfigKey,
+  rawValue: string | undefined,
+): UserConfig {
+  const next: UserConfig = { ...current };
+  if (action === "unset") {
+    delete next[key];
+    return next;
+  }
+  if (rawValue === undefined) throw usage(`config set ${key} needs a value`);
+  Object.assign(next, { [key]: valueFor(key, rawValue) });
+  return next;
+}
+
+function validConfig(next: UserConfig): UserConfig {
+  const parsed = UserConfigSchema.safeParse(next);
+  if (parsed.success) return parsed.data;
+  throw usage(`config would be invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`, {
+    hint: `agents and lastAgents take ${HARNESS_IDS.join(", ")}`,
+  });
+}
+
 export const config: Command = {
   summary: "read or write a user default in config.json",
   usage: "config <get|set|unset> [key] [value]",
@@ -70,46 +115,21 @@ export const config: Command = {
     const extra = args.positionals[action === "get" && rawKey === undefined ? 1 : expectedWords];
     if (extra !== undefined) throw usage(`unexpected argument: ${extra}`);
     const console = await ctx.openConsole(true);
-    if (action === "get") {
-      if (rawKey === undefined) {
-        ctx.io.stdout.write(jsonDocument(ctx.config));
-        return ExitCode.Ok;
-      }
-      const value = ctx.config[keyOrUsage(rawKey)];
-      if (value !== undefined) ctx.io.stdout.write(`${JSON.stringify(value)}\n`);
-      else if (ctx.global.json) ctx.io.stdout.write("null\n");
-      return ExitCode.Ok;
-    }
+    if (action === "get") return printConfig(ctx, rawKey);
     if (action !== "set" && action !== "unset") {
       throw usage(`config expects get, set or unset, got "${action ?? ""}"`, {
         hint: "maxims config set rule true",
       });
     }
     const key = keyOrUsage(rawKey);
-    const next: UserConfig = { ...ctx.config };
-    if (action === "set") {
-      if (rawValue === undefined) throw usage(`config set ${key} needs a value`);
-      const value = valueFor(key, rawValue);
-      Object.assign(next, { [key]: value });
-    } else {
-      delete next[key];
-    }
-    const parsed = UserConfigSchema.safeParse(next);
-    if (!parsed.success) {
-      throw usage(
-        `config would be invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
-        {
-          hint: `agents and lastAgents take ${HARNESS_IDS.join(", ")}`,
-        },
-      );
-    }
-    const plan = { changes: [configWrite(ctx.io.home, parsed.data)], notices: [] };
+    const next = validConfig(editedConfig(ctx.config, action, key, rawValue));
+    const plan = { changes: [configWrite(ctx.io.home, next)], notices: [] };
     await applyChanges(plan, { dryRun: ctx.global.dryRun });
     return finish(ctx, console, {
       plan,
       notices: [],
-      json: { config: parsed.data },
-      lines: [action === "set" ? `${key} = ${JSON.stringify(parsed.data[key])}` : `${key} unset`],
+      json: { config: next },
+      lines: [action === "set" ? `${key} = ${JSON.stringify(next[key])}` : `${key} unset`],
     });
   },
 };

@@ -14,7 +14,7 @@ import { hookStatus, hookStatusText } from "../engine/hooks.ts";
 import { installedHere } from "../engine/plan-sync.ts";
 import { readProjectLock } from "../engine/project-lock-read.ts";
 import type { RuleFileHeld } from "../engine/rules.ts";
-import { disabledNames, selectMemories } from "../engine/select.ts";
+import { disabledNames, type SelectInput, selectMemories } from "../engine/select.ts";
 import { sourceSlug } from "../engine/slug.ts";
 import { isFetchedEntry, shortSha, staleness } from "../engine/sync-refresh.ts";
 import { retainedBlockNames, retainedNames } from "../engine/sync-retained.ts";
@@ -78,27 +78,34 @@ function emptyReport(ctx: EngineContext): ListReport {
 
 type Loaded = { key: string; entry: SourceEntry; storeEntry: string; upstream: MemoryName[] };
 
-async function listState(state: State, ctx: EngineContext, io: EngineIo): Promise<ListReport> {
-  const report = emptyReport(ctx);
-  if (ctx.configIssue !== null) report.notices.push(`maxims: ${ctx.configIssue}`);
-  const loaded: (Loaded & { tree: Awaited<ReturnType<typeof readInstalledTree>> })[] = [];
+type LoadedTree = Loaded & { tree: Awaited<ReturnType<typeof readInstalledTree>> };
+
+// Every source in key order with its installed tree and the upstream names it owns. The bodies
+// scan stops a run to protect a write; list writes nothing, so a readable source skips it and
+// only an unreadable one's bodies are read for its names. A held file is noticed once, however
+// many sources share it.
+async function loadSources(
+  state: State,
+  ctx: EngineContext,
+  io: EngineIo,
+  notices: string[],
+): Promise<LoadedTree[]> {
+  const loaded: LoadedTree[] = [];
   const heldKeys = new Set<string>();
+  const hold = (held: RuleFileHeld): void => {
+    const realKey = realKeyOf(held.path);
+    if (heldKeys.has(realKey)) return;
+    heldKeys.add(realKey);
+    notices.push(`maxims: ${held.message}`);
+    if (held.hint !== undefined) notices.push(`maxims: ${held.hint}`);
+  };
   for (const key of Object.keys(state.sources).sort()) {
     const entry = state.sources[key];
     if (entry === undefined) continue;
     const storeEntry = storePathFor(ctx.home, entry.intent.from);
     const tree = await readInstalledTree(entry, storeEntry, (line) =>
-      report.notices.push(`maxims: ${key}: ${line}`),
+      notices.push(`maxims: ${key}: ${line}`),
     );
-    // The bodies scan stops a run to protect a write; list writes nothing, so a readable source
-    // skips it and only an unreadable one's bodies are read for its names.
-    const hold = (held: RuleFileHeld): void => {
-      const realKey = realKeyOf(held.path);
-      if (heldKeys.has(realKey)) return;
-      heldKeys.add(realKey);
-      report.notices.push(`maxims: ${held.message}`);
-      if (held.hint !== undefined) report.notices.push(`maxims: ${held.hint}`);
-    };
     let upstream: MemoryName[];
     if (tree.kind === "tree") {
       retainedBlockNames(key, entry, ctx, io, hold);
@@ -114,11 +121,15 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     }
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
-  // An unreadable source's names are already local (its selection and renames applied), so
-  // they enter the index as they are. A rename is judged against the entries that apply together
-  // with its source: the user's and its own project's, whichever project the listing runs in.
+  return loaded;
+}
+
+// An unreadable source's names are already local (its selection and renames applied), so they
+// enter the index as they are. A rename is judged against the entries that apply together with
+// its source: the user's and its own project's, whichever project the listing runs in.
+function nameIndexFor(loaded: LoadedTree[]): (root: string | null) => NameIndex {
   const indexes = new Map<string | null, NameIndex>();
-  const indexFor = (root: string | null): NameIndex => {
+  return (root) => {
     const known = indexes.get(root);
     if (known !== undefined) return known;
     const index = buildNameIndex(
@@ -134,93 +145,135 @@ async function listState(state: State, ctx: EngineContext, io: EngineIo): Promis
     indexes.set(root, index);
     return index;
   };
+}
+
+// The project a source's names and switched-off memories are judged with: its own for a project
+// entry, else the one the listing runs in.
+function judgedRoot(entry: SourceEntry, ctx: EngineContext): string | null {
+  const { destination } = entry.intent;
+  return destination.scope === "project" ? destination.root : ctx.projectRoot;
+}
+
+function listedMemories(
+  memories: SelectInput["memories"],
+  entry: SourceEntry,
+  ctx: EngineContext,
+  disabled: SelectInput["disabled"],
+): ListedMemory[] {
+  const selection = selectMemories({
+    memories,
+    intent: entry.intent,
+    installInternal: ctx.installInternal,
+    disabled,
+    detailPath: () => "",
+  });
+  const listed: ListedMemory[] = [];
+  for (const selected of selection.selected) {
+    listed.push({
+      upstreamName: selected.upstreamName,
+      localName: selected.localName,
+      shortHash: shortHash(selected.memory.memory.contentHash),
+      disabled: false,
+    });
+  }
+  for (const name of selection.disabledDropped) {
+    listed.push({ upstreamName: name, localName: name, shortHash: null, disabled: true });
+  }
+  return listed;
+}
+
+// A rename still resolves a collision while another source in the index owns the upstream name;
+// without such an owner it is no longer needed.
+function listedRenames(entry: SourceEntry, key: string, index: NameIndex): ListedRename[] {
+  return Object.entries(entry.intent.rename).map(([from, to]) => {
+    const owner = [...index.entries()].find(([name, owned]) => name === from && owned !== key);
+    if (owner === undefined) {
+      return { upstreamName: from, localName: to, verdict: "unneeded", against: null };
+    }
+    return { upstreamName: from, localName: to, verdict: "resolves", against: owner[1] };
+  });
+}
+
+// The token cost of each rules file the source writes, once per file however many harnesses read it.
+function tokenCosts(
+  entry: SourceEntry,
+  harnesses: ListedHarness[],
+  io: EngineIo,
+): ListedSource["tokens"] {
+  const tokens: ListedSource["tokens"] = [];
+  if (!entry.intent.rule) return tokens;
+  for (const harness of harnesses) {
+    if (harness.rulesFile === null || !harness.rulesPresent) continue;
+    if (tokens.some((token) => token.path === harness.rulesFile)) continue;
+    const def = io.harnesses.find((candidate) => candidate.id === harness.id);
+    const text = readFileSync(harness.rulesFile, "utf8");
+    tokens.push({
+      path: harness.rulesFile,
+      tokens: estimateTokens(text, def?.markers ?? "counted"),
+    });
+  }
+  return tokens;
+}
+
+function projectFacts(entry: SourceEntry, ctx: EngineContext): ListedSource["project"] {
+  const { destination } = entry.intent;
+  if (destination.scope !== "project") return null;
+  return {
+    root: destination.root,
+    here: destination.root === ctx.projectRoot,
+    rootMissing: pathAbsent(destination.root),
+  };
+}
+
+async function listSource(
+  source: LoadedTree,
+  state: State,
+  ctx: EngineContext,
+  io: EngineIo,
+  indexFor: (root: string | null) => NameIndex,
+  notices: string[],
+): Promise<ListedSource> {
+  const { key, entry } = source;
+  const { destination } = entry.intent;
+  const root = judgedRoot(entry, ctx);
+  const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
+  // A project entry's switched-off names are its own project's, wherever the listing runs.
+  const disabled = disabledNames(state, destination.scope, root);
+  let memories: ListedMemory[] = [];
+  if (source.tree.kind === "tree") {
+    memories = listedMemories(source.tree.tree.memories, entry, ctx, disabled);
+  } else {
+    notices.push(`maxims: ${key}: ${source.tree.reason}`);
+  }
+  const harnesses = await listHarnesses(source, state, ctx, io);
+  return {
+    key,
+    scope: destination.scope,
+    project: projectFacts(entry, ctx),
+    shared: entry.intent.shared === true,
+    review: entry.intent.review === true,
+    held: isFetchedEntry(entry) ? (entry.pending ?? null) : null,
+    live: !isFetchedEntry(entry),
+    outDir: destination.scope === "out" ? destination.path : null,
+    sha: fetched?.sha ?? (source.tree.kind === "tree" ? source.tree.tree.sha : null),
+    fetchedAt: fetched?.at ?? null,
+    lastError: fetched?.lastError ?? null,
+    stale: staleFacts(fetched, ctx.now, ctx.cooldownDays),
+    memories,
+    harnesses,
+    renames: listedRenames(entry, key, indexFor(root)),
+    rule: entry.intent.rule,
+    tokens: tokenCosts(entry, harnesses, io),
+  };
+}
+
+async function listState(state: State, ctx: EngineContext, io: EngineIo): Promise<ListReport> {
+  const report = emptyReport(ctx);
+  if (ctx.configIssue !== null) report.notices.push(`maxims: ${ctx.configIssue}`);
+  const loaded = await loadSources(state, ctx, io, report.notices);
+  const indexFor = nameIndexFor(loaded);
   for (const source of loaded) {
-    const { key, entry } = source;
-    const scope = entry.intent.destination.scope;
-    const index = indexFor(
-      entry.intent.destination.scope === "project"
-        ? entry.intent.destination.root
-        : ctx.projectRoot,
-    );
-    const fetched = isFetchedEntry(entry) ? entry.fetched : undefined;
-    // A project entry's switched-off names are its own project's, wherever the listing runs.
-    const disabled = disabledNames(
-      state,
-      scope,
-      entry.intent.destination.scope === "project"
-        ? entry.intent.destination.root
-        : ctx.projectRoot,
-    );
-    const memories: ListedMemory[] = [];
-    if (source.tree.kind === "tree") {
-      const selection = selectMemories({
-        memories: source.tree.tree.memories,
-        intent: entry.intent,
-        installInternal: ctx.installInternal,
-        disabled,
-        detailPath: () => "",
-      });
-      for (const selected of selection.selected) {
-        memories.push({
-          upstreamName: selected.upstreamName,
-          localName: selected.localName,
-          shortHash: shortHash(selected.memory.memory.contentHash),
-          disabled: false,
-        });
-      }
-      for (const name of selection.disabledDropped) {
-        memories.push({ upstreamName: name, localName: name, shortHash: null, disabled: true });
-      }
-    } else {
-      report.notices.push(`maxims: ${key}: ${source.tree.reason}`);
-    }
-    const renames: ListedRename[] = Object.entries(entry.intent.rename).map(([from, to]) => {
-      const owner = [...index.entries()].find(([name, owned]) => name === from && owned !== key);
-      return owner === undefined
-        ? { upstreamName: from, localName: to, verdict: "unneeded", against: null }
-        : { upstreamName: from, localName: to, verdict: "resolves", against: owner[1] };
-    });
-    const harnesses = await listHarnesses(source, state, ctx, io);
-    const tokens: ListedSource["tokens"] = [];
-    if (entry.intent.rule) {
-      for (const harness of harnesses) {
-        if (harness.rulesFile === null || !harness.rulesPresent) continue;
-        if (tokens.some((token) => token.path === harness.rulesFile)) continue;
-        const def = io.harnesses.find((candidate) => candidate.id === harness.id);
-        const text = readFileSync(harness.rulesFile, "utf8");
-        tokens.push({
-          path: harness.rulesFile,
-          tokens: estimateTokens(text, def?.markers ?? "counted"),
-        });
-      }
-    }
-    const { destination } = entry.intent;
-    report.sources.push({
-      key,
-      scope,
-      project:
-        destination.scope === "project"
-          ? {
-              root: destination.root,
-              here: destination.root === ctx.projectRoot,
-              rootMissing: pathAbsent(destination.root),
-            }
-          : null,
-      shared: entry.intent.shared === true,
-      review: entry.intent.review === true,
-      held: isFetchedEntry(entry) ? (entry.pending ?? null) : null,
-      live: !isFetchedEntry(entry),
-      outDir: entry.intent.destination.scope === "out" ? entry.intent.destination.path : null,
-      sha: fetched?.sha ?? (source.tree.kind === "tree" ? source.tree.tree.sha : null),
-      fetchedAt: fetched?.at ?? null,
-      lastError: fetched?.lastError ?? null,
-      stale: staleFacts(fetched, ctx.now, ctx.cooldownDays),
-      memories,
-      harnesses,
-      renames,
-      rule: entry.intent.rule,
-      tokens,
-    });
+    report.sources.push(await listSource(source, state, ctx, io, indexFor, report.notices));
   }
   await addLockOnly(report, state, ctx);
   return report;
@@ -328,39 +381,48 @@ const SCOPE_HEADERS: Record<Scope | "out", string> = {
   out: "Out",
 };
 
+function renameLine(rename: ListedRename): string {
+  if (rename.verdict === "resolves") {
+    return `  rename ${rename.upstreamName} -> ${rename.localName} still resolves a collision with ${rename.against ?? ""}`;
+  }
+  return `  rename ${rename.upstreamName} -> ${rename.localName} no longer needed (upstream renamed)`;
+}
+
+function agentsLine(source: ListedSource): string {
+  const agents = source.harnesses.map(harnessCell).join(", ");
+  return `  Agents: ${agents}  Rules: ${source.rule ? "yes" : "no"}`;
+}
+
+function sourceLines(source: ListedSource, scope: Scope | "out"): string[] {
+  const lines = [sourceLine(source)];
+  if (source.project !== null && !source.project.here) {
+    const missing = source.project.rootMissing ? " (project folder missing)" : "";
+    lines.push(`  installed for ${source.project.root}${missing}`);
+  }
+  for (const memory of source.memories) lines.push(memoryLine(memory, scope));
+  lines.push(agentsLine(source));
+  for (const rename of source.renames) lines.push(renameLine(rename));
+  for (const token of source.tokens) lines.push(`  ~${token.tokens} tokens in ${token.path}`);
+  for (const harness of source.harnesses) {
+    if (harness.skipped !== null) lines.push(`  ${harness.id}: skipped (${harness.skipped})`);
+  }
+  return lines;
+}
+
+// Project, then global, then out; a scope heads its first source, and every `-o` source heads
+// itself with its folder.
 export function renderList(report: ListReport): string {
   const lines: string[] = [...report.notices];
   const order: (Scope | "out")[] = ["project", "global", "out"];
   for (const scope of order) {
     const sources = report.sources.filter((source) => source.scope === scope);
     for (const [position, source] of sources.entries()) {
-      if (position === 0) {
-        lines.push(
-          scope === "out" ? `${SCOPE_HEADERS.out}: ${source.outDir ?? ""}` : SCOPE_HEADERS[scope],
-        );
-      } else if (scope === "out") {
+      if (scope === "out") {
         lines.push(`${SCOPE_HEADERS.out}: ${source.outDir ?? ""}`);
+      } else if (position === 0) {
+        lines.push(SCOPE_HEADERS[scope]);
       }
-      lines.push(sourceLine(source));
-      if (source.project !== null && !source.project.here) {
-        const missing = source.project.rootMissing ? " (project folder missing)" : "";
-        lines.push(`  installed for ${source.project.root}${missing}`);
-      }
-      for (const memory of source.memories) lines.push(memoryLine(memory, scope));
-      lines.push(
-        `  Agents: ${source.harnesses.map(harnessCell).join(", ")}  Rules: ${source.rule ? "yes" : "no"}`,
-      );
-      for (const rename of source.renames) {
-        lines.push(
-          rename.verdict === "resolves"
-            ? `  rename ${rename.upstreamName} -> ${rename.localName} still resolves a collision with ${rename.against ?? ""}`
-            : `  rename ${rename.upstreamName} -> ${rename.localName} no longer needed (upstream renamed)`,
-        );
-      }
-      for (const token of source.tokens) lines.push(`  ~${token.tokens} tokens in ${token.path}`);
-      for (const harness of source.harnesses) {
-        if (harness.skipped !== null) lines.push(`  ${harness.id}: skipped (${harness.skipped})`);
-      }
+      lines.push(...sourceLines(source, scope));
     }
   }
   for (const key of report.lockOnly) {
@@ -373,29 +435,31 @@ export function renderList(report: ListReport): string {
   return `${lines.join("\n")}\n`;
 }
 
+function sourceMarks(source: ListedSource): string {
+  const marks: string[] = [];
+  if (source.shared) marks.push("shared");
+  if (source.held !== null) {
+    marks.push(heldToken(source.key, source.held.summary.length));
+  } else if (source.review) {
+    marks.push("review");
+  }
+  return marks.map((mark) => `  ${mark}`).join("");
+}
+
+function fetchVerdict(source: ListedSource): string {
+  if (source.stale !== null) return `stale ${source.stale.days}d: ${source.stale.kind}`;
+  if (source.lastError !== null) return `ok (last fetch failed: ${source.lastError.kind})`;
+  return "ok";
+}
+
 function sourceLine(source: ListedSource): string {
   const sha = source.sha === null ? "-" : shortSha(source.sha);
-  const marks = [
-    source.shared ? "shared" : null,
-    source.held !== null
-      ? heldToken(source.key, source.held.summary.length)
-      : source.review
-        ? "review"
-        : null,
-  ]
-    .flatMap((mark) => (mark === null ? [] : [`  ${mark}`]))
-    .join("");
+  const marks = sourceMarks(source);
   if (source.fetchedAt === null) {
     return `${source.key}  ${sha}  ${source.live ? "live" : "not fetched yet"}${marks}`;
   }
   const date = source.fetchedAt.slice(0, "2026-01-01".length);
-  const verdict =
-    source.stale === null
-      ? source.lastError === null
-        ? "ok"
-        : `ok (last fetch failed: ${source.lastError.kind})`
-      : `stale ${source.stale.days}d: ${source.stale.kind}`;
-  return `${source.key}  ${sha}  fetched ${date}  ${verdict}${marks}`;
+  return `${source.key}  ${sha}  fetched ${date}  ${fetchVerdict(source)}${marks}`;
 }
 
 function memoryLine(memory: ListedMemory, scope: string): string {
