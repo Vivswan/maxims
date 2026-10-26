@@ -15,7 +15,7 @@ import {
   type Memory,
   parseMemory,
 } from "../memory/contract.ts";
-import { resolveWikilinks } from "../memory/wikilinks.ts";
+import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { jsonDocument } from "../util/json.ts";
@@ -98,26 +98,13 @@ function lintFile(file: string, path: string): { problems: LintProblem[]; memory
   return { problems, memory: parsed.memory };
 }
 
-// A wikilink resolves within the folder alone, as a `*` install of it would. The resolver tags an
-// unmet link with its memory's name alone, so a memory past the first of its name (`a/foo.md` and
-// `b/foo.md` under --full-depth) resolves in a call of its own.
+// A wikilink resolves within the folder alone, as a `*` install of it would.
 function linkProblems(memories: LintedMemory[]): LintProblem[] {
   const names = new Set<string>(memories.map(({ memory }) => memory.name));
-  const firsts = new Map<string, LintedMemory>();
-  for (const linted of memories) {
-    if (!firsts.has(linted.memory.name)) firsts.set(linted.memory.name, linted);
-  }
-  const incoming = [...firsts.values()].map(({ memory }) => memory);
-  const resolved = resolveWikilinks(incoming, names, {}).unmet;
-  const unmetByName = Map.groupBy(resolved, (unmet) => unmet.memory);
   const problems: LintProblem[] = [];
-  for (const linted of memories) {
-    const { memory, path } = linted;
-    const unmet =
-      firsts.get(memory.name) === linted
-        ? unmetByName.get(memory.name)
-        : resolveWikilinks([memory], names, {}).unmet;
-    for (const { link } of unmet ?? []) {
+  for (const { memory, path } of memories) {
+    for (const link of extractWikilinks(memory.body)) {
+      if (names.has(link)) continue;
       problems.push({
         path,
         line: bodyLine(memory, link),

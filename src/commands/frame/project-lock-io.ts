@@ -119,6 +119,7 @@ function assertRoundTrips(lock: ProjectLock, content: string, path: string): voi
 //   private add beside a committed lock -> nothing changes
 //   shared add                          -> joins the team's entries
 //   unshare or removal                  -> takes its own entry out
+//   no sources left                     -> the lock file is deleted
 //   disabled names                      -> this machine's shared sources' follow state, others stay
 export async function projectLockChange(
   projectRoot: string,
