@@ -105,10 +105,8 @@ const RUNGS = [
   },
 ] as const;
 
-/**
- * One row of an expected table or report.
- *   stderr -> as the report prints it: redacted and trimmed
- */
+// One row of an expected table or report.
+//   stderr -> as the report prints it: redacted and trimmed
 type Rung = {
   exit: number;
   verdict: "ok" | "FAIL";

@@ -23,10 +23,8 @@ export const REPO_ROOT = resolve(CONTEXT_DIR, "..", "..");
 const CONTEXT_FILES = ["Dockerfile", "entrypoint.sh"] as const;
 const DEPENDENCY_FILES = ["package.json", "bun.lock"] as const;
 
-/**
- * One container run.
- *   network -> "none" is the default, so a run cannot reach the network by forgetting to say so
- */
+// One container run.
+//   network -> "none" is the default, so a run cannot reach the network by forgetting to say so
 export type RunOptions = {
   image: string;
   cmd: readonly string[];

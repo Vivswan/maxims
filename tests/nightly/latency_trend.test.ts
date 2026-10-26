@@ -117,10 +117,8 @@ const frame = (baseline: Entry) => ({
 const against = (baseline: Entry): string =>
   `Head \`0000000\` against the baseline \`${baseline.sha}\` at ${baseline.at}, the newest entry at least 7 days old`;
 
-/**
- * One simulated night: its history and what the run must produce from it.
- *   baseline -> the entry whose sha the night rebuilds
- */
+// One simulated night: its history and what the run must produce from it.
+//   baseline -> the entry whose sha the night rebuilds
 interface Night {
   name: string;
   history: Entry[];

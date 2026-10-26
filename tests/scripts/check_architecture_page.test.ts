@@ -84,10 +84,13 @@ const vendor: [where: string, markdown: string, fences: Fence[], text: (string |
   ],
 ];
 
-// mdast-util-from-markdown behaviours the fences lean on and nothing here enforces: `lang` and
-// `meta` rejoined are the info string whole, an unclosed fence ends with its container or the
-// page, the body loses exactly one final line ending, indented code is the same node type, a
-// node's value keeps the page's line endings, and one leading BOM shifts every position by one.
+// mdast-util-from-markdown behaviours the fences lean on and nothing here enforces.
+//   `lang` and `meta` rejoined -> the info string whole
+//   an unclosed fence          -> ends with its container or the page
+//   the body                   -> loses exactly one final line ending
+//   indented code              -> the same node type
+//   a node's value             -> keeps the page's line endings
+//   one leading BOM            -> shifts every position by one
 test.each(vendor)("%s", (_where, markdown, fences, text) => {
   const page = readPage(markdown);
   expect({ fences: page.fences, text: page.text }).toEqual({ fences, text });

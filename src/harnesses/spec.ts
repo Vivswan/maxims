@@ -502,7 +502,7 @@ function nonEmpty<T extends z.ZodType>(inner: T) {
 // What the nightly drift check (scripts/nightly/harness_drift.ts) re-reads, so each entry is tested
 // the way it is matched.
 //   Claim           matched after its whitespace runs collapse on both sides, so an edge space is noise an author would never see fail
-//   JsonPointer     RFC 6901, so a pointer without its leading slash would name nothing; the token class excludes `/` so the two repetitions never overlap and the match stays linear
+//   JsonPointer     RFC 6901: empty for the root, else `/`-led tokens whose only escapes are `~0` and `~1`; the token class excludes `/` so the two repetitions never overlap and the match stays linear
 //   PointerCheck    a bare pointer must resolve; one paired with `equals` must resolve to that value
 //   JsonPrimitive   compared with `!==`: jsonc-parser builds the document's objects with a null prototype, so a structural comparison against an object literal would never hold
 //   URL_SAFE        the repo, ref and path are spliced into a raw.githubusercontent.com URL, so a `#`, `?` or `%` in any of them would fetch a different file than the one named, and a `.` or `..` segment would be normalized away into another file's URL

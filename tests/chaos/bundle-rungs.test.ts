@@ -55,9 +55,8 @@ let bundleDir = "";
 let bundle: Bundle;
 
 // Every row fetches over git://, and Git for Windows and Apple's git are not verified to ship the daemon helper, so a machine without it skips every row with the reason printed once instead of failing each on the same missing binary.
-const gitDaemon = probeGitDaemon();
 
-// `test` for a row that needs the daemon and nothing more; a row with a second condition spells its own skipIf.
+const gitDaemon = probeGitDaemon();
 const row = test.skipIf(gitDaemon.kind === "unavailable");
 
 beforeAll(() => {

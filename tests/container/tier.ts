@@ -19,10 +19,8 @@ export type SmokeRowResult =
   | { status: "pass" | "fail"; ms: number | null }
   | { status: "skip" | "absent" };
 
-/**
- * What the tier reads back out of the suite's output.
- *   summary -> bun's closing `Ran N tests across M files.` line; null when the suite never got there
- */
+// What the tier reads back out of the suite's output.
+//   summary -> bun's closing `Ran N tests across M files.` line; null when the suite never got there
 export type SuiteEvidence = {
   rows: Record<HarnessSmokeCli, SmokeRowResult>;
   summary: { tests: number; files: number } | null;

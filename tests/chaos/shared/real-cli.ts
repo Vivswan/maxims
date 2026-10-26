@@ -11,11 +11,9 @@ import { createResolvers } from "../../../src/sources/resolvers.ts";
 import { withTempDir } from "../../shared/temp_dir.ts";
 import { type ScriptedRunner, scriptedRunner } from "../../sources/github/fakes/runner.ts";
 
-/**
- * The homes, the scripted network and the clock one in-process run of the real engine sees.
- *   warnings -> resolver warnings, the lines an interactive run would print as `maxims: ...` on stderr
- *   rungs    -> the rung diagnostics the bin keeps off stderr
- */
+// The homes, the scripted network and the clock one in-process run of the real engine sees.
+//   warnings -> resolver warnings, the lines an interactive run would print as `maxims: ...` on stderr
+//   rungs    -> the rung diagnostics the bin keeps off stderr
 export type RealWorld = {
   dir: string;
   userHome: string;

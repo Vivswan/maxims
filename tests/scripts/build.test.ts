@@ -33,10 +33,8 @@ function runBuild(args: string[], cwd: string) {
   return Bun.spawnSync(["bun", buildScript, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
 }
 
-/**
- * One way to call the build and where its two files must land.
- *   strays -> paths inside the repository a build that resolves after the chdir would write instead
- */
+// One way to call the build and where its two files must land.
+//   strays -> paths inside the repository a build that resolves after the chdir would write instead
 interface Invocation {
   cwd: string;
   outfileArg: string;

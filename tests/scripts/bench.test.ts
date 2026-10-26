@@ -90,14 +90,12 @@ test("bun scripts/bench.ts --runs 3 --json <out> -- <command> runs the child 3 t
   });
 });
 
+// One path handed to `--json` and what the bench must do with it.
+//   target  -> where the bytes would land: the temp file for an accepted path, the file inside the repository a lexical-only guard would let through for a refused one
+//   refusal -> fragments the refusal on stderr must name; undefined when the path is accepted
 interface JsonTarget {
-  // The path as the bench receives it, in whatever spelling the row tests.
   jsonArg: string;
-
-  // Where the bytes would land: the temp file for an accepted path, the file inside the repository a lexical-only guard would let through for a refused one.
   target: string;
-
-  // Fragments the refusal on stderr must name; undefined when the path is accepted.
   refusal: string[] | undefined;
 }
 
@@ -298,10 +296,8 @@ test.each(worktreeTargets)(
   },
 );
 
-/**
- * One way git fails the bench's listing of the repository's checkouts.
- *   fragments -> fragments the refusal on stderr must carry: git's own words and the bench's reason
- */
+// One way git fails the bench's listing of the repository's checkouts.
+//   fragments -> fragments the refusal on stderr must carry: git's own words and the bench's reason
 interface GitFailure {
   bench: string;
   env: Record<string, string>;

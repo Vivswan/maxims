@@ -32,10 +32,8 @@ const CLI_DEADLINE_MS = 90_000;
 const ROW_TIMEOUT_MS = 150_000;
 const TAIL_CHARS = 800;
 
-/**
- * One installed CLI: how a row runs it against the fake and what proves the run.
- *   authHeader -> its presence on the request that carried the rule line proves the dummy credential reached the wire; the value is never asserted
- */
+// One installed CLI: how a row runs it against the fake and what proves the run.
+//   authHeader -> its presence on the request that carried the rule line proves the dummy credential reached the wire; the value is never asserted
 type Row = {
   command: readonly string[];
   harness: BuiltInHarnessId;

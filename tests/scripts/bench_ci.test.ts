@@ -206,11 +206,9 @@ test.each(headDies)("compare against %s propagates a head timing failure", async
   );
 });
 
-/**
- * One of the three merges this gate blocked on unchanged bundles; the same bytes on both sides make a profile the runner's drift alone.
- *   profile     -> milliseconds per cold start of the hook path, in the order the starts would run: the ten the head took first, then the ten the base took, then two more of the settled runner
- *   trimmedMean -> the figures the swapped-pair schedule and the trimmed mean read off the same profile
- */
+// One of the three merges this gate blocked on unchanged bundles; the same bytes on both sides make a profile the runner's drift alone.
+//   profile     -> milliseconds per cold start of the hook path, in the order the starts would run: the ten the head took first, then the ten the base took, then two more of the settled runner
+//   trimmedMean -> the figures the swapped-pair schedule and the trimmed mean read off the same profile
 interface FalseFailure {
   name: string;
   profile: number[];
