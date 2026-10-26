@@ -36,11 +36,10 @@ export type CliDeps = {
   detectAgent: () => Promise<string | null>;
 };
 
-// `brokenConfig` is what the verb does with a config.json that cannot be read as one. A verb a
-// session start runs (`sync`, and the MCP stub's quiet sync) runs on the defaults and says so: a
-// typo in a preference file must not keep a hook from refreshing rules. Every other verb refuses
-// the file with exit 4 naming the key, so no run applies a cap or a default the user believes
-// they overrode.
+// `brokenConfig` is what the verb does with a config.json that cannot be read as one. Only the
+// verbs a session start runs (`sync`, the MCP stub's quiet sync) take "defaults".
+//   "defaults" -> runs on the defaults and says so; a typo in a preference file must not keep a hook from refreshing rules
+//   "refuse"   -> exit 4 naming the key; no run applies a cap or a default the user believes they overrode
 type VerbEntry = {
   name: string;
   aliases: readonly string[];
@@ -374,10 +373,11 @@ async function logQuietly(ctx: FailureContext, line: string): Promise<void> {
 type RungLog = { rung: (line: string) => void; flush: () => Promise<void> };
 
 // Which rung of a fetch failed and why belongs in refresh.log alone, never on a terminal beside
-// the run's own line about the same fetch. The ladder reports a rung the moment it fails, and a
-// verb may plan with a dry-run sync before its real one or fail before any sync runs, so the
-// reasons wait here and land once, when the verb settles, stamped with the run's start. `--list`
-// is `add`'s preview and, like the dry run `logQuietly` honors, writes nothing, the log included.
+// the run's own line about the same fetch. A verb may plan with a dry-run sync before its real one
+// or fail before any sync runs, so the reasons land once, when the verb settles, stamped with the
+// run's start.
+//   the ladder reports a rung the moment it fails -> the reason waits here
+//   `--list`, `add`'s preview                     -> writes nothing, the log included, like the dry run `logQuietly` honors
 function rungLog(ctx: FailureContext, verb: string, listing: boolean): RungLog {
   const pending: string[] = [];
   const stamp = ctx.io.now().toISOString();

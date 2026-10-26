@@ -147,12 +147,14 @@ function openerBefore(line: string, at: number): string {
   return index === at - 1 || char === "(" ? char : "";
 }
 
-// CommonMark code spans: a run of N backticks opens a span that the NEXT run of exactly N closes;
-// runs of any other length in between are literal, and a run with no partner is literal, so the
-// lone backticks in ``prefix `https://trusted.example`@evil.example`` are text and the span's end
-// is what bounds the URL. A backslash escapes the first backtick of a run only in text, never
-// inside a span. The partner search is a binary search over that length's run positions, so a
-// line of many unpaired runs stays near linear.
+// CommonMark code spans: a run of N backticks opens a span that the NEXT run of exactly N closes.
+//   a run of another length before the closer          -> literal
+//   a run with no partner                              -> literal
+//   a backslash before a run's first backtick          -> escapes it in text, never inside a span
+//   ``prefix `https://trusted.example`@evil.example``  -> the lone backticks are text, so the span's end is what bounds the URL
+//
+// The partner search is a binary search over that length's run positions, so a line of many
+// unpaired runs stays near linear.
 type Span = { start: number; end: number };
 type Run = { at: number; length: number };
 const BACKTICK = "`".charCodeAt(0);
