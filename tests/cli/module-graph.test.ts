@@ -9,7 +9,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
-import { resolveImport, SOURCE_EXTENSIONS } from "../../scripts/arch_lint.mts";
+import { resolveImport, SOURCE_EXTENSIONS } from "../../scripts/lib/imports.ts";
 import { childEnv, makeHome } from "../e2e/binary.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 

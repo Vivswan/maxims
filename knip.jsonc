@@ -1,13 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": [
-    "src/cli.ts",
-    "scripts/*.ts",
-    "scripts/**/*.mts",
-    "tests/**/*.test.ts",
-    "tests/fixtures/**/*.ts"
-  ],
-  "project": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"],
+  "entry": ["src/cli.ts", "scripts/*.ts", "tests/**/*.test.ts", "tests/fixtures/**/*.ts"],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
   "ignoreExportsUsedInFile": true,
   // mkfifo is the system binary the FIFO test spawns; no package provides it.
   "ignoreBinaries": ["mkfifo"]

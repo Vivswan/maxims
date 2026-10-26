@@ -32,7 +32,7 @@ export function parseArgv<T extends ParseArgsConfig>(
 }
 
 /**
- * The refusal the .mts scripts share: the message above the usage text, thrown for main to print
+ * The refusal the scripts share: the message above the usage text, thrown for main to print
  * and exit 2 on. A caller binds it with the `Refuser` annotation, which is what lets TypeScript
  * narrow after a call that never returns.
  */

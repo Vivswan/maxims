@@ -41,11 +41,6 @@ function fences(markdown: string, lines: readonly string[]): Fence[] {
   return found;
 }
 
-/** The live mermaid diagrams of `markdown`. */
-export function mermaidFences(markdown: string): Fence[] {
-  return readPage(markdown).fences.filter((fence) => fence.mermaid);
-}
-
 /**
  * Headings, region markers, and demonstration lines are read from `text` only, so a quoted example never steers the walk.
  *   text -> `lines[i]` when line i is page text, undefined inside any fence
