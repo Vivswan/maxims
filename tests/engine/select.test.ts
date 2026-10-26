@@ -11,6 +11,7 @@ import { readProjectLock } from "../../src/engine/project-lock-read.ts";
 import { disabledNames, selectMemories } from "../../src/engine/select.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import type { SourceEntry } from "../../src/state/schema.ts";
+import type { Change } from "../../src/util/change.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { entryFor, localFrom, memoryFile, memoryName, stateWith, writeSource } from "./fakes.ts";
 
@@ -19,6 +20,11 @@ function sourceMemory(name: string, description: string, internal = false): Sour
   const parsed = parseMemory(`${name}.md`, text);
   if (!parsed.ok) throw new Error(parsed.reason);
   return { memory: parsed.memory, relPath: `memories/${name}.md`, text };
+}
+
+function expectWrite(change: Change | null): Extract<Change, { kind: "write" }> {
+  if (change?.kind !== "write") throw new Error("expected a write");
+  return change;
 }
 
 describe("selection", () => {
@@ -97,8 +103,7 @@ describe("project lock projection", () => {
           project: { [project]: [memoryName("a2"), memoryName("zed")] },
         },
       );
-      const change = await projectLockChange(project, state, state, io);
-      if (change?.kind !== "write") throw new Error("expected a write");
+      const change = expectWrite(await projectLockChange(project, state, state, io));
       expect(change.content).toBe(
         `${JSON.stringify(
           {
@@ -154,8 +159,7 @@ describe("project lock projection", () => {
         undefined,
         state.disabled,
       );
-      const withoutLocal = await projectLockChange(project, state, unshared, io);
-      if (withoutLocal?.kind !== "write") throw new Error("expected a write");
+      const withoutLocal = expectWrite(await projectLockChange(project, state, unshared, io));
       expect(JSON.parse(withoutLocal.content)).toEqual({
         version: 1,
         sources: {
@@ -182,8 +186,7 @@ describe("project lock projection", () => {
         undefined,
         state.disabled,
       );
-      const unspelled = await projectLockChange(project, state, rulesPrivate, io);
-      if (unspelled?.kind !== "write") throw new Error("expected a write");
+      const unspelled = expectWrite(await projectLockChange(project, state, rulesPrivate, io));
       expect(Object.keys(JSON.parse(unspelled.content).sources)).toEqual(["./memories"]);
       // A git URL is the key it is: a teammate's `rules.git` is not this machine's `Rules.git`, so
       // a private add of the latter leaves the lock as the file has it.
@@ -264,8 +267,7 @@ describe("project lock projection", () => {
         ),
         [lookalike]: entryFor(localFrom(lookalike), at(twinProject, true)),
       });
-      const twins = await projectLockChange(twinProject, twinState, twinState, io);
-      if (twins?.kind !== "write") throw new Error("expected a write");
+      const twins = expectWrite(await projectLockChange(twinProject, twinState, twinState, io));
       expect(Object.keys(JSON.parse(twins.content).sources).sort()).toEqual([
         "./@acme/rules",
         "@acme/rules",

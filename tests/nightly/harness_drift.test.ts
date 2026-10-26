@@ -95,9 +95,15 @@ const TEXT = { headers: { "content-type": "text/plain; charset=utf-8" } };
 const HTML = { headers: { "content-type": "text/html; charset=utf-8" } };
 const JSON_TYPE = { headers: { "content-type": "application/json" } };
 
+function urlOf(input: string | URL | Request): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 function fakeFetch(answers: Record<string, () => Response | Promise<Response>>): typeof fetch {
   const impl = async (input: string | URL | Request): Promise<Response> => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = urlOf(input);
     const answer = answers[url];
     if (answer === undefined) throw new Error(`getaddrinfo ENOTFOUND ${new URL(url).host}`);
     return answer();

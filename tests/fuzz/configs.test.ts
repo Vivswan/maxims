@@ -141,6 +141,25 @@ const splice = fc
     value,
   }));
 
+function holdsKey(value: unknown, key: string): boolean {
+  return typeof value === "object" && value !== null && Object.hasOwn(value, key);
+}
+
+function appendedMember(afterAppend: Node, target: Located, newKey: string): Node {
+  const slot = target.node.type === "array" ? (target.node.children?.length ?? 0) : newKey;
+  const memberPath = [...target.path, slot];
+  const member = findNodeAtLocation(afterAppend, memberPath);
+  if (member === undefined) throw new Error(`append left no member at ${memberPath.join(".")}`);
+  return member;
+}
+
+function lastChildOf(afterAppend: Node, path: JSONPath): { container: Node; child: Node } {
+  const container = findNodeAtLocation(afterAppend, path);
+  const child = container?.children?.at(-1);
+  if (container === undefined || child === undefined) throw new Error("append lost its container");
+  return { container, child };
+}
+
 // The documented promise: on a file pretty-printed the way every harness's own examples are, an
 // append followed by the removal of what it appended is the identity, and both edits leave a file
 // that parses with exactly the member added or taken.
@@ -152,24 +171,13 @@ test(
       const options = containers(root);
       const target = options[pick % options.length];
       if (target === undefined) throw new Error("a parsed object has a root container");
-      const isArray = target.node.type === "array";
-      const existing: unknown = getNodeValue(target.node);
-      if (typeof existing === "object" && existing !== null && Object.hasOwn(existing, newKey)) {
-        return;
-      }
-      const appended = outcome(() =>
-        appendChild(text, target.node, isArray ? null : newKey, value),
-      );
+      if (holdsKey(getNodeValue(target.node), newKey)) return;
+      const key = target.node.type === "array" ? null : newKey;
+      const appended = outcome(() => appendChild(text, target.node, key, value));
       if (appended.kind === "threw") throw new Error(`threw ${describeError(appended.error)}`);
       const afterAppend = assertParses(appended.value, PATH);
-      const memberPath = [...target.path, isArray ? (target.node.children?.length ?? 0) : newKey];
-      const member = findNodeAtLocation(afterAppend, memberPath);
-      if (member === undefined) throw new Error(`append left no member at ${memberPath.join(".")}`);
-      expect(getNodeValue(member)).toEqual(value);
-      const container = findNodeAtLocation(afterAppend, target.path);
-      const child = container?.children?.at(-1);
-      if (container === undefined || child === undefined)
-        throw new Error("append lost its container");
+      expect(getNodeValue(appendedMember(afterAppend, target, newKey))).toEqual(value);
+      const { container, child } = lastChildOf(afterAppend, target.path);
       const removed = outcome(() => removeChild(appended.value, container, child));
       if (removed.kind === "threw") throw new Error(`threw ${describeError(removed.error)}`);
       expect(removed.value).toBe(text);

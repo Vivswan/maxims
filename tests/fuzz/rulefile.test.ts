@@ -250,7 +250,11 @@ function slotted(text: string): Slotted {
 // `@Octocat/rules` sorts before `@example-user/rules` (an upper-case code unit is lower), so the
 // file's own block lands in a middle or last slot as well as the first.
 function byKey(blocks: readonly Block[]): Block[] {
-  return [...blocks].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return [...blocks].sort((a, b) => {
+    if (a.key < b.key) return -1;
+    if (a.key > b.key) return 1;
+    return 0;
+  });
 }
 
 function closedWithLf(block: Block): Block {
@@ -275,6 +279,45 @@ function isStrayRefusal(error: unknown): boolean {
 // Closing a slot can pair the user's stray markers, or open a fence, a raw HTML block or a link reference definition over a kept block, only through one of these code units; a refusal over gaps without any is a defect.
 const JOIN_CAN_OPEN = /[<`~[]/;
 
+function expectStripOutcome(before: string, { gaps, blocks }: Slotted, own: number): void {
+  const stripped = outcome(() => stripBlock(before, SOURCE));
+  if (stripped.kind === "threw") {
+    const refusable = own !== -1 && gaps.some((gap) => JOIN_CAN_OPEN.test(gap));
+    if (!refusable || !isStrayRefusal(stripped.error)) {
+      throw new Error(`threw ${describeError(stripped.error)}`);
+    }
+    return;
+  }
+
+  if (own === -1) {
+    expect(stripped.value).toEqual({ text: before, emptied: false });
+    return;
+  }
+
+  const kept = blocks.filter((_, index) => index !== own);
+  expect(slotted(stripped.value.text).blocks).toEqual(byKey(kept).map(closedWithLf));
+  expect(stripped.value.emptied).toBe(stripped.value.text.trim() === "");
+}
+
+function expectAppendedToUnpaired(before: string, after: string): void {
+  expect(after.startsWith(before)).toBe(true);
+  const terminated = before === "" || /[\r\n]$/.test(before);
+  if (terminated && scanLines(before).open === null) {
+    expect(stripBlock(after, SOURCE).text).toBe(before);
+  }
+}
+
+function expectDealt(after: string, { gaps, blocks }: Slotted, own: number): void {
+  const fresh = { key: SOURCE, text: BLOCK };
+  const contents =
+    own === -1 ? [...blocks, fresh] : blocks.map((block, index) => (index === own ? fresh : block));
+  // Stated on its own ahead of the deal: with the block already in the file, no slot opens
+  // and no slot closes, so the bytes outside the pairs come back segment for segment.
+  if (own !== -1) expect(slotted(after).gaps).toEqual(gaps);
+  expect(after).toBe(dealt(gaps, contents));
+  if (own === -1) expect(stripBlock(after, SOURCE).text).toBe(dealt(gaps, blocks));
+}
+
 // Both writers are held to the deal above. A replacement leaves every byte outside the pairs
 // where it was and deals the blocks by key; removing the block it added hands back the file
 // dealt without it, which is the file itself once its blocks stood in key order, each closed with
@@ -298,45 +341,20 @@ test(
       expect(
         parseBlocks(before).blocks.map(({ source, start, end }) => ({ key: source, start, end })),
       ).toEqual(firstPerKey);
-      const { gaps, blocks } = slotted(before);
-      const own = blocks.findIndex((block) => block.key === SOURCE);
+      const slots = slotted(before);
+      const own = slots.blocks.findIndex((block) => block.key === SOURCE);
 
-      const stripped = outcome(() => stripBlock(before, SOURCE));
-      if (stripped.kind === "threw") {
-        const refusable = own !== -1 && gaps.some((gap) => JOIN_CAN_OPEN.test(gap));
-        if (!refusable || !isStrayRefusal(stripped.error)) {
-          throw new Error(`threw ${describeError(stripped.error)}`);
-        }
-      } else if (own === -1) {
-        expect(stripped.value).toEqual({ text: before, emptied: false });
-      } else {
-        const kept = blocks.filter((_, index) => index !== own);
-        expect(slotted(stripped.value.text).blocks).toEqual(byKey(kept).map(closedWithLf));
-        expect(stripped.value.emptied).toBe(stripped.value.text.trim() === "");
-      }
+      expectStripOutcome(before, slots, own);
 
       const replaced = outcome(() => replaceBlock(before, SOURCE, BLOCK));
       if (replaced.kind === "threw") throw new Error(`threw ${describeError(replaced.error)}`);
       const after = replaced.value;
       expect(parseBlocks(after).blocks.filter((block) => block.source === SOURCE)).toHaveLength(1);
-      if (blocks.length === 0) {
-        expect(after.startsWith(before)).toBe(true);
-        const terminated = before === "" || /[\r\n]$/.test(before);
-        if (terminated && scanLines(before).open === null) {
-          expect(stripBlock(after, SOURCE).text).toBe(before);
-        }
+      if (slots.blocks.length === 0) {
+        expectAppendedToUnpaired(before, after);
         return;
       }
-      const fresh = { key: SOURCE, text: BLOCK };
-      const contents =
-        own === -1
-          ? [...blocks, fresh]
-          : blocks.map((block, index) => (index === own ? fresh : block));
-      // Stated on its own ahead of the deal: with the block already in the file, no slot opens
-      // and no slot closes, so the bytes outside the pairs come back segment for segment.
-      if (own !== -1) expect(slotted(after).gaps).toEqual(gaps);
-      expect(after).toBe(dealt(gaps, contents));
-      if (own === -1) expect(stripBlock(after, SOURCE).text).toBe(dealt(gaps, blocks));
+      expectDealt(after, slots, own);
     });
   },
   PROPERTY_TIMEOUT_MS,
@@ -380,8 +398,8 @@ test(
       const matcher = built.value;
       const judged = outcome(() => matcher(text));
       if (judged.kind === "threw") throw new Error(`threw ${describeError(judged.error)}`);
-      if (!text.includes("maxims")) expect(judged.value).toBe(false);
-      else expect(typeof judged.value).toBe("boolean");
+      if (text.includes("maxims")) expect(typeof judged.value).toBe("boolean");
+      else expect(judged.value).toBe(false);
       if (source !== "") expect(matcher(`<!-- maxims:end ${source} -->`)).toBe(true);
     });
   },
@@ -418,7 +436,35 @@ function localNames(source: IndexedSource): MemoryName[] {
 // tie; spelled without the comparator under test.
 function installedBefore(a: IndexedSource, b: IndexedSource): boolean {
   const gap = Date.parse(a.addedAt) - Date.parse(b.addedAt);
-  return gap !== 0 ? gap < 0 : a.key < b.key;
+  if (gap === 0) return a.key < b.key;
+  return gap < 0;
+}
+
+function expectAntisymmetric(sources: readonly IndexedSource[]): void {
+  for (const a of sources) {
+    expect(compareInstalled(a, a)).toBe(0);
+    for (const b of sources) {
+      expect(Math.sign(compareInstalled(a, b)) + Math.sign(compareInstalled(b, a))).toBe(0);
+    }
+  }
+}
+
+function carriersByName(sources: readonly IndexedSource[]): Map<string, IndexedSource[]> {
+  const carriers = new Map<string, IndexedSource[]>();
+  for (const source of sources) {
+    for (const local of localNames(source)) {
+      carriers.set(local, [...(carriers.get(local) ?? []), source]);
+    }
+  }
+  return carriers;
+}
+
+function earliestInstalled(candidates: readonly IndexedSource[]): IndexedSource | undefined {
+  let earliest: IndexedSource | undefined;
+  for (const candidate of candidates) {
+    if (earliest === undefined || installedBefore(candidate, earliest)) earliest = candidate;
+  }
+  return earliest;
 }
 
 test(
@@ -428,31 +474,17 @@ test(
       "buildNameIndex",
       fc.uniqueArray(indexedSource, { maxLength: 5, selector: (source) => source.key }),
       (sources) => {
-        for (const a of sources) {
-          expect(compareInstalled(a, a)).toBe(0);
-          for (const b of sources) {
-            expect(Math.sign(compareInstalled(a, b)) + Math.sign(compareInstalled(b, a))).toBe(0);
-          }
-        }
+        expectAntisymmetric(sources);
         const result = outcome(() => buildNameIndex(sources));
         if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
         const index = result.value;
-        const carriers = new Map<string, IndexedSource[]>();
-        for (const source of sources) {
-          for (const local of localNames(source)) {
-            carriers.set(local, [...(carriers.get(local) ?? []), source]);
-          }
-        }
+        const carriers = carriersByName(sources);
         expect([...index.keys()].map(String).sort()).toEqual([...carriers.keys()].sort());
         // The state boundary admits only ISO instants, so the earliest-carrier fact is pinned for
         // those; a timestamp that is not one still gets an answer, never a throw.
         if (sources.some((source) => Number.isNaN(Date.parse(source.addedAt)))) return;
         for (const [local, owner] of index) {
-          let earliest: IndexedSource | undefined;
-          for (const candidate of carriers.get(local) ?? []) {
-            if (earliest === undefined || installedBefore(candidate, earliest))
-              earliest = candidate;
-          }
+          const earliest = earliestInstalled(carriers.get(local) ?? []);
           expect<string | undefined>(owner).toBe(earliest?.key);
         }
       },

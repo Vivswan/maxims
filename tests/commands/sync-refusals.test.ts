@@ -2543,6 +2543,12 @@ describe("a file holding a block whose marker carries no version", () => {
     },
   );
 
+  function alphaBodyAfterHold(body: string, copied: string): "swept" | "kept" | "changed" {
+    if (!existsSync(body)) return "swept";
+    if (readFileSync(body, "utf8") === copied) return "kept";
+    return "changed";
+  }
+
   // A run limited by -a requests no block in the held file, so the hold the name reservation
   // raised is the only one, and the reservation reads every file the source's intent names,
   // the filtered harness's included.
@@ -2597,11 +2603,7 @@ describe("a file holding a block whose marker carries no version", () => {
           hint: error.hint,
           held: io.out.join("").includes(line),
           alphaRule: readFileSync(rulesFile, "utf8").includes("- Alpha."),
-          alphaBody: !existsSync(body)
-            ? "swept"
-            : readFileSync(body, "utf8") === copied
-              ? "kept"
-              : "changed",
+          alphaBody: alphaBodyAfterHold(body, copied),
           shared: readFileSync(shared, "utf8") === text ? "kept" : "changed",
         }).toEqual({
           message: refusal(shared, marker),

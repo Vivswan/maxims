@@ -1177,6 +1177,55 @@ describe("both scopes resolving to one registry", () => {
   const stale = () =>
     '{\n  "mcpServers": {\n    "maxims": {\n      "command": "old"\n    }\n  }\n}\n';
   const settled = (current: string) => current;
+
+  function writeGlobalServers({
+    userHome,
+    global,
+    text,
+    chained,
+  }: {
+    userHome: string;
+    global: string;
+    text: string;
+    chained: boolean;
+  }): string {
+    const backing = join(userHome, "dotfiles", "mcp.json");
+    if (chained) {
+      mkdirSync(join(userHome, "dotfiles"));
+      writeFileSync(backing, text);
+      symlinkSync(backing, global);
+      return backing;
+    }
+    writeFileSync(global, text);
+    return global;
+  }
+
+  function refusedPlan(paths: {
+    global: string;
+    linked: string;
+    behind: string;
+    project: string;
+  }): unknown {
+    return {
+      changes: [],
+      removals: [
+        {
+          kind: "edit",
+          path: paths.global,
+          target: paths.behind,
+          content: '{\n  "mcpServers": {}\n}\n',
+        },
+      ],
+      notices: [`removed the maxims MCP server from ${paths.global}`],
+      failures: [
+        {
+          message: `cannot edit ${paths.linked}: it is a symlink to ${paths.behind}, outside ${paths.project}`,
+          hint: expect.stringContaining("then run maxims sync"),
+        },
+      ],
+    };
+  }
+
   // label, the text behind the link, the global file a link itself, the project entry refused
   const behindTheLink: [string, (current: string) => string, boolean, boolean][] = [
     [
@@ -1216,14 +1265,12 @@ describe("both scopes resolving to one registry", () => {
           currentText: null,
         });
         if (current === null) throw new Error("expected the servers text");
-        const backing = join(userHome, "dotfiles", "mcp.json");
-        if (chained) {
-          mkdirSync(join(userHome, "dotfiles"));
-          writeFileSync(backing, textBehind(current.text));
-          symlinkSync(backing, global);
-        } else {
-          writeFileSync(global, textBehind(current.text));
-        }
+        const behind = writeGlobalServers({
+          userHome,
+          global,
+          text: textBehind(current.text),
+          chained,
+        });
         symlinkSync(global, linked);
         const io = fakeIo({ home, userHome, cwd: project, harnesses: [hookless] });
         const ctx = await loadContext(io, { readHookStdin: false });
@@ -1239,29 +1286,10 @@ describe("both scopes resolving to one registry", () => {
           elsewhere: () => [],
           judgeLink: () => undefined,
         });
-        const behind = chained ? backing : global;
-        expect<unknown>(plan).toEqual({
-          changes: [],
-          removals: refused
-            ? [
-                {
-                  kind: "edit",
-                  path: global,
-                  target: behind,
-                  content: '{\n  "mcpServers": {}\n}\n',
-                },
-              ]
-            : [],
-          notices: refused ? [`removed the maxims MCP server from ${global}`] : [],
-          failures: refused
-            ? [
-                {
-                  message: `cannot edit ${linked}: it is a symlink to ${behind}, outside ${project}`,
-                  hint: expect.stringContaining("then run maxims sync"),
-                },
-              ]
-            : [],
-        });
+        const settledPlan = { changes: [], removals: [], notices: [], failures: [] };
+        expect<unknown>(plan).toEqual(
+          refused ? refusedPlan({ global, linked, behind, project }) : settledPlan,
+        );
       });
     });
   }

@@ -45,7 +45,11 @@ function history(changed: string[], tip: Tip | null): Ancestry {
       const [a, d] = [MAIN.indexOf(ancestor), MAIN.indexOf(descendant)];
       return a !== -1 && d !== -1 && a <= d;
     },
-    changedPaths: (from, to) => (from === to ? [] : to === tip?.sha ? tip.changed : changed),
+    changedPaths: (from, to) => {
+      if (from === to) return [];
+      if (to === tip?.sha) return tip.changed;
+      return changed;
+    },
   };
 }
 const linear = history(["src/cli.ts", "docs/cli.md"], null);

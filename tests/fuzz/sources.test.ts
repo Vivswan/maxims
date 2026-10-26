@@ -12,6 +12,8 @@ import fc from "fast-check";
 import {
   parseSourceArgument,
   parseSourceSelector,
+  type SourceArgumentOptions,
+  type SourceSelector,
 } from "../../src/commands/frame/source-argument.ts";
 import { isUsableRemote, parseRemote, SourceFromSchema } from "../../src/contracts/source.ts";
 import { canonicalSourceKey } from "../../src/state/schema.ts";
@@ -132,6 +134,27 @@ function expectStorable(from: unknown): void {
   expect(key).not.toMatch(/[\r\n]/);
 }
 
+function expectTypedFields(from: SourceSelector["from"]): void {
+  if (from.type === "github") {
+    expect(from.repo).toMatch(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/);
+    if (from.host !== undefined) expect(from.host).toBe(from.host.toLowerCase());
+    expect(from.host).not.toBe("github.com");
+  }
+  if (from.type === "git") expect(isUsableRemote(from.url)).toBe(true);
+  if (from.type === "local") expect(isAbsolute(from.path)).toBe(true);
+}
+
+function expectWholeParse(
+  arg: string,
+  options: SourceArgumentOptions,
+  { from, memory }: SourceSelector,
+): void {
+  const whole = outcome(() => parseSourceArgument(arg, CWD, options));
+  if (memory === null) expect(whole).toEqual({ kind: "value", value: from });
+  else if (whole.kind === "threw") usageOnly(whole.error);
+  else throw new Error(`a memory selector passed as a whole source: ${arg}`);
+}
+
 test(
   "parseSourceSelector answers a selector or a usage refusal for any argument and GH_HOST",
   async () => {
@@ -145,17 +168,8 @@ test(
       // other field is stored as parsed, so it must already be storable here.
       if (from.type !== "local") expectStorable({ ...from, ref: "HEAD" });
       if (memory !== null) expect(memory).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
-      if (from.type === "github") {
-        expect(from.repo).toMatch(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/);
-        if (from.host !== undefined) expect(from.host).toBe(from.host.toLowerCase());
-        expect(from.host).not.toBe("github.com");
-      }
-      if (from.type === "git") expect(isUsableRemote(from.url)).toBe(true);
-      if (from.type === "local") expect(isAbsolute(from.path)).toBe(true);
-      const whole = outcome(() => parseSourceArgument(arg, CWD, options));
-      if (memory === null) expect(whole).toEqual({ kind: "value", value: from });
-      else if (whole.kind === "threw") usageOnly(whole.error);
-      else throw new Error(`a memory selector passed as a whole source: ${arg}`);
+      expectTypedFields(from);
+      expectWholeParse(arg, options, result.value);
     });
   },
   PROPERTY_TIMEOUT_MS,
