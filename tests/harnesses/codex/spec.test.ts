@@ -1,10 +1,11 @@
-// Guards the tier Codex actually reaches: hooks are on by default and only `[features] hooks =
-// false` in the project or user config.toml disables them, with the project layer deciding when it
-// sets the key at all. Reporting tier 1 on a disabled machine would promise a refresh that never
-// fires, and so would passing an unreadable config off as an absent one; a probe that threw on it
-// would abort the sync and the read-only verbs over a file maxims never writes. Also guards that
-// the probe reads the config.toml under $CODEX_HOME, and the bytes a fresh hooks.json receives,
-// which Codex reads without checking them for us.
+// Guards the tier Codex actually reaches: hooks are on by default, only `[features] hooks = false`
+// in the project or user config.toml disables them, and the project layer decides when it sets the
+// key at all. Reporting tier 1 on a disabled machine would promise a refresh that never fires.
+//
+//   an unreadable config passed off as absent  -> the same false promise
+//   a probe that threw on it                   -> would abort the sync and the read-only verbs, over a file maxims never writes
+//   the config.toml under $CODEX_HOME          -> the one the probe reads
+//   a fresh hooks.json                         -> the bytes it receives, which Codex reads without checking them for us
 //
 // `marked` spells the projects entry as Codex's own trust prompt writes it, the path as a TOML key
 // whatever it holds (a Windows path's backslashes included).

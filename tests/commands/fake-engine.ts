@@ -254,11 +254,11 @@ export async function runCli(scenario: Scenario, argv: string[]): Promise<RunRes
   return { code, stdout, stderr };
 }
 
-// The real clack prompts read keypresses off any stream, so a scenario drives them through a
-// pipe: each answer is written once the frame has rendered its prompt, which happens only after
-// the prompt attached its listener, so no keystroke lands before anyone is reading. Clack wraps
-// the message at the real terminal's width and draws a gutter on every line, so the match runs
-// on the letters alone, whatever the width of the terminal the tests run in.
+// The real clack prompts read keypresses off any stream, so a scenario drives them through a pipe,
+// each answer written once the frame has rendered its prompt.
+//
+//   the frame renders only after the prompt attached its listener                          -> no keystroke lands before anyone is reading
+//   clack wraps the message at the real terminal's width and draws a gutter on every line  -> the match runs on the letters alone, whatever the width of the terminal the tests run in
 function scriptedStreams(
   answers: Record<string, string>,
   capture: (chunk: string) => void,

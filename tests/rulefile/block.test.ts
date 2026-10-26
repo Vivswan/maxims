@@ -746,10 +746,11 @@ describe("replaceBlock and stripBlock", () => {
   );
 
   // No slot can close without pairing the user's markers, or without a fence the join opens
-  // swallowing a kept block: the removal is refused rather than written, since the next sync
-  // would take the user's lines with the pair it made or the block it lost. The refusal names
-  // the pair around the removed block, the one the user has to edit, not whichever pair the
-  // closing of another slot happened to expose.
+  // swallowing a kept block, so the removal is refused rather than written.
+  //
+  //   a pair the closing makes                  -> the next sync would take the user's lines with it
+  //   a fence the join opens over a kept block  -> the next sync would take the block it lost
+  //   the pair the refusal names                -> the one around the removed block, which the user has to edit, not whichever pair the closing of another slot happened to expose
   const USER_OTHER = `<!-- maxims:begin ${OTHER_SOURCE} sha=user version=1 -->\nKEEP USER TEXT\n<!-- maxims:end ${OTHER_SOURCE} -->\n`;
   const INNER_BEGIN = "<!-- maxims:begin @inner/notes sha=old version=1 -->\n";
   const INNER_END = "<!-- maxims:end @inner/notes -->\n";
@@ -917,11 +918,11 @@ describe("replaceBlock and stripBlock", () => {
       ["- a\n  ```\n  x\n- b\n\n", BLOCK].join(""),
     ],
     // A blank line continues a list item and the leaf inside it absorbs it, so a fence, comment or
-    // pre block left open in an item is closed at the item's column before it. With no closer the
-    // blank line lands inside the user's fence (markdown-it 14.3.1 reads that form's fence content
-    // as "x\n\n", the closed form's as "x\n"); a closer at column 0 would end the item and open a
-    // new fence that swallows the block. A block-tag kind is closed by the blank line inside the
-    // item as it is at column 0.
+    // pre block left open in an item is closed at the item's column before it.
+    //
+    //   no closer             -> the blank line lands inside the user's fence: markdown-it 14.3.1 reads that form's fence content as "x\n\n", the closed form's as "x\n"
+    //   a closer at column 0  -> would end the item and open a new fence that swallows the block
+    //   a block-tag kind      -> closed by the blank line inside the item, as it is at column 0
     [
       "a file ending inside a list item's fence, closed at the item's column",
       "- a\n  ```\n  x\n",
@@ -969,13 +970,13 @@ describe("replaceBlock and stripBlock", () => {
       "  <pre>\nx\n",
       `  <pre>\nx\n</pre>\n\n${BLOCK}`,
     ],
-    // The parsers part here: CommonMark and commonmark.js 0.31.2 read a heading-shaped line
-    // indented four columns, short of the item's five, as lazily continuing the item's paragraph,
-    // so the fence on the next line opens inside the item and the closer belongs at its column.
-    // markdown-it 14.3.1 and marked 16.4.2 end the item at that line and read the two lines as a
-    // top-level indented code block, which the closer then joins. No one line closes the fence in
-    // the first reading and stays out of the code block in the second; the scanner keeps the
-    // specification's reading.
+    // The parsers part over a heading-shaped line indented four columns, short of the item's five.
+    //
+    //   CommonMark and commonmark.js 0.31.2   -> the line lazily continues the item's paragraph -> the fence on the next line opens inside the item -> the closer belongs at its column
+    //   markdown-it 14.3.1 and marked 16.4.2  -> the line ends the item -> the two lines are read as a top-level indented code block -> the closer joins it
+    //
+    // No one line closes the fence in the first reading and stays out of the code block in the
+    // second, so the scanner keeps the specification's reading.
     [
       "a file ending inside an item's fence reached across a lazy heading-shaped line",
       "-    a\n    # h\n     ```\n",
@@ -1096,12 +1097,14 @@ describe("replaceBlock and stripBlock", () => {
     expect(elapsed).toBeLessThan(50);
   });
 
-  // A refusal once validated every candidate slot with a scan of the whole file: a file of many
-  // blocks that no closing can leave intact cost one full scan per block, and a session-start
-  // hook removing one of them ran past the hook timeout with a megabyte of user notes in the file.
-  // Around each block, a stray pair pairs up when its slot closes; behind each block, a lone tag
-  // and a fence swallow the next block when its slot closes, whether a later fence line closes
-  // that fence (the one after reads back intact) or an info string keeps it open to the end.
+  // A refusal once validated every candidate slot with a scan of the whole file, so a file of many
+  // blocks that no closing can leave intact cost one full scan per block. A session-start hook
+  // removing one of them ran past the hook timeout with a megabyte of user notes in the file.
+  //
+  //   a stray pair around each block            -> pairs up when its slot closes
+  //   a lone tag and a fence behind each block  -> swallow the next block when its slot closes
+  //   that fence closed by a later fence line   -> the one after reads back intact
+  //   that fence with an info string            -> stays open to the end
   const fenced = (opener: string) => (blocks: string[], notes: string) =>
     blocks
       .map((block, index) =>
