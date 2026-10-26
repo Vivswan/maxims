@@ -2,6 +2,8 @@
 // produce identical bytes (key order, field order, indentation, trailing newline), a machine-local
 // fact (an absolute path, a fetch timestamp) must be refused so it never lands in a repository,
 // and a hand edit that breaks the shape must be refused whole rather than half obeyed.
+//
+// LOCK gives its sources and rename keys out of order on purpose: the serializer must sort them.
 import { describe, expect, test } from "bun:test";
 import {
   type ProjectLock,
@@ -10,7 +12,6 @@ import {
 } from "../../src/state/project-lock.ts";
 import { memoryName } from "../engine/fakes.ts";
 
-// Sources and rename keys are given out of order on purpose: the serializer must sort them.
 const LOCK: ProjectLock = {
   version: 1,
   sources: {

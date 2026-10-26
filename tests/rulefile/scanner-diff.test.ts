@@ -379,11 +379,9 @@ describe("the oracle departs from the reference parsers", () => {
 });
 
 // mulberry32: a tiny seeded generator, so a failing case is reproducible from its index alone.
-// The pieces leave out the inline tags and the non-breaking space: a lone tag under a list item
-// and a non-breaking space beside a tag are the two readings the rows above attribute, and every
-// generated document must read alike. The pieces can still spell a bare tag such as `<a-->` from
-// `<`, `a` and `-->`; the seeds in use never place one lazily under an item, and a seed that did
-// would fail the comparison rather than hide it.
+// The pieces can still spell a bare tag such as `<a-->` from `<`, `a` and `-->`; the seeds in use
+// never place one lazily under an item, and a seed that did would fail the comparison rather than
+// hide it.
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -395,6 +393,7 @@ function rng(seed: number): () => number {
   };
 }
 
+// Without the inline tags and the non-breaking space: a lone tag under a list item and a non-breaking space beside a tag are the two readings the rows above attribute, and every generated document must read alike.
 const PIECES = [
   "-->",
   "<!--",
@@ -440,11 +439,7 @@ const PIECES = [
   "<!-- maxims:end @Octocat/rules",
 ];
 
-// Block-structure pieces: every container and leaf opener the scanner classifies, in two lists.
-// The first holds the list markers and no lone inline tag; the second holds the inline tags and
-// no list marker, since a lone inline tag on a lazy line under a list item is the micromark
-// departure pinned above. The only ordered marker is `1. `, because a later number after another
-// container on a paragraph-interrupting line hits the micromark defect pinned above.
+// Container and leaf openers with the list markers and no lone inline tag; `1. ` is the only ordered marker, since a later number after another container on a paragraph-interrupting line hits the micromark defect pinned above.
 const LISTS = [
   "- ",
   "* ",
@@ -494,6 +489,8 @@ const LISTS = [
   "<!-- maxims:begin s sha=1 -->",
   "<!-- maxims:end s -->",
 ];
+
+// The inline tags and no list marker, since a lone inline tag on a lazy line under a list item is the micromark departure pinned above.
 const TAGS = [
   "> ",
   "  ",

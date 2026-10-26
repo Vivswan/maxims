@@ -160,9 +160,6 @@ test.each(goldens)("golden %s matches byte for byte", async (name, options, prod
   });
 });
 
-// Where a description breaks is what the terminal shows, so the rendered rows are pinned per
-// terminal width. The call site chooses the soft wrap: a word wider than the text column stays
-// whole on its own row, since a URL cut in two is worse than an overlong row.
 const CJK_PAIRS = [
   "\u4e2d\u6587",
   "\u65e5\u672c",
@@ -205,6 +202,9 @@ const itemRows: [string, number, string, string[]][] = [
   ],
 ];
 
+// Where a description breaks is what the terminal shows, so the rendered rows are pinned per
+// terminal width. The call site chooses the soft wrap: a word wider than the text column stays
+// whole on its own row, since a URL cut in two is worse than an overlong row.
 test.each(itemRows)("item description wraps: %s", (_name, width, description, lines) => {
   const mode: ConsoleMode = {
     tty: false,
@@ -220,8 +220,6 @@ test.each(itemRows)("item description wraps: %s", (_name, width, description, li
   expect(out).toBe(["|    name", "|", ...lines, "|", ""].join("\n"));
 });
 
-// Clack decides its glyph set once from the terminal, so the comparison folds every glyph it may
-// pick to the ASCII the plain console prints, and drops ANSI sequences and spinner frames.
 const GLYPHS: [RegExp, string][] = [
   [/[\u2502\u250c\u2514]/g, "|"],
   [/\u25c7/g, "o"],
@@ -230,6 +228,8 @@ const GLYPHS: [RegExp, string][] = [
 ];
 const SPINNER_FRAME = /^[\u25d0-\u25d3|o*x!]\s*$/;
 
+// Clack decides its glyph set once from the terminal, so the comparison folds every glyph it may
+// pick to the ASCII the plain console prints, and drops ANSI sequences and spinner frames.
 function normalize(text: string): string {
   let out = stripVTControlCharacters(text).replace(/\r/g, "\n");
   for (const [glyph, ascii] of GLYPHS) out = out.replace(glyph, ascii);
@@ -304,8 +304,7 @@ test.each(matrix)("mode row %s", (_name, stdout, stdinTty, agent, yes, prompts, 
   });
 });
 
-// The detector reads the real environment, so each row runs against a process env holding only
-// the variables named; the Cursor IDE's terminal marker must not count while its agent's does.
+// The detector reads the real environment, so each row runs against a process env holding only the variables named; the Cursor IDE's terminal marker must not count while its agent's does.
 const cursorRows: [string, Record<string, string>, string | null][] = [
   ["a Cursor IDE terminal", { CURSOR_TRACE_ID: "trace" }, null],
   ["the Cursor agent", { CURSOR_AGENT: "1" }, "cursor-cli"],

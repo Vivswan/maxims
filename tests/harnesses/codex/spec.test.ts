@@ -5,6 +5,9 @@
 // would abort the sync and the read-only verbs over a file maxims never writes. Also guards that
 // the probe reads the config.toml under $CODEX_HOME, and the bytes a fresh hooks.json receives,
 // which Codex reads without checking them for us.
+//
+// `marked` spells the projects entry as Codex's own trust prompt writes it, the path as a TOML key
+// whatever it holds (a Windows path's backslashes included).
 import { expect, test } from "bun:test";
 import {
   chmodSync,
@@ -39,8 +42,6 @@ const fixture = (name: string): string =>
 const disabled = fixture("config-hooks-disabled.toml");
 const noFeatures = fixture("config-default.toml");
 const enabled = `${noFeatures}\n[features]\nhooks = true\n`;
-// The projects entry as Codex's own trust prompt writes it, the path spelled as a TOML key
-// whatever it holds (a Windows path's backslashes included).
 const marked = (path: string, level: unknown): string =>
   `\n${stringify({ projects: { [path]: { trust_level: level } } })}\n`;
 const trustedBy = (path: string): string => marked(path, "trusted");
@@ -52,8 +53,6 @@ function achievedTier(ctx: HarnessContext): Promise<AchievedTier> {
   return probe(codex, "global", ctx);
 }
 
-// The user config is written with the project marked trusted, as Codex's own trust prompt writes
-// it, so a project layer in these rows applies; the trust rows below cover the unmarked project.
 const layers: [string, string | null, string | null, 1 | 2][] = [
   ["no config at all", null, null, 1],
   ["configs without a features table", noFeatures, noFeatures, 1],
@@ -63,6 +62,8 @@ const layers: [string, string | null, string | null, 1 | 2][] = [
   ["project disables over an enabling user config", disabled, enabled, 2],
 ];
 
+// The user config is written with the project marked trusted, as Codex's own trust prompt writes
+// it, so a project layer in these rows applies; the trust rows below cover the unmarked project.
 test.each(layers)(
   "achievedTier reports 2 only when the deciding config.toml disables hooks (%s)",
   async (_, projectToml, userToml, expected) => {
@@ -102,8 +103,6 @@ test("achievedTier reads a config.toml it cannot open as hooks off, and says so"
   });
 });
 
-// The wording is what a user reads when Codex's own config refuses to load: the file, the reason
-// and where, with the excerpt smol-toml appends left out.
 const malformed: [string, string, string][] = [
   ["a bare key", "hooks\n", "Invalid TOML document: illegal character in key (line 1, column 6)"],
   [
@@ -123,14 +122,14 @@ const malformed: [string, string, string][] = [
   ],
 ];
 
-// Codex reads a `.codex/config.toml` in every directory from the project root down to the one it
-// runs in, the nearest deciding, so a subdirectory switches hooks off under a root that leaves
-// them on. Layers that named the root alone would promise a refresh that never fires there.
 const walked: [string, string, string, 1 | 2, 1 | 2][] = [
   ["the subdirectory disables under an enabling root", enabled, disabled, 2, 1],
   ["the subdirectory enables under a disabling root", disabled, enabled, 1, 2],
 ];
 
+// Codex reads a `.codex/config.toml` in every directory from the project root down to the one it
+// runs in, the nearest deciding, so a subdirectory switches hooks off under a root that leaves
+// them on. Layers that named the root alone would promise a refresh that never fires there.
 test.each(walked)(
   "achievedTier walks .codex/config.toml from the project root to the session's directory (%s)",
   async (_, rootToml, subToml, fromSub, fromRoot) => {
@@ -151,16 +150,16 @@ test.each(walked)(
   },
 );
 
-// A folder nobody may search stops the real-path lookup of the session directory. The probe still
-// answers with the layer under it and the error that stopped the read, where a throw would abort
-// list, doctor and sync over files maxims never writes. Through an alias symlink to the project
-// the climb must still meet the root, recorded by its real path, or the sealed folder reads as
-// absent.
 const sealed: [string, (dir: string) => string][] = [
   ["spelled under the root", (dir) => join(dir, "project", "locked", "app")],
   ["spelled through an alias symlink to the root", (dir) => join(dir, "alias", "locked", "app")],
 ];
 
+// A folder nobody may search stops the real-path lookup of the session directory. The probe still
+// answers with the layer under it and the error that stopped the read, where a throw would abort
+// list, doctor and sync over files maxims never writes. Through an alias symlink to the project
+// the climb must still meet the root, recorded by its real path, or the sealed folder reads as
+// absent.
 test.skipIf(!CHMOD_DENIES).each(sealed)(
   "a session directory under a folder nobody may search is a reading, never a throw (%s)",
   async (_, cwdIn) => {
@@ -189,6 +188,8 @@ test.skipIf(!CHMOD_DENIES).each(sealed)(
   },
 );
 
+// The wording is what a user reads when Codex's own config refuses to load: the file, the reason
+// and where, with the excerpt smol-toml appends left out.
 test.each(malformed)(
   "achievedTier reads a config.toml that does not parse, or sets hooks to a non-boolean, as hooks off with the reason (%s)",
   async (_, toml, reason) => {
@@ -203,9 +204,6 @@ test.each(malformed)(
   },
 );
 
-// Codex refuses to start on a user or trusted project config.toml that does not parse, so a
-// broken layer is the reading wherever it sits and whichever file the hook is registered in: the
-// machine is taken at hooks off whatever the other layer says.
 const brokenLayers: [string, string, (project: string) => string, "project" | "home"][] = [
   [
     "trusted project broken over an enabling user config",
@@ -216,6 +214,9 @@ const brokenLayers: [string, string, (project: string) => string, "project" | "h
   ["user broken under an enabling project config", enabled, () => "hooks\n", "home"],
 ];
 
+// Codex refuses to start on a user or trusted project config.toml that does not parse, so a
+// broken layer is the reading wherever it sits and whichever file the hook is registered in: the
+// machine is taken at hooks off whatever the other layer says.
 test.each(brokenLayers)(
   "an unreadable config.toml is reported over the other layer, for a hook in either scope (%s)",
   async (_, projectToml, userToml, brokenIn) => {
@@ -309,6 +310,11 @@ test("a fresh project hooks.json receives the grouped async SessionStart entry",
   ]);
 });
 
+const blankOverrideRows: [Scope, string][] = [
+  ["project", "AGENTS.override.md"],
+  ["global", "AGENTS.md"],
+];
+
 // Codex's home loader reads the first of AGENTS.override.md and AGENTS.md whose trimmed content is
 // not empty, so a blank override beside the user's AGENTS.md must not receive the block: filled, it
 // would become the one file Codex reads and the user's AGENTS.md would stop loading. Its project
@@ -316,11 +322,6 @@ test("a fresh project hooks.json receives the grouped async SessionStart entry",
 // AGENTS.md, so there a blank override is the only file Codex would ever read and the block
 // belongs in it. Blank is what Rust's trim leaves empty: a zero-byte file, a newline, a U+0085
 // (whitespace to Rust, not to JavaScript); a lone byte order mark is content to Codex.
-const blankOverrideRows: [Scope, string][] = [
-  ["project", "AGENTS.override.md"],
-  ["global", "AGENTS.md"],
-];
-
 test.each(blankOverrideRows)(
   "the %s block follows Codex's own loader: a blank AGENTS.override.md sends it to %s",
   async (scope, blankOverrideTarget) => {
@@ -345,11 +346,6 @@ test.each(blankOverrideRows)(
   },
 );
 
-// Codex applies a project's `.codex/config.toml` only where the user config.toml marks the
-// directory, or the project root, trusted (`projects.<path>.trust_level = "trusted"`); an untrusted
-// one is skipped whole, broken or not, where a broken trusted one stops Codex from starting. A
-// probe that read every project layer called an untrusted project's broken file hooks off, and
-// its disabling flag a demotion Codex never applies.
 const trustRows: [
   string,
   string,
@@ -412,6 +408,11 @@ const trustRows: [
   ],
 ];
 
+// Codex applies a project's `.codex/config.toml` only where the user config.toml marks the
+// directory, or the project root, trusted (`projects.<path>.trust_level = "trusted"`); an untrusted
+// one is skipped whole, broken or not, where a broken trusted one stops Codex from starting. A
+// probe that read every project layer called an untrusted project's broken file hooks off, and
+// its disabling flag a demotion Codex never applies.
 test.each(trustRows)(
   "achievedTier reads a project config.toml only where the user config trusts the project (%s)",
   async (_, projectToml, userToml, expected) => {

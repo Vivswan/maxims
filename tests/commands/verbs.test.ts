@@ -67,18 +67,17 @@ function stateWrites(scenario: Scenario, run: RunResult, json: boolean): number 
   return (body.plan?.changes ?? []).filter((c) => c.kind === "write" && c.path === state).length;
 }
 
-// The refresh summary is about what the user installs: an internal memory is hidden from the rule
-// file and an unselected one never reaches it, so their coming, going or changing is no change to
-// report or to count, and one change line is said once for the source, not once per harness file
-// it lands in.
-// The third row refreshes with the store copy gone: the selection is then judged from the recorded
-// names alone, so an unselected memory earns no removal line either.
+// The third row refreshes with the store copy gone: the selection is then judged from the recorded names alone, so an unselected memory earns no removal line either.
 const selections: [string, string[], boolean][] = [
   ["a whole-source selection", [], false],
   ["an explicit selection", ["-m", "alpha-rule"], false],
   ["an explicit selection with the store copy gone", ["-m", "alpha-rule"], true],
 ];
 
+// The refresh summary is about what the user installs: an internal memory is hidden from the rule
+// file and an unselected one never reaches it, so their coming, going or changing is no change to
+// report or to count, and one change line is said once for the source, not once per harness file
+// it lands in.
 test.each(selections)(
   "update reports each visible change once under %s",
   async (_title, select, dropStore) => {
@@ -260,10 +259,7 @@ test("update --rename records the pair on the named source, and sync persists --
   });
 });
 
-// The exit follows the report's failure classes: every failure a source with nothing valid is 3,
-// anything else 2. The frame renders the failure through the error path with the last-good tip,
-// never as "up to date"; the `--json` document agrees, a dry run exits the same way, and `--quiet`
-// is the hook's exit 0.
+// The exit follows the report's failure classes: 3 when every failure is a source with nothing valid, 2 otherwise.
 const failedRefreshes: [string, SyncReport["failed"][number], number][] = [
   ["a network failure", { key: "@a/b", message: "connect timed out", kind: "network" }, 2],
   ["a rate limit", { key: "@a/b", message: "rate limited", kind: "ratelimit" }, 2],
@@ -274,6 +270,9 @@ const failedRefreshes: [string, SyncReport["failed"][number], number][] = [
   ],
 ];
 
+// The frame renders the failure through the error path with the last-good tip, never as "up to
+// date"; the `--json` document agrees, a dry run exits the same way, and `--quiet` is the hook's
+// exit 0.
 test.each(failedRefreshes)(
   "update renders %s through the error path and exits by its class, also under --json and --dry-run; --quiet exits 0",
   async (_name, failure, code) => {
@@ -785,10 +784,7 @@ test("update --strict plans against the run's own --cap and skips another projec
   });
 });
 
-// A refetch that finds the source unchanged plans no store write, so the descriptions this run
-// installs must come from the store copy: a rename typed beside --strict lifts a disabled memory
-// back into the rule file, and its risky description is judged before it lands. The changed
-// source is the control: its refresh writes the store, and the same run is refused from the plan.
+// The changed source is the control: its refresh writes the store, and the same run is refused from the plan.
 const unDisablingRefreshes: [string, (source: string) => void][] = [
   ["an unchanged source", () => {}],
   [
@@ -800,6 +796,9 @@ const unDisablingRefreshes: [string, (source: string) => void][] = [
   ],
 ];
 
+// A refetch that finds the source unchanged plans no store write, so the descriptions this run
+// installs must come from the store copy: a rename typed beside --strict lifts a disabled memory
+// back into the rule file, and its risky description is judged before it lands.
 test.each(unDisablingRefreshes)(
   "update --strict --rename judges %s by the descriptions the rename installs",
   async (_name, mutate) => {
@@ -1111,8 +1110,7 @@ test("link adds harnesses with a target and syncs them; unlink is the remove -a 
   });
 });
 
-// Without `-y`, `remove` asks on a terminal and stops before the engine anywhere else; a terminal
-// stdout over a piped stdin is "anywhere else", since the question could not be answered.
+// Without `-y`, `remove` asks on a terminal and stops before the engine anywhere else; a terminal stdout over a piped stdin is "anywhere else", since the question could not be answered.
 const nonInteractiveRemoves: [string, ScenarioOptions][] = [
   ["no terminal", {}],
   ["a terminal stdout over a piped stdin", { tty: true, stdinTty: false }],
@@ -1471,8 +1469,7 @@ test("lint honors an absolute path and refuses a folder it cannot read", async (
   });
 });
 
-// The plain plan and the `--json` document leave a verb through different printers, so each row
-// runs both renderings: one can lose the state write while the other keeps it.
+// The plain plan and the `--json` document leave a verb through different printers, so each row runs both renderings: one can lose the state write while the other keeps it.
 const dryRunPlans: {
   verb: string;
   args: string[];
@@ -1711,8 +1708,7 @@ test("install replays the manifest's disabled names as project-scope disables", 
   });
 });
 
-// A manifest source must stay inside the checkout whatever path says otherwise: a parent segment,
-// or a directory inside it that is itself a symlink out of it.
+// A manifest source must stay inside the checkout whatever path says otherwise: a parent segment, or a directory inside it that is itself a symlink out of it.
 const escapingManifestSources: [string, string, (scenario: Scenario) => void][] = [
   ["a parent path", "../outside", () => undefined],
   [
@@ -1745,9 +1741,7 @@ test.each(escapingManifestSources)(
   },
 );
 
-// A project directory enters the lock under its `./` path, which keeps the project root itself
-// (`.`, the one spelling that is live), an object property name, a prototype name and a
-// drive-relative name representable, side by side in one manifest.
+// A project directory enters the lock under its `./` path, which keeps the project root itself (`.`, the one spelling that is live), an object property name, a prototype name and a drive-relative name representable, side by side in one manifest.
 const projectDirectories: { key: string; rule: string; live: boolean }[] = [
   { key: ".", rule: "root-rule", live: true },
   { key: "./constructor", rule: "property-rule", live: false },
@@ -1983,8 +1977,7 @@ test("a project source added through an alias symlink is recorded by its real pa
   });
 });
 
-// `--cap` and `--cooldown` persist, so a request that fails to parse after them must not have
-// written config.json on its way to the usage error.
+// `--cap` and `--cooldown` persist, so a request that fails to parse after them must not have written config.json on its way to the usage error.
 const persistingInvocations: [string, string[]][] = [
   ["sync", ["sync", "--cap", "40", "--agent", "codx"]],
   ["update", ["update", "--cooldown", "2", "--agent", "codx"]],
@@ -2204,10 +2197,7 @@ test("doctor reports a corrupt state file as a warning and leaves it in place", 
   });
 });
 
-// A stamp that is there but cannot be read is not a machine that never synced: the debounce
-// fails open on it and doctor names the read failure instead of a history it did not see. Text
-// that is not a time is the same case, since maxims wrote the stamp. The unreadable row exists
-// where chmod can deny the read; the scenario's cleanup unlinks the mode-0 file as it stands.
+// The unreadable row exists where chmod can deny the read; the scenario's cleanup unlinks the mode-0 file as it stands.
 const unreadableStamps: {
   stamp: string;
   breakStamp: (stamp: string) => void;
@@ -2232,6 +2222,9 @@ const unreadableStamps: {
     : []),
 ];
 
+// A stamp that is there but cannot be read is not a machine that never synced: the debounce fails
+// open on it and doctor names the read failure instead of a history it did not see. Text that is
+// not a time is the same case, since maxims wrote the stamp.
 test.each(unreadableStamps)(
   "doctor reports a sync stamp that $stamp as unknown, not as never synced",
   async ({ breakStamp, text }) => {

@@ -20,14 +20,14 @@ if (realHome !== realTmp && !realHome.startsWith(realTmp + sep)) {
   throw new Error(`HOME must be under the OS tmpdir (${realTmp}), got ${realHome}`);
 }
 
+// Undefined only where there is no checkout: the container tier (tests/container/entrypoint.sh) runs the suite on a copy without `.git`, so nothing there is guarded; any other discovery failure fails the run.
+const checkoutConfig = checkoutConfigPath();
+
 // A git process a test runs with its cwd inside the checkout writes into the checkout's own config
 // and nothing fails: a partial fetch by URL registers a promisor remote there and the test passes.
 // The common config is read back after every test, so the failure names the test that wrote it.
 // Branch sections are the one concurrent writer (a sibling worktree's `git branch`, `checkout -b`
 // or `push -u` writes them into the same shared file) and are left out of the comparison.
-// The container tier (tests/container/entrypoint.sh) runs the suite on a copy without `.git`, so
-// no checkout there means nothing to guard; any other discovery failure fails the run.
-const checkoutConfig = checkoutConfigPath();
 if (checkoutConfig !== undefined) {
   let snapshot = readFileSync(checkoutConfig);
   const unchanged = (): void => {

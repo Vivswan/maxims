@@ -22,8 +22,7 @@ function rung(to: number): MigrationStep {
   };
 }
 
-// Two rungs starting above zero: a slice that counts from zero instead of the first version, or
-// one that is off by one at either end, picks a different step here.
+// Two rungs starting above zero: a slice that counts from zero instead of the first version, or one that is off by one at either end, picks a different step here.
 const TWO_RUNGS: Ladder = { kind: "test", firstVersion: 3, steps: [rung(4), rung(5)] };
 
 describe("dueMigrations", () => {

@@ -1160,6 +1160,9 @@ describe("replaceBlock and stripBlock", () => {
   );
 });
 
+const BOUNDARY = "\u0000";
+const IMPORT = /(?:^|\s)(@(?:[^\s\\]|\\ )+)/g;
+
 // The oracle is Bun's own Markdown parser rather than a copy of the renderer's rules. Claude Code's
 // import walker runs its pattern over each lexed text token, so every chunk Bun reports (a code
 // span, emphasis, strikethrough, a link or image, an inline tag, an escape, or the text between
@@ -1167,9 +1170,6 @@ describe("replaceBlock and stripBlock", () => {
 // `@` that opens a token or follows whitespace. Bun decodes entities and splits text around them;
 // the walker reads their raw spelling, so `&` is masked before parsing and no entity decodes. A
 // link reference definition renders to nothing at all, so a blank reading falls back to the raw line.
-const BOUNDARY = "\u0000";
-const IMPORT = /(?:^|\s)(@(?:[^\s\\]|\\ )+)/g;
-
 function exposedReferences(rendered: string): string[] {
   const bounded = (children: string) => `${BOUNDARY}${children}${BOUNDARY}`;
   const visible = Bun.markdown.render(rendered.replaceAll("&", "\u0001"), {
@@ -1192,10 +1192,6 @@ function exposedReferences(rendered: string): string[] {
     ]);
 }
 
-// Every byte sequence the escaping has to keep in its place inside a rule line: comment delimiters,
-// reference tokens, code-span and fence openers, escapes, raw HTML, link syntax, the markers
-// themselves, line endings and whitespace of several widths. fast-check shrinks a constantFrom
-// toward its first value, so the harmless pieces come first and a counterexample reads as text.
 const DESCRIPTION_PIECES = [
   "a",
   "word",
@@ -1249,18 +1245,18 @@ const DESCRIPTION_PIECES = [
 
 const join = (parts: string[]): string => parts.join("");
 
+// fast-check shrinks a constantFrom toward its first value, so every piece list puts its harmless
+// pieces first and a counterexample reads as text.
 function piecesOf(pieces: readonly string[], maxLength: number): fc.Arbitrary<string> {
   return fc.string({ unit: fc.constantFrom(...pieces), maxLength });
 }
 
-// Any scalar value: fc.string's binary unit draws from the same range but builds its code point table
-// at construction, which costs more than the whole test file.
+// Any scalar value: fc.string's binary unit draws from the same range but builds its code point table at construction, which costs more than the whole test file.
 const anyCodePoint = fc
   .oneof(fc.integer({ min: 0, max: 0xd7ff }), fc.integer({ min: 0xe000, max: 0x10ffff }))
   .map((codePoint) => String.fromCodePoint(codePoint));
 
-// Hostile pieces, any scalar value now and then, and a share of descriptions past the 300 code
-// point cap so the cut can land inside a reference token or a comment delimiter.
+// Hostile pieces, any scalar value now and then, and a share of descriptions past the 300 code point cap so the cut can land inside a reference token or a comment delimiter.
 const descriptions = fc.oneof(
   {
     weight: 19,
@@ -1282,6 +1278,7 @@ const descriptions = fc.oneof(
   },
 );
 
+// The drawn description and detail path make the first of the two rule lines rendered; markers and expansion modes are drawn whole, staleness and frontmatter present or absent.
 const renderCases = fc.record({
   markers: fc.constantFrom<BlockInput["markers"]>("stripped", "counted"),
   expands: fc.constantFrom<ExpansionSyntax[]>(["at-import"], [], ["none"]),
@@ -1294,10 +1291,10 @@ const renderCases = fc.record({
   frontmatter: fc.option(fc.constant('---\napplyTo: "**"\n---\n'), { nil: undefined }),
 });
 
+// The endings the scanner partitions on, mixed line by line in a user file.
 const LINE_ENDINGS = ["\n", "\r\n", "\r"];
 
-// Line starts that put the rest of the line inside a list item, a blockquote, or an indented code
-// block, or leave it at column 0 with up to three spaces of indentation.
+// Line starts that put the rest of the line inside a list item, a blockquote, or an indented code block, or leave it at column 0 with up to three spaces of indentation.
 const LINE_STARTS = [
   "",
   "",
@@ -1316,12 +1313,7 @@ const LINE_STARTS = [
   "  - ",
 ];
 
-// Pieces that open no fence, comment, or literal HTML block (pre, CDATA, processing instruction,
-// declaration) in any order behind any line start; a lone tag still opens a raw HTML block, but the
-// blank line an append writes ends that, so no closer is written and a strip gives the file back
-// byte for byte. No piece starts or ends with a backtick or tilde run that a neighbour could extend
-// into a fence opener, and no two pieces spell a marker pair: a file that already holds a block
-// takes the new one into that run rather than at its end, which the slot tests above cover.
+// Pieces whose joins open no fence, comment or literal HTML block behind any line start and spell no marker pair, which would send the new block into that run rather than to the end.
 const CLOSED_PIECES = [
   "word",
   "x",
@@ -1391,12 +1383,13 @@ function userFiles(pieces: readonly string[]): fc.Arbitrary<string> {
   });
 }
 
-// Runs per property when MAXIMS_PROPERTY_ITERATIONS is unset. Each run here renders or edits one
-// small file, so the count sits far above the engine convergence suite's default, whose every run
-// drives the whole engine.
+// Runs per property when MAXIMS_PROPERTY_ITERATIONS is unset; each run here renders or edits one small file, so the count sits far above the engine convergence suite's default, whose every run drives the whole engine.
 const CORPUS_RUNS = 100;
 
+// Files no append needs to close: a lone tag still opens a raw HTML block, but the blank line an append writes ends that, so a strip hands the file back byte for byte.
 const closedFiles = userFiles(CLOSED_PIECES);
+
+// Files that may end inside a fence, a comment or a raw HTML block, where the append must write the closer first.
 const openFiles = userFiles([...CLOSED_PIECES, ...OPEN_PIECES]);
 
 function blocksFor(text: string, source: string): string[] {

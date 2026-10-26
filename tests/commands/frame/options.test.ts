@@ -10,7 +10,6 @@ import { FIXTURES, runCli, withScenario } from "../fake-engine.ts";
 
 const RULES = join(FIXTURES, "rules");
 
-// A refusal at the door reaches no engine runner.
 const NO_ENGINE_CALLS = { sync: [], remove: [], list: [], mcpServe: 0 };
 
 const refusals: [string, string[], string][] = [

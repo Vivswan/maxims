@@ -1,3 +1,7 @@
+// The harness definitions the command scenarios run against. CURSOR_FRONTMATTER is the whole
+// preamble the target declares, fences included, as the real definitions return it. fixtureZed has
+// no hook shape and a servers file at both scopes, so `sync` registers the stub MCP server there
+// under the hook intent; it stays out of FIXTURE_HARNESSES and is named by the scenario that needs it.
 import { join } from "node:path";
 import {
   type HarnessContext,
@@ -81,7 +85,6 @@ export const fixtureCodex: HarnessDefinition = {
   verifiedAgainst,
 };
 
-// The whole preamble the target declares, fences included, as the real definitions return it.
 export const CURSOR_FRONTMATTER = "---\nalwaysApply: true\n---\n";
 
 export const fixtureCursor: HarnessDefinition = {
@@ -106,8 +109,6 @@ export const fixtureCursor: HarnessDefinition = {
   verifiedAgainst,
 };
 
-// A harness with no hook shape and a servers file at both scopes, the shape of zed: `sync`
-// registers the stub MCP server there under the hook intent.
 export const fixtureZed: HarnessDefinition = {
   id: "zed",
   displayName: "Zed",

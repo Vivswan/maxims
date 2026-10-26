@@ -5,8 +5,7 @@ import fc from "fast-check";
 import { util } from "zod";
 import { checkProperty, propertyKnobs } from "../shared/property.ts";
 
-// A convergence property drives the whole engine per run; a fuzz case is one parser call, so the
-// same knob buys this many more cases per property.
+// A convergence property drives the whole engine per run; a fuzz case is one parser call, so the same knob buys this many more cases per property.
 export const FUZZ_MULTIPLIER = 25;
 
 // An input of tens of KiB costs milliseconds, not microseconds, so a property over such inputs

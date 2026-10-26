@@ -5,6 +5,16 @@
 // after stripping what it added, or go quadratic on a large file; the name index throwing on odd
 // names or timestamps or handing a name to a later installer. Every rule file is one the user also
 // edits by hand, so the scanner must answer for any bytes it finds there.
+//
+// FILE_PIECES are the scanner's own tokens, so a random join lands on its state transitions; the
+// version pieces let a join spell a current marker, one of another version and one with none.
+//
+// A structured file holds whole blocks for this and other sources, duplicates included, between
+// user lines, unterminated begins and fence openers: the shapes that reach the span, duplicate and
+// deal assertions, which random fragments almost never assemble.
+//
+// MS_PER_KIB: the scanner is documented linear, and the 3 MiB rows finish in well under a second
+// on a slow runner, so a millisecond per KiB is the rate every random file is held to.
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import type { MemoryName } from "../../src/memory/contract.ts";
@@ -29,10 +39,6 @@ const BEGIN = `<!-- maxims:begin ${SOURCE} sha=3f2a9c1e version=1 -->`;
 const END = `<!-- maxims:end ${SOURCE} -->`;
 const BLOCK = `${BEGIN}\n- Rule one. (detail: rules/one.md, 3f2a9c1)\n${END}\n`;
 
-// Marker fragments, every block opener the scanner knows, list and quote prefixes, link
-// reference definition pieces and the three line endings, so a random join lands on the
-// scanner's own state transitions. The version fields let a join spell a current marker, one of
-// another version and one with none.
 const FILE_PIECES = [
   "<!-- maxims:begin ",
   SOURCE,
@@ -92,10 +98,6 @@ const FILE_PIECES = [
   " ",
 ];
 
-// Whole blocks for this and other sources, duplicates included, between user lines, unterminated
-// begins and fence openers: the shapes that reach the span, duplicate and deal assertions, which
-// random fragments almost never assemble. `@Octocat/rules` sorts before this source (an upper-case
-// code unit is lower), so the dealt block lands in a middle or last slot as well as the first.
 const blockFor = fc
   .tuple(
     fc.constantFrom(SOURCE, "@Octocat/rules", "@other/source", "@third/one#v2"),
@@ -105,6 +107,7 @@ const blockFor = fc
     ([source, sha]) =>
       `<!-- maxims:begin ${source} sha=${sha} version=1 -->\n- Rule. (detail: d.md, ${sha})\n<!-- maxims:end ${source} -->`,
   );
+
 const segment = fc.oneof(
   blockFor,
   fc.constant(BEGIN),
@@ -125,8 +128,6 @@ const fileText = fc.oneof(
   structured,
 );
 
-// The scanner is documented linear; the 3 MiB rows below finish in well under a second on a
-// slow runner, so a millisecond per KiB is the rate every random file is held to.
 const MS_PER_KIB = 1;
 
 const LINE_ENDING = /^(\r\n|\r|\n)?$/;
@@ -246,6 +247,8 @@ function slotted(text: string): Slotted {
 
 // The order and closing the contract states, spelled without the comparator or the writer under
 // test: keys by code unit ascending, a tie in document order, and one LF closing every block.
+// `@Octocat/rules` sorts before `@example-user/rules` (an upper-case code unit is lower), so the
+// file's own block lands in a middle or last slot as well as the first.
 function byKey(blocks: readonly Block[]): Block[] {
   return [...blocks].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
@@ -269,10 +272,7 @@ function isStrayRefusal(error: unknown): boolean {
   return error instanceof MaximsError && error.code === ExitCode.DestinationWriteFailed;
 }
 
-// A removal is refused only when closing a slot joins two gaps into text that pairs the user's
-// stray markers or opens a fence, a raw HTML block or a link reference definition over a kept
-// block. Each of those needs one of these code units in a gap; over gaps without any, a refusal
-// is a defect.
+// Closing a slot can pair the user's stray markers, or open a fence, a raw HTML block or a link reference definition over a kept block, only through one of these code units; a refusal over gaps without any is a defect.
 const JOIN_CAN_OPEN = /[<`~[]/;
 
 // Both writers are held to the deal above. A replacement leaves every byte outside the pairs
@@ -342,8 +342,6 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// One huge line, a marker flood, a blockquote and list nesting flood, opener floods and a CR flood
-// at 3 MiB: the shapes where a scanner that re-reads a line per level or per marker goes quadratic.
 const MIB = 1024 * 1024;
 const large: [string, string][] = [
   ["one 3 MiB line", "a".repeat(3 * MIB)],
@@ -354,6 +352,8 @@ const large: [string, string][] = [
   ["3 MiB of CR", "\r".repeat(3 * MIB)],
 ];
 
+// One huge line, a marker flood, a blockquote and list nesting flood, opener floods and a CR flood
+// at 3 MiB: the shapes where a scanner that re-reads a line per level or per marker goes quadratic.
 test.each(large)("parseBlocks stays linear on %s", (_label, text) => {
   const { ms } = timed(() => parseBlocks(text));
   expect(ms).toBeLessThan(budgetMs(text.length, MS_PER_KIB));

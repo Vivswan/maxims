@@ -117,11 +117,10 @@ function seed(home: string, fixture: string): string {
   return path;
 }
 
-// The migration mechanics (write-back, the lock, a concurrent writer) run on the current golden
-// with its version pin moved back one rung, brought forward by a one-step ladder that sets the pin
-// and nothing else, so no second document shape exists for them.
 const BELOW_CURRENT = CURRENT_STATE_VERSION - 1;
 
+// The current golden at `version`; a one-step ladder that sets the pin and nothing else brings it
+// forward, so the write-back, the lock and a concurrent writer are exercised on one document shape.
 function seedAt(home: string, version: number): string {
   const path = homePaths(home).state;
   writeFileSync(path, `${JSON.stringify({ ...CURRENT_STATE, version }, null, 2)}\n`);

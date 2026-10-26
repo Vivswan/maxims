@@ -2,6 +2,10 @@
 // of a usage refusal, a parsed source the state schema then refuses (an `add` that writes a state
 // file the next run quarantines), or a remote URL whose host, port or segments come back in a
 // shape the store-path derivation never expected.
+//
+// SOURCE_PIECES are fragments of every accepted spelling (the shorthand, the four URL schemes, the
+// scp-like form, GitHub tree URLs, enterprise and tenancy hosts, pins, memory suffixes and local
+// path prefixes) with the characters the marker and segment rules refuse.
 import { expect, test } from "bun:test";
 import { isAbsolute } from "node:path";
 import fc from "fast-check";
@@ -18,9 +22,6 @@ import { anyText, describeError, fragments, fuzz } from "./shared.ts";
 
 const CWD = "/home/user/project";
 
-// Fragments of every accepted spelling: the shorthand, the four URL schemes, the scp-like form,
-// GitHub tree URLs, enterprise and tenancy hosts, pins, memory suffixes and local path prefixes,
-// with the characters the marker and segment rules refuse.
 const SOURCE_PIECES = [
   "@",
   "owner",

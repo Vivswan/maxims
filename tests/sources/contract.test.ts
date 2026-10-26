@@ -9,7 +9,10 @@ import { type FetchResult, needsFetch, type SourceResolver } from "../../src/sou
 
 type GithubFrom = Extract<SourceFrom, { type: "github" }>;
 
+// Never fetched at runtime: the resolver below exists for the typecheck alone, so no tree is needed.
 const empty: Omit<FetchResult, "sha"> = { memoryPath: "memories", files: [] };
+
+// A resolver for the github variant alone; the typecheck of `widened` below is the whole pin.
 const githubOnly: SourceResolver<GithubFrom> = {
   resolveRef: async (from, pin) => `${from.repo}@${pin ?? from.ref}`,
   fetch: async (from) => ({ ...empty, sha: from.repo }),
@@ -17,6 +20,7 @@ const githubOnly: SourceResolver<GithubFrom> = {
 
 // @ts-expect-error a resolver for one variant is not a resolver for every variant
 const widened: SourceResolver = githubOnly;
+
 void widened;
 
 const SHA = "0123abc0123abc0123abc0123abc0123abc01234";

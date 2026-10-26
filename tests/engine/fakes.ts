@@ -63,8 +63,7 @@ export function fixtureGitSha(treeSha: string): GitSha {
   return gitSha(treeSha.slice("sha256:".length, "sha256:".length + 40));
 }
 
-// Two definitions with the two writing strategies, whose files all sit under `.fixture/` in the
-// user home or the project. They carry real harness ids so state accepts them.
+// The rules-dir writing strategy under the Claude Code id, real so state accepts it; its rules and hook registry sit under `.fixture/` in either root, its bodies under the project's `.agents/memories`.
 export const rulesDirHarness: HarnessDefinition = {
   id: "claude-code",
   displayName: "Fixture Rules",
@@ -107,6 +106,7 @@ export const rulesDirHarness: HarnessDefinition = {
   },
 };
 
+// The shared-block writing strategy under the Codex id; its project block file sits at the project root, its global block and hook script under `.fixture/`, its bodies under the project's `.agents/memories`.
 export const sharedBlockHarness: HarnessDefinition = {
   id: "codex",
   displayName: "Fixture Shared",
@@ -137,12 +137,13 @@ export const sharedBlockHarness: HarnessDefinition = {
   },
 };
 
+// The `config.json` configEditHarness lands while its rules are wanted.
 export const FIXTURE_CONFIG_CONTENT = '{"instructions":["rules"]}\n';
+
+// The `config.json` it leaves once they are not: emptied, never deleted.
 export const FIXTURE_CONFIG_EMPTIED = "{}\n";
 
-// The rules-dir fixture with a config entry its rules directory needs, reconciled like a hook: a
-// rewrite of the user's `config.json` under the home, listing the rules when wanted and emptying
-// the file when not, so a config too goes through the planner's one edit per file.
+// The rules-dir fixture whose rules directory needs a `config.json` entry, reconciled like a hook (listed when wanted, emptied when not), so a config too takes the planner's one edit per file.
 export const configEditHarness: HarnessDefinition = {
   ...rulesDirHarness,
   configEdit: async (_scope, ctx, wanted) => {
@@ -155,10 +156,7 @@ export const configEditHarness: HarnessDefinition = {
   },
 };
 
-// The rules-dir fixture under another real id, so it can sit beside the Claude Code definition,
-// whose config entry is spliced into the JSON the planner holds rather than replacing it, as a
-// harness that lists its rules directory in a user-owned config does: an entry another harness put
-// in the same text survives, and text that is not JSON throws.
+// The rules-dir fixture under the Cursor id, so it can sit beside the Claude Code one, splicing its config entry into the JSON the planner holds rather than replacing the text.
 export const jsonConfigEditHarness: HarnessDefinition = {
   ...rulesDirHarness,
   id: "cursor",
@@ -178,8 +176,7 @@ export const jsonConfigEditHarness: HarnessDefinition = {
   },
 };
 
-// The rules-dir fixture with a custom hook that plans the same hooks-file write on every run, as
-// dsh's bridge does: a change the plan carries and the apply lands nothing with.
+// The rules-dir fixture with a custom hook that plans the same hooks-file write on every run, as dsh's bridge does: a change the plan carries and the apply lands nothing with.
 export const rewritingHookHarness: HarnessDefinition = {
   ...rulesDirHarness,
   hook: {
@@ -460,10 +457,10 @@ export function fetchedEntry(
   };
 }
 
+// Where mcpHarness keeps its MCP registry, under `.fixture/` in either root.
 export const FIXTURE_MCP_FILE = join(FIXTURE_DIR, "mcp.json");
 
-// The shared-block fixture with no hook shape and an MCP registry under `.fixture/` in either
-// root: the shape of a harness that starts its MCP servers eagerly and keeps fresh through the stub.
+// The shared-block fixture with no hook shape and an MCP registry in either root: the shape of a harness that starts its MCP servers eagerly and keeps fresh through the stub.
 export const mcpHarness: HarnessDefinition = {
   ...sharedBlockHarness,
   id: "zed",

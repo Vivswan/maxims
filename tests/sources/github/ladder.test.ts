@@ -87,8 +87,7 @@ function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fe
   };
 }
 
-// A credential helper and a GIT_SSH_COMMAND are run by git through sh, on Windows the one Git for
-// Windows ships, which reads a forward-slash path where a backslash would start an escape.
+// A credential helper and a GIT_SSH_COMMAND are run by git through sh, on Windows the one Git for Windows ships, which reads a forward-slash path where a backslash would start an escape.
 const shellPath = (path: string): string => path.split(sep).join("/");
 
 describe("resolveRef without auth", () => {
@@ -656,11 +655,11 @@ describe("systemRunner", () => {
   });
 });
 
-// The fixture repository and the two clones run about twenty-five short git processes in a row,
-// which is what the launcher's Windows budget (scripts/lib/test_timeout.ts) is sized for. A git
-// child silent for this long is killed by the runner, and the failure names the git rung.
+// A git child silent for this long is killed by the runner, and the failure names the git rung.
 const GIT_STALL_MS = 20_000;
 
+// The fixture repository and the two clones run about twenty-five short git processes in a row,
+// which is what the launcher's Windows budget (scripts/lib/test_timeout.ts) is sized for.
 describe("git rung against a file:// fixture repo", () => {
   test("resolves HEAD and an annotated tag, then sparse-clones the pinned commit", async () => {
     await withTempDir(async (dir) => {

@@ -17,9 +17,7 @@ import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
 
-// The frontmatter grammar's own tokens, so a near miss lands on the row-by-row checks rather than
-// on the first byte. YAML anchors, tags and flow collections reach the branches where the YAML
-// value is not a plain mapping of strings.
+// The frontmatter grammar's own tokens, so a near miss lands on the row-by-row checks rather than on the first byte; anchors, tags and flow collections reach the branches where the YAML value is not a plain mapping of strings.
 const FRONTMATTER_PIECES = [
   "---",
   "\n",
@@ -82,6 +80,7 @@ const stem = fc.oneof(
   fragments(["a", "z", "0", "-"], { minLength: 190, maxLength: 212, size: "max" }),
 );
 
+// A stem with or without `.md`, `MEMORY.md` itself, or a stem under a directory, so the name must come from the basename alone.
 const filename = fc.oneof(
   stem.map((base) => `${base}.md`),
   stem,
@@ -268,8 +267,7 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// Six names shared by every slot: the rename rule fires only when a rename key reuses a name an
-// incoming memory or a link carries, and draws from a space of thousands of names rarely reuse one.
+// Six names shared by every slot: the rename rule fires only when a rename key reuses a name an incoming memory or a link carries, and draws from a space of thousands of names rarely reuse one.
 const memoryName = fc.constantFrom("a", "b", "c", "d-e", "f1", "g");
 
 // A body is built from the links it is meant to carry, so the expected unmet set comes from the

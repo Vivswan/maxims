@@ -28,7 +28,6 @@ import {
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
-// Against TWO_MEMORIES: one description changed (its body with it), one memory gone, one new.
 const REVISION_B = {
   "always-review": { description: "Review before every push.", body: "Push, then review." },
   "new-rule": { description: "New." },
@@ -36,7 +35,8 @@ const REVISION_B = {
 
 type Document = SourceFacts & { ok: boolean; kind: "source"; notices: string[] };
 
-// Revision A installed with `--review` (its own fetch applies), then revision B upstream.
+// Revision A installed with `--review` (its own fetch applies), then revision B upstream: against
+// TWO_MEMORIES one description changed (its body with it), one memory gone, one new.
 async function reviewedScenario(
   fn: (scenario: Scenario, fake: FakeResolvers) => Promise<void>,
   addFlags: string[] = [],
@@ -269,11 +269,6 @@ test("a memory name is printed even when the same spelling is a source recorded 
   });
 });
 
-// The hold's summary counts only the memories the user could see when it was recorded, and the
-// selection can narrow before it (`-m` at the add) or after it (`remove <memory>`); a check that
-// re-derives the summary under either selection alone forgets an intact hold as "altered", in
-// `accept` and `show` alike. Both memories change upstream, so the narrowed selection and the
-// recorded summary disagree in either direction.
 const BOTH_CHANGED = {
   "always-review": { description: "Review before every push." },
   "keep-tests-green": { description: "Never merge red, ever." },
@@ -282,6 +277,12 @@ const narrowings: [string, string[], string[][], string][] = [
   ["before the hold, at the add", ["-m", "always-review"], [], "always-review"],
   ["after the hold, by a removal", [], [["remove", "always-review", "-y"]], "keep-tests-green"],
 ];
+
+// The hold's summary counts only the memories the user could see when it was recorded, and the
+// selection can narrow before it (`-m` at the add) or after it (`remove <memory>`); a check that
+// re-derives the summary under either selection alone forgets an intact hold as "altered", in
+// `accept` and `show` alike. Both memories change upstream, so the narrowed selection and the
+// recorded summary disagree in either direction.
 test.each(narrowings)(
   "a hold on a source narrowed %s still shows and accepts",
   async (_label, addFlags, afterHold, visible) => {

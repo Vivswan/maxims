@@ -223,10 +223,6 @@ const AT_HOME: Record<BuiltInHarnessId, Record<Scope, Files>> = {
   },
 };
 
-// A relocated config directory moves every user-level file with it, and a variable the vendor's
-// docs do not honour moves nothing. A variable the vendor reads on some platforms only is driven
-// per platform in PER_PLATFORM below. A relative override resolves against the working directory,
-// which tests/harnesses/from-spec.test.ts pins once for the compiler.
 const RELOCATED: [string, BuiltInHarnessId, Record<string, string>, Files][] = [
   [
     "$CODEX_HOME",
@@ -287,6 +283,10 @@ const filesRows: FilesRow[] = [
   ...RELOCATED.map(([label, id, env, files]): FilesRow => [id, "global", label, env, files]),
 ];
 
+// The RELOCATED rows: a relocated config directory moves every user-level file with it, and a
+// variable the vendor's docs do not honour moves nothing. A variable the vendor reads on some
+// platforms only is driven per platform in PER_PLATFORM below. A relative override resolves
+// against the working directory, which tests/harnesses/from-spec.test.ts pins once for the compiler.
 test.each(filesRows)(
   "%s: the %s files under %s land where it reads them",
   (id, scope, _label, env, files) => {
@@ -498,11 +498,6 @@ test.each(PER_PLATFORM)(
   },
 );
 
-// A harness that reads only the first of several instruction files gets the block in that file:
-// beside it the block would never load, and a file created beside the user's would silence
-// theirs. Pi also reads the `.MD` spellings, which a case-insensitive filesystem cannot tell from
-// these, so only the lower-case names are driven. Codex's blank-file rule is content-sensitive
-// and stays in its own folder test.
 const BLOCK_FILES: [BuiltInHarnessId, Scope, string[], string][] = [
   ["amp", "project", ["CLAUDE.md"], "CLAUDE.md"],
   ["amp", "project", ["AGENT.md", "CLAUDE.md"], "AGENT.md"],
@@ -524,6 +519,11 @@ const BLOCK_FILES: [BuiltInHarnessId, Scope, string[], string][] = [
   ]),
 ];
 
+// A harness that reads only the first of several instruction files gets the block in that file:
+// beside it the block would never load, and a file created beside the user's would silence
+// theirs. Pi also reads the `.MD` spellings, which a case-insensitive filesystem cannot tell from
+// these, so only the lower-case names are driven. Codex's blank-file rule is content-sensitive
+// and stays in its own folder test.
 test.each(BLOCK_FILES)(
   "%s: the %s block goes into the file it reads first among %j",
   async (id, scope, present, expected) => {

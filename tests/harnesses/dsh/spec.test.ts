@@ -3,6 +3,11 @@
 // plugin the user merged into our insert operation must survive both mount and unmount, and a row
 // the user duplicated by hand must converge to one on mount and to none on unmount. Also pins the
 // byte line past which dsh truncates an AGENTS.md.
+//
+// reconcileBridge is the bridge as the changes it comes to: its own files, then the patch rewrite
+// minted over the file on disk, as `list` and `doctor` judge it. staleRow is our row id over a
+// config path a bridge mounted elsewhere left behind; the fixture-based layout rows splice it, and
+// the sibling `otherItem`, around the fixture's `# Shrink` line.
 import { expect, test } from "bun:test";
 import {
   existsSync,
@@ -32,8 +37,6 @@ const fixture = readFileSync(srcPath("harnesses", "dsh", "fixtures", "config.yml
 const spec = hookSpecFor(dsh);
 if (dsh.hook.kind !== "custom") throw new Error("dsh mounts a bridge through a custom hook");
 const { reconcile } = dsh.hook;
-// The bridge as the changes it comes to: its own files, then the patch rewrite minted over the
-// file on disk, as `list` and `doctor` judge it.
 const reconcileBridge = async (...args: Parameters<typeof reconcile>): Promise<Change[]> => {
   const plan = await reconcile(...args);
   return [...plan.changes, ...(await mintRewrites(plan.rewrites))];
@@ -110,7 +113,6 @@ const staleRow = `- id: ${BRIDGE_ROW_ID}\n  name: x\n  config: { configPath: ./o
 const staleItem = staleRow.replace(/^/gm, "    ").replace(/^ {4}$/gm, "");
 const otherItem = "    - id: other\n      name: other-plugin\n";
 
-// [label, patch file before, after mounting, after unmounting]
 const layouts: [string, string, (dshHome: string) => string, string][] = [
   [
     "a stale row alone in its operation, mid-file",
@@ -169,6 +171,7 @@ const layouts: [string, string, (dshHome: string) => string, string][] = [
   ],
 ];
 
+// `layouts`: [label, patch file before, after mounting, after unmounting].
 // An unmount straight from the "before" layout takes the same path as one after a mount, so a
 // file that already holds a stale or duplicated row is cleaned without a mount in between.
 test.each(layouts)(

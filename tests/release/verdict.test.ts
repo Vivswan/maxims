@@ -18,9 +18,13 @@ import {
   UnreadablePackument,
 } from "../../.github/scripts/release-pipeline.ts";
 
-/** A linear main: index order is commit order, and every sha7 is unique. SIDE is a commit off main. */
+/** A linear main: index order is commit order, and every sha7 is unique. */
 const MAIN = ["1000001", "2000002", "3000003", "4000004"].map((sha7) => sha7 + "e".repeat(33));
+
+/** Main's commits by the part each plays against SOURCE, the run's own: OLDER and NEWER are its neighbours, NEWEST the tip. */
 const [OLDER, SOURCE, NEWER, NEWEST] = MAIN as [string, string, string, string];
+
+/** A commit off main: neither an ancestor nor a descendant of any commit on it. */
 const SIDE = `5000005${"e".repeat(33)}`;
 
 /** Where the remote-tracking ref of main sits in the checkout, and what differs between it and every other commit. */

@@ -2,6 +2,13 @@
 // outside the text or at a line break, report one kind twice, or take seconds on tens of KiB
 // because a detector's regex went quadratic. A description is a line a source repository controls
 // and every one of them is scanned on every refresh, so the scanner must answer for all of them.
+//
+// RISK_PIECES are the tokens every detector keys on, so a random join lands on the anchors, the
+// pipe grammar, the URL closers, the code-span rules and the secret prefixes rather than on plain
+// prose.
+//
+// MS_PER_KIB: the existing adversarial rows finish a million characters in 500 ms, and that rate,
+// half a millisecond per KiB, is the budget every random input of up to 64 KiB is held to.
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import { RISK_KINDS, riskWarnings } from "../../src/memory/risk.ts";
@@ -18,8 +25,6 @@ import {
   timed,
 } from "./shared.ts";
 
-// The tokens every detector keys on, so a random join lands on the anchors, the pipe grammar, the
-// URL closers, the code-span rules and the secret prefixes rather than on plain prose.
 const RISK_PIECES = [
   "curl ",
   "wget ",
@@ -133,8 +138,6 @@ const description = fc.oneof(
   fragments(RISK_PIECES, { maxLength: 400 }),
 );
 
-// The existing adversarial rows finish a million characters in 500 ms; that rate, half a
-// millisecond per KiB, is the budget every random input of up to 64 KiB is held to.
 const MS_PER_KIB = 0.5;
 
 function check(text: string): void {
@@ -156,10 +159,10 @@ function check(text: string): void {
   if (text === "") expect(warnings).toEqual([]);
 }
 
-// Up to 64 KiB of bytes or of grammar tokens, where a quadratic detector would overshoot the
-// budget by a hundredfold and a linear one stays far under it; an input of that size costs
-// milliseconds, so that corpus runs at the knob's own count.
+// 64 KiB: where a quadratic detector would overshoot the budget by a hundredfold and a linear one stays far under it.
 const LARGE_CHARS = 65536;
+
+// Bytes or grammar tokens up to LARGE_CHARS; `size: "max"` lifts fast-check's default length ceiling, which would otherwise keep every input small.
 const large = fc.oneof(
   latin1Text({ maxLength: LARGE_CHARS, size: "max" }),
   fragments(RISK_PIECES, { maxLength: 8000, size: "max" }).map((text) =>
@@ -167,6 +170,7 @@ const large = fc.oneof(
   ),
 );
 
+// The large corpus runs at the knob's own count (multiplier 1): an input of that size costs milliseconds, not microseconds.
 const corpora: [string, fc.Arbitrary<string>, FuzzOptions][] = [
   ["any description", description, {}],
   ["random inputs up to 64 KiB", large, { multiplier: 1 }],

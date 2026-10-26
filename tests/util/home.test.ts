@@ -23,8 +23,7 @@ function masked(layout: string): string {
   return layout.replace(/-[0-9a-f]{8}$/, "-<hex8>");
 }
 
-// Every source variant, pins, hosts and ports included: its entry under the store, which a held
-// revision mirrors under the pending root.
+// Every source variant, pins, hosts and ports included: its entry under the store, which a held revision mirrors under the pending root.
 const layouts: [string, SourceFrom, string][] = [
   [
     "a github source, owner and repo folded to lower case",

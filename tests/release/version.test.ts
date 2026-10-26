@@ -52,9 +52,10 @@ describe("prereleaseVersion", () => {
   });
 });
 
-/** The author and committer dates of the fixture's last commit: different days, and a committer zone whose local
- * date is still the 15th while UTC has moved to the 16th. */
+/** The author date of the fixture's last commit: a different day from the committer's. */
 const AUTHOR_DATE = "2026-01-01T12:00:00+00:00";
+
+/** The committer date: a zone whose local date is still the 15th while UTC has moved to the 16th. */
 const COMMITTER_DATE = "2026-03-15T23:30:00-05:00";
 
 /** main: one, two, three, a merge of the two-commit topic branch, four (with the dates above), then four.txt renamed to a path with a space. */
