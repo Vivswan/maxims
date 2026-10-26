@@ -103,11 +103,10 @@ export const ProjectLockSchema = z
     disabled: DisabledNamesSchema.optional(),
   })
   .check((ctx) => {
-    ctx.issues.push(
-      ...sourceKeyIssues(
-        Object.entries(ctx.value.sources).map(([key, source]) => [key, stateFrom(source)]),
-      ),
+    const sources: [key: string, from: SourceFrom][] = Object.entries(ctx.value.sources).map(
+      ([key, source]) => [key, stateFrom(source)],
     );
+    for (const issue of sourceKeyIssues(sources)) ctx.issues.push(issue);
   });
 export type ProjectLock = z.infer<typeof ProjectLockSchema>;
 

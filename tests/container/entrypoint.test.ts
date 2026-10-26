@@ -28,7 +28,8 @@ function walk(dir: string, prefix = ""): Entry[] {
     if (stat.isSymbolicLink()) {
       entries.push({ path: relative, kind: "symlink", target: readlinkSync(path) });
     } else if (stat.isDirectory()) {
-      entries.push({ path: relative, kind: "dir" }, ...walk(path, relative));
+      entries.push({ path: relative, kind: "dir" });
+      for (const entry of walk(path, relative)) entries.push(entry);
     } else {
       entries.push({ path: relative, kind: "file" });
     }

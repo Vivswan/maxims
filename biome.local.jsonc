@@ -3,6 +3,7 @@
 // relaxation is a per-path `overrides` entry below with its reason beside it (docs/modules/typescript.md).
 {
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "plugins": ["./biome/no-spread-push.grit"],
   "files": {
     "includes": [
       "**",

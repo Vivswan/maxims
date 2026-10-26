@@ -98,11 +98,11 @@ function jsonPaths(value: unknown, prefix: JsonPath = []): JsonPath[] {
   const paths: JsonPath[] = [prefix];
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      paths.push(...jsonPaths(item, [...prefix, index]));
+      for (const path of jsonPaths(item, [...prefix, index])) paths.push(path);
     }
   } else if (typeof value === "object" && value !== null) {
     for (const [key, item] of Object.entries(value)) {
-      paths.push(...jsonPaths(item, [...prefix, key]));
+      for (const path of jsonPaths(item, [...prefix, key])) paths.push(path);
     }
   }
   return paths;

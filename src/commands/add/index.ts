@@ -1,6 +1,7 @@
+import type { Console } from "../../console/contract.ts";
 import { installed, STRINGS } from "../../console/strings.ts";
 import { ExitCode } from "../../util/exit-codes.ts";
-import { type Command, FLAGS, type FlagSpec } from "../frame/options.ts";
+import { type Args, type Command, FLAGS, type FlagSpec } from "../frame/options.ts";
 import { finish, mergePlans } from "../frame/output.ts";
 import { commitAdd, registeredLines, syncCommitted } from "./commit.ts";
 import { planAdd, provenanceFor, showProvenance } from "./plan.ts";
@@ -35,6 +36,14 @@ const ADD_FLAGS: readonly FlagSpec[] = [
   FLAGS.noFetch,
 ];
 
+// A preview installs nothing, so the flags that shape an install have nothing to act on.
+function warnIgnoredWithList(args: Args, console: Console): void {
+  for (const spec of [FLAGS.rule, FLAGS.addHook, FLAGS.yes]) {
+    if (args.flag(spec)) console.warn(`--${spec.name} is ignored with --list`);
+  }
+  if (args.value(FLAGS.out) !== undefined) console.warn("--out is ignored with --list");
+}
+
 export const add: Command = {
   summary: "fetch a source, record it in state, then sync",
   usage: "add <source>",
@@ -45,12 +54,7 @@ export const add: Command = {
     const yes = args.flag(FLAGS.yes) || args.flag(FLAGS.all) || ctx.config.yes === true;
     const console = await ctx.openConsole(yes);
     console.intro();
-    if (request.list) {
-      for (const spec of [FLAGS.rule, FLAGS.addHook, FLAGS.yes]) {
-        if (args.flag(spec)) console.warn(`--${spec.name} is ignored with --list`);
-      }
-      if (args.value(FLAGS.out) !== undefined) console.warn("--out is ignored with --list");
-    }
+    if (request.list) warnIgnoredWithList(args, console);
     const stage = await stageAdd(request, ctx, console);
     if (stage.kind === "store-empty") {
       return finish(ctx, console, {
@@ -70,7 +74,7 @@ export const add: Command = {
     const report = await syncCommitted(ctx, commit, commit.harnesses);
     const planned = ctx.global.dryRun;
     const lines = [installed(prepared.names.length, report.rules, report.tokens, planned)];
-    lines.push(...registeredLines(commit.hooked, planned));
+    for (const line of registeredLines(commit.hooked, planned)) lines.push(line);
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],

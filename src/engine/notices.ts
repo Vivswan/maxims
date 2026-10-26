@@ -35,9 +35,9 @@ export class Notices {
   }
 
   absorb(other: Notices): void {
-    this.user.push(...other.user);
-    this.quietStdout.push(...other.quietStdout);
-    this.stderr.push(...other.stderr);
-    this.log.push(...other.log);
+    for (const line of other.user) this.user.push(line);
+    for (const line of other.quietStdout) this.quietStdout.push(line);
+    for (const line of other.stderr) this.stderr.push(line);
+    for (const line of other.log) this.log.push(line);
   }
 }

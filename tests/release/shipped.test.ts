@@ -35,7 +35,7 @@ function importGraph(entry: string): string[] {
   for (let path = pending.pop(); path !== undefined; path = pending.pop()) {
     if (seen.has(path)) continue;
     seen.add(path);
-    pending.push(...relativeImports(path));
+    for (const imported of relativeImports(path)) pending.push(imported);
   }
   return [...seen].sort();
 }

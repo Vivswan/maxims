@@ -90,7 +90,7 @@ async function walkRegularFiles(root: string, rel: string[], warn: WarnSink): Pr
     if (entry.isSymbolicLink()) {
       warn(`skipped symlink ${path.join("/")}: links inside a source are never followed`);
     } else if (entry.isDirectory()) {
-      out.push(...(await walkRegularFiles(root, path, warn)));
+      for (const file of await walkRegularFiles(root, path, warn)) out.push(file);
     } else if (entry.isFile()) {
       out.push(path);
     }

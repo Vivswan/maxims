@@ -121,7 +121,7 @@ async function applyHeld(
     ctx.global.dryRun,
     async (current) => {
       let state = current.state;
-      const changes: Change[] = [];
+      let changes: Change[] = [];
       for (const key of keys) {
         const existing = entryOrThrow(state, key);
         const held = heldOf(existing);
@@ -129,7 +129,7 @@ async function applyHeld(
         if (held !== null) {
           const acceptance = await acceptHeld(key, held, io);
           entry = acceptance.entry;
-          changes.push(...acceptance.changes);
+          changes = changes.concat(acceptance.changes);
           lines.push(acceptance.line);
           if (acceptance.applied) landed.push(key);
         } else if (!clearReview) {

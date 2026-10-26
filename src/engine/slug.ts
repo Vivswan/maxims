@@ -43,7 +43,7 @@ function readableSegments(from: SourceFrom): string[] {
   switch (from.type) {
     case "github": {
       const parts = from.host === undefined ? [] : [from.host];
-      parts.push(...from.repo.split("/"));
+      for (const part of from.repo.split("/")) parts.push(part);
       return withPin(parts, from.ref);
     }
     case "git": {

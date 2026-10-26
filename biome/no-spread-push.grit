@@ -1,0 +1,15 @@
+// `array.push(...items)` passes every element as an argument, and the engine throws
+// `RangeError: Maximum call stack size exceeded` past its argument limit (about 150,000 on V8,
+// the published bundle's runtime). The rule is syntactic: the array's size is the input's to
+// decide, so a spread among push's arguments is the defect at any size. The callee alternatives
+// keep an optional chain or a wrapper around `push` from hiding the call.
+JsCallExpression(callee=$callee, arguments=JsCallArguments(args=$args)) as $call where {
+  $callee <: or {
+    JsStaticMemberExpression(member=`push`),
+    JsComputedMemberExpression(member=`"push"`),
+    JsParenthesizedExpression(expression=JsStaticMemberExpression(member=`push`)),
+    TsNonNullAssertionExpression(expression=JsStaticMemberExpression(member=`push`))
+  },
+  $args <: some JsSpread(),
+  register_diagnostic(span=$call, message="loop over the items and push each, or concat; a spread into push throws past the engine's argument limit")
+}
