@@ -3,11 +3,6 @@ import { join, sep } from "node:path";
 import type { Change } from "../util/change.ts";
 import { assertInsideRoot, isAbsent } from "../util/fs.ts";
 
-// Where an entry can sit under the store, by the naming scheme in `storePathFor`: `_local/<x>`
-// and `<owner>/<repo>` at depth 2, `_github/<host>/<owner>/<repo>` at depth 4, and `_git/<host>/`
-// followed by a remote's path of any depth. A directory at any other position is a prefix and
-// is never swept, so a stray `store/README` or an emptied owner folder is left as it is. The
-// pending root is laid out the same way, so one walk serves both.
 const FIXED_DEPTH: ReadonlyMap<string, number> = new Map([
   ["_local", 2],
   ["_github", 4],
@@ -17,7 +12,8 @@ const OWNER_DEPTH = 2;
 
 // Every entry under `root` no source in state derives, as `delete` changes. `expected` holds the
 // entry paths intent derives to; an entry is kept when it is one of them, descended when one lies
-// beneath it, and swept when neither.
+// beneath it, and swept when neither. The pending root is laid out like the store, so one walk
+// serves both.
 export function planOrphanSweep(
   root: string,
   expected: ReadonlySet<string>,
@@ -54,6 +50,12 @@ export function planOrphanSweep(
   return changes;
 }
 
+// Where an entry can sit under the store, by the naming scheme in `storePathFor`. A directory at
+// any other position is a prefix and is never swept, so a stray `store/README` or an emptied owner
+// folder is left as it is.
+//   _local/<x>, <owner>/<repo>     -> depth 2
+//   _github/<host>/<owner>/<repo>  -> depth 4
+//   _git/<host>/<remote's path>    -> depth 3 or more (the remote's path is of any depth)
 function isEntryPosition(segments: string[]): boolean {
   const [head] = segments;
   if (head === undefined) return false;

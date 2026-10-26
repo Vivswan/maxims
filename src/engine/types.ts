@@ -54,16 +54,22 @@ export type SyncOptions = CommonOptions & {
   retired?: SourceEntry[];
 };
 
-// `failed` lists the sources this run could not bring current, in key order: a refresh that
-// failed, or a live source whose directory could not be read (its read is its refresh). Each
-// carries the failure's class so a caller tells an unreachable source from one with nothing valid
-// to install, from the report rather than from state, which a dry run leaves unchanged.
-// `upstreamChanges` holds, per refreshed or held key, the memories the revision adds (`+ name`),
-// removes (`- name`) or changes (`~ name (old -> new)`). `held` lists the reviewed sources with a
-// revision held for review at the end of this run, made now or earlier, in key order; they are
-// not in `fetched`. `changed` lists the paths this run wrote, deleted or relinked, never one a
-// planned change found already in its final state; under `--dry-run` it lists every path the
-// plan names.
+//   held             -> the reviewed sources with a revision held for review at the end of this
+//                       run, made now or earlier, in key order; they are not in `fetched`
+//   heldFiles        -> shared files this run left as they were because a removal in them would
+//                       pair stray markers
+//   stale            -> sources whose stale line this run rendered; the run is not up to date
+//                       while one stands
+//   upstreamChanges  -> per refreshed or held key, the memories the revision adds (`+ name`),
+//                       removes (`- name`) or changes (`~ name (old -> new)`)
+//   failed           -> the sources this run could not bring current, in key order: a refresh
+//                       that failed, or a live source whose directory could not be read (its read
+//                       is its refresh); each carries the failure's class so a caller tells an
+//                       unreachable source from one with nothing valid to install, from the
+//                       report rather than from state, which a dry run leaves unchanged
+//   changed          -> the paths this run wrote, deleted or relinked, never one a planned change
+//                       found already in its final state; under `--dry-run`, every path the plan
+//                       names
 export type SyncReport = {
   sources: number;
   memories: number;
@@ -71,9 +77,7 @@ export type SyncReport = {
   tokens: number;
   fetched: string[];
   held: string[];
-  // Shared files this run left as they were because a removal in them would pair stray markers.
   heldFiles: string[];
-  // Sources whose stale line this run rendered; the run is not up to date while one stands.
   stale: string[];
   upstreamChanges: Record<string, string[]>;
   failed: { key: string; message: string; kind: LastError["kind"] }[];

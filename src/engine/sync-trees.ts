@@ -24,6 +24,8 @@ import type { SyncPreview, SyncReport } from "./types.ts";
 
 export type ScopeKind = SourceIntent["destination"]["scope"];
 
+// `storeChanges` are the store swap or link this source lands with, planned only once admission
+// has passed.
 export type SourceWork = {
   key: string;
   entry: SourceEntry;
@@ -34,7 +36,6 @@ export type SourceWork = {
   sha: string;
   stale: Staleness | undefined;
   ownedUpstreamNames: MemoryName[];
-  // The store swap or link this source lands with, planned only once admission has passed.
   storeChanges: Change[];
 };
 

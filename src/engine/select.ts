@@ -10,12 +10,12 @@ export type SelectedMemory = {
   candidate: Candidate;
 };
 
+// `ownedUpstreamNames` are the upstream names of every memory the selection admits before the
+// disabled list, for the name index: a disabled memory still owns its name at the other scope.
 export type Selection = {
   selected: SelectedMemory[];
   hiddenInternal: number;
   disabledDropped: MemoryName[];
-  // Upstream names of every memory the selection admits before the disabled list, for the name
-  // index: a disabled memory still owns its name at the other scope.
   ownedUpstreamNames: MemoryName[];
 };
 

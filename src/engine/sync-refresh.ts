@@ -15,8 +15,6 @@ import type { SourceTree } from "./memories.ts";
 import type { Notices } from "./notices.ts";
 import type { EngineIo, FetchIntent, HarnessFilter, SyncOptions, SyncReport } from "./types.ts";
 
-// The kinds that make a source stale the run they happen; a transient kind earns its loud line only
-// once `staleness`'s grace has passed, and until then `refreshAll`'s aside is its one stderr line.
 const STALE_AT_ONCE: ReadonlySet<LastError["kind"]> = new Set(["missing", "invalid"]);
 
 export function isFetchedEntry(entry: SourceEntry): entry is FetchedEntry {
@@ -171,10 +169,12 @@ function fetchIntentFor(key: string, options: SyncOptions): FetchIntent {
   return options.fetch;
 }
 
-// Stale means fetching has been failing. A transient kind waits the longer of a week and the
-// cooldown, since a source is not stale before its refresh was due.
 const STALE_GRACE_MS = 7 * DAY_MS;
 
+// Stale means fetching has been failing: at once for a kind in `STALE_AT_ONCE`, and for a
+// transient kind once the longer of a week and the cooldown has passed, since a source is not
+// stale before its refresh was due. Until then `refreshAll`'s aside is the failure's one stderr
+// line.
 export function staleness(
   fetched: Fetched | undefined,
   now: Date,
