@@ -117,7 +117,7 @@ async function loadSources(
         detailPath: () => "",
       }).ownedUpstreamNames;
     } else {
-      upstream = await retainedNames(key, entry, ctx, io, hold);
+      upstream = await retainedNames({ key, entry, ctx, io, hold });
     }
     loaded.push({ key, entry, storeEntry, upstream, tree });
   }
@@ -185,12 +185,14 @@ function listedMemories(
 // A rename still resolves a collision while another source in the index owns the upstream name;
 // without such an owner it is no longer needed.
 function listedRenames(entry: SourceEntry, key: string, index: NameIndex): ListedRename[] {
+  // `Object.entries` hands the rename map's keys back as plain strings, so the index is read as one.
+  const owners: ReadonlyMap<string, string> = index;
   return Object.entries(entry.intent.rename).map(([from, to]) => {
-    const owner = [...index.entries()].find(([name, owned]) => name === from && owned !== key);
-    if (owner === undefined) {
+    const owner = owners.get(from);
+    if (owner === undefined || owner === key) {
       return { upstreamName: from, localName: to, verdict: "unneeded", against: null };
     }
-    return { upstreamName: from, localName: to, verdict: "resolves", against: owner[1] };
+    return { upstreamName: from, localName: to, verdict: "resolves", against: owner };
   });
 }
 

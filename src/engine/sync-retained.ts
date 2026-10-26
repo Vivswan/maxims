@@ -34,6 +34,18 @@ import type { EngineIo } from "./types.ts";
 // Earlier than any source's `addedAt`: the name index places what is installed first.
 export const INSTALLED_FIRST = "1970-01-01T00:00:00.000Z";
 
+// What `retainedNames` reads for one source. `installedSnapshot` is the installed tree a caller
+// already read (`null` when there is none); when absent, the tree is read here.
+type RetainedNamesInput = {
+  key: string;
+  entry: SourceEntry;
+  ctx: EngineContext;
+  io: EngineIo;
+  hold: (held: RuleFileHeld, owned: boolean) => void;
+  ambiguous?: ReadonlySet<ContentHash>;
+  installedSnapshot?: SourceTree | null;
+};
+
 // The local names a source's selection keeps, read from its installed copy through the selection
 // (so a hidden internal memory is left out), or from the fetch record through the renames when the
 // copy is a live local directory or is gone.
@@ -70,15 +82,16 @@ function selectedNames(
 //   user-scope detail paths through the renames  they name the store file under the upstream name
 //   its blocks' names                            `retainedBlockNames`
 //   copies judged by `own` minus `ambiguous`     a hash several sources ship names nobody
-export async function retainedNames(
-  key: string,
-  entry: SourceEntry,
-  ctx: EngineContext,
-  io: EngineIo,
-  hold: (held: RuleFileHeld, owned: boolean) => void,
-  ambiguous: ReadonlySet<ContentHash> = new Set(),
-  installedSnapshot?: SourceTree | null,
-): Promise<MemoryName[]> {
+export async function retainedNames(input: RetainedNamesInput): Promise<MemoryName[]> {
+  const {
+    key,
+    entry,
+    ctx,
+    io,
+    hold,
+    ambiguous = new Set<ContentHash>(),
+    installedSnapshot,
+  } = input;
   const { intent } = entry;
   const storeEntry = storePathFor(ctx.home, intent.from);
   const installed =

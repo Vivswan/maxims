@@ -375,15 +375,15 @@ async function installedNames(
   const { ctx, io, extras } = run.input;
   const entry = extras.previousState.sources[key];
   if (entry === undefined) return [];
-  return retainedNames(
+  return retainedNames({
     key,
     entry,
     ctx,
     io,
-    (held, owned) => run.reserveHold(held, owned ? key : undefined),
-    snapshot.ambiguous,
-    snapshot.trees.get(key) ?? null,
-  );
+    hold: (held, owned) => run.reserveHold(held, owned ? key : undefined),
+    ambiguous: snapshot.ambiguous,
+    installedSnapshot: snapshot.trees.get(key) ?? null,
+  });
 }
 
 // What a source holds on disk enters the name index first, dated before every source, so a memory

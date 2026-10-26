@@ -364,7 +364,7 @@ async function readInstalled(state: State, ctx: EngineContext, io: EngineIo): Pr
     const tree = read.kind === "tree" ? read.tree : null;
     const pairs =
       tree === null
-        ? (await retainedNames(key, entry, ctx, io, hold)).map((localName) => ({
+        ? (await retainedNames({ key, entry, ctx, io, hold })).map((localName) => ({
             upstreamName: localName,
             localName,
             hash: null,

@@ -76,6 +76,20 @@
     {
       "includes": ["tests/**"],
       "linter": { "rules": { "complexity": { "noExcessiveLinesPerFunction": "off" } } }
+    },
+    // scanDocument is one walk over micromark's flow events that threads four pieces of state (leaf, quoteDepth, lineIndex, itemColumns) through its branches; a split would hand a mutable walk record to four helpers for no gain.
+    {
+      "includes": ["tests/rulefile/scanner-oracle.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": { "maxAllowedComplexity": 30 }
+            }
+          }
+        }
+      }
     }
   ]
 }

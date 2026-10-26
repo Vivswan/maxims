@@ -315,12 +315,8 @@ function hookFinding(report: HarnessReport, prefix: string): Finding | null {
 
 function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: string): Finding[] {
   const prefix = `${def.id}:`;
-  const byPath = new Map<string, RuleFileReport[]>();
-  for (const file of report.ruleFiles) {
-    byPath.set(file.path, [...(byPath.get(file.path) ?? []), file]);
-  }
   const findings: Finding[] = [];
-  for (const [path, files] of byPath) {
+  for (const [path, files] of Map.groupBy(report.ruleFiles, (file) => file.path)) {
     const shown = tildify(path, userHome);
     findings.push(...ruleFileFindings(files, shown, prefix, def, report.scope));
   }

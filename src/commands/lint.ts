@@ -15,7 +15,7 @@ import {
   type Memory,
   parseMemory,
 } from "../memory/contract.ts";
-import { extractWikilinks } from "../memory/wikilinks.ts";
+import { resolveWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { jsonDocument } from "../util/json.ts";
@@ -103,8 +103,7 @@ function linkProblems(memories: LintedMemory[]): LintProblem[] {
   const names = new Set<string>(memories.map(({ memory }) => memory.name));
   const problems: LintProblem[] = [];
   for (const { memory, path } of memories) {
-    for (const link of extractWikilinks(memory.body)) {
-      if (names.has(link)) continue;
+    for (const { link } of resolveWikilinks([memory], names, {}).unmet) {
       problems.push({
         path,
         line: bodyLine(memory, link),
