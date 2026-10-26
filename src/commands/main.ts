@@ -235,7 +235,7 @@ const SCAN_WORDS = new Map<string, ScanFlag>([
 // can fail. The verb is the first word that is not a flag; the flags a verb may precede are all
 // booleans.
 //
-//   -h, -v     -> help costs nothing and changes nothing
+//   -h, -v     -> help or the version costs nothing and changes nothing
 //   --json     -> a usage error is still one JSON value
 //   --quiet    -> a usage error is still exit 0
 //   --dry-run  -> a usage error still writes no log line
