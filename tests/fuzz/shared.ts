@@ -70,7 +70,7 @@ function timed<T>(fn: () => T): { value: T; ms: number } {
 }
 
 // A lone timing is at the runner's mercy: a 2x miss on code a green run had just passed is
-// scheduler noise, while a quadratic regression overshoots the budget a hundredfold on every timing.
+// scheduler noise, while a quadratic regression misses the budget on every timing, many times over.
 export function timedBest<T>(fn: () => T, budget: number): { value: T; ms: number } {
   let best = timed(fn);
   for (let timings = 1; timings < BUDGET_TIMINGS && best.ms >= budget; timings += 1) {
