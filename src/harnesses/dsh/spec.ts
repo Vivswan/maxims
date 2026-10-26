@@ -1,7 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-import { bridgeReconciler } from "./quirks.ts";
-
 // dsh renders every instruction file it finds into ONE 65,536-byte block and truncates the most
 // specific file when the total exceeds it, so a block that pushes AGENTS.md over the line loads cut
 // in half.
@@ -11,6 +7,11 @@ import { bridgeReconciler } from "./quirks.ts";
 //   the bridge in quirks.ts    mounted machine-wide in `$DSH_HOME/cordis.patch.yml` whatever the
 //                              install scope, and read once at process start, so a changed hook
 //                              needs a dsh restart
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+import { bridgeReconciler } from "./quirks.ts";
+
 export const spec = {
   id: "dsh",
   displayName: "DeepSeek Harness",

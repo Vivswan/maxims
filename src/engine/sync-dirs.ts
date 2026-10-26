@@ -12,8 +12,7 @@ import { destinationUnresolvable } from "./fs-probe.ts";
 import type { SourceWork } from "./sync-trees.ts";
 import type { EngineIo, HarnessFilter } from "./types.ts";
 
-// A harness reads a rule line's detail path relative to the rule file, so the bodies folder sits
-// beside the rule file at the `-o` root.
+// A harness reads a rule line's detail path relative to the rule file, so the bodies folder sits beside the rule file at the `-o` root.
 const OUT_BODIES_DIR = "memories";
 
 export function outRuleFile(root: string, slug: SourceSlug): string {

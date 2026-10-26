@@ -9,6 +9,7 @@ import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 // Hand-written definitions covering shapes and combinations the registry does not: no hook, a null
 // global target, no budget, a registry hook beside a null global target, a per-scope budget with
 // a one-scope MCP file, a shared block with a precedence list.
+
 const base: HarnessDefinition = {
   id: "cursor",
   displayName: "Example",

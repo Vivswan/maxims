@@ -1,6 +1,10 @@
 // Strategy A owns the file a harness loads: a frontmatter chosen from the wrong declaration, a
 // slug that escapes the rules directory, or a rules directory that leaves the project would each
 // load nothing.
+//
+// `onDemand` models Claude Code, which reads a path-scoped rules file on demand under 40,000
+// characters where a launch-time file goes to 4 MiB (memory.md, since v2.1.309): a scoped install
+// is held to the smaller limit and an always-on one to the larger.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -59,9 +63,6 @@ const declared: RulesDirTarget = {
 };
 const scopeFrontmatter = (globs: string[]) => `---\npaths: [${globs.join(", ")}]\n---\n`;
 const scoped = definition({ scopeFrontmatter: { render: scopeFrontmatter } });
-// Claude Code reads a path-scoped rules file on demand under 40,000 characters where a launch-time
-// file goes to 4 MiB (memory.md, since v2.1.309), so a scoped install is held to the smaller limit
-// and an always-on one to the larger.
 const onDemand = definition({
   byteBudget: block.length + 100,
   scopeFrontmatter: { render: scopeFrontmatter, byteBudget: block.length - 1 },

@@ -11,8 +11,7 @@ import { ExitCode } from "../../src/util/exit-codes.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
-// The file name is the contract users write to, so the tests spell it out rather than asking the
-// loader where it looks.
+// The file name is the contract users write to, so the tests spell it out rather than asking the loader where it looks.
 const fileIn = (home: string): string => join(home, "harnesses.json");
 
 function acme(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -134,19 +133,6 @@ test.each(refusals)(
   },
 );
 
-// The file has no migration ladder, so an entry in a pre-stable shape is refused by name rather
-// than repaired or dropped. The exact message is the pin: a loader that grew a silent repair, or a
-// schema that stopped being strict, changes it. The `path` tier check named one file per scope; a
-// loader that read it as one layer per scope would silently probe the wrong files. A tier check
-// without `unreadable` never said what its harness does with a broken layer; a default would
-// decide that for it. A JSON `format` of its own let a tier check read the registry file in a
-// dialect the hook writer did not, so the writer kept a construct the probe called unreadable. A
-// trailing separator was a second spelling of the registry file, past that check's text compare.
-// A per-hook `debounceMs` was declared and never read: the one `sync --quiet` stamp debounces
-// every hook, so an entry carrying it was promising a window nothing kept. A servers file without
-// a dialect was edited as JSONC whatever its vendor read, so a comment went into a file Pi drops.
-// A servers file declared at the rule file was two planners writing one path, the servers map
-// replacing the block in one plan.
 const oldShapes: [string, string, string][] = [
   [
     "verifiedAgainst.pages",
@@ -189,6 +175,17 @@ const oldShapes: [string, string, string][] = [
   ],
 ];
 
+// The file has no migration ladder, so an entry in a pre-stable shape is refused by name rather
+// than repaired or dropped. The exact message is the pin: a loader that grew a silent repair, or a
+// schema that stopped being strict, changes it.
+//
+//   the `path` tier check, one file per scope     -> a loader that read it as one layer per scope would silently probe the wrong files
+//   a tier check without `unreadable`             -> never said what its harness does with a broken layer; a default would decide that for it
+//   a tier check with a JSON `format` of its own  -> read the registry file in a dialect the hook writer did not, so the writer kept a construct the probe called unreadable
+//   a trailing separator                          -> a second spelling of the registry file, past that check's text compare
+//   a per-hook `debounceMs`                       -> declared and never read: the one `sync --quiet` stamp debounces every hook, so an entry carrying it was promising a window nothing kept
+//   a servers file without a dialect              -> edited as JSONC whatever its vendor read, so a comment went into a file Pi drops
+//   a servers file declared at the rule file      -> two planners writing one path, the servers map replacing the block in one plan
 test.each(oldShapes)(
   "an entry in the %s shape is refused naming what it lacks",
   async (_, fixtureName, expected) => {

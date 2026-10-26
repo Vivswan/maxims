@@ -12,8 +12,7 @@ export type FixtureRepo = {
 // A fixture command silent for this long is killed, and the failure names the command.
 const FIXTURE_GIT_STALL_MS = 20_000;
 
-// The test runner's commit identity and its config isolation travel in these variables, which
-// simple-git drops from the ambient environment unless they are named.
+// The test runner's commit identity and its config isolation travel in these variables, which simple-git drops from the ambient environment unless they are named.
 const FIXTURE_GIT_ENV = [
   "GIT_AUTHOR_NAME",
   "GIT_AUTHOR_EMAIL",

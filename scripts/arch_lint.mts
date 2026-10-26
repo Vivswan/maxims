@@ -16,12 +16,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Node, TemplateElement } from "oxc-parser";
 import { parseArgv, usageRefuser } from "./lib/argv.ts";
 
-// The adopting repository adds the parser (bun add -d oxc-parser); a copied
-// script without it says so once instead of failing on a missing module path.
 const oxc = await (async () => {
   try {
     return await import("oxc-parser");
   } catch {
+    // The adopting repository adds the parser (bun add -d oxc-parser); a copied script without it
+    // says so once instead of failing on a missing module path.
     console.error("docs-discipline scripts need oxc-parser: bun add -d oxc-parser");
     process.exit(2);
   }
@@ -34,8 +34,10 @@ export const DEFAULT_CONFIG = "architecture.yml";
 export interface Architecture {
   /** layer -> the repo-relative paths it owns; a trailing slash means a directory. */
   readonly layers: Readonly<Record<string, readonly string[]>>;
+
   /** Glob patterns of files neither lint reads (tests, fixtures). An import INTO one is still an edge. */
   readonly exclude: readonly string[];
+
   /** from -> the layers it may import; a layer absent here imports nothing outside itself. */
   readonly edges: Readonly<Record<string, readonly string[]>>;
 }
@@ -319,15 +321,17 @@ function sourcesOf(root: string, arch: Architecture): string[] {
 
 // --- accommodation vocabulary ------------------------------------------------
 
-// Compatibility with an older document lives in a migration ladder and nowhere else, so the words
-// that announce it anywhere else mark code that should not exist: delete the accommodation or move
-// it into a ladder step, never allow-list the word. Whole words, any case, code and comments alike.
 const ACCOMMODATION_VOCABULARY =
   /\b(?:legacy|deprecated|backwards|backward[ -]compat\w*|old shape|older file|migration remnant|fallback for an old)\b/gi;
 
 const LADDER_DIRECTORY = "migrations";
 
-/** Every accommodation word in a file the import lint reads, outside a `migrations/` folder, one problem per hit. */
+/**
+ * Every accommodation word in a file the import lint reads, outside a `migrations/` folder, one problem per hit.
+ * Compatibility with an older document lives in a migration ladder and nowhere else, so the words that announce
+ * it anywhere else mark code that should not exist: delete the accommodation or move it into a ladder step, never
+ * allow-list the word.
+ */
 export function lintAccommodationVocabulary(root: string, arch: Architecture): string[] {
   const problems: string[] = [];
   for (const file of sourcesOf(root, arch)) {
@@ -344,11 +348,6 @@ export function lintAccommodationVocabulary(root: string, arch: Architecture): s
   return problems;
 }
 
-/**
- * The module map over the DECLARED edges. A hyphen in a layer name is edge syntax to mermaid, so ids
- * use underscores; two names that collapse to one id (api-v1, api_v1) get a numbered suffix, so no
- * node is drawn over another.
- */
 const MERMAID_KEYWORDS = new Set([
   "end",
   "graph",
@@ -362,6 +361,11 @@ const MERMAID_KEYWORDS = new Set([
   "direction",
 ]);
 
+/**
+ * The module map over the DECLARED edges. A hyphen in a layer name is edge syntax to mermaid, so ids
+ * use underscores; two names that collapse to one id (api-v1, api_v1) get a numbered suffix, so no
+ * node is drawn over another.
+ */
 export function renderArchitectureMermaid(arch: Architecture): string {
   const ids = new Map<string, string>();
   const taken = new Set<string>();

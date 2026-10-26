@@ -29,8 +29,6 @@ import { storeTree } from "./source-key.ts";
 import type { EngineIo, FetchIntent } from "./types.ts";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
-// A failed fetch is retried well inside the cooldown, since the cooldown clock runs from the last
-// SUCCESS and would otherwise ask the network at every session start while a source is down.
 export const FAILED_FETCH_RETRY_MS = 60 * 60 * 1000;
 
 export type FetchedEntry = Extract<SourceEntry, { fetched?: Fetched }>;
@@ -77,7 +75,9 @@ export async function storeEntryPresent(path: string): Promise<boolean> {
 }
 
 // Due: never fetched, store copy missing, cooldown elapsed since the last success, or a failure
-// old enough to retry (and past any Retry-After). `force` is `update`.
+// old enough to retry (and past any Retry-After). `force` is `update`. A failed fetch is retried
+// well inside the cooldown, since the cooldown clock runs from the last SUCCESS and would
+// otherwise ask the network at every session start while a source is down.
 export function isDue(
   fetched: Fetched | undefined,
   now: Date,

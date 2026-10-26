@@ -21,7 +21,6 @@ import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
-// The refusal names where the bytes would land, which on Windows expands a short-name checkout.
 const realRepoRoot = realpathSync.native(repoRoot);
 
 test("the failure report lands at <dir>/<category>/report.md with the heading and replay first", async () => {
@@ -110,8 +109,7 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
   });
 });
 
-// A failing category's summary often already carries its body (a diff, a table); the log shows
-// each line once, and only what the body adds beyond the summary, ahead of the status line.
+// A failing category's summary often already carries its body (a diff, a table); the log shows each line once, and only what the body adds beyond the summary, ahead of the status line.
 const failBodies: [string, string, string, string][] = [
   ["equals the summary's tail", "## Harness drift\n\ndrift\n", "drift\n", ""],
   [
@@ -165,14 +163,14 @@ function runNightly(args: string[]) {
   });
 }
 
-// Usage refusals happen before any category runs, so none of these reaches the network. The
-// usage text is what a workflow author reads when a job names a category wrong.
+// Usage refusals happen before any category runs, so none of these reaches the network; the usage text is what a workflow author reads when a job names a category wrong.
 const refusals: [string[], string][] = [
   [["full-moon"], "unknown category full-moon"],
   [["harness-drift", "--trend", "trend.json"], "harness-drift does not take --trend"],
   [["published-smoke", "--iterations", "3"], "published-smoke does not take --iterations"],
   [
     ["harness-drift", "--report-dir", "dist/nightly-report"],
+    // The refusal names where the bytes would land, which on Windows expands a short-name checkout.
     `refusing to write the failure report inside the repository: ${join(realRepoRoot, "dist", "nightly-report")}`,
   ],
   [

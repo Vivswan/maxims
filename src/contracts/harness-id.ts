@@ -39,8 +39,7 @@ export function parseUserHarnessId(value: string): UserHarnessId | null {
   return value as UserHarnessId;
 }
 
-// A user-defined id stays valid state after harnesses.json stops defining it: intent is never
-// dropped on a read, and sync is what notices the gap and skips that harness.
+// A user-defined id stays valid state after harnesses.json stops defining it: intent is never dropped on a read, and sync is what notices the gap and skips that harness.
 export const HarnessIdSchema = z.custom<HarnessId>(
   (value) =>
     typeof value === "string" && (isBuiltInHarnessId(value) || parseUserHarnessId(value) !== null),

@@ -1,3 +1,9 @@
+// `update` is `sync` with the refresh forced: every fetched source, or the one named, is fetched
+// again whatever the cooldown says, and whatever `-a` limits the writes to.
+//
+//   the lines afterwards  -> the engine's report: what was fetched, what each refresh changed, what failed, and which refreshed descriptions carry a risky shape
+//   `--strict`            -> the engine does the fetching, so it plans the refresh first, at the price of a second fetch, and persists nothing (not the --cap beside it) when a warning exists
+
 import {
   foundUpdates,
   heldUpdate,
@@ -55,12 +61,6 @@ const UPDATE_FLAGS: readonly FlagSpec[] = [
   FLAGS.strict,
 ];
 
-// `update` is `sync` with the refresh forced: every fetched source, or the one named, is fetched
-// again whatever the cooldown says, and whatever `-a` limits the writes to. The lines afterwards
-// come from the engine's report: what was fetched, what each refresh changed, what failed, and
-// which refreshed descriptions carry a risky shape. The engine does the fetching, so `--strict`
-// plans the refresh first, at the price of a second fetch, and persists nothing (not the --cap
-// beside it) when a warning exists.
 export const update: Command = {
   summary: "refetch every source, ignoring the cooldown, then sync",
   usage: "update [source]",

@@ -16,7 +16,10 @@ import { markdownTable } from "./markdown_table.ts";
 
 // Paths render as a user would type them: `~` for the home and nothing for the project root.
 const DISPLAY_CONTEXT: HarnessContext = { home: "~", projectRoot: ".", cwd: ".", env: {} };
+
+// Stands in for the source slug in a rendered path: the matrix describes every source at once.
 const SOURCE_PLACEHOLDER = "<source>";
+
 // A real slug goes through `fileName`, then gives way to the placeholder the matrix shows.
 const SLUG_SENTINEL = sentinelSlug();
 

@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // The harness targets OpenCode 2.0 (`@opencode/cli` 2.x). A plugin is a module default-exporting
 // `@opencode/plugin`'s `define` shape; a module of any other shape in the plugins directory is
 // passed over without a word, so a 1.x-shaped file never runs, and the 1.x line is not targeted.
@@ -13,6 +10,10 @@ import type { HarnessSpec } from "../spec.ts";
 //                     refuses a file path, so the hook stays a file there.
 //   session.created   reaches a plugin only for sessions created after it activated, and
 //                     `opencode run` creates its session first, so the hook syncs at setup too.
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "opencode",
   displayName: "OpenCode",

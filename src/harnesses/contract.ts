@@ -11,11 +11,11 @@ import { statOrAbsent } from "./detect.ts";
 
 export type Scope = "project" | "global";
 
+// `cwd` is the directory the session runs in: a hook's start directory, else the process cwd. A
+// harness that layers its config per directory reads from `projectRoot` down to it.
 export type HarnessContext = {
   home: string;
   projectRoot: string | null;
-  // The directory the session runs in: a hook's start directory, else the process cwd. A harness
-  // that layers its config per directory reads from `projectRoot` down to it.
   cwd: string;
   env: Record<string, string | undefined>;
 };
@@ -58,10 +58,7 @@ export function parseSourceSlug(candidate: string): SourceSlug | null {
   return SOURCE_SLUG_PATTERN.test(candidate) ? (candidate as SourceSlug) : null;
 }
 
-// Blank as Codex judges it: Rust's `str::trim` strips the Unicode White_Space set, which differs
-// from JavaScript's `trim` on two characters.
-//   U+FEFF (byte order mark)   whitespace only to JavaScript, so a BOM-only file is one Codex reads
-//   U+0085                     whitespace only to Rust
+// Blank as Codex judges it: Rust's `str::trim` strips Unicode White_Space, so unlike JavaScript's `trim` it keeps U+FEFF (a BOM-only file is one Codex reads) and strips U+0085.
 const WHITE_SPACE_ONLY = /^\p{White_Space}*$/u;
 
 // A directory named in the list (Cline's `.clinerules/`) holds no block and is skipped.
@@ -233,15 +230,19 @@ export type HookShape =
       ) => Promise<CustomHookPlan>;
     };
 
-// The hook command carries no source string, no filter, and no version pin: intent supplies the
-// first two, and the missing pin is what lets a fix reach hooked sessions without a re-add. Every
-// registry is searched for the PREFIX so a later flag change still finds the entry it replaces.
+// Every registry is searched for this prefix, so a later flag change still finds the entry it replaces.
 const HOOK_PREFIX_ARGV = [...PACKAGE_ARGV, "sync"] as const;
+
+// The hook command carries no source string, no filter, and no version pin: intent supplies the first two, and the missing pin is what lets a fix reach hooked sessions without a re-add.
 const HOOK_ARGV = [...HOOK_PREFIX_ARGV, "--quiet"] as const;
+
 /** @public */
 export const HOOK_COMMAND = HOOK_ARGV.join(" ");
+
 /** @public */
 export const HOOK_COMMAND_PREFIX = HOOK_PREFIX_ARGV.join(" ");
+
+// One timeout for every harness: a spec declares none, and a harness that counts in milliseconds reads it as `{{timeoutMs}}`.
 export const HOOK_TIMEOUT_SECONDS = 20;
 
 // Fixtures live at `src/harnesses/<id>/fixtures/`: `config.*` is a hand-formatted registry that
@@ -283,6 +284,10 @@ export type VerifiedAgainst = {
   sources: readonly [VerifiedSource, ...VerifiedSource[]];
 };
 
+// A harness as the engine and the strategies read it; from-spec.ts builds one from a spec.
+//   scopeFrontmatter   `render` opens a path-scoped rule file
+//   its byteBudget     the smaller limit the harness loads such a file under when it reads it on demand (Claude Code: 40,000 characters against 4 MiB at launch); declared inside the frontmatter, so no harness without path scoping can carry one
+//   configEdit         config rewrites a rules-dir target needs before the harness reads it (a rules directory listed in a user-owned config), reconciled by sync like a hook; no built-in declares one, and dsh's custom hook mints the same rewrites
 export interface HarnessDefinition {
   id: HarnessId;
   displayName: string;
@@ -294,17 +299,11 @@ export interface HarnessDefinition {
   expands: ExpansionSyntax[];
   byteBudget?: ByteBudget;
   detect: (ctx: HarnessContext) => boolean;
-  // `render` opens a path-scoped rule file; `byteBudget` is the smaller limit the harness loads
-  // such a file under when it reads it on demand (Claude Code: 40,000 characters against 4 MiB
-  // at launch). Declared inside the frontmatter, so no harness without path scoping can carry one.
   scopeFrontmatter?: { render: (globs: string[]) => string | null; byteBudget?: number };
   verifiedAgainst: VerifiedAgainst;
   fixtures?: HarnessFixtures;
   globalRoot?: (ctx: HarnessContext) => string;
   mcp?: McpRegistry;
-  // Config edits a rules-dir target needs before the harness reads it (a rules directory listed
-  // in a config the user owns), reconciled by sync like a hook: each a rewrite of a file the user
-  // owns. No built-in declares one today; dsh's custom hook mints the same rewrites.
   configEdit?: (scope: Scope, ctx: HarnessContext, wanted: boolean) => Promise<ConfigRewrite[]>;
 }
 

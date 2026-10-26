@@ -1,11 +1,12 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Gemini waits for every hook and compares a lifecycle matcher with `===` against the source.
 //   timeout          milliseconds; a seconds value would kill the sync at 20ms
 //   matcher-less     `startup|resume|clear` would match nothing and no matcher matches every start
 //   settings.json    strip-json-comments then `JSON.parse`; a comment reads, a trailing comma is a
 //                    file Gemini reports and skips
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "gemini-cli",
   displayName: "Gemini CLI",

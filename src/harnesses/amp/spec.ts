@@ -1,12 +1,13 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Amp reads every user and system guidance file that exists, side by side with the project's: none
 // of them outranks another.
 //   `~/.config/AGENTS.md`   read too, but shared with other tools, so the global target is Amp's
 //                           own `~/.config/amp/AGENTS.md`
 //   `~/.config/amp`         the docs give it with no XDG override, though the plugins page honours
 //                           `XDG_CONFIG_HOME`, so the root stays fixed
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "amp",
   displayName: "Amp",

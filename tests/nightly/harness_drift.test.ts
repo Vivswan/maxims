@@ -26,8 +26,7 @@ import {
 import type { Outcome } from "../../scripts/nightly/report.ts";
 import type { PointerCheck, VerifiedSource } from "../../src/harnesses/contract.ts";
 
-// A markdown rendition as a vendor serves it: a fact wrapped across lines, a code fence quoting
-// markup, so the text is read as it is and only its whitespace runs collapse.
+// A markdown rendition as a vendor serves it: a fact wrapped across lines, a code fence quoting markup.
 const PAGE = [
   "# Hooks",
   "",
@@ -40,6 +39,7 @@ const PAGE = [
   "",
 ].join("\n");
 
+// What a claim is matched against: the text read as it is, with only its whitespace runs collapsed.
 const NORMALIZED =
   "# Hooks Run `maxims sync` on SessionStart and write `<slug>.md`; it's fast. ```html <main>Example</main> ```";
 
@@ -47,14 +47,14 @@ test("normalizeText pins the text a claim is matched against for a fixed page", 
   expect(normalizeText(PAGE)).toBe(NORMALIZED);
 });
 
-// The boundary rule is what keeps a claim honest: `hooks` must not hold on `webhooks` and `hook`
-// not on `hooks`, while a claim that ends in punctuation needs no boundary there. `axb` is the
-// negative control for the escaping: an unescaped `a.b` would hold on it, as an unescaped `rules.`
-// would on `rules `. The impossible token is the negative control for the matcher itself.
 const WORDS =
   "Put rules in .claude/rules/ and set alwaysApply: true; webhooks and pre-hooks differ from hooks. " +
   "Keep $DSH_HOME/cordis.patch.yml under 65,536-byte budgets, axb.";
 
+// The boundary rule is what keeps a claim honest: `hooks` must not hold on `webhooks` and `hook`
+// not on `hooks`, while a claim that ends in punctuation needs no boundary there. `axb` is the
+// negative control for the escaping: an unescaped `a.b` would hold on it, as an unescaped `rules.`
+// would on `rules `. The impossible token is the negative control for the matcher itself.
 describe("claimPresent", () => {
   test.each([
     ["a phrase", "set alwaysApply: true", true],
@@ -81,10 +81,9 @@ describe("claimPresent", () => {
   });
 });
 
-// A published schema as the pointers must read it: a dotted key such as `amp.mcpServers` is one
-// token, a slash inside a key is escaped as `~1`, and a value check compares what the key holds.
 const SCHEMA = {
   properties: {
+    // JSON Pointer reads a dotted key as one token and spells a slash inside a key as `~1`.
     "amp.mcpServers": { type: "object" },
     "a/b": { type: "string" },
     hooks: { items: [{ const: "SessionStart" }, { const: "SessionEnd" }] },

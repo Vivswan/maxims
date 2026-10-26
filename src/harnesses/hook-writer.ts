@@ -194,6 +194,7 @@ export function freshRegistry(hook: RegistryShape, handler: Record<string, unkno
 // refused at the first parse, before any splice.
 class JsonRegistry {
   private text: string;
+
   private readonly reader: JsonReader;
 
   constructor(
@@ -461,8 +462,11 @@ export function demotionNote(check: Pick<TierCheck, "key" | "demotesWhen">): str
 // only the project reading passes the trust gate, so readings are kept per layer.
 class ConfigWalk {
   private readonly files = new Map<string, Promise<FileReading>>();
+
   private readonly readings = new Map<string, Promise<ConfigLayer>>();
+
   private readonly layers: TierLayer[];
+
   private readonly reader: { format: ConfigFormat; vendor: string };
 
   constructor(
@@ -549,9 +553,7 @@ function trustPath(gate: ProjectTrust, dir: string): string[] {
   return [...gate.table.split("."), dir, ...gate.key.split(".")];
 }
 
-// zod's object schemas take any non-array object, a Date included, and smol-toml hands a TOML date
-// back as a Date subclass, so a plain-object gate in front of each table keeps a date where a table
-// belongs from reading as an empty table.
+// zod's object schemas take any non-array object, a Date included, and smol-toml hands a TOML date back as a Date subclass, so a plain-object gate in front of each table keeps a date where a table belongs from reading as an empty table.
 const plainTable = z.custom<Record<string, unknown>>(util.isPlainObject, {
   error: (issue) => `Invalid input: expected object, received ${util.getParsedType(issue.input)}`,
 });

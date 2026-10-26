@@ -27,9 +27,6 @@ const HEAVY = [
   "diff",
 ];
 
-// Imports point from the add verb's entry into its phase files, never back, so a root reaching a
-// phase directly never visits the entry. The whole folder is the sentinel, read from disk so a new
-// phase file cannot slip out of the list.
 const HOOK_PATH_EXCLUDES = [
   "sources/github/ladder.ts",
   "sources/github/index.ts",
@@ -37,6 +34,7 @@ const HOOK_PATH_EXCLUDES = [
   "sources/git/index.ts",
   "console/clack.ts",
   "console/rename.ts",
+  // Imports point from the add verb's entry into its phase files, never back, so a root reaching a phase directly never visits the entry; the whole folder is read from disk so a new phase file cannot slip out of the list.
   ...new Bun.Glob("commands/add/*.ts").scanSync({ cwd: SRC }),
   "commands/update.ts",
 ].map((path) => resolve(SRC, path));
@@ -92,8 +90,6 @@ test("the static graph from the bin entry, the engine loader and the sync verb c
   expect(offenders(graph)).toEqual({ packages: [], modules: [] });
 });
 
-// The negative controls: the same check over graphs known to carry the interactive libraries and
-// the fetch ladder must name them, or a green run above proves nothing.
 const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
   [
     "the clack renderer",
@@ -121,12 +117,13 @@ const CONTROLS: [string, string, ReturnType<typeof offenders>][] = [
   ],
 ];
 
+// The negative controls: the same check over graphs known to carry the interactive libraries and
+// the fetch ladder must name them, or a green run above proves nothing.
 test.each(CONTROLS)("the check names what a walk from %s carries", (_name, root, expected) => {
   expect(offenders(walk(resolve(SRC, root)))).toEqual(expected);
 });
 
-// Every module the run evaluated, written when the process exits as the raw require.cache paths;
-// evaluatedModules folds dependency paths to package names, the vocabulary `offenders` reads.
+// Every module the run evaluated, written when the process exits as the raw require.cache paths; evaluatedModules folds dependency paths to package names, the vocabulary `offenders` reads.
 const PROBE = `
 process.on("exit", () => {
   require("node:fs").writeFileSync(process.env.MAXIMS_PROBE_OUT, Object.keys(require.cache).join("\\n"));

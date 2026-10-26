@@ -33,7 +33,6 @@ export type WriteFileAtomicOptions = {
   mode?: number;
 };
 
-// Windows cannot hold a requested mode, so a mode compare there counts a change on every run.
 export const POSIX_MODES = process.platform !== "win32";
 
 declare const rootedPathBrand: unique symbol;

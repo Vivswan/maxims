@@ -29,9 +29,6 @@ const LINE_ENDING = /\r\n|\r|\n/g;
 const BLANK_TAIL = /^[ \t\r\n]*$/;
 const BOM = "\uFEFF";
 
-// CommonMark's raw HTML block kinds 1 to 5 end on the line holding their end string; kinds 6 and 7
-// end at a blank line, which an append writes anyway. The kind is read off the block's first line,
-// as the specification orders its start conditions.
 const RAW_TAG_OPEN = /^<(pre|script|style|textarea)(?=[ \t>]|$)/i;
 const RAW_TAG_END = /<\/(pre|script|style|textarea)>/i;
 const DELIMITED_KINDS: { open: RegExp; end: RegExp; closer: string }[] = [
@@ -175,6 +172,9 @@ function openLeaf(
   return { column: leaf.column, closer: delimited.closer };
 }
 
+// CommonMark's raw HTML block kinds 1 to 5 end on the line holding their end string; kinds 6 and 7
+// end at a blank line, which an append writes anyway. The kind is read off the block's first line,
+// as the specification orders its start conditions.
 function delimitedKind(opening: string): { end: RegExp; closer: string } | null {
   const raw = RAW_TAG_OPEN.exec(opening);
   if (raw !== null) return { end: RAW_TAG_END, closer: `</${raw[1].toLowerCase()}>` };

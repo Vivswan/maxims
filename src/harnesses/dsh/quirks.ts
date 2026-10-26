@@ -1,3 +1,9 @@
+// dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
+// profile is `$DSH_HOME/cordis.patch.yml`; it has no per-project config discovery. The bridge row
+// mounted there points at a maxims-owned hooks file.
+//   ABSOLUTE path   the bridge resolves a relative `configPath` from whatever directory launched dsh
+//   read once       at process start, so a running dsh sees a new or changed row only after a restart
+
 import { join } from "node:path";
 import { type Document, isMap, isNode, isSeq, parseDocument, stringify } from "yaml";
 import { lstatOrNull } from "../../util/change.ts";
@@ -15,11 +21,6 @@ import {
 } from "../contract.ts";
 import { freshRegistry, type RegistryShape } from "../hook-writer.ts";
 
-// dsh composes its plugin tree from layered patch files, and the only layer a user owns for every
-// profile is `$DSH_HOME/cordis.patch.yml`; it has no per-project config discovery. The bridge
-// row mounted there points at a maxims-owned hooks file by ABSOLUTE path because the bridge
-// resolves a relative `configPath` from whatever directory launched dsh, and it reads that path
-// once at process start, so a running dsh sees a new or changed row only after a restart.
 export const BRIDGE_PLUGIN = "@deepseek-ai/dsh-hooks-claude-code";
 export const BRIDGE_ROW_ID = "maxims-hooks";
 

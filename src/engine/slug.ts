@@ -10,8 +10,6 @@ import { canonicalSourceKey } from "../state/schema.ts";
 import { sha256 } from "../util/fs.ts";
 
 const SLUG_HASH_LENGTH = 6;
-// A hashed slug's readable part is cut so `maxims-<slug>.md` stays far under the 255-byte file
-// name limit whatever the pin or path; the hash carries the identity.
 const READABLE_MAX = 80;
 
 // The file-name form of a source: `maxims-<slug>.md` in a rules directory. A GitHub source whose
@@ -33,6 +31,8 @@ export function sourceSlug(from: SourceFrom): SourceSlug {
   return slug;
 }
 
+// The readable part is cut so `maxims-<slug>.md` stays far under the 255-byte file name limit
+// whatever the pin or path; the hash carries the identity.
 function hashed(from: SourceFrom, readable: string): string {
   const folded = fold(readable).slice(0, READABLE_MAX).replace(/-+$/, "");
   const digest = sha256(canonicalSourceKey(from));

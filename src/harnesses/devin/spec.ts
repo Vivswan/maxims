@@ -1,10 +1,11 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Devin Local is the agent new Devin Desktop (formerly Windsurf) tabs start with and shares its
 // rule, hook and MCP files with the Devin CLI; the earlier Cascade agent is the `windsurf` harness.
 // Hooks go under the `hooks` key of `config.json` in both scopes because the standalone
 // `.devin/hooks.v1.json` has no user-level twin.
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "devin",
   displayName: "Devin Local",

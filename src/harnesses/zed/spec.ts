@@ -1,10 +1,10 @@
+// Zed reads exactly one project instruction file, and only at the worktree root.
+//   Windows   it asks for the RoamingAppData known folder, which maxims cannot look up, so `%APPDATA%` stands in and a re-pointed `APPDATA` moves maxims's root alone
+//   Flatpak   a set `FLATPAK_XDG_CONFIG_HOME` is taken as it is; only `XDG_CONFIG_HOME` passes through the dirs crate, which drops a relative value
+
 import { toDefinition } from "../from-spec.ts";
 import type { HarnessSpec } from "../spec.ts";
 
-// Zed reads exactly one project instruction file, and only at the worktree root. On Windows it
-// asks for the RoamingAppData known folder, which maxims cannot look up, so `%APPDATA%` stands in
-// and a re-pointed `APPDATA` moves maxims's root alone. A set `FLATPAK_XDG_CONFIG_HOME` is taken
-// as it is; only `XDG_CONFIG_HOME` passes through the dirs crate, which drops a relative value.
 export const spec = {
   id: "zed",
   displayName: "Zed",

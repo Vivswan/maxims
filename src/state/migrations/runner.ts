@@ -13,26 +13,27 @@
 
 import { z } from "zod";
 
+/** One rung. `up` is pure and idempotent on its own output: it returns the next version's shape with `version` stamped. */
 export type MigrationStep<Document = unknown> = {
   readonly description: string;
-  /** Pure and idempotent on its own output: returns the next version's shape with `version` stamped. */
   readonly up: (raw: Document) => Document;
 };
 
+/**
+ * `kind` names the document in a thrown message: "state", "config", "project lock". `firstVersion`
+ * is the version the first step moves away from.
+ */
 export type Ladder<Document = unknown> = {
-  /** Names the document in a thrown message: "state", "config", "project lock". */
   readonly kind: string;
-  /** The version the first step moves away from. */
   readonly firstVersion: number;
   readonly steps: readonly MigrationStep<Document>[];
 };
 
-// The version is read before any shape judgment: a boundary routes an older document by it and
-// refuses a newer one by it, so neither ever parses a shape it cannot know. `Number.isInteger`
-// rather than zod's own checks: `int()` refuses an integer past the safe range, which is still a
-// version to stop on, and `multipleOf(1)` admits 1.0000000000000002 within its tolerance.
+// `Number.isInteger` rather than zod's own checks: `int()` refuses an integer past the safe range, which is still a version to stop on, and `multipleOf(1)` admits 1.0000000000000002 within its tolerance.
 const Versioned = z.object({ version: z.number().refine(Number.isInteger) });
 
+// The version is read before any shape judgment: a boundary routes an older document by it and
+// refuses a newer one by it, so neither ever parses a shape it cannot know.
 export function versionOf(json: unknown): number | null {
   const result = Versioned.safeParse(json);
   return result.success ? result.data.version : null;

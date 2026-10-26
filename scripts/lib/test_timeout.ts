@@ -1,7 +1,7 @@
-// A row that runs a chain of git processes (a fixture repository, a clone) spends bun's default
-// five seconds on process start-up alone on a cold Windows runner, where each git start costs a
-// large fraction of a second. The launcher widens the budget there and keeps bun's own elsewhere.
+// bun's own default, kept on every platform but Windows.
 export const DEFAULT_TEST_TIMEOUT_MS = 5_000;
+
+// On a cold Windows runner each git start costs a large fraction of a second, so a row that runs a chain of git processes (a fixture repository, a clone) spends bun's five seconds on start-up alone.
 export const WINDOWS_TEST_TIMEOUT_MS = 30_000;
 
 // The arguments the launcher hands `bun test`: the platform's timeout, unless the caller's own

@@ -1,9 +1,10 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // A `.claude/rules` file loads at launch with no frontmatter, so only a path-scoped install carries
 // a preamble. `disableAllHooks` is read after settings precedence applies; managed settings and
 // `--settings` outrank every file here and are not read.
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "claude-code",
   displayName: "Claude Code",

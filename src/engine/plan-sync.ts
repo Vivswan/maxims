@@ -14,15 +14,17 @@ import type { EngineIo, SyncOptions, SyncReport } from "./types.ts";
 
 export type SyncFailure = { code: ExitCode; message: string; hint?: string };
 
+//   previousState  -> the state as the caller read it under the lock; the state write is planned
+//                     when the state this run ends with differs from it, whether the caller or the
+//                     fetch step changed it
+//   removed        -> entries the caller took out of intent: their `-o` folders are swept (no
+//                     harness sweep reaches them), and the content hashes of their bodies let a
+//                     copied body under a project be told from the user's own file with the same
+//                     name
 export type SyncExtras = {
   verb: "sync" | "remove";
-  // The state as the caller read it under the lock; the state write is planned when the state
-  // this run ends with differs from it, whether the caller or the fetch step changed it.
   previousState: State;
   extraChanges: readonly Change[];
-  // Entries the caller took out of intent: their `-o` folders are swept (no harness sweep
-  // reaches them), and the content hashes of their bodies let a copied body under a project be
-  // told from the user's own file with the same name.
   removed: readonly SourceEntry[];
   removedCopies: ReadonlySet<ContentHash>;
 };

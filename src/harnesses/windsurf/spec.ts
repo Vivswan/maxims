@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // The earlier Cascade agent of Devin Desktop (formerly Windsurf). It has no session-start event, so
 // the hook rides `pre_user_prompt` and the `sync --quiet` stamp debounces the rest to one sync a
 // minute.
@@ -9,6 +6,10 @@ import type { HarnessSpec } from "../spec.ts";
 //                       hooks
 //   both command keys   a `powershell`-only entry is silently skipped on macOS and Linux, and a
 //                       `command`-only one runs on Windows via `powershell -Command`
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "windsurf",
   displayName: "Windsurf Cascade",

@@ -84,9 +84,6 @@ export function parseSourceSelector(
 
 const GITHUB_TREE_SEGMENT = 2;
 
-// The advice for a GitHub URL whose tail says more than a ref, keyed by the segment GitHub puts
-// there. It names the flags that say the same thing and never an `@owner/repo` shorthand, which an
-// enterprise shell would re-host under GH_HOST.
 const TAIL_ADVICE = {
   tree: 'a tree URL with a path cannot tell a branch containing "/" from the path; drop the /tree/<ref>/... tail and pass --pin <ref> --from <path>',
   blob: "a blob URL names one file, and a source is a folder; drop the /blob/<ref>/<file> tail and pass --pin <ref> --from <folder> --memory <name>",
@@ -94,7 +91,9 @@ const TAIL_ADVICE = {
 
 // A GitHub URL is judged by its owner/repo grammar alone; the segment after `tree` is a ref, not
 // a directory, so the store-path usability check does not apply to it, and whether it is storable
-// is judged only once `add` knows whether a `--pin` replaces it.
+// is judged only once `add` knows whether a `--pin` replaces it. The tail advice names the flags
+// that say the same thing and never an `@owner/repo` shorthand, which an enterprise shell would
+// re-host under GH_HOST.
 function fromRemote(arg: string, remote: GitRemote, options: SourceArgumentOptions): SourceFrom {
   const remoteHost = normalizeGithubHost(remote.host);
   const isGithubCom = remoteHost === DEFAULT_GH_HOST;

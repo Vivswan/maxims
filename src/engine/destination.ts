@@ -18,19 +18,20 @@ import { followLinks, type RootedPath, realKeyOf } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import type { HarnessFilter } from "./types.ts";
 
+//   ctx      -> the context the target was resolved under: another project's reader kept on a file
+//               this run visits carries that project's root here, so whatever is asked of the
+//               reader later (its tier, its splice) is asked with a root it has, never with the
+//               run's, which may be none
+//   realKey  -> the real path of the target file (or of its nearest existing ancestor plus the
+//               rest), so two definitions whose targets are one file through a symlink share one
+//               block; a rule file keeps its own leaf name (a link there is replaced), a shared
+//               file is edited through a link, so its identity is the file the link resolves to
 export type HarnessTarget = {
   def: HarnessDefinition;
   scope: Scope;
   target: Target;
-  // The context the target was resolved under. Another project's reader kept on a file this run
-  // visits carries that project's root here, so whatever is asked of the reader later (its tier,
-  // its splice) is asked with a root it has, never with the run's, which may be none.
   ctx: HarnessContext;
   path: RootedPath;
-  // The real path of the target file (or of its nearest existing ancestor plus the rest), so two
-  // definitions whose targets are one file through a symlink share one block. A rule file keeps
-  // its own leaf name (a link there is replaced); a shared file is edited through a link, so its
-  // identity is the file the link resolves to.
   realKey: string;
 };
 
@@ -47,13 +48,14 @@ export type TargetResolution = {
   skipped: SkippedHarness[];
 };
 
-// `agents` are the harnesses this run writes; `explicit` the ones the user named with `-a`, which
-// a run may widen `agents` beyond (a refreshed source is written for every harness that reads it).
+//   sourceSlug  -> null for a shared file visited only for its orphans: a shared block derives no
+//                  file name from the source, so no slug exists for it
+//   agents      -> the harnesses this run writes
+//   explicit    -> the ones the user named with `-a`, which a run may widen `agents` beyond (a
+//                  refreshed source is written for every harness that reads it)
 export type TargetRequest = {
   intent: Pick<SourceIntent, "harnesses">;
   scope: Scope;
-  // null for a shared file visited only for its orphans: a shared block derives no file name
-  // from the source, so no slug exists for it.
   sourceSlug: SourceSlug | null;
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];

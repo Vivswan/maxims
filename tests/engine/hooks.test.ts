@@ -76,8 +76,6 @@ import {
 } from "./fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "./world.ts";
 
-// The registry write's content is the hook writer's; this test pins only which changes appear:
-// the config entry, the registry and the servers file are each an edit of the user's file.
 const configWrite = (config: string): unknown => ({
   kind: "edit",
   path: config,
@@ -122,6 +120,8 @@ const cases: [string, HarnessWants, (config: string, registry: string) => unknow
   ],
 ];
 
+// The registry write's content is the hook writer's; this test pins only which changes appear:
+// the config entry, the registry and the servers file are each an edit of the user's file.
 describe("planHooks", () => {
   for (const [label, wants, expected] of cases) {
     test(`${label}: the config edit follows the rules, the registry entry follows the hook`, async () => {
@@ -150,11 +150,6 @@ describe("planHooks", () => {
   }
 });
 
-// The stub server entry is the session-start sync of a harness whose event is the MCP handshake,
-// so it follows the hook intent: wanted, it is written beside the hook; unwanted, it leaves as a
-// removal. A user-defined harness may keep its hooks and its servers in one file, where two
-// changes in one plan would leave whichever landed last.
-// The rules-dir fixture with a servers file beside its hook registry, or in it.
 const serversIn = (file: string, serversPath = ["mcpServers"]): HarnessDefinition => ({
   ...rulesDirHarness,
   mcp: {
@@ -166,6 +161,13 @@ const serversIn = (file: string, serversPath = ["mcpServers"]): HarnessDefinitio
 const apart = serversIn("mcp.json");
 const together = serversIn("settings.json");
 
+// The stub server entry is the session-start sync of a harness whose event is the MCP handshake,
+// so it follows the hook intent: wanted, it is written beside the hook; unwanted, it leaves as a
+// removal. A user-defined harness may keep its hooks and its servers in one file, where two
+// changes in one plan would leave whichever landed last.
+//
+// `serversIn` is the rules-dir fixture with a servers file beside its hook registry (`apart`) or
+// in it (`together`).
 describe("the MCP server entry follows the hook intent", () => {
   const plan = async (
     def: HarnessDefinition,

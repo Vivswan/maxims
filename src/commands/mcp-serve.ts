@@ -1,11 +1,12 @@
-import { ExitCode } from "../util/exit-codes.ts";
-import { engineIo, SILENT } from "./frame/engine-io.ts";
-import { type Command, usage } from "./frame/options.ts";
-
 // Hidden from `--help`: a harness that starts its MCP servers eagerly spawns `maxims mcp-serve`
 // and the sync runs before the agent reads a word. The server exposes zero tools; the quiet sync
 // at start is its entire behavior. Both streams belong to the protocol, so the sync it starts
 // prints nowhere and reads no hook payload.
+
+import { ExitCode } from "../util/exit-codes.ts";
+import { engineIo, SILENT } from "./frame/engine-io.ts";
+import { type Command, usage } from "./frame/options.ts";
+
 export const mcpServe: Command = {
   summary: "serve the tool-less MCP stub whose start runs a quiet sync",
   usage: "mcp-serve",

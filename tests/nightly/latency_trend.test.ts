@@ -68,9 +68,9 @@ const noBase: BaseSide = {
 
 const TITLE = "Hook-path latency or bundle size regressed against 7 days ago";
 
-// Ten runs after one warm-up: the trimmed mean keeps six starts and drops two from each end.
 const flat = (ms: number): Series => ({
   warmup: ms,
+  // Ten runs after one warm-up: the trimmed mean keeps six starts and drops two from each end.
   kept: Array<number>(6).fill(ms),
   trimmed: Array<number>(4).fill(ms),
 });
@@ -107,8 +107,6 @@ const headMs = (name: string, head: number): Measured => ({
   series: { head: flat(head) },
 });
 
-// What the trend hands compare: the baseline's sha on both base fields, HEAD's sha, the
-// recorded run count, and the commands the PR gate times.
 const frame = (baseline: Entry) => ({
   base: { ref: baseline.sha, sha: baseline.sha },
   head: { sha: "0000000" },
@@ -119,10 +117,11 @@ const frame = (baseline: Entry) => ({
 const against = (baseline: Entry): string =>
   `Head \`0000000\` against the baseline \`${baseline.sha}\` at ${baseline.at}, the newest entry at least 7 days old`;
 
+// One simulated night: its history and what the run must produce from it.
+//   baseline -> the entry whose sha the night rebuilds
 interface Night {
   name: string;
   history: Entry[];
-  // The entry whose sha the night rebuilds.
   baseline: Entry;
   head: Measurement;
   base: BaseSide;
@@ -132,7 +131,6 @@ interface Night {
 
 const regressed = entry(8, "8888888");
 const warned = entry(9, "9999999", 40, 60);
-// The stored figures sit far below what tonight's runner reads for either side.
 const slowRunner = entry(7, "7777777", 50, 50);
 const unbuildable = entry(8, "8888888");
 
@@ -174,6 +172,7 @@ const nights: Night[] = [
     history: [slowRunner],
     baseline: slowRunner,
     head: measurement(126, 800_000),
+    // The stored figures sit far below what tonight's runner reads for either side.
     base: { bytes: 800_000, sample: steady({ base: [120, 76], head: [126, 80] }) },
     report: {
       ...frame(slowRunner),

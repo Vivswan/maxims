@@ -25,6 +25,7 @@ test("the suite runs with the iteration count in its environment and passes on e
 
 // A hand-written capture in bun's shape: a file whose assertion and timeout failures sit past the
 // tail, and the closing list that names them again without that output.
+
 const failingBlock = [
   "16 |   expect(run.stderr).toContain(expected);",
   "                        ^",

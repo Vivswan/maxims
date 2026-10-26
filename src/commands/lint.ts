@@ -1,3 +1,9 @@
+// `lint` is the source-repo check: every `.md` under the folder against the contract, the
+// hidden-character gate, the risky shapes `add` warns about, wikilinks resolving within the folder,
+// and the count against the cap, printed one `path:line: reason` per problem so an editor can jump
+// to it. Its `--cap <n>` is the install verbs' spelling, but a threshold for this run alone: lint
+// reads a source folder and persists nothing.
+
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { overRuleCap } from "../console/strings.ts";
@@ -25,8 +31,6 @@ import { riskWarningsFor } from "./frame/risk.ts";
 
 export type LintProblem = { path: string; line: number; reason: string };
 
-// The same `--cap <n>` spelling as the install verbs, but a threshold for this check only: lint
-// reads a source folder and persists nothing.
 const LINT_CAP: FlagSpec = {
   name: "cap",
   kind: "value",
@@ -36,9 +40,6 @@ const LINT_CAP: FlagSpec = {
 
 const LINT_FLAGS: readonly FlagSpec[] = [FLAGS.fullDepth, LINT_CAP];
 
-// The source-repo check: every `.md` under the folder against the contract, the hidden-character
-// gate, the risky shapes `add` warns about, wikilinks resolving within the folder, and the count
-// against the cap, printed one `path:line: reason` per problem so an editor can jump to it.
 export const lint: Command = {
   summary: "check a folder of memory files against the contract",
   usage: "lint [path]",

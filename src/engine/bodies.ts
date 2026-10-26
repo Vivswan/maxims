@@ -12,21 +12,24 @@ export type BodyFile = {
   text: string;
 };
 
+//   store          -> the store root: a link's target is resolved through the store's own
+//                     directories only, never through a live source's entry (a symlink to the
+//                     source directory), so every body link stays a link into the store and the
+//                     sweep still recognises it
+//   replaceCopies  -> whether a copy maxims wrote may be replaced by the link (a delete then a
+//                     symlink); a hook run may not delete, so it leaves the copy for the next
+//                     interactive run
+//   knownCopies    -> content hashes of every memory text maxims has written or recorded; a
+//                     regular file whose hash is one of them is a copy of ours, whatever upstream
+//                     has since become
 export type BodiesInput = {
   dir: string;
   root: string;
-  // The store root: a link's target is resolved through the store's own directories only, never
-  // through a live source's entry (a symlink to the source directory), so every body link stays a
-  // link into the store and the sweep still recognises it.
   store: string;
   files: readonly BodyFile[];
   copy: boolean;
   symlink: SymlinkSupport;
-  // Whether a copy maxims wrote may be replaced by the link (a delete then a symlink); a hook
-  // run may not delete, so it leaves the copy for the next interactive run.
   replaceCopies: boolean;
-  // Content hashes of every memory text maxims has written or recorded; a regular file whose
-  // hash is one of them is a copy of ours, whatever upstream has since become.
   knownCopies: ReadonlySet<ContentHash>;
 };
 

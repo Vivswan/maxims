@@ -5,6 +5,10 @@
 // store or destination that a sync cannot rebuild from state alone, an orphan the sweep misses, or
 // two sources sharing a folder name landing in one store entry. Every property drives the real
 // engine in-process over hand-written local sources and compares the bytes on disk, never the log.
+//
+// A sequence opens with one or two adds, then two to eight verbs that name an opened source at
+// least half the time: drawn uniformly, a verb met an installed source about once in seven steps,
+// too rarely for a property's default eight runs to exercise the verbs.
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,8 +25,7 @@ import { checkProperty, PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 // A source as the generators name it: its folder under the world and the memories it ships.
 type Fixture = { name: string; memories: Record<string, MemorySpec> };
 
-// Three sources with disjoint names, so any order of adds is free of collisions and a memory
-// name resolves to one source at most.
+// Three sources with disjoint names, so any order of adds is free of collisions and a memory name resolves to one source at most.
 const FIXTURES: Fixture[] = [
   {
     name: "alpha",
@@ -51,6 +54,7 @@ const FIXTURES: Fixture[] = [
 
 // Both have a global target, so link and unlink move a source between them without a refusal.
 const HARNESSES = ["claude-code", "codex"] as const;
+
 type Harness = (typeof HARNESSES)[number];
 const ADDED_WITH: Harness = "claude-code";
 
@@ -124,9 +128,6 @@ function opOver(fixtures: fc.Arbitrary<Fixture>): fc.Arbitrary<Op> {
 
 const addOp = addOver(fc.constantFrom(...FIXTURES));
 
-// Every sequence opens with one or two adds, and the verbs after them name an opened source at
-// least half of the time. Drawn uniformly, a verb met an installed source in about one step in
-// seven, which the default eight runs of a property reached too rarely to exercise the verbs.
 const sequence: fc.Arbitrary<Op[]> = fc
   .array(addOp, { minLength: 1, maxLength: 2 })
   .chain((adds) => {
@@ -389,8 +390,7 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// A registry with the user's own entries, which a hook registration must leave byte-identical
-// once the hook is gone again.
+// A registry with the user's own entries, which a hook registration must leave byte-identical once the hook is gone again.
 const SEEDED_SETTINGS = `{
   "permissions": { "allow": ["Bash(ls)"] },
   "hooks": {

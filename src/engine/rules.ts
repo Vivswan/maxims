@@ -39,13 +39,13 @@ import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts"
 import type { HarnessTarget } from "./destination.ts";
 import type { HarnessFilter } from "./types.ts";
 
+// `refreshed` says whether upstream changed this run: a differing block on disk is then the
+// refresh's doing, said once per source by the planner; otherwise it is judged for a local edit.
 export type BlockRequest = {
   key: string;
   sha: string;
   lines: RuleLine[];
   stale: Staleness | undefined;
-  // Whether upstream changed this run: a differing block on disk is then the refresh's doing,
-  // said once per source by the planner; otherwise it is judged for a local edit.
   refreshed: boolean;
   paths: string[] | undefined;
 };
@@ -60,6 +60,8 @@ export function ownershipOf(target: Target): Ownership {
   return target.kind === "rules-dir" ? "whole" : "shared";
 }
 
+// `aliases` are the links other harnesses read the file by, none of them a reader this run
+// renders for: the file is never deleted under one of them.
 export type RuleFile =
   | {
       kind: "harness";
@@ -67,8 +69,6 @@ export type RuleFile =
       path: RootedPath;
       sourceSlug: SourceSlug | null;
       targets: HarnessTarget[];
-      // Links other harnesses read the file by, none of them a reader this run renders for: the
-      // file is never deleted under one of them.
       aliases: string[];
       blocks: BlockRequest[];
     }
@@ -81,9 +81,10 @@ export type RuleFilePlan = {
   tokens: { path: string; tokens: number }[];
 };
 
+// `keep` names the sources whose block must survive in this file even though this run renders
+// none for them: a collision or a cap failure keeps the last-good block rather than dropping the
+// rules.
 export type RuleFileOptions = {
-  // Sources whose block must survive in this file even though this run renders none for them: a
-  // collision or a cap failure keeps the last-good block rather than dropping the rules.
   keep: ReadonlySet<string>;
 };
 
@@ -245,16 +246,18 @@ async function planReadableRuleFile(
   return { writes, removals, notices, tokens };
 }
 
+//   spans       -> the blocks the file holds, read once by the scanner in `renderRuleFile`: a
+//                  marker it refuses holds the file before any branch of `planReadableRuleFile`
+//                  writes or deletes it, since a whole-file write never reads it again
+//   unreadable  -> what the tier probes could not read, each with the harness ahead of it, said by
+//                  the plan
 type RenderedFile = {
   linked: boolean;
   current: string | null;
-  // The blocks the file holds, read once by the scanner here: a marker it refuses holds the file
-  // before any branch below writes or deletes it, since a whole-file write never reads it again.
   spans: ParsedBlock[];
   rendering: Rendering;
   gone: BlockRequest[];
   rendered: { block: BlockRequest; text: string }[];
-  // What the tier probes could not read, each with the harness ahead of it, said by the plan.
   unreadable: string[];
 };
 
@@ -416,19 +419,20 @@ function handEdited(
   return false;
 }
 
+//   planned  -> real paths of the rule files this run plans or keeps; a file is compared by its
+//               real path too, so a rules directory reached through a symlink agrees with its
+//               other spelling
+//   warn     -> a directory or file that exists but cannot be inspected is reported here rather
+//               than passed over as absent, so a removal that could not finish says so
+//   hold     -> a file behind a marker the grammar refuses is left where it is and held, so the
+//               run says so and fails like any held file
 export type RulesDirSweepInput = {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
   scopes: readonly Scope[];
-  // Real paths of the rule files this run plans or keeps; a file is compared by its real path
-  // too, so a rules directory reached through a symlink agrees with its other spelling.
   planned: ReadonlySet<string>;
-  // A directory or file that exists but cannot be inspected is reported here rather than passed
-  // over as absent, so a removal that could not finish says so.
   warn: (line: string) => void;
-  // A file behind a marker the grammar refuses is left where it is and held, so the run says so
-  // and fails like any held file.
   hold: (held: RuleFileHeld) => void;
 };
 

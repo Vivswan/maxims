@@ -4,8 +4,11 @@
 // a failure that earns no stdout line yet, and `log` is appended to log/refresh.log.
 export class Notices {
   readonly user: string[] = [];
+
   readonly quietStdout: string[] = [];
+
   readonly stderr: string[] = [];
+
   readonly log: string[] = [];
 
   notice(line: string): void {

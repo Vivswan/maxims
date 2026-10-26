@@ -3,6 +3,9 @@
 // its time, a staleness line rendered for a source that merely has not been fetched lately, a
 // second hook inside the debounce window doing work, a hook speaking plain text into a JSON-only
 // harness, a hook deleting files on a partial read, and a corrupt state file emptying a machine.
+//
+// SELF_REFRESH is spelled through the package command like the renderer spells it, so a package
+// rename cannot leave these pins matching nothing.
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -52,8 +55,6 @@ import { srcPath } from "../shared/src_path.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
 import { DAY_MS, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
 
-// The self-refresh line as a rule file carries it, spelled through the package command like the
-// renderer does, so a package rename cannot leave these pins matching nothing.
 const SELF_REFRESH = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
 
 const FROM = githubFrom("acme/rules");
@@ -761,8 +762,7 @@ describe("live sources whose files all fail the contract", () => {
   });
 });
 
-// Devin's session start and Windsurf's prompt action carry no working directory, so a hook run
-// from them starts at the process cwd; every other payload names its project.
+// Devin's session start and Windsurf's prompt action carry no working directory, so a hook run from them starts at the process cwd; every other payload names its project.
 const NAMES_NO_DIRECTORY: ReadonlySet<string> = new Set(["devin", "windsurf"]);
 
 describe("hook stdin contract", () => {

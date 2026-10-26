@@ -20,8 +20,12 @@ import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz } from "./shared.ts";
 
-// The fields the invoker rules read, each in the type that matches and in one that does not, so
-// a random record lands on every rule's boundary and on the order that disambiguates them.
+// The stdin generators and the id table the properties read.
+//
+//   PAYLOAD_FIELDS  -> the fields the invoker rules read, each in the type that matches and in one that does not, so a random record lands on every rule's boundary and on the order that disambiguates them
+//   payloadText     -> stdin texts from a serialized payload down to noise; `null` is a harness that opened no pipe
+//   KNOWN_IDS       -> HARNESS_IDS widened to strings, so a classification's id can be looked up without a cast
+
 const PAYLOAD_FIELDS = {
   hook_event_name: fc.constantFrom("SessionStart", "sessionStart", "PreToolUse", 1, null),
   timestamp: fc.oneof(fc.string(), fc.integer(), fc.constant(null)),
@@ -47,6 +51,7 @@ const PAYLOAD_FIELDS = {
 };
 
 const payload = fc.record(PAYLOAD_FIELDS, { requiredKeys: [] });
+
 const payloadText = fc.oneof(
   payload.map((record) => JSON.stringify(record)),
   fc.jsonValue({ maxDepth: 3 }).map((value) => JSON.stringify(value)),
@@ -171,12 +176,13 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// A pipe the harness never closes: with no bytes the read gives up at the documented 200 ms
-// first-chunk wait, with bytes that never parse at the documented 1000 ms total, and in neither
-// case one millisecond earlier. The budgets are the documented figures, not the module's
-// constants, so a constant drifting either way fails here.
+// The documented first-chunk wait, spelled here rather than imported so a module constant drifting either way fails.
 const FIRST_CHUNK_BUDGET_MS = 200;
+
+// The documented total wait, spelled the same way.
 const TOTAL_BUDGET_MS = 1000;
+
+// A pipe the harness never closes: no bytes gives up at the first-chunk wait, bytes that never parse at the total, and neither one millisecond earlier.
 const open: [string, (Uint8Array | string)[], number][] = [
   ["no bytes", [], FIRST_CHUNK_BUDGET_MS],
   ["one unfinished object", ['{"hook_event_name": "SessionStart"'], TOTAL_BUDGET_MS],

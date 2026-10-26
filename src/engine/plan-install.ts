@@ -68,6 +68,10 @@ import type { EngineIo, SyncOptions, SyncReport } from "./types.ts";
 
 type Refusal = { key: string; said: Notices; failure: SyncFailure | null };
 
+//   failed          -> live sources whose directory could not be read this run
+//   awaitingReview  -> sources with a revision held for review at the end of this run, made now
+//                      or earlier, with what it changes: a session hears about a waiting revision
+//                      at every start, as it does about a stale source
 type Attempt = {
   builder: PlanBuilder;
   notices: Notices;
@@ -75,11 +79,7 @@ type Attempt = {
   refusals: Refusal[];
   refusedFresh: string[];
   refusedKept: string[];
-  // Live sources whose directory could not be read this run.
   failed: SyncReport["failed"];
-  // Sources with a revision held for review at the end of this run, made now or earlier, with
-  // what it changes: a session hears about a waiting revision at every start, as it does about a
-  // stale source.
   awaitingReview: { key: string; summary: string[] }[];
   heldFiles: string[];
   stale: string[];

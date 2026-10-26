@@ -34,7 +34,6 @@ const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";
 const SLUG = "acme-rules";
 
-// Upstream's next revision: one description changed, one memory added.
 const REVISION_B = {
   ...TWO_MEMORIES,
   "always-review": { description: "Review before every push." },

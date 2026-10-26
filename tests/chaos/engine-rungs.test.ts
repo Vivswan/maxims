@@ -77,18 +77,18 @@ function expectQuietOk(run: RunResult, stdout: string | RegExp): void {
   else expect(run.stdout).toMatch(stdout);
 }
 
+// Bytes no gzip or tar reader accepts: the content behind the `invalid` rung.
 const BROKEN_TARBALL = new Uint8Array([7, 3, 9, 250, 1, 0, 42, 42, 99, 200, 13, 37]);
 
-// A failed source is asked again an hour after its failure; a rate limit that names a longer
-// Retry-After holds the line past that hour, so its row must see the hour pass with no request.
+// A failed source is asked again an hour after its failure; a rate limit naming a longer Retry-After holds the line past that hour, so its row must see the hour pass with no request.
 const RETRY_AFTER_SECONDS = 2 * 60 * 60;
 
+// One HTTP rung of the fetch ladder: the remote's answer and what the hook run and the manual run after it must show.
+//   staleAtOnce -> a gone repository or unusable content is stale at once, so the block gains the notice line the same run and the hook run says so; a transient kind keeps the file byte-identical
 type HttpRung = {
   kind: LastError["kind"];
   answer: (script: GithubScript) => void;
   manualExit: number;
-  // A gone repository or unusable content is stale at once, so the block gains the notice line the
-  // same run and the hook run says so; a transient kind keeps the file byte-identical.
   staleAtOnce: boolean;
   quietStdout: string | RegExp;
   retryAfter: boolean;
@@ -203,12 +203,12 @@ function escapesBesideOneMemory(): Uint8Array {
   ]);
 }
 
+// One archive the extractor must sift, and what lands from it.
+//   installs -> the valid memories the archive carries; none means the fetch is refused as having nothing valid and last-good stays
 type TarballRow = {
   label: string;
   tarball: () => Uint8Array;
   warnings: string[];
-  // The valid memories the archive carries; none means the fetch is refused as having nothing
-  // valid and last-good stays.
   installs: Record<string, MemorySpec> | null;
 };
 
@@ -286,10 +286,10 @@ test.each(tarballRows)(
   },
 );
 
+// One moment the store copy vanishes mid-run.
+//   answer -> removes the store copy from inside the remote's answer, between the ladder's first request and the swap that would replace the copy
 type VanishRow = {
   label: string;
-  // Removes the store copy from inside the remote's answer, between the ladder's first request
-  // and the swap that would replace the copy.
   answer: (script: GithubScript, entry: string) => void;
   manualExit: number;
   failed: LastError["kind"] | null;

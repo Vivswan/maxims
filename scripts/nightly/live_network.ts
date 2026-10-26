@@ -21,21 +21,21 @@ import { withScratchDir } from "../lib/scratch.ts";
 import type { Outcome } from "./report.ts";
 import { readRuleFile } from "./rule_file.ts";
 
+// Global, as a rule file, into one harness: everything the rung leaves is then one file under HOME for the judge to read.
 const REFERENCE_ADD = ["add", "@Vivswan/skills", "-g", "--rule", "-a", "claude-code", "-y"];
 
-// The rule file REFERENCE_ADD writes under HOME: the claude-code global rules directory and the
-// clean slug of @Vivswan/skills (src/engine/slug.ts).
+// Where REFERENCE_ADD lands: claude-code's global rules directory and the clean slug of @Vivswan/skills (src/engine/slug.ts).
 const REFERENCE_RULE_FILE = ".claude/rules/maxims-vivswan-skills.md";
 
+// One rung of the ladder; `judge` reads back what the rung left in its HOME after it exited.
+//   home  -> which throwaway HOME the rung runs in; rungs sharing one see each other's state
+//   judge -> the problems found, empty when the rung did what it was for
 export type Step = {
   name: string;
   argv: readonly string[];
-  // Which throwaway HOME the step runs in; steps sharing one see each other's state.
   home: "first" | "second";
   git: "on-path" | "off-path";
   expectExit: number;
-  // The problems with what the rung left in its HOME, read after it exited; empty when it did
-  // what it was for.
   judge: (home: string) => string[];
 };
 

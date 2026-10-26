@@ -48,8 +48,7 @@ type VerbEntry = {
   load: () => Promise<Command>;
 };
 
-// Every verb is a dynamic import so `sync --quiet` loads its own module and nothing else: the
-// interactive verbs pull in the console renderers and the fetch code only when they run.
+// Every verb is a dynamic import so `sync --quiet` loads its own module and nothing else: the interactive verbs pull in the console renderers and the fetch code only when they run.
 const VERBS: readonly VerbEntry[] = [
   {
     name: "add",
@@ -210,14 +209,6 @@ type Invocation = {
   dryRun: boolean;
 };
 
-// `-h`, `-v`, `--quiet`, `--json` and `--dry-run` are read off the raw argv before the verb's
-// module loads and before any file is touched: help costs nothing and changes nothing, and the
-// output mode is known before the strict parse can fail, so a usage error under --json is still
-// one JSON value, under --quiet is still exit 0, and under --dry-run still writes no log line.
-// Only whole argv words count, never letters inside a short group or an attached value
-// (`-mprivacy` selects a memory, it does not ask for the version), and the verb is the first word
-// that is not a flag; the flags a verb may precede are all booleans.
-//
 // Not in GLOBAL_FLAGS: the scan consumes these before any verb loads, so no verb parses them.
 const HELP_FLAGS = [
   { name: "help", short: "h", kind: "boolean", summary: "show help" },
@@ -230,6 +221,7 @@ type ScanFlag = keyof Omit<Invocation, "verb" | "rest">;
 const SCANNED_GLOBALS = ["quiet", "json", "dryRun"] as const satisfies readonly (ScanFlag &
   keyof typeof GLOBALS)[];
 
+// Matched against whole argv words, never letters inside a short group or an attached value: `-mprivacy` selects a memory, it does not ask for the version.
 const SCAN_WORDS = new Map<string, ScanFlag>([
   ...HELP_FLAGS.flatMap((flag): [string, ScanFlag][] => [
     [`--${flag.name}`, flag.name],
@@ -238,6 +230,15 @@ const SCAN_WORDS = new Map<string, ScanFlag>([
   ...SCANNED_GLOBALS.map((key): [string, ScanFlag] => [`--${GLOBALS[key].name}`, key]),
 ]);
 
+// `-h`, `-v`, `--quiet`, `--json` and `--dry-run` are read off the raw argv before the verb's
+// module loads and before any file is touched, so the output mode is known before the strict parse
+// can fail. The verb is the first word that is not a flag; the flags a verb may precede are all
+// booleans.
+//
+//   -h, -v     -> help or the version costs nothing and changes nothing
+//   --json     -> a usage error is still one JSON value
+//   --quiet    -> a usage error is still exit 0
+//   --dry-run  -> a usage error still writes no log line
 function scan(argv: readonly string[]): Invocation {
   const invocation: Invocation = {
     verb: null,
@@ -262,8 +263,7 @@ function scan(argv: readonly string[]): Invocation {
   return invocation;
 }
 
-// The words a bare `maxims` may carry and still mean "show help": the scan words plus the global
-// booleans; anything else is a usage error, never help.
+// The words a bare `maxims` may carry and still mean "show help"; anything else is a usage error, never help.
 const GLOBAL_WORDS = new Set([...SCAN_WORDS.keys(), ...GLOBAL_FLAGS.map((f) => `--${f.name}`)]);
 
 function findVerb(name: string): VerbEntry | undefined {

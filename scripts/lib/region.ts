@@ -1,3 +1,4 @@
+// A region name is spliced into the marker pattern unescaped, so NAME admits only regex-literal characters.
 import { readPage } from "./page.ts";
 
 export interface RegionMarker {
@@ -5,7 +6,6 @@ export interface RegionMarker {
   readonly name: string;
 }
 
-// A name is spliced into the pattern unescaped, so only regex-literal characters are admitted.
 const NAME = "[a-z0-9-]+";
 const REGION_NAME = new RegExp(`^${NAME}$`);
 

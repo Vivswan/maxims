@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Pi loads one context file per directory, from `~/.pi/agent` and from the parents down to the
 // working directory, AGENTS.override.md first and the CLAUDE spellings last.
 //   AGENTS.md beside AGENTS.override.md   a block written there would never load
@@ -8,6 +5,10 @@ import type { HarnessSpec } from "../spec.ts";
 //   `pi.exec`                             takes an argv with no shell
 //   project `mcp.json`                    read once the project is trusted, and every enabled
 //                                         server connects when a session starts
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "pi",
   displayName: "Pi",

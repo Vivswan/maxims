@@ -22,8 +22,12 @@ export type FetchedFiles = { sha: string; memoryPath: string; files: TreeFile[] 
 type FetchedTree = FetchedFiles | { kind: "store-empty" };
 
 // `install` stages every manifest entry before planning any, so the entries validate against each
-// other. `recorded` holds hidden internal memories too: the fetch record is a fact about the
-// source, and a refresh writes it that way.
+// other.
+//   recorded             holds the hidden internal memories too: the fetch record is a fact about
+//                        the source, and a refresh writes it that way
+//   disabledByManifest   the local names the commit switches off at the project beside the ones
+//                        state already holds: the manifest's `disabled` list on a replay, nothing
+//                        on a plain add
 export type StagedAdd = {
   request: AddRequest;
   tree: FetchedFiles;
@@ -31,8 +35,6 @@ export type StagedAdd = {
   recorded: Memory[];
   chosen: Memory[];
   state: State;
-  // The local names the commit switches off at the project beside the ones state already holds:
-  // the manifest's `disabled` list on a replay, nothing on a plain add.
   disabledByManifest: readonly MemoryName[];
 };
 

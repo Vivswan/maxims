@@ -3,6 +3,12 @@
 // spliced file that no longer parses, a codex config.toml or dsh patch file that crashes the tier
 // probe or the bridge reconciler on a session start, or a harness spec document a schema check
 // lets through or refuses without naming a field. Every file here is one the user also edits.
+//
+// JSONC_PIECES are JSONC's own tokens: comments, trailing commas, strings holding `//` and `*/`,
+// and the brackets a splice must keep balanced. TOML_PIECES is codex's config.toml as a user
+// writes it, with the `[features] hooks` key in every wrong shape. YAML_PIECES is dsh's patch
+// layer as a user writes it: block and flow sequences, our row id, its plugin name, anchors, tags,
+// document markers and the indentation the splice keys on.
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -31,8 +37,6 @@ import { anyText, describeError, fragments, fuzz, mutatedJson } from "./shared.t
 
 const PATH = "settings.json";
 
-// JSONC's own tokens: comments, trailing commas, strings holding `//` and `*/`, and the brackets a
-// splice must keep balanced.
 const JSONC_PIECES = [
   "{",
   "}",
@@ -124,10 +128,10 @@ function members(root: Node): Located[] {
     .map((node) => ({ path: getNodePath(node), node }));
 }
 
-// JSON has no negative zero: `-0` is written as `0`, so the value read back is compared to what
-// the text can carry.
+// JSON has no negative zero: `-0` is written as `0`, so the value read back is compared to what the text can carry.
 const jsonValue = fc.jsonValue({ maxDepth: 2 }).map((value) => JSON.parse(JSON.stringify(value)));
 
+// `pick` is any natural number, folded onto a slot where it is used, so no slot count is drawn here.
 const splice = fc
   .tuple(document, indent, eol, fc.nat(), key, jsonValue)
   .map(([doc, unit, ending, pick, newKey, value]) => ({
@@ -193,7 +197,6 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// codex's config.toml as a user writes it, with the `[features] hooks` key in every wrong shape.
 const TOML_PIECES = [
   "[features]",
   "[features.hooks]",
@@ -253,8 +256,6 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// dsh's patch layer as a user writes it: block and flow sequences, our row id, its plugin name,
-// anchors, tags, document markers and the indentation the splice keys on.
 const YAML_PIECES = [
   "- ",
   "-",

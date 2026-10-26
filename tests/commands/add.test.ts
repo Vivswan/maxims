@@ -846,15 +846,15 @@ test("a source recorded for another project is refused by add, link, update, sha
   );
 });
 
-// State holds one entry per source, so a re-add at another scope would move it: the user-scope
-// rule file would go, the codex block with it, and only the project write would be printed. The
-// move is refused at the door, the way out named; a re-add at the recorded scope still works.
 const scopeMoves: [string, string[], string[], string][] = [
   ["global to project", ["-g"], ["-p"], "@a/b is installed at the user scope"],
   ["project to global", ["-p"], ["-g"], "@a/b is installed for the project at <cwd>"],
   ["global to out", ["-g"], ["-o", "./team"], "@a/b is installed at the user scope"],
 ];
 
+// State holds one entry per source, so a re-add at another scope would move it: the user-scope
+// rule file would go, the codex block with it, and only the project write would be printed. The
+// move is refused at the door, the way out named; a re-add at the recorded scope still works.
 test.each(scopeMoves)(
   "re-adding an installed source at another scope is refused: %s",
   async (_title, first, second, message) => {
@@ -876,10 +876,6 @@ test.each(scopeMoves)(
   },
 );
 
-// The ref is part of the key, so a re-add with another ref is a second source whose memories
-// collide with the recorded one's. The collision names the recorded key and the one order that
-// repins it, instead of reporting the source as its own owner; two pins of one repository still
-// install side by side when their selections do not collide.
 const refMoves: [string, string[], string[], string, string, string][] = [
   ["HEAD to a pin", [], ["--pin", "v2"], "@a/b", "tracking HEAD", "with --pin v2"],
   ["a pin to HEAD", ["--pin", "v2"], [], "@a/b#v2", "pinned to v2", "without --pin"],
@@ -893,6 +889,10 @@ const refMoves: [string, string[], string[], string, string, string][] = [
   ],
 ];
 
+// The ref is part of the key, so a re-add with another ref is a second source whose memories
+// collide with the recorded one's. The collision names the recorded key and the one order that
+// repins it, instead of reporting the source as its own owner; two pins of one repository still
+// install side by side when their selections do not collide.
 test.each(refMoves)(
   "re-adding an installed source with another ref is refused: %s",
   async (_title, first, second, recorded, tracking, flag) => {

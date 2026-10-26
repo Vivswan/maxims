@@ -1,3 +1,9 @@
+// The harness on the other end of a hook's stdin, told from the payload it alone sends, and the
+// protocol its stdout wants. Every SessionStart payload shares `session_id`, `transcript_path`,
+// `cwd` and `hook_event_name`, so the rules read the field each harness alone adds; the order is
+// what disambiguates, and each definition's `fixtures/hook-stdin.json` is the test that keeps it
+// honest.
+
 import { StringDecoder } from "node:string_decoder";
 import { util } from "zod";
 import type { HarnessId } from "../contracts/harness-id.ts";
@@ -32,9 +38,6 @@ function firstOf(payload: Payload, key: string): string | null {
 
 const sessionStart = (payload: Payload): boolean => payload.hook_event_name === "SessionStart";
 
-// Every SessionStart payload shares `session_id`, `transcript_path`, `cwd` and `hook_event_name`,
-// so the rules read the field each harness alone adds; the order is what disambiguates, and each
-// definition's `fixtures/hook-stdin.json` is the test that keeps it honest.
 const INVOKER_RULES: readonly InvokerRule[] = [
   {
     id: "gemini-cli",

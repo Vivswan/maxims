@@ -1,3 +1,7 @@
+// Harnesses the user declares in `$MAXIMS_HOME/harnesses.json`. The file is an object with one
+// `harnesses` array rather than a bare array, so a future key beside it (a format version, shared
+// defaults) has a place without breaking every existing file.
+
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -13,8 +17,6 @@ export type UserDefinedHarness = HarnessDefinition & { userDefined: true };
 
 const USER_HARNESSES_FILE = "harnesses.json";
 
-// The file is an object with one `harnesses` array rather than a bare array, so a future key
-// beside it (a format version, shared defaults) has a place without breaking every existing file.
 const UserHarnessesFile = z.strictObject({ harnesses: z.array(z.unknown()) });
 
 function userHarnessesPath(home: string): string {

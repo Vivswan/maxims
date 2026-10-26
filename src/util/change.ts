@@ -137,6 +137,7 @@ async function applyOne(change: Change): Promise<boolean> {
         writeFileAtomic(change.path, change.content, { mode: change.mode });
         return true;
       }
+      // Windows cannot hold a requested mode, so a mode compare there would count a change on every run.
       if (
         POSIX_MODES &&
         change.mode !== undefined &&

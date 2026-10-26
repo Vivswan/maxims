@@ -127,14 +127,15 @@ export type HarnessWants = {
 // holds the registry until the next sync writes rules over the user's settings.
 export type LinkJudge = (link: string, keys?: readonly string[]) => void;
 
-// `removals` take our entry or artifact out of a registry the intent no longer wants it in; a
-// hook run defers them like any other removal.
+//   removals  -> take our entry or artifact out of a registry the intent no longer wants it in; a
+//                hook run defers them like any other removal
+//   failures  -> registries this run needed and could not read or edit (unparsable, or a file
+//                where a folder should be); each is a write failure to report, never a reason to
+//                stop the other harnesses
 export type HooksPlan = {
   changes: Change[];
   removals: Change[];
   notices: string[];
-  // Registries this run needed and could not read or edit (unparsable, or a file where a folder
-  // should be); each is a write failure to report, never a reason to stop the other harnesses.
   failures: { message: string; hint: string | undefined }[];
 };
 
@@ -143,13 +144,13 @@ export type HooksPlan = {
 // there; the config edit follows the rules alone. Each artifact is planned on its own: one that
 // cannot be is reported and leaves the others standing. Every edit of a user's file, a config
 // edit included, is minted here over the one text the run holds for the file.
+//   elsewhere  -> the roots of the other projects whose entries want the harness's hook
 export async function planHooks(input: {
   ctx: EngineContext;
   harnesses: readonly HarnessDefinition[];
   agents: HarnessFilter | undefined;
   judgeLink: LinkJudge;
   wants: (id: HarnessId, scope: Scope) => HarnessWants;
-  // The roots of the other projects whose entries want the harness's hook.
   elsewhere: (id: HarnessId) => string[];
 }): Promise<HooksPlan> {
   const { ctx } = input;
@@ -367,12 +368,13 @@ async function readThrough(root: string, path: RootedPath): Promise<string | nul
 // One registry file as this run leaves it: every rewrite is planned over the text the one before
 // it left. Its change is a removal only while no wanted rewrite altered the text: a hook run
 // defers removals, and an entry a harness wants must not wait on another harness's leaving.
+//   `altered.edit`  -> the first altering rewrite's, so the change is addressed at the path that
+//                      first altered the file; every altering rewrite still mints its own, so a
+//                      refused path is refused whatever altered the file before it
 class RegistryFile {
-  // `edit` is the first altering rewrite's, so the change is addressed at the path that first altered
-  // the file; every altering rewrite still mints its own, so a refused path is refused whatever
-  // altered the file before it.
   private altered: { text: string; edit: (content: string) => Change; wanted: boolean } | null =
     null;
+
   readonly notices: string[] = [];
 
   constructor(

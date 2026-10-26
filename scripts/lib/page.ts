@@ -4,10 +4,13 @@ import { visit } from "unist-util-visit";
 export interface Fence {
   /** Zero-based line of the opening fence. */
   line: number;
+
   /** Zero-based line of the closing fence, or the last line of a fence that never closes: the end of the block quote or list item holding it, or of the page. */
   end: number;
+
   /** The info string names mermaid; other fences are text the page quotes. */
   mermaid: boolean;
+
   /** The lines between the fences, without the final line ending whether or not the fence closed. */
   body: string;
 }
@@ -43,13 +46,13 @@ export function mermaidFences(markdown: string): Fence[] {
   return readPage(markdown).fences.filter((fence) => fence.mermaid);
 }
 
+/**
+ * Headings, region markers, and demonstration lines are read from `text` only, so a quoted example never steers the walk.
+ *   text -> `lines[i]` when line i is page text, undefined inside any fence
+ */
 export interface Page {
   lines: readonly string[];
   fences: readonly Fence[];
-  /**
-   * `lines[i]` when line i is page text, undefined inside any fence: headings, region markers, and
-   * demonstration lines are read from here only, so a quoted example never steers the walk.
-   */
   text: ReadonlyArray<string | undefined>;
 }
 

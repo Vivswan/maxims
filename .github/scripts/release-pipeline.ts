@@ -23,12 +23,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { gt, gte, parse } from "semver";
 
 const MANIFEST = "package.json";
-/** Trusted publishing (OIDC) and its provenance exist from this npm on. */
 const NPM_FLOOR = "11.5.1";
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
-/** npm makes a publish readable asynchronously, at times minutes after npm publish returned; 15 reads 20 s apart
- * bound the wait at 280 s. */
 const CONFIRM_READS = 15;
 const CONFIRM_PAUSE_MS = 20_000;
 
@@ -73,8 +70,10 @@ function gitOrNo(cwd: string, ...args: string[]): string | null {
 export interface Ancestry {
   /** The full sha `name` resolves to as a commit, or null when the history lacks it. */
   resolveCommit(name: string): string | null;
+
   /** Whether `ancestor` is `descendant` or reachable from it; both are resolved shas. */
   isAncestor(ancestor: string, descendant: string): boolean;
+
   /** The paths that differ between two resolved shas, a rename as its old path and its new one. */
   changedPaths(from: string, to: string): string[];
 }
@@ -95,6 +94,7 @@ export function gitAncestry(cwd: string): Ancestry {
 export interface MainPosition {
   /** Commits reachable from it along first parents: one more per merge to main, whatever a merged PR's branch held. */
   count: number;
+
   /** Its committer date in UTC, YYYYMMDD. */
   date: string;
 }
@@ -191,6 +191,8 @@ function releaseVersionAt(cwd: string, sourceSha: string, tag: string): string {
 interface MintedVersion {
   /** The release, X.Y.Z, that the version is or precedes. */
   release: string;
+
+  /** Null for a release. */
   sha7: string | null;
 }
 
@@ -296,13 +298,13 @@ async function fetchPackument(registry: string, name: string): Promise<Packument
 export type PublishVerdict =
   | { action: "publish" | "present"; version: string }
   | { action: "skip"; version: string; reason: string };
+
 /** The next channel's verdict also carries, one line each, the published pre-releases it set aside: a source the checkout cannot place. */
 export type NextVerdict = PublishVerdict & { notices: string[] };
 
-/** A published pre-release whose source is a strict descendant of this run's: newer on main, whatever its numbers say. */
+/** A published pre-release whose source is a strict descendant of this run's: newer on main, whatever its numbers say. `sha` is the full one its sha7 resolved to. */
 interface Descendant {
   version: string;
-  /** The full sha the version's sha7 resolved to. */
   sha: string;
 }
 
@@ -338,16 +340,6 @@ function descendantsOf(
   return { descendants, newest, notices };
 }
 
-/**
- * The shipped surface: every path whose bytes reach the published package or decide the bundle's, read off the
- * packaging rather than guessed. package.json packs dist/ and the root files below and carries the name, version,
- * and bin. dist/cli.js is bundled from src/cli.ts and all it reaches (src/version.ts stamps package.json's version
- * in), at the versions bun.lock pins, by scripts/build.ts and the two modules it imports, through the tsconfig.json
- * Bun.build reads, with the bun .bun-version installs; .gitattributes sets the packed files' line endings. src/ is
- * taken whole: its harness fixtures feed tests alone, and a publish nothing needed costs less than one missed.
- * docs/, tests/, .github/, architecture.yml, and the lint configs shape the repository, not the package.
- * tests/release/shipped.test.ts holds the list to the build's import graphs, the manifest, and npm's root files.
- */
 const SHIPPED_FILES = new Set([
   "package.json",
   "bun.lock",
@@ -359,18 +351,23 @@ const SHIPPED_FILES = new Set([
   "scripts/lib/paths.ts",
 ]);
 const SHIPPED_DIRS = ["src/"];
-/**
- * The root files npm packs whatever package.json's files lists, README.md and LICENSE.md among them: any README,
- * LICENSE, LICENCE, or COPYING in any case, bare or under an extension not ending in a backup marker (~ or $), as
- * npm-packlist's readme{,.*[^~$]} rule has it. README.md.orig and licence pack; README.md~, README., NOTICE,
- * CHANGELOG.md, and docs/README.md do not.
- */
 const NPM_ROOT_FILE = /^(readme|licen[cs]e|copying)(\..*[^~$])?$/i;
-/** Where the full-history checkout (actions/checkout, fetch-depth 0) keeps the tip of the branch the lane publishes from. */
 const MAIN_TIP = "origin/main";
 const LISTED_PATHS = 8;
 
-/** Whether a change to `path`, relative to the repository root, can change what npm publish packs. */
+/**
+ * Whether a change to `path`, relative to the repository root, can change what npm publish packs: the shipped
+ * surface, read off the packaging rather than guessed. tests/release/shipped.test.ts holds the lists to the build's
+ * import graphs, the manifest, and npm's root files.
+ *   package.json                             -> packs dist/ and the root files, carries the name, version, and bin; src/version.ts stamps its version into the bundle
+ *   scripts/build.ts and its two lib modules -> bundle dist/cli.js from src/cli.ts and all it reaches
+ *   tsconfig.json, bun.lock, .bun-version    -> what Bun.build reads, the versions it pins, the bun that installs
+ *   .gitattributes                           -> the packed files' line endings
+ *   src/, whole                              -> its harness fixtures feed tests alone; a publish nothing needed costs less than one missed
+ *   README, LICENSE, LICENCE, COPYING        -> packed whatever package.json's files lists: any case, bare or under an extension not ending in a backup marker (~ or $), as npm-packlist's readme{,.*[^~$]} rule has it
+ * README.md.orig and licence pack; README.md~, README., NOTICE, CHANGELOG.md, and docs/README.md do not. docs/, tests/,
+ * .github/, architecture.yml, and the lint configs shape the repository, not the package.
+ */
 export function isShipped(path: string): boolean {
   return (
     SHIPPED_FILES.has(path) ||
@@ -428,6 +425,7 @@ function shippedSurfaceGate(ancestry: Ancestry, sourceSha: string, next: string 
       reason: `next is ${next}, built from ${sha7}, and no shipped file changed between it and ${source7}, so nothing is published`,
     };
   }
+  // MAIN_TIP is where the full-history checkout (actions/checkout, fetch-depth 0) keeps the tip of the branch the lane publishes from.
   const tip = ancestry.resolveCommit(MAIN_TIP);
   if (
     tip !== null &&
@@ -509,11 +507,10 @@ export function stablePublishVerdict(version: string, packument: Packument | nul
   return { action: "publish", version };
 }
 
+/** The checkout at `cwd` must be at `sourceSha`, the commit whose build is published; `registry` is the base URL where the package's record is read. */
 export type NpmVerdictOptions = {
   cwd: string;
-  /** The commit whose build is published; the checkout must be at it. */
   sourceSha: string;
-  /** The registry's base URL, where the package's record is read. */
   registry: string;
 } & ({ channel: "next" } | { channel: "stable"; tag: string });
 
@@ -539,18 +536,19 @@ export type ConfirmVerdict =
   /** The record shows the version, and the lane's dist-tag names an older one than it should. */
   | { outcome: "behind"; version: string; reason: string };
 
+/**
+ * What confirmPublish reads and judges; the record is read until it shows `version`, the one this run published.
+ *   sourceSha     -> the commit whose build was published; the next channel places the record's pre-releases against it
+ *   readPackument -> one read of the registry's record; a read that fails counts as one that did not show the version, unless the record itself is unreadable
+ *   attempts      -> how many times the record is read while it lacks the version, `pause` between reads
+ */
 export interface ConfirmPublishOptions {
   channel: Channel;
-  /** The package's name and the version this run published; the record is read until it shows the version. */
   name: string;
   version: string;
-  /** The commit whose build was published; the next channel places the record's pre-releases against it. */
   sourceSha: string;
   ancestry: Ancestry;
-  /** One read of the registry's record; a read that fails counts as one that did not show the version, unless
-   * the record itself is unreadable. */
   readPackument: () => Promise<Packument | null>;
-  /** How many times the record is read while it lacks the version, and the pause between reads. */
   attempts: number;
   pause: () => Promise<void>;
 }
@@ -637,15 +635,15 @@ function stableBehind(version: string, name: string, packument: Packument): stri
   return `the registry's latest is ${latest ?? "unset"} while it holds ${version}, a release; something moved latest back, and the next release moves it forward (npm dist-tag add ${name}@${version} latest repairs it by hand)`;
 }
 
+/** The checkout at `cwd` must be at `sourceSha`, the commit whose build this run published; `registry` is the base URL where the package's record is read. */
 export interface NpmConfirmOptions {
   cwd: string;
-  /** The commit whose build this run published; the checkout must be at it. */
   sourceSha: string;
-  /** The registry's base URL, where the package's record is read. */
   registry: string;
   delayMs: number;
 }
 
+/** The confirm step as the workflow runs it: CONFIRM_READS reads, `delayMs` apart, bound the wait (280 s at CONFIRM_PAUSE_MS), since npm makes a publish readable asynchronously, at times minutes after npm publish returned. */
 export async function npmConfirm(
   options: NpmConfirmOptions & ({ channel: "next" } | { channel: "stable"; tag: string }),
 ): Promise<ConfirmVerdict> {
@@ -692,14 +690,14 @@ function npmVersion(): string {
   return printed;
 }
 
+/** The npm on PATH once the step is done: the version it prints, and whether that reaches NPM_FLOOR. */
 export interface NpmFloor {
-  /** The version npm prints once the step is done. */
   version: string;
   atFloor: boolean;
 }
 
-/** The npm on PATH, upgraded once when it starts below NPM_FLOOR: a runner's bundled npm may be older. The version
- * after that single upgrade is the answer, at the floor or not. */
+/** The npm on PATH, upgraded once when it starts below NPM_FLOOR (trusted publishing through OIDC and its provenance
+ * exist from that npm on): a runner's bundled npm may be older. The version after that single upgrade is the answer, at the floor or not. */
 export function npmFloor(): NpmFloor {
   const bundled = npmVersion();
   if (gte(bundled, NPM_FLOOR)) {

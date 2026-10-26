@@ -1,5 +1,10 @@
 // Container runtime access for the container test tier. This is the only file that names the
 // runtimes: tests and scripts go through detectRuntime, buildImage, and runInContainer.
+//
+// CONTAINER_HOME is the image's non-root user's home; every run starts a new container from the
+// image, so it is empty at the start of each run and discarded with the container. A developer
+// machine without a runtime skips with a notice; the nightly job sets REQUIRE_RUNTIME_ENV so a
+// runner that lost its daemon fails instead of passing with nothing built.
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,13 +13,9 @@ import prettyBytes from "pretty-bytes";
 export const RUNTIMES = ["docker", "podman"] as const;
 export type Runtime = (typeof RUNTIMES)[number];
 
-// The image's non-root user and its home; every run starts a new container from the image, so
-// this directory is empty at the start of each run and discarded with the container.
 export const CONTAINER_HOME = "/home/tester";
 export const CONTAINER_WORK = "/work";
 
-// A developer machine without a runtime skips with a notice; the nightly job sets this variable
-// so a runner that lost its daemon fails instead of passing with nothing built.
 export const REQUIRE_RUNTIME_ENV = "MAXIMS_REQUIRE_CONTAINER_RUNTIME";
 
 const CONTEXT_DIR = import.meta.dir;
@@ -22,11 +23,12 @@ export const REPO_ROOT = resolve(CONTEXT_DIR, "..", "..");
 const CONTEXT_FILES = ["Dockerfile", "entrypoint.sh"] as const;
 const DEPENDENCY_FILES = ["package.json", "bun.lock"] as const;
 
+// One container run.
+//   network -> "none" is the default, so a run cannot reach the network by forgetting to say so
 export type RunOptions = {
   image: string;
   cmd: readonly string[];
   env?: Readonly<Record<string, string>>;
-  // "none" is the default so a run cannot reach the network by forgetting to say so.
   network?: "none" | "live";
 };
 
@@ -83,14 +85,13 @@ export function runArgv(runtime: Runtime, options: RunOptions, repoRoot: string)
   return argv;
 }
 
-// Each step assigns before testing so a failed `ls` stops the script under `set -e` instead of
-// reading as an empty listing. A container with only `lo` is what `--network none` produces;
-// a DNS lookup would report the same for a network that merely lacks a resolver.
 const HERMETIC_PROBE = [
   '[ "$HOME" = "$1" ]; echo home-is-expected',
+  // Assigned before tested, so a failed `ls` stops the script under `set -e` instead of reading as an empty listing.
   'entries=$(ls -A "$HOME"); [ -z "$entries" ]; echo home-empty',
   '[ -f "$2/package.json" ]; echo work-copied',
   ': > "$HOME/marker"; echo home-writable',
+  // Only `lo` is what `--network none` produces; a DNS lookup would report the same for a network that merely lacks a resolver.
   'interfaces=$(ls "$3"); [ "$interfaces" = lo ]; echo network-none',
 ].join("\n");
 

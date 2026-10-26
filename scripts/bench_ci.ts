@@ -18,15 +18,7 @@ const repoRoot = resolve(import.meta.dir, "..");
 
 export const WARN_RATIO = 0.1;
 export const FAIL_RATIO = 0.25;
-
-// The share of a series dropped from each end before the mean. A 20% trimmed mean over the median:
-// of ten samples the median reads two and the trimmed mean six, so jitter moves it less, while two
-// spikes on one side still fall off the end.
 export const TRIM_RATIO = 0.2;
-
-// A bundle under this size is a placeholder, not a CLI: the argument parser alone bundles past
-// it, and the version-only stub that once stood where the CLI now is was 160 bytes. A delta
-// against such a base fails by construction, so the base is reported as not comparable instead.
 export const MIN_COMPARABLE_BUNDLE_BYTES = 16 * 1024;
 
 // What a gross regression does to the job. The hook path and the artifact gate the merge; the
@@ -95,13 +87,13 @@ interface TimedPath {
   gate: Gate;
 }
 
-// The argv the hook registers and the argv a user types to browse a source; the bundle is timed
-// on whatever it does with them.
+// The argv the hook registers and the argv a user types to browse a source; the bundle is timed on whatever it does with them.
 export const TIMED_PATHS: TimedPath[] = [
   { name: "sync --quiet", argv: ["sync", "--quiet"], gate: "fail" },
   { name: "add --list", argv: ["add", "@example/repo", "--list", "--no-fetch"], gate: "warn" },
 ];
 
+// How the report names the timed commands: the shipped path, not the scratch bundle each side was actually started from.
 export const TIMED_COMMANDS: string[][] = TIMED_PATHS.map((timed) => [
   "node",
   "dist/cli.js",
@@ -160,6 +152,8 @@ export function verdict(report: Report): Verdict {
 
 const round = (ms: number): number => Math.round(ms * 1000) / 1000;
 
+// A trimmed mean over the median: of ten samples the median reads two and a 20% trimmed mean six,
+// so jitter moves it less, while two spikes on one side still fall off the end.
 function series(samples: number[]): Series {
   const [warmup, ...timed] = samples.map(round);
   const sorted = timed.sort((a, b) => a - b);
@@ -183,6 +177,9 @@ type Timed =
 async function timeSides(runs: number, bytes: Bytes, sample: Sampler): Promise<Timed> {
   let base: { bytes: number } | { notComparable: string } =
     typeof bytes.base === "number" ? { bytes: bytes.base } : bytes.base;
+  // A bundle under the floor is a placeholder, not a CLI: the argument parser alone bundles past it,
+  // and the version-only stub that once stood where the CLI now is was 160 bytes. A delta against
+  // such a base fails by construction, so the base is reported as not comparable instead.
   if ("bytes" in base && base.bytes < MIN_COMPARABLE_BUNDLE_BYTES) {
     const floor = MIN_COMPARABLE_BUNDLE_BYTES.toLocaleString("en-US");
     base = {

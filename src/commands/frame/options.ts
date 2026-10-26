@@ -1,3 +1,7 @@
+// The flag tables and the parsers every verb shares. INTENT_DEFAULTS is what `add` records for a
+// source when no flag says otherwise; the project manifest omits an intent field that equals its
+// default, and `install` fills it back in.
+
 import { resolve } from "node:path";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { closestMatch } from "leven";
@@ -18,8 +22,7 @@ export type FlagSpec = {
   summary: string;
 };
 
-// main.ts derives its pre-verb scan words from these keys. `--help` and `--version` stay in its
-// HELP_FLAGS because they are read from the raw argv before any verb loads.
+// main.ts derives its pre-verb scan words from these keys; `--help` and `--version` stay in its HELP_FLAGS, since no verb parses them.
 export const GLOBALS = {
   quiet: {
     name: "quiet",
@@ -138,8 +141,6 @@ export const FLAGS = {
   },
 } as const satisfies Record<string, FlagSpec>;
 
-// What `add` records for a source when no flag says otherwise; the project manifest omits an
-// intent field that equals its default, and `install` fills it back in.
 export const INTENT_DEFAULTS = { memoryPath: "memories", fullDepth: false, copy: false } as const;
 
 export type Args = {
@@ -165,12 +166,12 @@ export type CommandContext = {
   flushRungLog: () => Promise<void>;
 };
 
-// A verb's body; its name, aliases and visibility live in the dispatch table that loads it.
+// A verb's body; its name, aliases and visibility live in the dispatch table that loads it. `arity`
+// is the most positional words the verb reads; one more is a usage error, never a silent drop.
 export type Command = {
   summary: string;
   usage: string;
   flags: readonly FlagSpec[];
-  // The most positional words the verb reads; one more is a usage error, never a silent drop.
   arity: number;
   run(args: Args, ctx: CommandContext): Promise<number>;
 };
@@ -362,12 +363,12 @@ export function parseRenames(args: Args): RenameMap {
   return rename;
 }
 
-// The two bounds config.json holds, shared by the flags and `config set` so the two spellings of
-// one key agree: a cooldown of 0 refetches every sync, while a cap of 0 would refuse every source.
+// Shared by the flags and `config set` so the two spellings of one key agree: a cooldown of 0 refetches every sync, while a cap of 0 would refuse every source.
 export const INTEGER = {
   positive: { pattern: /^[1-9][0-9]*$/, expects: "a positive integer" },
   nonNegative: { pattern: /^(0|[1-9][0-9]*)$/, expects: "a non-negative integer" },
 } as const;
+
 export type IntegerBound = (typeof INTEGER)[keyof typeof INTEGER];
 
 // `what` names the spelling in the refusal: `--cooldown` or `cooldownDays`.

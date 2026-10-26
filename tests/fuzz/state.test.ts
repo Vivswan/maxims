@@ -2,6 +2,14 @@
 // instead of answering parsed, corrupt or newer; a document the parser accepts but cannot accept
 // again once written back (a state the next run quarantines); a timestamp folded to a different
 // instant; or a newer-version file read as corrupt and rewritten by an older binary.
+//
+// PARSED_VALID_STATE is parsed once at load, not inside an arbitrary: a parser that breaks on the
+// fixture fails this file with that message, where a throw inside a generator has no
+// counterexample to replay.
+//
+// The timestamp arbitrary draws every spelling a hand edit or another writer's clock library
+// produces for one instant, plus the shapes zod's ISO check refuses (a bare date, no zone, a zone
+// offset, prose).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,8 +30,6 @@ function fixture(name: string): unknown {
 const VALID_STATE = fixture("current.json");
 const ODD_PRECISION_STATE = fixture("current-odd-precision.json");
 
-// Parsed once here, not inside an arbitrary: a parser that breaks on the fixture fails this file
-// at load with this message, where a throw inside a generator has no counterexample to replay.
 const PARSED_VALID_STATE: State = (() => {
   const parsed = parseState(VALID_STATE);
   if (parsed.ok !== "parsed") throw new Error("the valid fixture parses");
@@ -34,8 +40,6 @@ function validState(): State {
   return structuredClone(PARSED_VALID_STATE);
 }
 
-// Every spelling a hand edit or another writer's clock library produces for one instant, plus the
-// shapes zod's ISO check refuses (a bare date, no zone, a zone offset, prose).
 const timestamp = fc.oneof(
   fc.date({ noInvalidDate: true }).map((date) => date.toISOString()),
   fc.date({ noInvalidDate: true }).map((date) => date.toISOString().replace(".000Z", "Z")),

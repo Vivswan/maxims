@@ -1,3 +1,11 @@
+// The managed block a rule file holds between two markers: rendered here, and found again by a
+// Markdown scan of the user's file. Each marker has one spelling: the renderer fills the template
+// and the scanner matches the pattern derived from it.
+//   version   the begin marker's last field, so that a reader of any version finds it before
+//             judging the rest (migrations/block-ladder.ts)
+//   end       carries no version and is spelled alike by every version: it is the line that names
+//             a block whose begin marker this maxims refuses (`heldBlockSpans`)
+
 import { util, z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { compareCodeUnits } from "../util/order.ts";
@@ -15,12 +23,7 @@ import {
 const DESCRIPTION_MAX_CHARS = 300;
 const ELLIPSIS = "...";
 
-// The one spelling of each marker: the renderer fills the template and the scanner matches the
-// pattern derived from it. The version is the begin marker's last field so that a reader of any
-// version finds it before judging the rest (migrations/block-ladder.ts).
 const BEGIN_MARKER = "<!-- maxims:begin {source} sha={sha} version={version} -->";
-// The end marker carries no version and is spelled alike by every version: it is the line that
-// names a block whose begin marker this maxims refuses (`heldBlockSpans`).
 const END_MARKER = "<!-- maxims:end {source} -->";
 const FIELD = /\{(\w+)\}/g;
 type MarkerFields = Readonly<Record<string, string>>;
@@ -109,12 +112,8 @@ function markerLine(line: MarkdownLine): MarkerLine | null {
 
 const SELF_REFRESH_LINE = `- If the staleness line above is present, run \`${PACKAGE_COMMAND} sync --quiet\` before continuing.`;
 
-// A staleness notice's `since` is a fetch record's timestamp; the validator the state schema
-// applies to it decides what a later run, which never knew the value, accepts in its place.
 const ISO_TIMESTAMP = z.iso.datetime();
 const SINCE_PLACEHOLDER = "0000-00-00T00:00:00.000Z";
-// The readers of a shared file, and so the escaping their union asks for, may change between the
-// run that writes a notice and the run that drops it.
 const ESCAPINGS: readonly (readonly ExpansionSyntax[])[] = [
   [],
   ["at-import"],
@@ -153,6 +152,10 @@ function staleLine(source: string, stale: Staleness, expands: readonly Expansion
 // went) that maxims still wrote, not the user; a line that merely opens like one is the user's.
 // The notice's timestamp is the one part a later run cannot know, so it alone is matched by
 // shape, found by rendering the notice around a placeholder no escaping touches.
+//   ISO_TIMESTAMP   a `since` is a fetch record's timestamp; the validator the state schema applies
+//                   to it decides what a later run, which never knew the value, accepts in its place
+//   ESCAPINGS       the readers of a shared file, and so the escaping their union asks for, may
+//                   change between the run that writes a notice and the run that drops it
 export function ownLineMatcher(source: string): (line: string) => boolean {
   const exact = new Set([...provenanceLines(source), SELF_REFRESH_LINE]);
   const notices = ESCAPINGS.flatMap((expands) =>
@@ -207,6 +210,9 @@ function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
   return escapeReferences(commentSafe, expands);
 }
 
+const AT_REFERENCE = /@/;
+const HASH_REFERENCE = /#[A-Za-z]+:/;
+
 // A reference token is wrapped in a code span, which every documented import parser skips. The rule
 // models no inline construct, since parsers differ on which (emphasis, a link label, an escape, an
 // autolink, an inline tag) starts a fresh text token: any whitespace-split token holding `@` (or
@@ -216,9 +222,6 @@ function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
 //                    string)
 //   fences last      the only backticks left, each glued to its token, so a construct that steals
 //                    an opener swallows the token with it
-const AT_REFERENCE = /@/;
-const HASH_REFERENCE = /#[A-Za-z]+:/;
-
 function escapeReferences(text: string, expands: readonly ExpansionSyntax[]): string {
   const wrapAt = expands.length === 0 || expands.includes("at-import");
   const wrapHash = expands.length === 0;
@@ -311,11 +314,6 @@ function newScanner(): Scanner {
 // costs one pass over its whitespace however deep it nests.
 type Content = { indent: number; body: string; column: number };
 
-// A block may open behind up to three spaces, as CommonMark allows, and a marker inside one is then
-// quoted text.
-//   whitespace    CommonMark's space and tab, never other Unicode whitespace
-//   info string   any character (dotAll)
-//   declaration   any ASCII letter (CommonMark 4.6, start condition 4)
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/s;
 const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t]*$/;
 const COMMENT_OPEN = /^<!--/;
@@ -331,10 +329,6 @@ const BLOCK_TAGS = [
   "section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul",
 ].join("|");
 const BLOCK_TAG_OPEN = new RegExp(`^</?(?:${BLOCK_TAGS})(?=[ \\t>]|/>|$)`, "i");
-// A complete tag of any name alone on its line (CommonMark's seventh HTML block kind), which unlike
-// the kinds above cannot interrupt a paragraph. Whitespace inside the tag is `\s`, as commonmark.js
-// and markdown-it read it, wider than the specification's space and tab: the wider reading only
-// ever hides a marker line inside a raw HTML block, never exposes one.
 const TAG_NAME = "[A-Za-z][A-Za-z0-9-]*";
 const ATTRIBUTE = `\\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\\s*=\\s*(?:[^\\s"'=<>\`]+|'[^']*'|"[^"]*"))?`;
 const LONE_TAG_OPEN = new RegExp(
@@ -343,12 +337,6 @@ const LONE_TAG_OPEN = new RegExp(
 const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
 const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/;
 const LIST_MARKER = /^(?:[-+*]|(\d{1,9})[.)])(?=[ \t]|$)/;
-// The pieces of a link reference definition as commonmark.js and markdown-it read them, each
-// matched one way only, so an unterminated label cannot make a rule backtrack across its length.
-//   label                 up to 999 characters
-//   bare destination      parentheses balanced two deep; a backslash escapes only ASCII
-//                         punctuation; ASCII control characters are refused, the C1 range is not
-//   open label or title   may end its line in a backslash, which escapes the line ending
 const ESCAPABLE = String.raw`[!-/:-@[-\x60{-~]`;
 const LABEL_CHAR = String.raw`(?:[^[\]\\]|\\.)`;
 const DESTINATION_CHAR = String.raw`(?:\\${ESCAPABLE}|\\(?!${ESCAPABLE})|[^ ()\\\p{Cc}]|[\u0080-\u009f])`;
@@ -593,10 +581,15 @@ function onlyDefinitions(state: Definitions): boolean {
 }
 
 // A line that fits nowhere turns the paragraph to prose for good, since CommonMark reads
-// definitions only off its front. As the reference parsers read them:
-//   label   must hold a non-whitespace character in JavaScript's sense (they trim it), and no more
-//           than 999 characters as written
-//   NUL     reads as U+FFFD (they replace it before reading)
+// definitions only off its front. The pieces of a definition are matched as commonmark.js and
+// markdown-it read them, each one way only, so an unterminated label cannot make a rule backtrack
+// across its length. As the reference parsers read them:
+//   label                 must hold a non-whitespace character in JavaScript's sense (they trim it),
+//                         and no more than 999 characters as written
+//   bare destination      parentheses balanced two deep; a backslash escapes only ASCII
+//                         punctuation; ASCII control characters are refused, the C1 range is not
+//   open label or title   may end its line in a backslash, which escapes the line ending
+//   NUL                   reads as U+FFFD (they replace it before reading)
 function advanceDefinitions(state: Definitions, rest: Content): Definitions {
   const body = rest.body.replaceAll("\0", "\uFFFD");
   switch (state) {
@@ -719,11 +712,23 @@ function past(content: Content, columns: number): Content {
   return { ...content, indent: Math.max(0, content.indent - columns) };
 }
 
-// A fence never ends on the line that opens it, since that line is not a closing fence however it
-// is spelled; a comment or HTML block may (`<!-- x -->`, even `<!-->`, `<pre>x</pre>`).
+// A block may open behind up to three spaces, as CommonMark allows, and a marker inside one is then
+// quoted text. A fence never ends on the line that opens it, since that line is not a closing fence
+// however it is spelled; a comment or HTML block may (`<!-- x -->`, even `<!-->`, `<pre>x</pre>`).
 //   backtick fence with a backtick in its info string   not a fence at all
-//   lone tag                                            opens a block only where no paragraph is
-//                                                       open for it to continue (`interrupting`)
+//   lone tag                                            a complete tag of any name alone on its
+//                                                       line (CommonMark's seventh HTML block
+//                                                       kind): it opens a block only where no
+//                                                       paragraph is open for it to continue
+//                                                       (`interrupting`)
+//
+// What the opener patterns admit:
+//   whitespace          CommonMark's space and tab, never other Unicode whitespace
+//   info string         any character (dotAll)
+//   declaration         any ASCII letter (CommonMark 4.6, start condition 4)
+//   inside a lone tag   `\s`, as commonmark.js and markdown-it read it, wider than the
+//                       specification's space and tab: the wider reading only ever hides a marker
+//                       line inside a raw HTML block, never exposes one
 function opens(rest: Content, interrupting: boolean): OpenBlock | null {
   if (rest.indent > 3) return null;
   const text = rest.body;

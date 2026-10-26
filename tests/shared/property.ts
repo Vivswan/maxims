@@ -5,12 +5,10 @@ import fc from "fast-check";
 
 export type PropertyKnobs = { numRuns: number; seed: number | undefined };
 
-// Sized for the engine convergence suite, whose every run drives the whole engine. A suite whose
-// runs are cheaper scales it (the fuzz multiplier) or passes its own default (the marker corpus).
+// Sized for the engine convergence suite, whose every run drives the whole engine; a suite whose runs are cheaper scales it (the fuzz multiplier) or passes its own default (the marker corpus).
 const DEFAULT_ITERATIONS = 8;
 
-// A property runs the engine hundreds of times on a deep run, so its test outlives the runner's
-// default five seconds by a wide margin.
+// A property runs the engine hundreds of times on a deep run, so its test outlives the runner's default five seconds by a wide margin.
 export const PROPERTY_TIMEOUT_MS = 15 * 60 * 1000;
 
 // A knob that is set but unreadable stops the run: a typo that fell back to the default would

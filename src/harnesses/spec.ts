@@ -1,3 +1,9 @@
+// The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
+// name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
+// global root that `globalRoot` resolves); from-spec.ts joins them under that root whenever a
+// path is resolved. Every object is strict, so a misspelled key is refused with its path rather
+// than silently ignored.
+
 import { isAbsolute, posix } from "node:path";
 import { z } from "zod";
 import {
@@ -12,17 +18,8 @@ import type { JsonDialect } from "../util/jsonc.ts";
 import { flattenIssues } from "../util/zod-issues.ts";
 import type { ByteBudget, HookStdout, Scope, UnreadableLayer } from "./contract.ts";
 
-// The data half of a harness definition: everything `HarnessDefinition` holds that is a path, a
-// name, a flag or a template, with the paths RELATIVE to the scope root (the project root, or the
-// global root that `globalRoot` resolves); from-spec.ts joins them under that root whenever a
-// path is resolved. Every object is strict, so a misspelled key is refused with its path rather
-// than silently ignored.
-
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 
-// Values a template may splice in. A string value that is exactly one placeholder takes the
-// placeholder's own JSON type (`"{{async}}"` becomes a boolean, `"{{timeoutMs}}"` a number);
-// anywhere else the placeholder's text is spliced in, with `argv` as a JSON array.
 export const HOOK_PLACEHOLDERS = [
   "command",
   "argv",
@@ -131,16 +128,16 @@ const Fields = z.record(z.string(), z.json());
 
 const ByteCount = z.number().int().positive();
 
-// A path-scoped install puts the globs under `pathsKey`, as a YAML list or one comma-joined
-// string, beside `fields`; a harness with no scoped form declares none and refuses `--paths`.
-// Naming `pathsKey` inside `fields` with `null` fixes where the globs land among the other keys
-// (Cursor lists `globs` before `alwaysApply`); left out, they land last.
 const scopedFrontmatterShape = {
   fields: Fields,
   pathsKey: z.string().min(1),
   pathsAs: z.enum(["list", "comma-list"]),
 };
 
+// A path-scoped install puts the globs under `pathsKey`, as a YAML list or one comma-joined
+// string, beside `fields`; a harness with no scoped form declares none and refuses `--paths`.
+// Naming `pathsKey` inside `fields` with `null` fixes where the globs land among the other keys
+// (Cursor lists `globs` before `alwaysApply`); left out, they land last.
 function pathsKeyLeftOpen(
   ctx: z.core.ParsePayload<{ fields: Record<string, unknown>; pathsKey: string }>,
 ): void {
@@ -155,11 +152,11 @@ function pathsKeyLeftOpen(
   }
 }
 
-const ScopedFrontmatter = z.strictObject(scopedFrontmatterShape).check(pathsKeyLeftOpen);
+// The definition-level `ScopeFrontmatter` alone carries `byteBudget`, the smaller limit the harness
+// reads a path-scoped file under: a target-level `scoped` has no reader for one, so the key is
+// refused there rather than parsed and dropped.
 
-// The definition-level form alone carries `byteBudget`, the smaller limit the harness reads a
-// path-scoped file under: a target-level `scoped` has no reader for one, so the key is refused
-// there rather than parsed and dropped.
+const ScopedFrontmatter = z.strictObject(scopedFrontmatterShape).check(pathsKeyLeftOpen);
 const ScopeFrontmatter = z
   .strictObject({ ...scopedFrontmatterShape, byteBudget: ByteCount.optional() })
   .check(pathsKeyLeftOpen);
@@ -216,8 +213,6 @@ const SharedBlockTarget = z
 
 const Target = z.discriminatedUnion("kind", [RulesDirTarget, SharedBlockTarget]);
 
-// `platforms` names where the vendor reads the variable, as `process.platform` spells them; left
-// out, the variable is read everywhere.
 const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "aix",
   "android",
@@ -232,15 +227,11 @@ const PlatformEnum = completeEnum<NodeJS.Platform>()([
   "win32",
 ]);
 
-// `absoluteOnly` says the vendor's loader drops a relative value, as the XDG Base Directory spec
-// requires of its variables, where a shell would resolve it against the working directory.
 const RootVariable = z.strictObject({
   name: EnvName,
   absoluteOnly: z.literal(true).optional(),
 });
 
-// Variables the vendor tries in this order, the first one set (and absolute, where it says so)
-// winning: Zed under Flatpak reads `FLATPAK_XDG_CONFIG_HOME` ahead of `XDG_CONFIG_HOME`.
 const RootVariables = nonEmpty(RootVariable).check((ctx) => {
   const seen = new Set<string>();
   ctx.value.forEach((variable, index) => {
@@ -256,9 +247,13 @@ const RootVariables = nonEmpty(RootVariable).check((ctx) => {
   });
 });
 
-// The list branch spells out `absoluteOnly` as never-present: a union's excess-property check lets
-// an object literal carry any key some member declares, so without it a flag beside the list
-// would compile and then be refused at parse time.
+// One root-variable entry: a variable, or the variables the vendor tries in order. The list branch
+// spells out `absoluteOnly` as never-present: a union's excess-property check lets an object literal
+// carry any key some member declares, so without it a flag beside the list would compile and then
+// be refused at parse time.
+//   platforms      where the vendor reads the variable, as `process.platform` spells them; left out, the variable is read everywhere
+//   absoluteOnly   the vendor's loader drops a relative value, as the XDG Base Directory spec requires of its variables, where a shell would resolve it against the working directory
+//   name as list   tried in this order, the first one set (and absolute, where it says so) winning: Zed under Flatpak reads `FLATPAK_XDG_CONFIG_HOME` ahead of `XDG_CONFIG_HOME`
 function rootEnv<P extends z.ZodType>(platforms: P) {
   const reading = { subdir: RelPath.optional(), platforms };
   return z.union([
@@ -275,9 +270,13 @@ export function rootVariables(entry: RootEnvSpec): readonly RootVariableSpec[] {
   return [{ name: entry.name, ...(absolute ? { absoluteOnly: true } : {}) }];
 }
 
-// No platform is read through two entries, so which entry a platform compiles to is never a
-// matter of order.
+// The global-root, detection and tier-check shapes.
+//   Detect.dirs   relative to the global root, `.` being the root itself
+//   KeyPath       zod drops a `__proto__` key from what it parses, so a check on that segment could never read it
+//   WalkLayer     the file as read in every directory from the session's up to the project root
+
 const RootEnvList = nonEmpty(rootEnv(nonEmpty(PlatformEnum))).check((ctx) => {
+  // No platform is read through two entries, so which entry a platform compiles to is never a matter of order.
   const readThrough = new Map<string, string>();
   ctx.value.forEach((entry, index) => {
     const names = rootVariables(entry)
@@ -304,7 +303,6 @@ const GlobalRoot = z.strictObject({
   env: z.union([RootEnv, RootEnvList]).optional(),
 });
 
-// `dirs` are relative to the global root, `.` being the root itself.
 const Detect = z
   .strictObject({
     dirs: z.array(RelPath),
@@ -321,14 +319,12 @@ const Detect = z
     }
   });
 
-// zod drops a `__proto__` key from what it parses, so a check on that segment could never read it.
 const KeyPath = z
   .string()
   .min(1)
   .refine((value) => !value.split(".").includes("__proto__"), {
     error: "a key segment cannot be __proto__",
   });
-// A walked layer is the file as read in every directory from the session's up to the project root.
 const WalkLayer = z.strictObject({ kind: z.literal("root-to-cwd"), file: RelPath });
 const TierCheck = z.strictObject({
   // Per scope, in the harness's own precedence order; the walk takes project, then global.
@@ -474,11 +470,11 @@ const Hook = z.discriminatedUnion("kind", [
   FileHook,
 ]);
 
-// A per-scope budget that names neither scope would parse as "no cap anywhere" and hide a typo;
-// the spread re-types the scope each branch has just found present.
 const PerScopeBudget = z
   .strictObject({ project: ByteCount.optional(), global: ByteCount.optional() })
   .transform((budget, ctx): Exclude<ByteBudget, number> => {
+    // A budget that names neither scope would parse as "no cap anywhere" and hide a typo; the
+    // spread re-types the scope each branch has just found present.
     if (budget.project !== undefined) return { ...budget, project: budget.project };
     if (budget.global !== undefined) return { ...budget, global: budget.global };
     ctx.addIssue({ code: "custom", message: "a per-scope budget names at least one scope" });
@@ -503,9 +499,15 @@ function nonEmpty<T extends z.ZodType>(inner: T) {
   return z.tuple([inner], inner);
 }
 
-// What the nightly drift check re-reads, so each entry is tested the way it is matched: a claim
-// is matched after its whitespace runs collapse on both sides, so an edge space on a claim is
-// noise an author would never see fail; a pointer without its leading slash would name nothing.
+// What the nightly drift check (scripts/nightly/harness_drift.ts) re-reads, so each entry is tested
+// the way it is matched.
+//   Claim           matched after its whitespace runs collapse on both sides, so an edge space is noise an author would never see fail
+//   JsonPointer     RFC 6901: empty for the root, else `/`-led tokens whose only escapes are `~0` and `~1`; the token class excludes `/` so the two repetitions never overlap and the match stays linear
+//   PointerCheck    a bare pointer must resolve; one paired with `equals` must resolve to that value
+//   JsonPrimitive   compared with `!==`: jsonc-parser builds the document's objects with a null prototype, so a structural comparison against an object literal would never hold
+//   URL_SAFE        the repo, ref and path are spliced into a raw.githubusercontent.com URL, so a `#`, `?` or `%` in any of them would fetch a different file than the one named, and a `.` or `..` segment would be normalized away into another file's URL
+//   FilePath        the root check runs before `RelPath` so a path that collapses to the root (`./`) is told it needs a file rather than told to write `.`
+
 const Claim = z
   .string()
   .min(1, { error: "a claim is a non-empty phrase" })
@@ -513,22 +515,14 @@ const Claim = z
     error: "a claim has no leading or trailing whitespace",
   });
 const Claims = nonEmpty(Claim);
-// RFC 6901: empty for the root, else `/`-led tokens whose only escapes are `~0` and `~1`. The
-// token class excludes `/` so the two repetitions never overlap and the match stays linear.
 const JsonPointer = z.string().regex(/^(?:\/(?:[^~/]|~[01])*)*$/, {
   error: "expected an RFC 6901 JSON pointer",
 });
-// A bare pointer must resolve; one paired with `equals` must resolve to that value. The value is
-// a JSON primitive, compared with `!==`: jsonc-parser builds the document's objects with a null
-// prototype, so a structural comparison against an object literal would never hold.
 const JsonPrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const PointerCheck = z.union([
   JsonPointer,
   z.strictObject({ pointer: JsonPointer, equals: JsonPrimitive }),
 ]);
-// The repo, ref and path are spliced into a raw.githubusercontent.com URL, so a `#`, `?` or `%`
-// in any of them would fetch a different file than the one named, and a `.` or `..` segment
-// would be normalized away into another file's URL.
 const URL_SAFE = /^[A-Za-z0-9._/-]+$/;
 const plainSegments = (value: string): boolean =>
   value.split("/").every((segment) => !["", ".", ".."].includes(segment));
@@ -540,8 +534,6 @@ const Ref = z
   .string()
   .regex(URL_SAFE, { error: "expected a branch, tag, or commit" })
   .refine(plainSegments, { error: "a ref has no empty, . or .. segment" });
-// The root check runs before `RelPath` so a path that collapses to the root (`./`) is told it needs
-// a file rather than told to write `.`.
 const FilePath = z
   .string()
   .refine((value) => value.split("/").some((segment) => segment !== "" && segment !== "."), {
@@ -655,7 +647,10 @@ function requireOneOwnerPerFile(ctx: {
   }
 }
 
-// Fixtures name files under the built-in folder, so only a shipped spec may declare them.
+// The shipped form and the user's form share `SPEC_SHAPE` and differ at two keys.
+//   fixtures   name files under the built-in folder, so only a shipped spec may declare them
+//   id         a user-defined id is minted by `parseUserHarnessId`, so a parsed user spec cannot name a built-in harness; the message says which refusal it was, since both fail the same predicate
+
 export const HarnessSpecSchema = z
   .strictObject({
     ...SPEC_SHAPE,
@@ -666,8 +661,6 @@ export const HarnessSpecSchema = z
   .check(requireATarget)
   .check(requireOneOwnerPerFile);
 
-// A user-defined id is minted by `parseUserHarnessId`, so a spec that parses cannot name a
-// built-in harness; the message says which refusal it was, since both fail the same predicate.
 const UserHarnessIdField = z.custom<UserHarnessId>(
   (value) => typeof value === "string" && parseUserHarnessId(value) !== null,
   {

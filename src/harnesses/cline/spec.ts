@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Cline reads `.clinerules`, `.cline/rules`, `~/.cline/rules`, `~/Cline/Rules` and
 // `~/Documents/Cline/Rules`, and its own Rules panel creates new workspace rules in `.clinerules`.
 // A rule without frontmatter is always active.
@@ -8,6 +5,10 @@ import type { HarnessSpec } from "../spec.ts";
 //   stdin    task metadata sync never needs, so sync reads /dev/null and never hangs on a reader
 //   hooks    the "Enable Hooks" switch lives in the editor's own storage, not in a file, so there
 //            is no tierCheck
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "cline",
   displayName: "Cline",

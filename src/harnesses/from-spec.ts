@@ -344,6 +344,9 @@ function renderText(template: string, values: PlaceholderValues): string {
   });
 }
 
+// A string value that is exactly one placeholder takes the placeholder's own JSON type (`"{{async}}"`
+// becomes a boolean, `"{{timeoutMs}}"` a number); anywhere else the placeholder's text is spliced
+// in, with `argv` as a JSON array.
 function renderValue(template: unknown, values: PlaceholderValues): unknown {
   if (typeof template === "string") {
     const names = placeholdersIn(template);

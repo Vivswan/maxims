@@ -2,6 +2,9 @@
 // inside the container: the whole captured suite output through bun's own summary line (a queued
 // pipe write is cut at the first buffer when the tier exits right after it), one verdict line per
 // real-CLI smoke row with the tier failing unless every row passed, and the suite's test count.
+//
+// Skipped on Windows: the fake runtime is a POSIX sh script found through a colon-joined PATH, and
+// both readers are sh command lines.
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,9 +18,6 @@ import {
 import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 
-// The suite run is the only `run` whose command ends in `bun run test`; the fake answers it with
-// the captured file on stderr, where bun prints its results, and the probe runs with the probe's
-// expected lines.
 const FAKE_DOCKER = [
   "#!/bin/sh",
   'case "$1" in',
@@ -26,6 +26,7 @@ const FAKE_DOCKER = [
   "  image) echo 812345 ;;",
   "  run)",
   '    case "$*" in',
+  // The suite run is the only `run` whose command ends in `bun run test`; bun prints its results on stderr, so the captured file is answered there.
   '      *"bun run test") cat "$MAXIMS_FAKE_SUITE_STDERR" >&2 ;;',
   "      *) printf 'home-is-expected\\nhome-empty\\nwork-copied\\nhome-writable\\nnetwork-none\\n' ;;",
   "    esac ;;",
@@ -36,13 +37,12 @@ const FAKE_DOCKER = [
 
 const PROBE_OUTPUT = "home-is-expected\nhome-empty\nwork-copied\nhome-writable\nnetwork-none\n";
 
-// Both streams go to the one job log, so both are read as one here. The verdict cases read the
-// tier directly; only the truncation case reads it the way the job does: through a process slower
-// than the tier's writes, where a reader that starts only after the tier has exited is the same
-// condition at its limit, since everything the tier queued instead of writing is gone. The pipe
-// hides the tier's exit, so that reader leaves it in a file.
 const DIRECT_READER = 'exec "$@" 2>&1';
 const SLOW_READER = '{ "$@" 2>&1; echo "$?" > "$MAXIMS_TIER_EXIT_FILE"; } | { sleep 2; cat; }';
+
+// Both streams go to the one job log, so both readers merge them; the pipe hides the tier's exit, so the slow one leaves it in a file.
+//   direct -> the verdict cases
+//   slow   -> the truncation case, read as the job reads it: through a process slower than the tier's writes; a reader that starts only after the tier exited is that condition at its limit, since what the tier queued instead of writing is gone
 type Reader = "direct" | "slow";
 
 type TierRun = { exitCode: number; log: string };
@@ -114,6 +114,8 @@ const ROW_MS: Record<HarnessSmokeCli, string> = {
   copilot: "9999.99",
   opencode: "30000.01",
 };
+
+// ROW_MS as the tier prints it: rounded to a tenth of a second.
 const ROW_SECONDS: Record<HarnessSmokeCli, string> = {
   claude: "12.3",
   codex: "8.0",
@@ -209,8 +211,6 @@ const cases: Case[] = [
   },
 ];
 
-// The fake runtime is a POSIX sh script found through a colon-joined PATH, and both readers are
-// sh command lines; none of them runs on a Windows host.
 const hostSh = test.skipIf(WINDOWS);
 
 hostSh.each(cases)(

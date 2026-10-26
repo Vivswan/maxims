@@ -28,10 +28,6 @@ function markingChild(dir: string, ...extra: string[]): string[] {
   return ["bun", child, ...extra];
 }
 
-// The bench row is the incident's own spelling; build and arch_lint mix the inline and separate
-// spellings, and docs_probe repeats a boolean. Every output path points into the temp cwd, and
-// bench_ci's base is a ref no repository holds, so a script that parsed on would write there, run
-// the child, or fail later at git with status 1.
 const repeated: [script: string, flag: string, args: (dir: string) => string[]][] = [
   [
     "scripts/build.ts",
@@ -67,6 +63,10 @@ const repeated: [script: string, flag: string, args: (dir: string) => string[]][
   ],
 ];
 
+// The bench row is the incident's own spelling; build and arch_lint mix the inline and separate
+// spellings, and docs_probe repeats a boolean. Every output path points into the temp cwd, and
+// bench_ci's base is a ref no repository holds, so a script that parsed on would write there, run
+// the child, or fail later at git with status 1.
 test.each(repeated)(
   "%s refuses %s given twice with exit 2 and its own usage",
   async (script, flag, args) => {

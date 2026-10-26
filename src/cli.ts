@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// The bin entry: real streams, the real machine, the engine as built. Everything else is `main`,
+// which the tests drive with injected fakes.
+
 import { homedir } from "node:os";
 import { createEngine } from "./commands/loader.ts";
 import { main } from "./commands/main.ts";
@@ -6,8 +9,6 @@ import { detectAgent } from "./console/mode.ts";
 import { findProjectRoot } from "./engine/context.ts";
 import { maximsHome } from "./util/home.ts";
 
-// The bin entry: real streams, the real machine, the engine as built. Everything else is `main`,
-// which the tests drive with injected fakes.
 const stdout = process.stdout;
 process.exitCode = await main(process.argv.slice(2), {
   loadEngine: (options) => createEngine({ ...options, env: process.env }),

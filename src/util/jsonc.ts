@@ -8,9 +8,7 @@ import {
 } from "jsonc-parser";
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 
-// A UTF-8 BOM an editor left ahead of a config: a bare `JSON.parse` rejects it and Pi strips it, so
-// the judgment below names it, as a strict vendor sees the file, and a planner that edits the file
-// drops it and writes the file back without it.
+// A UTF-8 BOM an editor left ahead of a config: a bare `JSON.parse` rejects it and Pi strips it, so the judgment below names it, as a strict vendor sees the file, and a planner that edits the file drops it and writes the file back without it.
 const BOM = "\uFEFF";
 
 // Edits to a JSON or JSONC config the user also owns are byte-range splices located through the
