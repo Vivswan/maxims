@@ -30,14 +30,14 @@ export function tail(output: string, lines: number): string {
   return all.slice(Math.max(0, all.length - lines)).join("\n");
 }
 
-// bun prints a failing row's source excerpt, assertion and stack before the `(fail)` line that
-// names it, a timeout's explanation on a caret line after it, and names every failing row again
-// under `N tests failed:` at the end without that output. A file that fails early scrolls its
-// blocks past the tail.
 const MARKER = /^(\((pass|fail|skip|todo)\) |::group::|::endgroup::|\d+ tests? failed:)/;
 const TRAILER = /^\s+\^ \S/;
 const DURATION = / \[[\d.]+m?s\]$/;
 
+// A file that fails early scrolls its blocks past the tail, so each failing row is cut out as bun printed it:
+//   source excerpt, assertion, stack  -> before the `(fail)` line that names the row
+//   a timeout's explanation           -> on a caret line after it
+//   `N tests failed:` at the end      -> names every failing row again, without that output
 function failingRows(output: string): string[] {
   const blocks: string[] = [];
   const named = new Set<string>();

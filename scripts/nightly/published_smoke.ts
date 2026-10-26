@@ -13,19 +13,11 @@ import { type RuleFile, readRuleFile } from "./rule_file.ts";
 export const PACKAGE = "@vivswan/maxims";
 export const DIST_TAG = "next";
 export const VERSION_ARGV = ["npm", "view", PACKAGE, `dist-tags.${DIST_TAG}`] as const;
-
-// The whole round trip, fetch included, must finish inside this budget; the fetch is the slow
-// step and a registry that hangs is a red night, not a long one.
 export const TOTAL_BUDGET_MS = 5 * 60_000;
-
-// One line per memory in the rule file; two prove the block holds more than one line.
 export const FIXTURE_MEMORIES = [
   { name: "alpha-rule", description: "Smoke rule alpha for the published package" },
   { name: "beta-rule", description: "Smoke rule beta for the published package" },
 ] as const;
-
-// The rule file is seeded so `remove` has something to restore; a run that only proved deletion
-// would not see a shared block that ate the user's own lines.
 export const SEEDED_RULE_FILE = "# Agents\n\nA line maxims must leave alone.\n";
 
 export type Command = {
@@ -39,9 +31,9 @@ export type CommandRunner = (command: Command) => Promise<CommandResult>;
 
 export type World = { home: string; version: string };
 
+/** One step of the round trip; `argv` follows the package spec on the npx command line. */
 export type Step = {
   name: string;
-  // The arguments after the package spec.
   argv: readonly string[];
   judge: (result: CommandResult, world: World) => string[];
 };
@@ -131,9 +123,6 @@ function childEnv(home: string, npmCache: string): Record<string, string> {
   };
 }
 
-// SIGKILL is the runner's own kill at the budget; nothing else in the smoke run sends it. A pipe
-// read in flight when that kill lands stays open while npx's grandchild holds the pipe, so the
-// reads wait for the exit and a killed child's output is given up.
 export const spawnCommand: CommandRunner = async (command) => {
   const proc = Bun.spawn([...command.argv], {
     cwd: command.cwd,
@@ -144,7 +133,10 @@ export const spawnCommand: CommandRunner = async (command) => {
     timeout: command.timeoutMs,
     killSignal: "SIGKILL",
   });
+  // A pipe read in flight when the kill lands stays open while npx's grandchild holds the pipe, so
+  // the reads wait for the exit and a killed child's output is given up.
   const exitCode = await proc.exited;
+  // SIGKILL is the runner's own kill at the budget; nothing else in the smoke run sends it.
   if (proc.signalCode === "SIGKILL") return { exitCode: "timeout", stdout: "", stderr: "" };
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -153,6 +145,7 @@ export const spawnCommand: CommandRunner = async (command) => {
   return { exitCode, stdout, stderr };
 };
 
+// Two memories, so the installed block is proven to hold more than one line.
 function writeFixture(dir: string): void {
   mkdirSync(join(dir, "memories"), { recursive: true });
   for (const memory of FIXTURE_MEMORIES) {
@@ -212,6 +205,8 @@ export function summarizeSteps(version: string, results: readonly StepResult[]):
 
 // `sync` and `remove` after a failed `add` would only report the same defect from further away.
 export async function runPublishedSmoke(run: CommandRunner = spawnCommand): Promise<Outcome> {
+  // The whole round trip, fetch included, must finish inside TOTAL_BUDGET_MS: the fetch is the slow
+  // step, and a registry that hangs is a red night, not a long one.
   const started = performance.now();
   // Bun.spawn takes an integer timeout and performance.now() is fractional, so the remainder is
   // rounded once here, up, so a child is never given less than what is left.
@@ -222,6 +217,8 @@ export async function runPublishedSmoke(run: CommandRunner = spawnCommand): Prom
     const fixture = join(scratch, "fixture");
     const npmCache = join(scratch, "npm-cache");
     mkdirSync(join(home, ".codex"), { recursive: true });
+    // Seeded so `remove` has something to restore: a run that only proved deletion would not see a
+    // shared block that ate the user's own lines.
     writeFileSync(codexRuleFile(home), SEEDED_RULE_FILE);
     writeFixture(fixture);
     const env = childEnv(home, npmCache);

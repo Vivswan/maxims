@@ -9,6 +9,7 @@
 //   starts with a path (top-level directory, slash, segments)  -> binds that path; the rest are its exported symbols
 //   no path, a path bound earlier in the label                 -> more symbols of the bound path
 //   no path, nothing bound yet                                 -> a caption; a slash or `()` inside it is reported
+// A symbol is an ECMAScript identifier name, so `$run` and a Unicode-letter export are symbols too.
 // Diagrams inside a generated region are the declaration's, not the author's,
 // and need no demonstration line.
 
@@ -21,7 +22,6 @@ import { linkFile } from "./lib/links.ts";
 import { type Fence, type Page, readPage } from "./lib/page.ts";
 import { parseMarker } from "./lib/region.ts";
 
-// An ECMAScript identifier name, so `$run` and a Unicode-letter export are symbols too.
 const SYMBOL_TOKEN = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*(?:\(\))?$/u;
 const DEMONSTRATED = "Demonstrated by:";
 
@@ -87,10 +87,13 @@ export function exportedNames(file: string): ReadonlySet<string> {
 
 // A node definition wherever it sits: an id, an opening shape run (`[`, `((`, `{{`, `[/`, `[\`, `>` ...), and what follows it.
 const NODE_DEFINITION = /(?<![\w"-])([A-Za-z_][\w-]*)([[({>]+[/\\]?)(?![-|])/g;
+
+// The quoted label and its closing shape run, a slanted shape's `/` or `\` before the bracket included.
 const QUOTED_LABEL = /^"([^"]*)"[/\\]?[\])}]+/;
-// Edge-label text is not a node: `-->|run()|`, `-- run() -->`, `== run() ==>`, `-. run() .->`.
-// Text-form label text holds no node or arrow character, so `a --- b["x"] --> c` is two bare links, not one label.
+
+// Edge-label text is not a node: `-->|run()|`, `-- run() -->`, `== run() ==>`, `-. run() .->`. Text-form label text holds no node or arrow character, so `a --- b["x"] --> c` is two bare links, not one label.
 const EDGE_LABEL = /\|[^|\n]*\||(?:--|==|-\.)\s[^\n[\](){}|>=.-]+\s(?:-->|---|==>|===|\.->|\.-)/g;
+
 // The flowchart header alone is dropped, not its whole line: `flowchart LR; a["x"]` defines a node.
 const FLOWCHART_HEADER = /^\s*(?:flowchart|graph)(?:\s+(?:TB|TD|BT|LR|RL))?\b\s*;?/;
 
@@ -152,10 +155,13 @@ export function nodeLabels(mermaid: string): { labels: string[]; problems: strin
 export interface PageCheckOptions {
   /** The repository root the label paths are relative to. */
   root: string;
+
   /** The top-level directories a label path may start with (default: the directories under root). */
   pathRoots?: readonly string[];
+
   /** The URL prefix an absolute demonstration link must carry to map onto a repository file. */
   repoUrl?: string;
+
   /** The page's own path, for resolving relative demonstration links. */
   pagePath?: string;
 }
@@ -308,7 +314,6 @@ function conceptFences(page: Page): Fence[] {
   return page.fences.filter((fence) => fence.mermaid && !insideGeneratedRegion(page, fence.line));
 }
 
-/** The lines of page text matching `pattern`. */
 /** Link destinations as Markdown reads them, so a title or angle brackets never become part of the path. */
 function markdownLinks(line: string, page: Page): string[] {
   const links: string[] = [];
@@ -325,6 +330,7 @@ function markdownLinks(line: string, page: Page): string[] {
   return links;
 }
 
+/** The lines of page text matching `pattern`. */
 function textLines(page: Page, pattern: RegExp): number[] {
   return [...page.text.keys()].filter((line) => {
     const text = page.text[line];

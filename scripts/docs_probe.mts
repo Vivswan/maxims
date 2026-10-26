@@ -42,9 +42,9 @@ import { captureOrThrow } from "./lib/spawn.ts";
 export const DEFAULT_MAX_WORDS = 70;
 export const DEFAULT_MAX_CELL_WORDS = 15;
 
+/** One finding on a page, at the one-based line where the unit or token starts. */
 export interface Finding {
   readonly file: string;
-  /** One-based line where the unit or token starts. */
   readonly line: number;
   readonly message: string;
 }
@@ -52,9 +52,13 @@ export interface Finding {
 export interface ProbeOptions {
   /** Repository root every slash path resolves against. */
   readonly root: string;
+
+  /** The cap on a paragraph or a list item. */
   readonly maxWords: number;
+
   /** The cap on one table cell; a cell holds one fact, and the explanation goes below the table. */
   readonly maxCellWords: number;
+
   /** What the repository owns, for the path checks; null: word counts only, for pages that describe another repository's files. */
   readonly tracked: TrackedPaths | null;
 }
@@ -107,19 +111,22 @@ function gitTrackedFiles(root: string): string[] {
   return files;
 }
 
+/**
+ * One stretch of prose the reader sees, judged against a word cap.
+ *   line -> the first word's, which a tag or a comment opening the unit is not
+ *   text -> as the reader sees it: link labels and code spans kept, markup gone
+ */
 export interface Unit {
   readonly kind: "paragraph" | "item" | "cell";
-  /** The line of the first word the reader sees, which a tag or a comment opening the unit is not. */
   readonly line: number;
-  /** The prose as the reader sees it: link labels and code spans kept, markup gone. */
   readonly text: string;
 }
 
+/** What one page yields to the probes; `anchors` is every id the rendered page answers a fragment with: heading slugs and tag ids. */
 export interface Scan {
   readonly units: Unit[];
   readonly codespans: { readonly text: string; readonly line: number }[];
   readonly links: { readonly href: string; readonly line: number }[];
-  /** Every id the rendered page answers a fragment with: heading slugs and tag ids. */
   readonly anchors: Set<string>;
 }
 
@@ -205,20 +212,19 @@ interface Collector {
   line: number | null;
 }
 
-/** A link or image being read: its destination and its label arrive from nested tokens. */
+/**
+ * A link or image being read: its destination and its label arrive from nested tokens.
+ *   line  -> the destination's, once one is read: a wrapped link is fixed where its target is written
+ *   label -> as written, since a definition is matched on source text, not on what it shows
+ */
 interface Media {
   readonly kind: "link" | "image";
-  /** The destination's line once one is read: a wrapped link is fixed where its target is written. */
   line: number;
-  /** The label as written, since a definition is matched on source text, not on what it shows. */
   label: string;
   reference: string | null;
   href: string | null;
 }
 
-// Tokens whose text the reader sees, as micromark types them. Everything else in the inline
-// stream is markup (sequences, markers, padding, a task list's checkbox) or hidden (a destination,
-// a title, an alt text) and contributes nothing.
 const VISIBLE = new Set([
   "data",
   "codeTextData",
@@ -226,9 +232,6 @@ const VISIBLE = new Set([
   "autolinkProtocol",
   "autolinkEmail",
 ]);
-// Tokens whose content is gathered into a collector of its own and dispatched when they close. A
-// heading's is dropped: its words are not counted, and its code spans and links were recorded as
-// they closed.
 const COLLECTED = new Set([
   "paragraph",
   "tableHeader",
@@ -240,8 +243,6 @@ const COLLECTED = new Set([
   "resourceDestinationString",
   "definitionDestinationString",
 ]);
-// Tokens whose inline content the reader never sees: an image's alt text, a destination's title,
-// the line breaks inside a comment or a tag wrapped over several lines.
 const SINKS = new Set(["image", "resource", "reference", "definition", "htmlText"]);
 
 const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
@@ -249,6 +250,12 @@ const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
   return marker === null ? [] : [{ ...marker, start: token.start.line, end: token.end.line }];
 };
 
+/**
+ * What one page yields, read off micromark's event stream. Three token classes decide what the reader sees:
+ *   VISIBLE   -> text the reader sees; the rest of the inline stream is markup (sequences, markers, padding, a task list's checkbox) or hidden (a destination, a title, an alt text) and contributes nothing
+ *   COLLECTED -> gathered into a collector of its own and dispatched when it closes; a heading's is dropped, its words uncounted, its code spans and links recorded as they closed
+ *   SINKS     -> inline content the reader never sees: an image's alt text, a destination's title, the line breaks inside a comment or a tag wrapped over several lines
+ */
 export function scanPage(text: string): Scan {
   const events = postprocess(
     parse({ extensions: [gfmStrikethrough(), gfmTable(), gfmTaskListItem()] })

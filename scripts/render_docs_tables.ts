@@ -51,8 +51,6 @@ function renderExitCodes(): string {
   );
 }
 
-// A flag as the user types it on the command line: the short form where one exists, the value
-// placeholder after it.
 const typed = (flag: FlagSpec): string =>
   `${flag.short === undefined ? `--${flag.name}` : `-${flag.short}`}${flag.placeholder === undefined ? "" : ` ${flag.placeholder}`}`;
 
@@ -80,8 +78,7 @@ function renderConfigKeys(): string {
   );
 }
 
-// `async` depends on the harness, so its cell is prose; every other placeholder renders the value
-// a hook of the shipped command and timeout receives.
+// `async` depends on the harness, so its cell is prose; every other placeholder renders the value a hook of the shipped command and timeout receives.
 const PLACEHOLDER_PROSE: Record<HookPlaceholder, string | null> = {
   command: null,
   argv: null,
@@ -140,8 +137,7 @@ function renderMemoryContract(): string {
   );
 }
 
-// `fields` are the intent schema keys a bullet documents, claimed once across the list; empty
-// for a top-level state field or a bullet elaborating the one above it.
+// `fields` are the intent schema keys a bullet documents, claimed once across the list; empty for a top-level state field or a bullet elaborating the one above it.
 const STATE_BULLETS: readonly { lead: string; fields: readonly string[]; text: string }[] = [
   {
     lead: code("version"),

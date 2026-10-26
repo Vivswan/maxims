@@ -21,22 +21,21 @@ import type { Outcome } from "./report.ts";
 
 export const FETCH_TIMEOUT_MS = 20_000;
 const USER_AGENT = "maxims-nightly";
-
-// Every source is read as the text it is (a raw repository file, a markdown rendition of a page),
-// with each whitespace run as one space, so a claim holds across a line break.
 const squashWhitespace = (text: string): string => text.replace(/\s+/g, " ");
 
 export function normalizeText(body: string): string {
   return squashWhitespace(body).trim();
 }
 
-// A claim is a literal phrase, matched case-sensitively with every whitespace run on both sides
-// read as one space. A claim that begins or ends in an ASCII word character must begin or end at
-// a word boundary, so `hooks` never holds on `webhooks`; `.claude/rules` needs none before its dot.
 const WORD = "[A-Za-z0-9_-]";
 const WORD_FIRST = new RegExp(`^${WORD}`);
 const WORD_LAST = new RegExp(`${WORD}$`);
 
+/**
+ * Whether `claim` holds in `text` as a literal phrase, case-sensitive. `text` has been through normalizeText, and the claim's own whitespace runs are read as one space here to match it, so a claim holds across a line break.
+ *   `hooks`         -> never holds on `webhooks`: a claim that begins or ends in an ASCII word character must do so at a word boundary
+ *   `.claude/rules` -> needs no boundary before its dot
+ */
 export function claimPresent(text: string, claim: string): boolean {
   const literal = RegExp.escape(squashWhitespace(claim));
   const before = WORD_FIRST.test(claim) ? `(?<!${WORD})` : "";
@@ -90,8 +89,7 @@ export async function fetchSource(url: string, fetchImpl: typeof fetch): Promise
 
 export type Verdict = "match" | "DRIFT" | "UNREACHABLE";
 
-// Worst first, at both levels: a definition is the worst of its sources, the run the worst of its
-// definitions.
+// Worst first, at both levels: a definition is the worst of its sources, the run the worst of its definitions.
 const RANKED: readonly Verdict[] = ["DRIFT", "UNREACHABLE", "match"];
 
 function worstOf(verdicts: readonly [Verdict, ...Verdict[]]): Verdict {
@@ -120,8 +118,7 @@ const NO_NOTE = "-";
 
 type Reading = Pick<Row, "verdict" | "result">;
 
-// A missing claim or pointer is quoted as a JSON string: claims carry backticks, which a
-// backtick fence in a markdown cell would end early.
+// A missing claim or pointer is quoted as a JSON string: claims carry backticks, which a backtick fence in a markdown cell would end early.
 const quoted = (items: readonly string[]): string =>
   items.map((item) => JSON.stringify(item)).join(", ");
 
@@ -207,13 +204,10 @@ function readSchema(text: string, paths: readonly PointerCheck[]): Reading {
   return { verdict: "DRIFT", result: parts.join("; ") };
 }
 
-// A source that answered anything but its content is UNREACHABLE: its row shows the answer where
-// the reading would be, and the run reads nothing of the facts it carries. A text source (a file
-// or a page) that answers a rendered HTML document is one of those: its claims were written
-// against a raw file or a markdown rendition, and nav text or embedded data would hold them by
-// accident.
+// A text source (a file or a page) that answers one of these is UNREACHABLE: its claims were written against a raw file or a markdown rendition, and nav text or embedded data would hold them by accident.
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 
+// A source that answered anything but its content is UNREACHABLE: its row shows the answer where the reading would be, and the run reads nothing of the facts it carries.
 function read(source: VerifiedSource, fetched: Fetched): Reading {
   switch (fetched.kind) {
     case "redirect":

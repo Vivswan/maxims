@@ -32,7 +32,6 @@ function testEnv(home: string): Record<string, string> {
 }
 
 // The HOME is rooted at tmpdir(), never RUNNER_TEMP: tests/smoke.test.ts finds it through TMPDIR.
-// signal-exit re-raises the signal once the hooks ran, so the launcher dies by it.
 const exitCode = await withScratchDir(
   "maxims-test-home-",
   async (home) => {
@@ -44,6 +43,7 @@ const exitCode = await withScratchDir(
         stdio: ["inherit", "inherit", "inherit"],
       },
     );
+    // signal-exit re-raises the signal once the hooks ran, so the launcher dies by it.
     const release = onExit((_code, signal) => {
       if (signal !== null) proc.kill(signal);
     });
@@ -55,4 +55,5 @@ const exitCode = await withScratchDir(
   },
   tmpdir(),
 );
+
 process.exit(exitCode);

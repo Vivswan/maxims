@@ -25,9 +25,7 @@ export function whereBytesLand(path: string, refuse: (message: string) => never)
   return join(realpathSync.native(existing), ...missing);
 }
 
-// git exits 128 for every fatal error alike, so "found no repository" is told by its message under
-// the C locale. Both spellings open a parenthetical ("or any of the parent directories", "or any
-// parent up to mount point"); a gitfile pointing at a moved primary names a path instead.
+// git exits 128 for every fatal error alike, so "found no repository" is told by its message under the C locale; the "(" is where both spellings open a parenthetical and a gitfile pointing at a moved primary names a path instead.
 const NO_REPOSITORY_FOUND = "fatal: not a git repository (";
 
 // GIT_CEILING_DIRECTORIES and a mount boundary both stop git's climb short of a checkout that

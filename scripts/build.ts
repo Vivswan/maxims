@@ -1,3 +1,6 @@
+// Bundles the CLI into one file with every dependency inside. Bun currently preserves the entry's
+// shebang, so any leading one is stripped before ours is prepended and the artifact does not depend
+// on that behavior.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,19 +27,19 @@ function fail(message: string): never {
 }
 
 const { values: options } = parseArgv({ args: process.argv.slice(2), options: OPTIONS }, fail);
-// Caller-supplied paths are relative to the caller's cwd; resolve them before the chdir below.
-// The two outputs are compared by where their bytes land, so a second spelling of the bundle
-// path (a `..` segment, a symlinked directory) cannot make the size report overwrite it.
 const entry = options.entry === undefined ? join(repoRoot, DEFAULT_ENTRY) : resolve(options.entry);
 const outfile = whereBytesLand(options.outfile ?? join(repoRoot, DEFAULT_OUTFILE), fail);
 const sizeJson =
   options["size-json"] === undefined ? undefined : whereBytesLand(options["size-json"], fail);
+// The two outputs are compared by where their bytes land, so a second spelling of the bundle
+// path (a `..` segment, a symlinked directory) cannot make the size report overwrite it.
 if (sizeJson === outfile) {
   fail(`--outfile and --size-json both land at ${outfile}; the report would overwrite the bundle`);
 }
 
 // Bun writes module-boundary comments relative to the cwd; anchoring at the repo root keeps the
-// artifact byte-identical no matter where the build is invoked from.
+// artifact byte-identical no matter where the build is invoked from. The caller's paths were
+// resolved above, while the cwd was still the caller's.
 process.chdir(repoRoot);
 
 // jsonc-parser's `main` is a UMD bundle that `require`s its ./impl siblings when the factory runs;
@@ -56,14 +59,13 @@ function esmEntryOf(packageName: string): string {
 }
 const jsoncParserEsm = esmEntryOf("jsonc-parser");
 
-// Without `throw: false` a failed bundle surfaces as an uncaught AggregateError whose dump hides
-// the bundler's own messages; asking for the result instead lets them print with their code frames.
 const result = await Bun.build({
   entrypoints: [entry],
   target: "node",
   format: "esm",
   minify: false,
   sourcemap: "none",
+  // A thrown AggregateError's dump hides the bundler's own messages; the logs below print them with their code frames.
   throw: false,
   plugins: [
     {
@@ -86,8 +88,6 @@ if (artifact === undefined || extra.length > 0) {
 }
 
 const bundled = await artifact.text();
-// Bun currently preserves the entry's shebang; stripping any leading one before prepending ours
-// makes the artifact independent of that behavior.
 const body = bundled.startsWith("#!") ? bundled.slice(bundled.indexOf("\n") + 1) : bundled;
 const output = Buffer.from(SHEBANG + body);
 
