@@ -1,10 +1,11 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Without `applyTo` an instructions file is path-scoped by Copilot's own matching and silently
 // stops being always-loaded, so the frontmatter is never omitted. Copilot picks `bash` on POSIX and
 // `powershell` on Windows and never falls back between them, so both carry the same command or the
 // hook is silently inert on one platform.
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "copilot",
   displayName: "GitHub Copilot",

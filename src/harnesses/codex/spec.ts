@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Codex's two instruction loaders differ on a blank file. In its home it passes a blank
 // AGENTS.override.md over and reads AGENTS.md; in a project directory it takes the first that
 // exists and drops a blank one without falling back, so there the block belongs in the override
@@ -10,6 +7,10 @@ import type { HarnessSpec } from "../spec.ts";
 //                                untrusted layer is skipped whole, broken or not
 //   hooks.json                   serde_json, strict JSON: a comment or a trailing comma is a file
 //                                Codex warns about and skips
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "codex",
   displayName: "Codex",

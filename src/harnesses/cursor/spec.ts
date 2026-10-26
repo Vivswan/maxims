@@ -1,6 +1,3 @@
-import { toDefinition } from "../from-spec.ts";
-import type { HarnessSpec } from "../spec.ts";
-
 // Cursor ignores a plain `.md` in `.cursor/rules`, and an `.mdc` is injected every session only
 // under `alwaysApply: true`; a scoped one is attached by its `globs` instead.
 //   global target   none: user rules live in Cursor's settings UI, not in a file
@@ -9,6 +6,10 @@ import type { HarnessSpec } from "../spec.ts";
 //   debounce        the `sync --quiet` stamp (src/commands/frame/debounce.ts) is one per maxims
 //                   home, written by the last sync that ran from any hook or by hand; a start
 //                   inside a minute of it exits without work, the first of a Cursor burst included
+
+import { toDefinition } from "../from-spec.ts";
+import type { HarnessSpec } from "../spec.ts";
+
 export const spec = {
   id: "cursor",
   displayName: "Cursor",

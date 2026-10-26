@@ -1,18 +1,17 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 
-// "HEAD" asks the source resolver for the remote's default branch head; `--pin` replaces it with a
-// tag or sha. The default branch NAME is never stored because a repo can rename it without notice.
+// "HEAD" asks the source resolver for the remote's default branch head; `--pin` replaces it with a tag or sha. The default branch NAME is never stored because a repo can rename it without notice.
 export const DEFAULT_GIT_REF = "HEAD";
 
-// A repo segment of only dots would collapse the derived store path onto the store root itself.
+// Lower case only: `parseRemote` folds a remote's host and `normalizeGithubHost` a `GH_HOST` before either is tested or recorded.
 export const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
+// `(?!\.{1,2}$)`: a repo segment of only dots would collapse the derived store path onto the store root itself.
 export const GITHUB_REPO_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 
-// The rule-file renderer stamps a source's key and sha into a one-line HTML comment marker and
-// treats "no terminator, no line break, no padding" as an invariant; the state boundary is where
-// that invariant is made true, so every string that can reach a marker is refused here.
+// The rule-file renderer stamps a source's key and sha into a one-line HTML comment marker; the state boundary is where "no terminator, no line break, no padding" is made true, so every string that can reach a marker is refused here.
 const MARKER_RULES: [(value: string) => boolean, string][] = [
   [(value) => !value.includes("-->"), "cannot contain -->"],
   [(value) => !/[\r\n]/.test(value), "cannot contain a line break"],
@@ -30,8 +29,14 @@ function isMarkerSafe(value: string): boolean {
   return MARKER_RULES.every(([holds]) => holds(value));
 }
 
-// A NUL would reach the filesystem calls as ERR_INVALID_ARG_VALUE long after parsing, so the state
-// boundary refuses it here with the other shape errors.
+// The shapes a source takes in state.json. Every object is strict: a hand-edited state file with a
+// misspelled or foreign key is quarantined rather than half-obeyed, and a `-g` destination carrying
+// an `-o` path has no way to parse.
+//   AbsolutePathSchema   a NUL would reach the filesystem calls as ERR_INVALID_ARG_VALUE long after parsing, so the state boundary refuses it here with the other shape errors
+//   GithubFrom.host      absent for github.com and set from `GH_HOST` otherwise, so a source recorded under an enterprise host is never re-expanded against github.com at sync time
+//   GitFrom.url          any non-GitHub remote (GitLab, Gitea, a mirror, an air-gapped proxy), stored as the user gave it and never rewritten, so a proxy path or an ssh alias survives round trips
+//   RemoteFrom           the live source is split from the fetched ones, and the remotes from the copied local one, so `SourceEntry` is a union whose live variant has no `fetched` member at all and only a remote records a commit sha
+
 export const AbsolutePathSchema = markerSafe(
   z
     .string()
@@ -47,18 +52,12 @@ export const GitUrlSchema = z
   .string()
   .refine(isUsableRemote, { error: "expected a git remote URL" });
 
-// Every object is strict: a hand-edited state file with a misspelled or foreign key is quarantined
-// rather than half-obeyed, and a `-g` destination carrying an `-o` path has no way to parse.
-// `host` is absent for github.com and set from `GH_HOST` otherwise, so a source recorded under an
-// enterprise host is never re-expanded against github.com at sync time.
 const GithubFrom = z.strictObject({
   type: z.literal("github"),
   repo: GithubRepoSchema,
   ref: GitRefSchema,
   host: HostnameSchema.optional(),
 });
-// Any non-GitHub git remote (GitLab, Gitea, a mirror, an air-gapped proxy). The URL is stored as
-// the user gave it and never rewritten, so a proxy path or an ssh alias survives round trips.
 const GitFrom = z.strictObject({
   type: z.literal("git"),
   url: GitUrlSchema,
@@ -74,10 +73,6 @@ export const LiveLocalFrom = z.strictObject({
   path: AbsolutePathSchema,
   live: z.literal(true),
 });
-// A live source is split from the fetched sources at the schema level so that `SourceEntry` is a
-// union in which the live variant has no `fetched` member at all; nothing has to check for it. The
-// remote variants are split from the copied local one the same way, because only a remote has a
-// commit sha to record.
 export const RemoteFrom = z.union([GithubFrom, GitFrom]);
 export const SourceFromSchema = z.union([GithubFrom, GitFrom, CopiedLocalFrom, LiveLocalFrom]);
 export type SourceFrom = z.infer<typeof SourceFromSchema>;
@@ -91,13 +86,12 @@ export function isLiveLocal(from: SourceFrom): from is LiveLocalSourceFrom {
 
 export const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const GIT_SCHEMES = new Set(["https", "http", "ssh", "git"]);
-// scp-like `git@host:path`, which has no scheme; git also accepts an absolute path after the colon.
 export const SCP_LIKE = /^[\w.-]+@([\w.-]+):(.+)$/;
 
+// `port` is the explicit port, or null when the URL names none; the URL parser already drops a
+// default http(s) port, and the scp-like form has no port syntax at all.
 export type GitRemote = {
   host: string;
-  // The explicit port, or null when the URL names none; the URL parser already drops a default
-  // http(s) port, and the scp-like form has no port syntax at all.
   port: string | null;
   segments: string[];
 };
@@ -108,6 +102,7 @@ export type GitRemote = {
 // `parseSourceArgument` and the store-path derivation both read a remote this way.
 export function parseRemote(url: string): GitRemote | null {
   if (url.includes("#")) return null;
+  // The scp-like `git@host:path` form has no scheme; git also accepts an absolute path after the colon.
   const scp = SCP_LIKE.exec(url);
   if (scp !== null && !URL_SCHEME.test(url)) {
     return {
@@ -151,16 +146,7 @@ export function stripGitSuffix(segment: string): string {
   return segment.replace(/\.git$/i, "");
 }
 
-// The store derives `_git/<host>/<path>` from a remote, so a remote is usable only when the host
-// and every path segment are real directory names: no dot segments, no control characters, no
-// separators, and the repository segment must survive `.git` stripping. A `#` anywhere makes the
-// URL unusable: a fragment means nothing to git, and the canonical key relies on the first `#`
-// separating the URL from a pin. The URL is also the source key a rule-file marker carries, so it
-// is held to the marker rule too; `new URL` would silently trim surrounding whitespace that the
-// key would then keep. This is checked once here, at the source boundary.
-// `/` and `\\` would split a segment; `@` and `#` are what the store suffix and the canonical
-// key add for a pin, so a repository name may not carry them or a tracking source could forge a
-// pinned one's identity.
+// `/` and `\\` would split a segment; `@` and `#` are what the store suffix and the canonical key add for a pin, so a repository name may not carry them or a tracking source could forge a pinned one's identity.
 const SEGMENT_SEPARATORS = new Set(["/", "\\", "@", "#"]);
 
 function isUnsafeSegment(segment: string): boolean {
@@ -171,6 +157,12 @@ function isUnsafeSegment(segment: string): boolean {
   return false;
 }
 
+// The store derives `_git/<host>/<path>` from a remote, so a remote is usable only when the host
+// and every path segment are real directory names (no dot segments, no control characters, no
+// separators) and the repository segment survives `.git` stripping. Checked once here, at the
+// source boundary.
+//   `#` anywhere      a fragment means nothing to git, and the canonical key relies on the first `#` separating the URL from a pin
+//   the marker rule   the URL is the source key a rule-file marker carries; `new URL` would silently trim surrounding whitespace that the key would then keep
 export function isUsableRemote(url: string): boolean {
   if (!isMarkerSafe(url)) return false;
   const remote = parseRemote(url);

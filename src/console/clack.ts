@@ -79,8 +79,6 @@ export function createClackConsole(mode: ConsoleMode, streams: InteractiveStream
 }
 
 const SPINNER_FRAMES = [S_STEP_ACTIVE, S_STEP_SUBMIT];
-// Erase the whole line rather than overwrite it with spaces: the frame's length is not the
-// message's, and a run of spaces wraps on a terminal narrower than the message.
 const ERASE_LINE = `${String.fromCharCode(27)}[2K`;
 
 // Clack's spinner installs SIGINT and SIGTERM listeners while it runs, which would displace the
@@ -103,6 +101,8 @@ function frameSpinner(
   };
   draw();
   const timer = setInterval(draw, 120);
+  // Erase the whole line rather than overwrite it with spaces: the frame's length is not the
+  // message's, and a run of spaces wraps on a terminal narrower than the message.
   const finish = (line: string): void => {
     clearInterval(timer);
     output.write(`\r${ERASE_LINE}${line}\n`);

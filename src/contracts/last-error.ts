@@ -1,8 +1,11 @@
+// The failure a source's last fetch left, as state.json records it. `IsoTimestamp` folds every
+// spelling of an instant to the form every writer stamps, `toISOString()`, so no two spellings of
+// one instant meet in a comparison.
+//   a hand edit   the only way another precision reaches the file
+//   an offset     zod stops it at this boundary, so the fold never shifts the instant
+
 import { z } from "zod";
 
-// Every writer stamps `toISOString()`; a hand edit is the only way another precision reaches the
-// file, and it is folded to the same form here so no two spellings of one instant ever meet in
-// a comparison. Zod stops offsets at this boundary, so the fold never shifts the instant.
 export const IsoTimestamp = z.iso.datetime().transform((value) => new Date(value).toISOString());
 
 export const LAST_ERROR_KINDS = ["network", "ratelimit", "missing", "auth", "invalid"] as const;

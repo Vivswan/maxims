@@ -36,9 +36,9 @@ type HeldLock = {
   heartbeat: ReturnType<typeof setInterval>;
 };
 
-// Every lock this process holds, so one exit hook can release them all when a signal ends the
-// process mid-callback; without it an interrupted sync blocks every hook until staleMs passes.
+// Every lock this process holds, so one exit hook can release them all when a signal ends the process mid-callback; without it an interrupted sync blocks every hook until staleMs passes.
 const heldLocks = new Set<HeldLock>();
+
 onExit(() => {
   for (const held of heldLocks) release(held);
 });

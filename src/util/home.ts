@@ -52,17 +52,11 @@ export function pendingPathFor(home: string, from: SourceFrom): RootedPath {
   return assertInsideRoot(paths.pending, join(paths.pending, inStore));
 }
 
-// GitHub owner and repo names are case-insensitive, so the store folds them to lower case: two
-// spellings of one repo must land in one entry even on a case-sensitive filesystem. The `_local`,
-// `_git` and `_github` prefixes are unreachable for a github owner, whose names never start with an
-// underscore; a git remote keys on its host and path with `.git` stripped and slashes kept, and
-// an explicit port joins the host with `_` because `:` is not a portable directory character. A
-// pinned source is a distinct source, so its entry carries the pin as a suffix.
+const PIN_READABLE_MAX = 40;
+
 // A ref may hold characters a directory name cannot (`release/1.0`), so the readable form is
 // sanitized and capped well under NAME_MAX, and a short hash of the exact ref keeps two refs that
 // sanitize or truncate alike apart.
-const PIN_READABLE_MAX = 40;
-
 function pinned(name: string, ref: string): string {
   if (ref === DEFAULT_GIT_REF) return name;
   const readable = ref.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, PIN_READABLE_MAX);
@@ -71,7 +65,11 @@ function pinned(name: string, ref: string): string {
 }
 
 // The one derivation of a source's store entry, proven inside the store root here so every store
-// write takes the result as is.
+// write takes the result as is. A pinned source is a distinct source, so its entry carries the pin
+// as a suffix.
+//   github                        owner and repo folded to lower case: GitHub names are case-insensitive, and two spellings of one repo must land in one entry even on a case-sensitive filesystem
+//   `_local`, `_git`, `_github`   never an owner's directory, since a github owner name cannot start with an underscore
+//   git                           keyed on host and path with `.git` stripped and slashes kept; an explicit port joins the host with `_`, since `:` is not a portable directory character
 export function storePathFor(home: string, from: SourceFrom): RootedPath {
   const store = homePaths(home).store;
   if (from.type === "github") {
