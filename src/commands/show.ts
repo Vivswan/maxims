@@ -383,7 +383,7 @@ export async function lookupMemory(
     }
     const found = candidatesIn({ key, entry, tree: tree.tree }, state, io, request.name);
     for (const name of found.names) names.add(name);
-    candidates.push(...found.candidates);
+    for (const candidate of found.candidates) candidates.push(candidate);
   }
   const [candidate, ...rest] = candidates;
   if (candidate === undefined) return { kind: "absent", names, notices };

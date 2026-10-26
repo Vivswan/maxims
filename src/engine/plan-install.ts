@@ -928,8 +928,6 @@ function sweepOutRuleFiles(run: InstallRun): void {
   );
 }
 
-// A harness wants its hook at a scope where the scope's hook list names it and an entry there
-// reaches it, and its rules where one of those entries has rules on.
 function harnessWants(run: InstallRun, id: HarnessId, scope: Scope): HarnessWants {
   const { state, ctx } = run.input;
   const at = run.entries.filter(

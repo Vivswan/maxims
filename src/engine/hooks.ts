@@ -541,7 +541,7 @@ async function ownScopeAnswers(
   });
   const answers = [...(hook ?? [])];
   if (mcp !== null) answers.push(mcp);
-  answers.push(...(config ?? []));
+  for (const answer of config ?? []) answers.push(answer);
   return answers;
 }
 
@@ -573,8 +573,6 @@ async function elsewhereAnswers(
   return answers.filter((answer) => answer.claims.some((file) => reach.has(fileId(file))));
 }
 
-// Every answer of one harness: its own scopes, then the other projects' artifacts in the files
-// those scopes reached.
 async function harnessAnswers(
   def: HarnessDefinition,
   input: Pick<PlanHooksInput, "wants" | "elsewhere">,
@@ -588,10 +586,10 @@ async function harnessAnswers(
   for (const scope of scopes) {
     const wants = input.wants(def.id, scope);
     if (wants.unreachable) continue;
-    answers.push(...(await ownScopeAnswers(def, scope, wants, reach, run)));
+    for (const answer of await ownScopeAnswers(def, scope, wants, reach, run)) answers.push(answer);
   }
   for (const root of input.elsewhere(def.id)) {
-    answers.push(...(await elsewhereAnswers(def, root, reach, run)));
+    for (const answer of await elsewhereAnswers(def, root, reach, run)) answers.push(answer);
   }
   return answers;
 }
@@ -649,30 +647,34 @@ async function landRewrites(perHarness: readonly ScopeAnswer[][], run: HookRun):
   return { admitted: admittedAnswers, applied };
 }
 
+function emitAnswer(plan: Omit<HooksPlan, "failures">, answer: ScopeAnswer): void {
+  const sink = answer.wanted ? plan.changes : plan.removals;
+  for (const change of answer.changes) sink.push(change);
+  for (const notice of answer.notices) plan.notices.push(notice);
+}
+
+function emitFile(plan: Omit<HooksPlan, "failures">, file: RegistryFile): void {
+  const planned = file.planned();
+  if (planned === null) return;
+  (planned.wanted ? plan.changes : plan.removals).push(planned.change);
+  for (const notice of file.notices) plan.notices.push(notice);
+}
+
 // A file takes the plan slot of the first admitted answer that reached it, skipped or not, so
 // the plan reads in harness order whatever each harness wants. An answer's own files go before
 // the edit its rewrite lands in: dsh's row points at its hooks file, so the file is written
 // first and a write that fails at apply stops the plan with no row mounted over nothing.
 function plannedChanges(landed: Landed): Omit<HooksPlan, "failures"> {
-  const changes: Change[] = [];
-  const removals: Change[] = [];
-  const notices: string[] = [];
+  const plan: Omit<HooksPlan, "failures"> = { changes: [], removals: [], notices: [] };
   const emitted = new Set<RegistryFile>();
   for (const answer of landed.admitted) {
-    if (landed.applied.has(answer)) {
-      (answer.wanted ? changes : removals).push(...answer.changes);
-      notices.push(...answer.notices);
-    }
+    if (landed.applied.has(answer)) emitAnswer(plan, answer);
     const file = answer.rewrite?.file;
     if (file === undefined || emitted.has(file)) continue;
     emitted.add(file);
-    const planned = file.planned();
-    if (planned !== null) {
-      (planned.wanted ? changes : removals).push(planned.change);
-      notices.push(...file.notices);
-    }
+    emitFile(plan, file);
   }
-  return { changes, removals, notices };
+  return plan;
 }
 
 // Reconciles every definition's hook, MCP server entry and config edit at every scope this run can

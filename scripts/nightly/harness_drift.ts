@@ -187,7 +187,7 @@ function readPointers(root: Node, paths: readonly PointerCheck[]): Reading {
 
   const parts: string[] = [];
   if (missing.length > 0) parts.push(`missing: ${quoted(missing)}`);
-  parts.push(...differing);
+  for (const part of differing) parts.push(part);
   return { verdict: "DRIFT", result: parts.join("; ") };
 }
 

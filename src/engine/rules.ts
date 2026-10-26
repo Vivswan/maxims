@@ -497,7 +497,9 @@ function planWholeFile(file: RuleFile, drawn: RenderedFile, notices: string[]): 
 function renderNotices(file: RuleFile, drawn: RenderedFile): string[] {
   const notices = drawn.unreadable.map((line) => `maxims: ${line}`);
   for (const { block, text } of drawn.rendered) {
-    notices.push(...blockChangeNotices(file.path, block, text, drawn.current, drawn.spans));
+    for (const notice of blockChangeNotices(file.path, block, text, drawn.current, drawn.spans)) {
+      notices.push(notice);
+    }
   }
   return notices;
 }
@@ -584,7 +586,7 @@ export function planRulesDirSweep(input: RulesDirSweepInput): Change[] {
       const target = def.targets[scope];
       if (target === null || target.kind !== "rules-dir") continue;
       const root = scopeRoot(def, scope, harnessCtx);
-      changes.push(...sweepRulesDir(root, join(root, target.dir), input));
+      for (const change of sweepRulesDir(root, join(root, target.dir), input)) changes.push(change);
     }
   }
   return changes;

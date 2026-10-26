@@ -424,7 +424,7 @@ export function renderList(report: ListReport): string {
       } else if (position === 0) {
         lines.push(SCOPE_HEADERS[scope]);
       }
-      lines.push(...sourceLines(source, scope));
+      for (const line of sourceLines(source, scope)) lines.push(line);
     }
   }
   for (const key of report.lockOnly) {

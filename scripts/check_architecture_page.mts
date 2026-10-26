@@ -320,7 +320,7 @@ export function labelProblems(
       continue;
     }
 
-    problems.push(...symbolProblems(label, path, file, symbols));
+    for (const problem of symbolProblems(label, path, file, symbols)) problems.push(problem);
   }
   return problems;
 }
@@ -441,7 +441,7 @@ function nodeProblems(page: Page, root: string, pathRoots: readonly string[]): s
     const nodes = nodeLabels(fence.body);
     problems.push(...nodes.problems);
     for (const label of nodes.labels) {
-      problems.push(...labelProblems(label, root, pathRoots));
+      for (const problem of labelProblems(label, root, pathRoots)) problems.push(problem);
     }
   }
   return problems;

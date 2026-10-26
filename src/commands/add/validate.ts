@@ -137,8 +137,6 @@ function withAnswers(
   return next;
 }
 
-// Collisions are answered by renames until the incoming set resolves. A repin is refused outright,
-// and a declined prompt refuses on the first collision.
 async function resolveRenames(
   request: AddRequest,
   chosen: readonly Memory[],

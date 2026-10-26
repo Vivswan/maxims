@@ -76,8 +76,6 @@ function linkChanges(
   return changes;
 }
 
-// The text written in place, a link there unlinked first; a copy already holding the text is no
-// change.
 function copyChanges(path: RootedPath, existing: Stats | undefined, text: string): Change[] {
   const write: Change = { kind: "write", path, content: text };
   if (existing?.isSymbolicLink()) return [{ kind: "unlink", path }, write];
@@ -112,7 +110,7 @@ export function planBodies(input: BodiesInput): BodiesPlan {
     const planned = link
       ? linkChanges(path, existing, input, file)
       : copyChanges(path, existing, file.text);
-    changes.push(...planned);
+    for (const change of planned) changes.push(change);
   }
   return { changes, notices };
 }

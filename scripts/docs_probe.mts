@@ -312,7 +312,6 @@ const regionMarker = (token: Token, context: TokenizeContext): Marker[] => {
   return marker === null ? [] : [{ ...marker, start: token.start.line, end: token.end.line }];
 };
 
-/** Whether a line sits inside a BEGIN/END GENERATED region. */
 function isHidden(walk: Walk, line: number): boolean {
   return walk.hidden.some(([from, to]) => line >= from && line <= to);
 }
@@ -327,7 +326,6 @@ function record(walk: Walk, line: number): boolean {
   return !muted(walk) && !isHidden(walk, line);
 }
 
-/** A piece of text lands in the innermost open collector, which takes the line of its first visible character. */
 function append(walk: Walk, piece: string, line: number | null): void {
   const top = walk.collectors.at(-1);
   if (top === undefined) return;
@@ -682,7 +680,6 @@ function capMessage(kind: Unit["kind"], words: number, cap: number): string {
   return `${noun} of ${words} words; the cap is ${cap}. Split it, or turn its facts into bullets, a table, or numbered steps`;
 }
 
-/** Every unit over its cap: a cell against the cell cap, a paragraph or an item against the word cap. */
 function wordCapFindings(units: readonly Unit[], page: Page, options: ProbeOptions): Finding[] {
   const findings: Finding[] = [];
   for (const unit of units) {
@@ -797,9 +794,9 @@ export function probePage(text: string, file: string, options: ProbeOptions): Fi
   const findings = wordCapFindings(scan.units, page, options);
   if (options.tracked === null) return findings;
 
-  findings.push(...pathFindings(scan.codespans, page, options.tracked));
-  findings.push(...linkTargetFindings(scan.links, page));
-  findings.push(...anchorFindings(scan, page));
+  for (const finding of pathFindings(scan.codespans, page, options.tracked)) findings.push(finding);
+  for (const finding of linkTargetFindings(scan.links, page)) findings.push(finding);
+  for (const finding of anchorFindings(scan, page)) findings.push(finding);
   return findings.sort((a, b) => a.line - b.line);
 }
 

@@ -98,12 +98,26 @@ function lintFile(file: string, path: string): { problems: LintProblem[]; memory
   return { problems, memory: parsed.memory };
 }
 
-// A wikilink resolves within the folder alone, as a `*` install of it would.
+// A wikilink resolves within the folder alone, as a `*` install of it would. The resolver tags an
+// unmet link with its memory's name alone, so a memory past the first of its name (`a/foo.md` and
+// `b/foo.md` under --full-depth) resolves in a call of its own.
 function linkProblems(memories: LintedMemory[]): LintProblem[] {
   const names = new Set<string>(memories.map(({ memory }) => memory.name));
+  const firsts = new Map<string, LintedMemory>();
+  for (const linted of memories) {
+    if (!firsts.has(linted.memory.name)) firsts.set(linted.memory.name, linted);
+  }
+  const incoming = [...firsts.values()].map(({ memory }) => memory);
+  const resolved = resolveWikilinks(incoming, names, {}).unmet;
+  const unmetByName = Map.groupBy(resolved, (unmet) => unmet.memory);
   const problems: LintProblem[] = [];
-  for (const { memory, path } of memories) {
-    for (const { link } of resolveWikilinks([memory], names, {}).unmet) {
+  for (const linted of memories) {
+    const { memory, path } = linted;
+    const unmet =
+      firsts.get(memory.name) === linted
+        ? unmetByName.get(memory.name)
+        : resolveWikilinks([memory], names, {}).unmet;
+    for (const { link } of unmet ?? []) {
       problems.push({
         path,
         line: bodyLine(memory, link),
@@ -127,10 +141,10 @@ export function lintFolder(
   for (const file of files) {
     const path = relative(cwd, file) || file;
     const linted = lintFile(file, path);
-    problems.push(...linted.problems);
+    for (const problem of linted.problems) problems.push(problem);
     if (linted.memory !== null) memories.push({ memory: linted.memory, path });
   }
-  problems.push(...linkProblems(memories));
+  for (const problem of linkProblems(memories)) problems.push(problem);
   // A folder has no `select`, so the cap measures it as a `*` install would publish it.
   const published = memories.filter(
     ({ memory }) => !isHiddenInternal(memory, "*", installInternal),

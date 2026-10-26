@@ -92,7 +92,7 @@ export const doctor: Command = {
     const unresolved = unresolvedHarnessIds(state, io.harnesses);
     for (const id of unresolved) findings.push({ kind: "warn", text: notDefinedHere(id) });
     const here = (entry: SourceEntry): boolean => actsHere(entry, io);
-    findings.push(...sourceFindings(state, here));
+    for (const finding of sourceFindings(state, here)) findings.push(finding);
     const reports: HarnessReport[] = [];
     for (const def of io.harnesses) {
       for (const scope of scopesFor(def.id, state, here)) {
@@ -318,7 +318,9 @@ function findingsOf(report: HarnessReport, def: HarnessDefinition, userHome: str
   const findings: Finding[] = [];
   for (const [path, files] of Map.groupBy(report.ruleFiles, (file) => file.path)) {
     const shown = tildify(path, userHome);
-    findings.push(...ruleFileFindings(files, shown, prefix, def, report.scope));
+    for (const finding of ruleFileFindings(files, shown, prefix, def, report.scope)) {
+      findings.push(finding);
+    }
   }
   const hook = hookFinding(report, prefix);
   if (hook !== null) findings.push(hook);

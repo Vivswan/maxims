@@ -206,7 +206,9 @@ function commitSource(
   if (request.addHook && request.destination.scope !== "out") {
     next = registerHooks(gathered, next, request.destination, harnesses.ids, io);
   }
-  gathered.changes.push(...storeEntryChanges(request.from, io.home, item.tree.files));
+  for (const change of storeEntryChanges(request.from, io.home, item.tree.files)) {
+    gathered.changes.push(change);
+  }
   if (previous?.intent.destination.scope === "project" || request.destination.scope === "project") {
     gathered.touchesProject = true;
   }

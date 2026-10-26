@@ -113,14 +113,13 @@ function assertRoundTrips(lock: ProjectLock, content: string, path: string): voi
   );
 }
 
-// The lock rewrite an edit of this project's intent calls for. This machine edits only the
-// entries it owns here (the project-scope sources state held for this root before or after the
-// edit, shared or not) and leaves a teammate's entries as the file holds them, since a clone that
-// has not run `install` knows nothing of them; so a private add beside a committed lock changes
-// nothing, a shared add joins the team's entries, an unshare or a removal takes its own out, and a
-// lock that ends up naming nothing is deleted. The `disabled` copy is merged the same way: the
-// names this project's shared sources provide follow state, the rest stay. Null when the file
-// would not change.
+// The lock rewrite an edit of this project's intent calls for, null when the file would not change.
+// This machine's own entries are re-projected from state and a teammate's stay as the file holds
+// them, since a clone that has not run `install` knows nothing of them.
+//   private add beside a committed lock -> nothing changes
+//   shared add                          -> joins the team's entries
+//   unshare or removal                  -> takes its own entry out
+//   disabled names                      -> this machine's shared sources' follow state, others stay
 export async function projectLockChange(
   projectRoot: string,
   previous: State,

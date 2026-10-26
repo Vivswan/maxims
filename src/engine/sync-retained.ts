@@ -115,8 +115,6 @@ export async function retainedNames(input: RetainedNamesInput): Promise<MemoryNa
   return [...names];
 }
 
-// The blocks of a rule file as the grammar reads them; a marker it refuses is returned beside the
-// blocks read as held (`heldRuleBlocks`).
 function ruleBlocksOf(text: string): { blocks: RuleBlock[]; refused: MarkerRefused | null } {
   try {
     return { blocks: parseRuleBlocks(text), refused: null };
