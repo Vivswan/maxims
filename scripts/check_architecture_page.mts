@@ -15,17 +15,102 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import type { StaticExport, StaticExportEntry } from "oxc-parser";
 import { isInside } from "../src/util/fs.ts";
 import { parseSync, pathLabel, resolveImport, SOURCE_EXTENSIONS } from "./arch_lint.mts";
 import { parseArgv, type Refuser, usageRefuser } from "./lib/argv.ts";
 import { linkFile } from "./lib/links.ts";
 import { type Fence, type Page, readPage } from "./lib/page.ts";
-import { parseMarker } from "./lib/region.ts";
+import { parseMarker, type RegionMarker } from "./lib/region.ts";
 
 const SYMBOL_TOKEN = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*(?:\(\))?$/u;
 const DEMONSTRATED = "Demonstrated by:";
 
 const exportOriginsByFile = new Map<string, ReadonlyMap<string, string>>();
+
+/** A relative `from "./m"` on the entry; a package request, or no request, is undefined. */
+function relativeRequest(entry: StaticExportEntry): string | undefined {
+  const request = entry.moduleRequest?.value;
+  if (request === undefined || !/^\.\.?\//.test(request)) return undefined;
+  return request;
+}
+
+// `export { x as y } from "./m"`, and `import { x } from "./m"; export { x as y }`, which the
+// module record already folds into the same shape, keep the binding of ./m, not a new one here.
+function namedExportOrigin(
+  file: string,
+  name: string,
+  entry: StaticExportEntry,
+  visiting: ReadonlySet<string>,
+): string {
+  const request = relativeRequest(entry);
+  const imported = entry.importName.kind === "Name" ? entry.importName.name : null;
+  if (request === undefined || imported === null) return `${file}#${name}`;
+
+  const target = resolveImport(file, request);
+  return exportOrigins(target, visiting).get(imported) ?? `${target}#${imported}`;
+}
+
+function addStarredExports(
+  starred: Map<string, Set<string>>,
+  target: string,
+  visiting: ReadonlySet<string>,
+): void {
+  for (const [name, origin] of exportOrigins(target, visiting)) {
+    if (name === "default") continue;
+
+    const origins = starred.get(name) ?? new Set<string>();
+    origins.add(origin);
+    starred.set(name, origins);
+  }
+}
+
+interface CollectedExports {
+  /** name -> the binding a named or default export declares. */
+  direct: Map<string, string>;
+
+  /** name -> every binding a star re-export reached under that name. */
+  starred: Map<string, Set<string>>;
+}
+
+function collectExports(
+  file: string,
+  exports: readonly StaticExport[],
+  visiting: ReadonlySet<string>,
+): CollectedExports {
+  const direct = new Map<string, string>();
+  const starred = new Map<string, Set<string>>();
+  for (const statement of exports) {
+    for (const entry of statement.entries) {
+      if (entry.exportName.kind === "Default") {
+        direct.set("default", `${file}#default`);
+        continue;
+      }
+
+      if (entry.exportName.name !== null) {
+        const origin = namedExportOrigin(file, entry.exportName.name, entry, visiting);
+        direct.set(entry.exportName.name, origin);
+        continue;
+      }
+
+      const request = relativeRequest(entry);
+      if (request !== undefined) addStarredExports(starred, resolveImport(file, request), visiting);
+    }
+  }
+  return { direct, starred };
+}
+
+// A name reached through two star paths is one export when both end at the same binding and no
+// export at all when they do not, as ECMAScript resolves it; a direct export wins over any star.
+function withStarredExports(collected: CollectedExports): Map<string, string> {
+  const names = new Map(collected.direct);
+  for (const [name, origins] of collected.starred) {
+    if (names.has(name) || origins.size !== 1) continue;
+
+    names.set(name, [...origins][0] as string);
+  }
+  return names;
+}
 
 /**
  * The names `file` exports, each with the module that declares its binding: `export { a as b }`
@@ -41,42 +126,12 @@ export function exportOrigins(
 ): ReadonlyMap<string, string> {
   const cached = exportOriginsByFile.get(file);
   if (cached) return cached;
+
   if (visiting.has(file)) return new Map();
+
   const inner = new Set([...visiting, file]);
   const { module } = parseSync(file, readFileSync(file, "utf8"));
-  const direct = new Map<string, string>();
-  const starred = new Map<string, Set<string>>();
-  for (const statement of module.staticExports) {
-    for (const entry of statement.entries) {
-      const request = entry.moduleRequest?.value;
-      const relativeRequest = request !== undefined && /^\.\.?\//.test(request);
-      if (entry.exportName.kind === "Default") {
-        direct.set("default", `${file}#default`);
-      } else if (entry.exportName.name !== null) {
-        // `export { x as y } from "./m"`, and `import { x } from "./m"; export { x as y }`, which the
-        // module record already folds into the same shape, keep the binding of ./m, not a new one here.
-        const imported = entry.importName.kind === "Name" ? entry.importName.name : null;
-        const origin =
-          relativeRequest && imported !== null
-            ? (exportOrigins(resolveImport(file, request), inner).get(imported) ??
-              `${resolveImport(file, request)}#${imported}`)
-            : `${file}#${entry.exportName.name}`;
-        direct.set(entry.exportName.name, origin);
-      } else if (relativeRequest) {
-        const target = resolveImport(file, request);
-        for (const [name, origin] of exportOrigins(target, inner)) {
-          if (name === "default") continue;
-          const origins = starred.get(name) ?? new Set<string>();
-          origins.add(origin);
-          starred.set(name, origins);
-        }
-      }
-    }
-  }
-  const names = new Map(direct);
-  for (const [name, origins] of starred) {
-    if (!names.has(name) && origins.size === 1) names.set(name, [...origins][0] as string);
-  }
+  const names = withStarredExports(collectExports(file, module.staticExports, inner));
   if (visiting.size === 0) exportOriginsByFile.set(file, names);
   return names;
 }
@@ -173,19 +228,23 @@ function defaultPathRoots(root: string): string[] {
     .sort();
 }
 
-/** Problems with one label, as `"label": problem`. */
-export function labelProblems(
+interface LabelCode {
+  path: string;
+  symbols: string[];
+}
+
+/** A label read by its grammar: each code segment with the path it binds, and the captions that look like code. */
+function readLabel(
   label: string,
-  root: string,
-  pathRoots: readonly string[] = defaultPathRoots(root),
-): string[] {
+  pathRoots: readonly string[],
+): { codes: LabelCode[]; problems: string[] } {
   // A path starts under a top-level directory, or is a root-level file with a source or document extension (main.ts, README.md).
   const rootFile = `[\\w.-]+(?:${[...SOURCE_EXTENSIONS, ".md", ".yml", ".yaml", ".json"].map(RegExp.escape).join("|")})`;
   const pathToken = new RegExp(
     `^(?:(?:${pathRoots.map(RegExp.escape).join("|")})/[\\w./-]*|${rootFile})$`,
   );
+  const codes: LabelCode[] = [];
   const problems: string[] = [];
-  const missing = new Set<string>();
   let bound: string | undefined;
   for (const segment of label.split("<br>")) {
     const tokens = segment
@@ -193,28 +252,66 @@ export function labelProblems(
       .split(/[\s,]+/)
       .filter((token) => token !== "");
     const [head] = tokens;
-    let path: string;
-    let symbols: string[];
     if (head !== undefined && pathToken.test(head)) {
-      path = head;
-      symbols = tokens.slice(1);
-    } else if (bound !== undefined) {
-      path = bound;
-      symbols = tokens;
-    } else {
-      if (segment.includes("/") || segment.includes("()")) {
-        problems.push(
-          `"${label}": "${segment.trim()}" looks like code but reads as a caption; a code segment starts with a path under ${pathRoots.join(", ")}`,
-        );
-      }
+      bound = head;
+      codes.push({ path: head, symbols: tokens.slice(1) });
       continue;
     }
-    bound = path;
+
+    if (bound !== undefined) {
+      codes.push({ path: bound, symbols: tokens });
+      continue;
+    }
+
+    if (segment.includes("/") || segment.includes("()")) {
+      problems.push(
+        `"${label}": "${segment.trim()}" looks like code but reads as a caption; a code segment starts with a path under ${pathRoots.join(", ")}`,
+      );
+    }
+  }
+  return { codes, problems };
+}
+
+function symbolProblems(
+  label: string,
+  path: string,
+  file: string,
+  symbols: readonly string[],
+): string[] {
+  const problems: string[] = [];
+  for (const symbol of symbols) {
+    if (!SYMBOL_TOKEN.test(symbol)) {
+      problems.push(
+        `"${label}": "${symbol}" is neither a symbol nor a path; after a path, a label lists only exported symbols`,
+      );
+      continue;
+    }
+
+    const name = symbol.replace(/\(\)$/, "");
+    if (path.endsWith("/") || statSync(file).isDirectory()) {
+      problems.push(`"${label}": ${path} is a directory, so it exports no ${name}`);
+    } else if (!exportedNames(file).has(name)) {
+      problems.push(`"${label}": ${path} exports no ${name}`);
+    }
+  }
+  return problems;
+}
+
+/** Problems with one label, as `"label": problem`. */
+export function labelProblems(
+  label: string,
+  root: string,
+  pathRoots: readonly string[] = defaultPathRoots(root),
+): string[] {
+  const { codes, problems } = readLabel(label, pathRoots);
+  const missing = new Set<string>();
+  for (const { path, symbols } of codes) {
     const file = resolve(root, path);
     if (path.split("/").includes("..") || !isInside(root, file)) {
       problems.push(`"${label}": ${path} escapes the repository`);
       continue;
     }
+
     if (!existsSync(file)) {
       if (!missing.has(path)) {
         missing.add(path);
@@ -222,47 +319,45 @@ export function labelProblems(
       }
       continue;
     }
-    for (const symbol of symbols) {
-      if (!SYMBOL_TOKEN.test(symbol)) {
-        problems.push(
-          `"${label}": "${symbol}" is neither a symbol nor a path; after a path, a label lists only exported symbols`,
-        );
-        continue;
-      }
-      const name = symbol.replace(/\(\)$/, "");
-      if (path.endsWith("/") || statSync(file).isDirectory()) {
-        problems.push(`"${label}": ${path} is a directory, so it exports no ${name}`);
-      } else if (!exportedNames(file).has(name)) {
-        problems.push(`"${label}": ${path} exports no ${name}`);
-      }
-    }
+
+    problems.push(...symbolProblems(label, path, file, symbols));
   }
   return problems;
+}
+
+type PlacedMarker = RegionMarker & { line: number };
+
+/** The region markers of a page, each with the line it sits on, in page order. */
+function regionMarkers(page: Page): PlacedMarker[] {
+  const markers: PlacedMarker[] = [];
+  for (const [line, text] of page.text.entries()) {
+    if (text === undefined) continue;
+
+    const marker = parseMarker(text);
+    if (marker !== null) markers.push({ ...marker, line });
+  }
+  return markers;
 }
 
 /** Every BEGIN GENERATED marker needs the END marker of the same name after it; an unmatched one would hide every later diagram. */
 function regionProblems(page: Page): string[] {
   const problems: string[] = [];
-  let open: { name: string; line: number } | undefined;
-  for (const [index, text] of page.text.entries()) {
-    if (text === undefined) continue;
-    const marker = parseMarker(text);
-    if (marker?.kind === "BEGIN") {
+  let open: PlacedMarker | undefined;
+  for (const marker of regionMarkers(page)) {
+    const at = `line ${marker.line + 1}: ${marker.kind} GENERATED: ${marker.name}`;
+    if (marker.kind === "BEGIN") {
       if (open)
-        problems.push(
-          `line ${index + 1}: BEGIN GENERATED: ${marker.name} opens inside the region ${open.name} opened at line ${open.line + 1}`,
-        );
-      open = { name: marker.name, line: index };
-    } else if (marker?.kind === "END") {
-      if (!open)
-        problems.push(`line ${index + 1}: END GENERATED: ${marker.name} closes no open region`);
-      else if (open.name !== marker.name)
-        problems.push(
-          `line ${index + 1}: END GENERATED: ${marker.name} closes the region ${open.name} opened at line ${open.line + 1}`,
-        );
-      open = undefined;
+        problems.push(`${at} opens inside the region ${open.name} opened at line ${open.line + 1}`);
+      open = marker;
+      continue;
     }
+
+    if (open === undefined) problems.push(`${at} closes no open region`);
+    else if (open.name !== marker.name)
+      problems.push(`${at} closes the region ${open.name} opened at line ${open.line + 1}`);
+    open = undefined;
   }
+
   if (open) problems.push(`line ${open.line + 1}: BEGIN GENERATED: ${open.name} is never closed`);
   return problems;
 }
@@ -338,26 +433,23 @@ function textLines(page: Page, pattern: RegExp): number[] {
   });
 }
 
-/**
- * Every problem in one page: a node naming a missing path or an unexported
- * symbol, a concept diagram without its "Demonstrated by:" line before the
- * next heading, or a demonstration link that does not resolve to a file.
- */
-export function diagramProblems(markdown: string, options: PageCheckOptions): string[] {
-  const pathRoots = options.pathRoots ?? defaultPathRoots(options.root);
+function nodeProblems(page: Page, root: string, pathRoots: readonly string[]): string[] {
   const problems: string[] = [];
-  const page = readPage(markdown);
-  problems.push(...regionProblems(page));
   for (const fence of page.fences) {
     if (!fence.mermaid) continue;
+
     const nodes = nodeLabels(fence.body);
     problems.push(...nodes.problems);
     for (const label of nodes.labels) {
-      problems.push(...labelProblems(label, options.root, pathRoots));
+      problems.push(...labelProblems(label, root, pathRoots));
     }
   }
-  // ATX headings, plus Setext ones: a text line under a line of = or - signs.
-  const headings = [
+  return problems;
+}
+
+/** The lines that open a section, sorted: ATX headings, plus Setext ones (a text line under a line of = or - signs). */
+function headingLines(page: Page): number[] {
+  return [
     // Up to three leading spaces and an empty heading are still ATX headings to Markdown.
     ...textLines(page, /^ {0,3}#{1,6}(?:\s|$)/),
     ...textLines(page, /\S/).filter((line) => {
@@ -370,7 +462,22 @@ export function diagramProblems(markdown: string, options: PageCheckOptions): st
       );
     }),
   ].sort((x, y) => x - y);
+}
+
+/** Why a demonstration link proves nothing: it does not resolve, names no file, or names a directory. */
+function linkProblem(link: string, options: PageCheckOptions): string | undefined {
+  const resolved = resolveLink(link, options);
+  if ("problem" in resolved) return resolved.problem;
+  if (!existsSync(resolved.file)) return `"${link}" names a file that does not exist`;
+  if (statSync(resolved.file).isDirectory())
+    return `"${link}" names a directory, not a test or scenario file`;
+  return undefined;
+}
+
+function demonstrationProblems(page: Page, options: PageCheckOptions): string[] {
+  const headings = headingLines(page);
   const demonstrations = textLines(page, /^Demonstrated by:/);
+  const problems: string[] = [];
   // One demonstration line proves one diagram: two fences under one heading need two lines.
   const claimed = new Set<number>();
   for (const fence of conceptFences(page)) {
@@ -378,29 +485,39 @@ export function diagramProblems(markdown: string, options: PageCheckOptions): st
     const demoLine = demonstrations.find(
       (line) => line > fence.end && line < sectionEnd && !claimed.has(line),
     );
-    if (demoLine !== undefined) claimed.add(demoLine);
     const at = `line ${fence.line + 1}`;
     if (demoLine === undefined) {
       problems.push(`${at}: the diagram has no "${DEMONSTRATED}" line before the next heading`);
       continue;
     }
-    const demo = page.lines[demoLine] ?? "";
-    const links = markdownLinks(demo, page);
+
+    claimed.add(demoLine);
+    const links = markdownLinks(page.lines[demoLine] ?? "", page);
     if (links.length === 0) {
       problems.push(`${at}: the "${DEMONSTRATED}" line links nothing`);
     }
+
     for (const link of links) {
-      const resolved = resolveLink(link, options);
-      if ("problem" in resolved) {
-        problems.push(`${at}: ${resolved.problem}`);
-      } else if (!existsSync(resolved.file)) {
-        problems.push(`${at}: "${link}" names a file that does not exist`);
-      } else if (statSync(resolved.file).isDirectory()) {
-        problems.push(`${at}: "${link}" names a directory, not a test or scenario file`);
-      }
+      const problem = linkProblem(link, options);
+      if (problem !== undefined) problems.push(`${at}: ${problem}`);
     }
   }
   return problems;
+}
+
+/**
+ * Every problem in one page: a node naming a missing path or an unexported
+ * symbol, a concept diagram without its "Demonstrated by:" line before the
+ * next heading, or a demonstration link that does not resolve to a file.
+ */
+export function diagramProblems(markdown: string, options: PageCheckOptions): string[] {
+  const pathRoots = options.pathRoots ?? defaultPathRoots(options.root);
+  const page = readPage(markdown);
+  return [
+    ...regionProblems(page),
+    ...nodeProblems(page, options.root, pathRoots),
+    ...demonstrationProblems(page, options),
+  ];
 }
 
 /** The concept diagrams and demonstration lines a page carries. */

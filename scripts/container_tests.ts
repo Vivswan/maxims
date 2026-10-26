@@ -133,4 +133,9 @@ for (const run of [1, 2]) {
 }
 
 for (const reason of reasons) writeAllSync(2, `container tier: ${reason}\n`);
-process.exit(suite.exitCode !== 0 ? suite.exitCode : reasons.length > 0 ? 1 : hermetic);
+
+if (suite.exitCode !== 0) process.exit(suite.exitCode);
+
+if (reasons.length > 0) process.exit(1);
+
+process.exit(hermetic);

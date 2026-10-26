@@ -31,6 +31,9 @@ const CONFIRM_PAUSE_MS = 20_000;
 
 export type Channel = "next" | "stable";
 
+/** The lane a step runs for: the stable lane also carries the release-please tag it publishes. */
+type Lane = { channel: "next" } | { channel: "stable"; tag: string };
+
 function gitFailure(args: string[], error: unknown): Error {
   const stderr = (error as { stderr?: unknown }).stderr;
   const detail = typeof stderr === "string" && stderr.trim() !== "" ? `: ${stderr.trim()}` : "";
@@ -308,6 +311,37 @@ interface Descendant {
   sha: string;
 }
 
+/** A published pre-release's source against this run's: a descendant on main, a notice for one the checkout cannot place, or null for the source itself and its ancestors. */
+type Placement = { descendant: Descendant } | { notice: string } | null;
+
+function placeVersion(ancestry: Ancestry, sourceSha: string, version: string): Placement {
+  const sha7 = mintedVersion(version)?.sha7;
+  if (sha7 === null || sha7 === undefined) {
+    return null;
+  }
+
+  const sha = ancestry.resolveCommit(sha7);
+  if (sha === null) {
+    return { notice: `${version} names ${sha7}, which is no commit in this checkout; ignored` };
+  }
+
+  if (sha === sourceSha) {
+    return null;
+  }
+
+  if (ancestry.isAncestor(sourceSha, sha)) {
+    return { descendant: { version, sha } };
+  }
+
+  if (ancestry.isAncestor(sha, sourceSha)) {
+    return null;
+  }
+
+  return {
+    notice: `${version} names ${sha7}, which is neither an ancestor nor a descendant of ${sourceSha.slice(0, 7)} on main; ignored`,
+  };
+}
+
 /** The published pre-releases placed against this run's source by ancestry: the descendants, the one furthest along
  * main, and a notice for each the checkout cannot place (a sha it lacks, or one off the source's line of main). */
 function descendantsOf(
@@ -319,22 +353,19 @@ function descendantsOf(
   const notices: string[] = [];
   let newest: Descendant | null = null;
   for (const version of Object.keys(packument.versions)) {
-    const sha7 = mintedVersion(version)?.sha7;
-    if (sha7 === null || sha7 === undefined) {
+    const placed = placeVersion(ancestry, sourceSha, version);
+    if (placed === null) {
       continue;
     }
-    const sha = ancestry.resolveCommit(sha7);
-    if (sha === null) {
-      notices.push(`${version} names ${sha7}, which is no commit in this checkout; ignored`);
-    } else if (sha !== sourceSha && ancestry.isAncestor(sourceSha, sha)) {
-      descendants.push({ version, sha });
-      if (newest === null || ancestry.isAncestor(newest.sha, sha)) {
-        newest = { version, sha };
-      }
-    } else if (sha !== sourceSha && !ancestry.isAncestor(sha, sourceSha)) {
-      notices.push(
-        `${version} names ${sha7}, which is neither an ancestor nor a descendant of ${sourceSha.slice(0, 7)} on main; ignored`,
-      );
+
+    if ("notice" in placed) {
+      notices.push(placed.notice);
+      continue;
+    }
+
+    descendants.push(placed.descendant);
+    if (newest === null || ancestry.isAncestor(newest.sha, placed.descendant.sha)) {
+      newest = placed.descendant;
     }
   }
   return { descendants, newest, notices };
@@ -512,7 +543,7 @@ export type NpmVerdictOptions = {
   cwd: string;
   sourceSha: string;
   registry: string;
-} & ({ channel: "next" } | { channel: "stable"; tag: string });
+} & Lane;
 
 export async function npmVerdict(
   options: NpmVerdictOptions,
@@ -553,54 +584,6 @@ export interface ConfirmPublishOptions {
   pause: () => Promise<void>;
 }
 
-/**
- * The record is read until it shows the version: the job holds the npm-publish lane until the next holder's verdict can
- * see it (npm makes a publish readable asynchronously; a read in that gap would move a tag back). The lane's dist-tag is judged:
- *
- *   next    -> must name this version or a descendant's pre-release, or a stale run moved it back
- *   stable  -> must name this release or a newer one, or an older release's publish moved it back
- *
- * A drift is reported, not repaired: trusted publishing (OIDC) authenticates `npm publish` alone, not
- * `npm dist-tag add` (npm/cli#8547).
- */
-export async function confirmPublish(options: ConfirmPublishOptions): Promise<ConfirmVerdict> {
-  const { channel, name, version, sourceSha, ancestry, readPackument, attempts, pause } = options;
-  if (!Number.isInteger(attempts) || attempts < 1) {
-    throw new Error(`the read attempts must be a positive integer, not ${attempts}`);
-  }
-  for (let read = 1; ; read++) {
-    // A read that fails counts as a read that did not show the version: the lane is held through the budget
-    // either way, and the last failure is the one reported.
-    let packument: Packument | null;
-    try {
-      packument = await readPackument();
-    } catch (error) {
-      if (error instanceof UnreadablePackument || read === attempts) {
-        throw error;
-      }
-      await pause();
-      continue;
-    }
-    if (packument !== null && version in packument.versions) {
-      const behind =
-        channel === "next"
-          ? nextBehind(ancestry, sourceSha, version, name, packument)
-          : stableBehind(version, name, packument);
-      return behind === null
-        ? { outcome: "settled", version, reads: read }
-        : { outcome: "behind", version, reason: behind };
-    }
-    if (read === attempts) {
-      return {
-        outcome: "unsettled",
-        version,
-        reason: `the registry's record still lacks ${version} after ${attempts} reads; a run judged before it shows may move ${channel === "next" ? "next" : "latest"} back, and the next publish on the lane moves it forward`,
-      };
-    }
-    await pause();
-  }
-}
-
 function nextBehind(
   ancestry: Ancestry,
   sourceSha: string,
@@ -635,6 +618,74 @@ function stableBehind(version: string, name: string, packument: Packument): stri
   return `the registry's latest is ${latest ?? "unset"} while it holds ${version}, a release; something moved latest back, and the next release moves it forward (npm dist-tag add ${name}@${version} latest repairs it by hand)`;
 }
 
+// A read that fails counts as a read that did not show the version: the lane is held through the budget
+// either way. An UnreadablePackument passes through, since it is never retried.
+async function tolerantRead(
+  readPackument: () => Promise<Packument | null>,
+): Promise<Packument | null> {
+  try {
+    return await readPackument();
+  } catch (error) {
+    if (error instanceof UnreadablePackument) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+/** The verdict once the record shows the version: settled, or behind when the lane's dist-tag names an older one. */
+function tagVerdict(
+  options: ConfirmPublishOptions,
+  packument: Packument,
+  reads: number,
+): ConfirmVerdict {
+  const { channel, name, version, sourceSha, ancestry } = options;
+  const behind =
+    channel === "next"
+      ? nextBehind(ancestry, sourceSha, version, name, packument)
+      : stableBehind(version, name, packument);
+  if (behind === null) {
+    return { outcome: "settled", version, reads };
+  }
+  return { outcome: "behind", version, reason: behind };
+}
+
+/**
+ * The record is read until it shows the version: the job holds the npm-publish lane until the next holder's verdict can
+ * see it (npm makes a publish readable asynchronously; a read in that gap would move a tag back). The lane's dist-tag is judged:
+ *
+ *   next    -> must name this version or a descendant's pre-release, or a stale run moved it back
+ *   stable  -> must name this release or a newer one, or an older release's publish moved it back
+ *
+ * A drift is reported, not repaired: trusted publishing (OIDC) authenticates `npm publish` alone, not
+ * `npm dist-tag add` (npm/cli#8547).
+ */
+export async function confirmPublish(options: ConfirmPublishOptions): Promise<ConfirmVerdict> {
+  const { channel, version, readPackument, attempts, pause } = options;
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new Error(`the read attempts must be a positive integer, not ${attempts}`);
+  }
+
+  // The last read's failure is the one reported, so only the reads before it are tolerant.
+  for (let read = 1; ; read++) {
+    const last = read === attempts;
+    const packument = await (last ? readPackument() : tolerantRead(readPackument));
+    if (packument !== null && version in packument.versions) {
+      return tagVerdict(options, packument, read);
+    }
+
+    if (last) {
+      return {
+        outcome: "unsettled",
+        version,
+        reason: `the registry's record still lacks ${version} after ${attempts} reads; a run judged before it shows may move ${channel === "next" ? "next" : "latest"} back, and the next publish on the lane moves it forward`,
+      };
+    }
+
+    await pause();
+  }
+}
+
 /** The checkout at `cwd` must be at `sourceSha`, the commit whose build this run published; `registry` is the base URL where the package's record is read. */
 export interface NpmConfirmOptions {
   cwd: string;
@@ -644,9 +695,7 @@ export interface NpmConfirmOptions {
 }
 
 /** The confirm step as the workflow runs it: CONFIRM_READS reads, `delayMs` apart, bound the wait (280 s at CONFIRM_PAUSE_MS), since npm makes a publish readable asynchronously, at times minutes after npm publish returned. */
-export async function npmConfirm(
-  options: NpmConfirmOptions & ({ channel: "next" } | { channel: "stable"; tag: string }),
-): Promise<ConfirmVerdict> {
+export async function npmConfirm(options: NpmConfirmOptions & Lane): Promise<ConfirmVerdict> {
   const { cwd, sourceSha, registry, delayMs } = options;
   const version =
     options.channel === "next"
@@ -725,67 +774,100 @@ function channelOf(command: string, argument: string | undefined): Channel {
   return argument;
 }
 
+/** The value of `name` in the environment, which `command` needs set and non-empty. */
+function requiredEnv(name: string, command: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === "") {
+    throw new Error(`${name} is required for "${command}"`);
+  }
+  return value;
+}
+
+function lane(channel: Channel, command: string): Lane {
+  if (channel === "next") {
+    return { channel };
+  }
+  return { channel, tag: requiredEnv("TAG", command) };
+}
+
+function npmFloorStep(): void {
+  const npm = npmFloor();
+  if (npm.atFloor) {
+    return;
+  }
+  console.error(
+    `::error::npm ${npm.version} cannot publish through OIDC; trusted publishing needs npm ${NPM_FLOOR} or newer.`,
+  );
+  process.exitCode = 1;
+}
+
+async function npmVerdictStep(
+  cwd: string,
+  command: string,
+  argument: string | undefined,
+): Promise<void> {
+  const verdict = await npmVerdict({
+    cwd,
+    sourceSha: requiredEnv("GITHUB_SHA", command),
+    registry: process.env.NPM_REGISTRY_URL || DEFAULT_REGISTRY,
+    ...lane(channelOf(command, argument), command),
+  });
+  // The runner reads workflow commands off stderr as it does off stdout; stdout carries the verdict alone.
+  for (const notice of "notices" in verdict ? verdict.notices : []) {
+    console.error(`::notice::${notice}`);
+  }
+
+  if (verdict.action === "skip") {
+    console.log(`skip ${verdict.reason}`);
+    return;
+  }
+  console.log(`${verdict.action} ${verdict.version}`);
+}
+
+async function npmConfirmStep(
+  cwd: string,
+  command: string,
+  argument: string | undefined,
+): Promise<void> {
+  const channel = channelOf(command, argument);
+  const confirmed = await npmConfirm({
+    cwd,
+    sourceSha: requiredEnv("GITHUB_SHA", command),
+    registry: process.env.NPM_REGISTRY_URL || DEFAULT_REGISTRY,
+    delayMs: confirmPauseMs(process.env.NPM_CONFIRM_PAUSE_MS),
+    ...lane(channel, command),
+  });
+  if (confirmed.outcome !== "settled") {
+    console.log(`${confirmed.outcome} ${confirmed.reason}`);
+    return;
+  }
+
+  const reads = confirmed.reads === 1 ? "read" : "reads";
+  const tag =
+    channel === "next"
+      ? "next is not behind a descendant's pre-release"
+      : "latest names it or a newer release";
+  console.log(
+    `settled ${confirmed.version} is on the registry after ${confirmed.reads} ${reads}; ${tag}`,
+  );
+}
+
 async function main(): Promise<void> {
   const cwd = process.cwd();
   const [command, argument] = process.argv.slice(2);
-  const env = (name: string): string => {
-    const value = process.env[name];
-    if (value === undefined || value === "") {
-      throw new Error(`${name} is required for "${command}"`);
-    }
-    return value;
-  };
-  const lane = (channel: Channel) =>
-    channel === "next" ? { channel } : { channel, tag: env("TAG") };
   switch (command) {
-    case "npm-floor": {
-      const npm = npmFloor();
-      if (!npm.atFloor) {
-        console.error(
-          `::error::npm ${npm.version} cannot publish through OIDC; trusted publishing needs npm ${NPM_FLOOR} or newer.`,
-        );
-        process.exitCode = 1;
-      }
+    case "npm-floor":
+      npmFloorStep();
       break;
-    }
-    case "prerelease-version": {
-      console.log(prereleaseVersionOf(cwd, env("GITHUB_SHA")));
+    case "prerelease-version":
+      console.log(prereleaseVersionOf(cwd, requiredEnv("GITHUB_SHA", command)));
       break;
-    }
-    case "npm-verdict": {
-      const verdict = await npmVerdict({
-        cwd,
-        sourceSha: env("GITHUB_SHA"),
-        registry: process.env.NPM_REGISTRY_URL || DEFAULT_REGISTRY,
-        ...lane(channelOf(command, argument)),
-      });
-      // The runner reads workflow commands off stderr as it does off stdout; stdout carries the verdict alone.
-      for (const notice of "notices" in verdict ? verdict.notices : []) {
-        console.error(`::notice::${notice}`);
-      }
-      console.log(
-        verdict.action === "skip"
-          ? `skip ${verdict.reason}`
-          : `${verdict.action} ${verdict.version}`,
-      );
+    case "npm-verdict":
+      await npmVerdictStep(cwd, command, argument);
       break;
-    }
-    case "npm-confirm": {
-      const channel = channelOf(command, argument);
-      const confirmed = await npmConfirm({
-        cwd,
-        sourceSha: env("GITHUB_SHA"),
-        registry: process.env.NPM_REGISTRY_URL || DEFAULT_REGISTRY,
-        delayMs: confirmPauseMs(process.env.NPM_CONFIRM_PAUSE_MS),
-        ...lane(channel),
-      });
-      console.log(
-        confirmed.outcome === "settled"
-          ? `settled ${confirmed.version} is on the registry after ${confirmed.reads} ${confirmed.reads === 1 ? "read" : "reads"}; ${channel === "next" ? "next is not behind a descendant's pre-release" : "latest names it or a newer release"}`
-          : `${confirmed.outcome} ${confirmed.reason}`,
-      );
+    case "npm-confirm":
+      await npmConfirmStep(cwd, command, argument);
       break;
-    }
     default:
       throw new Error(
         `unknown command ${JSON.stringify(command ?? null)}; expected npm-floor | prerelease-version | npm-verdict <next|stable> | npm-confirm <next|stable>`,
