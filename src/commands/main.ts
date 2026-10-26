@@ -231,10 +231,14 @@ const SCAN_WORDS = new Map<string, ScanFlag>([
 ]);
 
 // `-h`, `-v`, `--quiet`, `--json` and `--dry-run` are read off the raw argv before the verb's
-// module loads and before any file is touched: help costs nothing and changes nothing, and the
-// output mode is known before the strict parse can fail, so a usage error under --json is still
-// one JSON value, under --quiet is still exit 0, and under --dry-run still writes no log line.
-// The verb is the first word that is not a flag; the flags a verb may precede are all booleans.
+// module loads and before any file is touched, so the output mode is known before the strict parse
+// can fail. The verb is the first word that is not a flag; the flags a verb may precede are all
+// booleans.
+//
+//   -h, -v     -> help costs nothing and changes nothing
+//   --json     -> a usage error is still one JSON value
+//   --quiet    -> a usage error is still exit 0
+//   --dry-run  -> a usage error still writes no log line
 function scan(argv: readonly string[]): Invocation {
   const invocation: Invocation = {
     verb: null,

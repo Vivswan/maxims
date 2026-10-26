@@ -1166,10 +1166,12 @@ const IMPORT = /(?:^|\s)(@(?:[^\s\\]|\\ )+)/g;
 // The oracle is Bun's own Markdown parser rather than a copy of the renderer's rules. Claude Code's
 // import walker runs its pattern over each lexed text token, so every chunk Bun reports (a code
 // span, emphasis, strikethrough, a link or image, an inline tag, an escape, or the text between
-// them) is rendered as its own token, whatever Bun reads as code is replaced, and a reference is any
-// `@` that opens a token or follows whitespace. Bun decodes entities and splits text around them;
-// the walker reads their raw spelling, so `&` is masked before parsing and no entity decodes. A
-// link reference definition renders to nothing at all, so a blank reading falls back to the raw line.
+// them) is rendered as its own token.
+//
+//   whatever Bun reads as code                       -> replaced
+//   an `@` that opens a token or follows whitespace  -> a reference
+//   an entity                                        -> `&` is masked before parsing and no entity decodes: Bun decodes entities and splits text around them, the walker reads their raw spelling
+//   a link reference definition                      -> renders to nothing at all, so a blank reading falls back to the raw line
 function exposedReferences(rendered: string): string[] {
   const bounded = (children: string) => `${BOUNDARY}${children}${BOUNDARY}`;
   const visible = Bun.markdown.render(rendered.replaceAll("&", "\u0001"), {

@@ -44,11 +44,17 @@ const SUBSHELL_FETCH = /\$\(\s*(?:curl|wget|iwr|invoke-webrequest)\b/i;
 // version are bounded because every backtrack into them re-runs the trailing lookahead over the
 // rest of the line: "python1.1.1...", unbounded, went quadratic.
 //
-// sudo's short flags that take an argument always consume the next token, so "sudo -u bash tee"
-// names a user, not a shell; a flag free to drop its argument would fire on it. The other flags
-// never take one, so "sudo -E bash now" still fires, also when clustered ahead of an argument flag
-// ("sudo -Eu root bash"). Under the i flag -a, -h and -p would swallow the bare -A, -H and -P, so
-// those three read as bare: "sudo -H bash" fires, "sudo -h host bash" does not.
+// sudo's short flags that take an argument always consume the next token, so that token is never
+// the shell; a flag free to drop its argument would fire on it. The other flags never take one,
+// also when clustered ahead of an argument flag.
+//
+//   "sudo -u bash tee"    -> names a user, not a shell
+//   "sudo -E bash now"    -> fires
+//   "sudo -Eu root bash"  -> fires
+//   "sudo -H bash"        -> fires
+//   "sudo -h host bash"   -> does not
+//
+// Under the i flag -a, -h and -p would swallow the bare -A, -H and -P, so those three read as bare.
 function shellPipe(line: string): Hit | null {
   const hits: Hit[] = [];
   const fetch = FETCH.exec(line);
@@ -88,12 +94,13 @@ const CLOSERS: Readonly<Record<string, string>> = {
 // URL parser rather than a regex; a bare "https://" names no host.
 //
 // The character that opens a URL says where its markup closes it (CLOSERS' keys are openers, its
-// values closers); an unquoted href value ("=") ends at the tag's ">". A code span is not an opener
-// but a region: its own end bounds any URL inside it (codeSpans). Nothing else closes a URL early,
-// so a quote or bracket glued inside an unopened authority ('trusted.example"@evil.example') stays
-// the userinfo the parser resolves past. Code spans are read without HTML tag precedence, so a
-// backtick inside a tag's attribute opens one. Three shapes are the recorded price of those rules:
+// values closers), and nothing else closes a URL early, so a quote or bracket glued inside an
+// unopened authority ('trusted.example"@evil.example') stays the userinfo the parser resolves past.
 //
+//   "=", an unquoted href value  -> the URL ends at the tag's ">"
+//   a code span                  -> not an opener but a region: its own end bounds any URL inside it (codeSpans); spans are read without HTML tag precedence, so a backtick inside a tag's attribute opens one
+//
+// Three shapes are the recorded price of those rules:
 //   [docs](https://user:p)w@example.com)                  -> no url (")" in userinfo ends the link)
 //   destination=https://trusted.example>@evil.example/x   -> trusted.example (">" ends the href)
 //   <a title="`" href="https://trusted.example`@evil.example">  -> trusted.example (span in a tag)

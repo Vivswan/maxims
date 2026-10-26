@@ -315,13 +315,17 @@ const blankOverrideRows: [Scope, string][] = [
   ["global", "AGENTS.md"],
 ];
 
-// Codex's home loader reads the first of AGENTS.override.md and AGENTS.md whose trimmed content is
-// not empty, so a blank override beside the user's AGENTS.md must not receive the block: filled, it
-// would become the one file Codex reads and the user's AGENTS.md would stop loading. Its project
-// loader takes the first of the two that exists and drops a blank one without falling back to
-// AGENTS.md, so there a blank override is the only file Codex would ever read and the block
-// belongs in it. Blank is what Rust's trim leaves empty: a zero-byte file, a newline, a U+0085
-// (whitespace to Rust, not to JavaScript); a lone byte order mark is content to Codex.
+// Codex's two loaders read a blank AGENTS.override.md differently, so the block goes where the
+// scope's own loader would read it. Blank is what Rust's trim leaves empty: a zero-byte file, a
+// newline, a U+0085 (whitespace to Rust, not to JavaScript); a lone byte order mark is content to
+// Codex.
+//
+//   home loader     -> the first of AGENTS.override.md and AGENTS.md whose trimmed content is not empty
+//   project loader  -> the first of the two that exists; a blank one is dropped without falling back to AGENTS.md
+//
+// So at home a blank override beside the user's AGENTS.md must not receive the block: filled, it
+// would become the one file Codex reads and the user's AGENTS.md would stop loading. In a project a
+// blank override is the only file Codex would ever read, and the block belongs in it.
 test.each(blankOverrideRows)(
   "the %s block follows Codex's own loader: a blank AGENTS.override.md sends it to %s",
   async (scope, blankOverrideTarget) => {

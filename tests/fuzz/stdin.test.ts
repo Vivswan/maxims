@@ -20,7 +20,12 @@ import { asyncOutcome, outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 import { anyText, describeError, fragments, fuzz } from "./shared.ts";
 
-// The fields the invoker rules read, each in the type that matches and in one that does not, so a random record lands on every rule's boundary and on the order that disambiguates them.
+// The stdin generators and the id table the properties read.
+//
+//   PAYLOAD_FIELDS  -> the fields the invoker rules read, each in the type that matches and in one that does not, so a random record lands on every rule's boundary and on the order that disambiguates them
+//   payloadText     -> stdin texts from a serialized payload down to noise; `null` is a harness that opened no pipe
+//   KNOWN_IDS       -> HARNESS_IDS widened to strings, so a classification's id can be looked up without a cast
+
 const PAYLOAD_FIELDS = {
   hook_event_name: fc.constantFrom("SessionStart", "sessionStart", "PreToolUse", 1, null),
   timestamp: fc.oneof(fc.string(), fc.integer(), fc.constant(null)),
@@ -45,10 +50,8 @@ const PAYLOAD_FIELDS = {
   cwd: fc.oneof(fc.string(), fc.constant(""), fc.integer(), fc.constant(null)),
 };
 
-// Every field optional, so a record may lack any key a rule requires.
 const payload = fc.record(PAYLOAD_FIELDS, { requiredKeys: [] });
 
-// Stdin texts from a serialized payload down to noise; `null` is a harness that opened no pipe.
 const payloadText = fc.oneof(
   payload.map((record) => JSON.stringify(record)),
   fc.jsonValue({ maxDepth: 3 }).map((value) => JSON.stringify(value)),
@@ -62,7 +65,6 @@ const payloadText = fc.oneof(
   fc.constant(null),
 );
 
-// HARNESS_IDS widened to strings, so a classification's id can be looked up without a cast.
 const KNOWN_IDS: readonly string[] = HARNESS_IDS;
 
 function expectClassification(text: string | null): void {

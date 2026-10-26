@@ -44,58 +44,40 @@ export type FakeEngine = Engine & {
   };
 };
 
+// The knobs a scenario sets on the run.
+//
+//   stdinTty        -> overrides the stdin side of `tty`, for a terminal stdout over a piped stdin
+//   agent           -> what the agent detector reports; null is a plain shell
+//   project         -> the working directory is a project root (a `.git` is made in it); without this no project scope exists
+//   github          -> fixture directories by lower-cased `owner/repo`; a repository not named here is unresolvable (exit 3)
+//   harnesses       -> the registry the CLI runs against; the three fixture shapes unless a test names real ones
+//   listReport      -> the registry it falls back to carries the shipped defaults
+//   hookMissing     -> the harnesses whose hook probe plans a write, so `doctor` sees a hook missing
+//   tierUnreadable  -> the reason a harness's tier probe could not read its config (tier 2); a function of the scenario, since the reason names the config file's path under it
+//   refuse          -> the refusal the engine's planner would raise for what a verb is about to install (a collision, a cap, a byte budget): thrown, already reported, from every sync run
+//   answers         -> scripted prompt answers: the keystrokes to type once the interactive frame shows the prompt whose message contains the key; without this the CLI gets no interactive streams and every prompt takes its silent branch
+//   loadEngine      -> the real engine over scripted resolvers, called as the bin calls it so the run's rung sink reaches them; the recording engine goes unused
 export type ScenarioOptions = {
-  // Stdout reports a terminal; stdin follows it unless `stdinTty` says otherwise. A pipe by default.
   tty?: boolean;
-
-  // Overrides the stdin side of `tty`, for a terminal stdout over a piped stdin.
   stdinTty?: boolean;
-
-  // What the agent detector reports; null, the default, is a plain shell.
   agent?: string | null;
-
-  // The width stdout reports; 80 unless set.
   columns?: number;
-
-  // Spread over HOME and MAXIMS_HOME after they are set, so a scenario can override either.
   env?: Record<string, string>;
-
-  // The working directory is a project root (a `.git` is made in it); without this no project scope exists.
   project?: boolean;
-
-  // Fixture directories by lower-cased `owner/repo`; a repository not named here is unresolvable (exit 3).
   github?: Record<string, string>;
-
-  // The registry the CLI runs against; the three fixture shapes unless a test names real ones.
   harnesses?: readonly HarnessDefinition[];
-
-  // Overrides on the report the sync and remove runners answer; the rest of it is a one-source, one-memory success.
   syncReport?: Partial<
     Pick<
       SyncReport,
       "rules" | "tokens" | "fetched" | "held" | "upstreamChanges" | "failed" | "notices" | "plan"
     >
   >;
-
-  // What `list` answers; an empty registry with the shipped defaults unless set.
   listReport?: ListReport;
-
-  // The harnesses whose hook probe plans a write, so `doctor` sees a hook missing.
   hookMissing?: HarnessId[];
-
-  // The reason a harness's tier probe could not read its config (tier 2); a function of the scenario, since the reason names the config file's path under it.
   tierUnreadable?: Partial<Record<HarnessId, (scenario: Scenario) => string>>;
-
-  // The refusal the engine's planner would raise for what a verb is about to install (a collision, a cap, a byte budget): thrown, already reported, from every sync run.
   refuse?: { code: ExitCode; message: string };
-
-  // Scripted prompt answers: the keystrokes to type once the interactive frame shows the prompt whose message contains the key. Without this the CLI gets no interactive streams and every prompt takes its silent branch.
   answers?: Record<string, string>;
-
-  // The real engine over scripted resolvers, called as the bin calls it so the run's rung sink reaches them; the recording engine goes unused.
   loadEngine?: CliDeps["loadEngine"];
-
-  // Every read of the clock answers noon on 2026-09-20 unless a scenario needs it to move.
   now?: () => Date;
 };
 

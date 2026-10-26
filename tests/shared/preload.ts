@@ -25,9 +25,9 @@ const checkoutConfig = checkoutConfigPath();
 
 // A git process a test runs with its cwd inside the checkout writes into the checkout's own config
 // and nothing fails: a partial fetch by URL registers a promisor remote there and the test passes.
-// The common config is read back after every test, so the failure names the test that wrote it.
-// Branch sections are the one concurrent writer (a sibling worktree's `git branch`, `checkout -b`
-// or `push -u` writes them into the same shared file) and are left out of the comparison.
+//
+//   the common config  -> read back after every test, so the failure names the test that wrote it
+//   branch sections    -> the one concurrent writer (a sibling worktree's `git branch`, `checkout -b` or `push -u` writes them into the same shared file), so they are left out of the comparison
 if (checkoutConfig !== undefined) {
   let snapshot = readFileSync(checkoutConfig);
   const unchanged = (): void => {

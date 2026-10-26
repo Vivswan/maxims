@@ -243,13 +243,15 @@ const declared: {
   },
 ];
 
-// The `declared` table: each harness starts servers from a key of its own (Zed's `context_servers`,
-// Amp's dotted `amp.mcpServers`), so a declaration naming another key plans a file the harness
-// parses and ignores. The object is spelled per row: the key the file gains is pinned, not the
-// declaration. `comments` is the vendor's own parser: Pi loads the file with `JSON.parse`, so a
-// comment is refused by name rather than edited into a file Pi would then drop whole; Amp, Devin
-// and Zed document comments. Warp documents neither, so its `jsonc` is maxims's tolerant default,
-// not a vendor fact, and the dialect row leaves it out.
+// The `declared` table: each harness starts servers from a key of its own, so a declaration naming
+// another key plans a file the harness parses and ignores. The object is spelled per row: the key
+// the file gains is pinned, not the declaration, and `comments` is the vendor's own parser.
+//
+//   Zed    -> `context_servers`; documents comments
+//   Amp    -> dotted `amp.mcpServers`; documents comments
+//   Devin  -> documents comments
+//   Pi     -> loads the file with `JSON.parse`, so a comment is refused by name rather than edited into a file Pi would then drop whole
+//   Warp   -> documents neither, so its `jsonc` is maxims's tolerant default, not a vendor fact, and the dialect row leaves it out
 test("every harness that declares an MCP registry has a row in the table", () => {
   expect(
     HARNESSES.filter((def) => def.mcp !== undefined)

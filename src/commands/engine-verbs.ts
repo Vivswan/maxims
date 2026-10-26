@@ -1,3 +1,11 @@
+// The three engine verbs as the command line dispatches them: parse, hand the typed options to
+// the engine, and let the engine speak. Its output is the frame here: the `--json` document, the
+// dry-run plan, the hook protocol under `--quiet`, the notices and the summary interactively.
+//
+//   remove   the prompt is the command line's, so the engine takes a confirmed removal or none:
+//            without `-y` on a terminal the user is asked; without one anywhere else the run stops
+//            before the engine, as `skills remove` does
+
 import { promptsAllowed } from "../console/contract.ts";
 import { agentsOnMemory, STRINGS } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
@@ -31,13 +39,6 @@ import {
   parseSelect,
   usage,
 } from "./frame/options.ts";
-
-// The three engine verbs as the command line dispatches them: parse, hand the typed options to
-// the engine, and let the engine speak. Its output is the frame here: the `--json` document, the
-// dry-run plan, the hook protocol under `--quiet`, the notices and the summary interactively.
-//   remove   the prompt is the command line's, so the engine takes a confirmed removal or none:
-//            without `-y` on a terminal the user is asked; without one anywhere else the run stops
-//            before the engine, as `skills remove` does
 
 function agentIds(args: Args, io: CliIo): HarnessId[] | undefined {
   const selection = parseAgents(args, knownHarnessIds(io));

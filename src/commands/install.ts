@@ -1,9 +1,9 @@
-// `install` replays the project's manifest: every entry is prepared (fetched, validated, shown)
-// before any is recorded, then all are recorded in one write together with the manifest's disabled
-// names, and one sync runs, so a bad or declined entry leaves the machine and the manifest
-// untouched. A rename accepted at one entry's prompt is what the entries planned after it validate
-// against. The manifest is how a fresh clone learns what to add; state stays the only thing `sync`
-// reads.
+// `install` replays the project's manifest, so a bad or declined entry leaves the machine and the
+// manifest untouched; state stays the only thing `sync` reads.
+//   every entry prepared (fetched, validated, shown) -> all recorded in one write together with the manifest's disabled names -> one sync runs
+//
+//   a rename accepted at one entry's prompt  -> what the entries planned after it validate against
+//   the manifest                             -> how a fresh clone learns what to add
 
 import {
   foundInManifest,
