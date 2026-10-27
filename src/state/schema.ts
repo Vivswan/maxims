@@ -231,11 +231,10 @@ export const StateSchema = z
     disabled: DisabledSchema.optional(),
   })
   .check((ctx) => {
-    ctx.issues.push(
-      ...sourceKeyIssues(
-        Object.entries(ctx.value.sources).map(([key, entry]) => [key, entry.intent.from]),
-      ),
+    const sources: [key: string, from: SourceFrom][] = Object.entries(ctx.value.sources).map(
+      ([key, entry]) => [key, entry.intent.from],
     );
+    for (const issue of sourceKeyIssues(sources)) ctx.issues.push(issue);
   });
 export type State = z.infer<typeof StateSchema>;
 

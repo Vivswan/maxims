@@ -128,7 +128,7 @@ export const install: Command = {
     const report = await syncCommitted(ctx, commit, commit.harnesses);
     const planned = ctx.global.dryRun;
     const lines = [installed(names.length, report.rules, report.tokens, planned)];
-    lines.push(...registeredLines(commit.hooked, planned));
+    for (const line of registeredLines(commit.hooked, planned)) lines.push(line);
     const code = finish(ctx, console, {
       plan: mergePlans({ changes: commit.changes, notices: [] }, report.plan),
       notices: [...commit.notices, ...report.notices],

@@ -81,7 +81,8 @@ export function runArgv(runtime: Runtime, options: RunOptions, repoRoot: string)
   }
   argv.push("-e", `HOME=${CONTAINER_HOME}`);
   argv.push("--volume", `${repoRoot}:/repo:ro`);
-  argv.push(options.image, ...options.cmd);
+  argv.push(options.image);
+  for (const arg of options.cmd) argv.push(arg);
   return argv;
 }
 

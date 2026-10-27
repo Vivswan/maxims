@@ -453,14 +453,20 @@ async function helpText(entry: VerbEntry | undefined): Promise<string> {
       entry === undefined || entry.aliases.length === 0 ? "" : ` (${entry.aliases.join(", ")})`;
     lines.push(`  ${command.usage.padEnd(width)}  ${command.summary}${aliases}`);
   });
-  lines.push("", "Global options:", ...flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS]));
+  lines.push("", "Global options:");
+  for (const line of flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS])) lines.push(line);
   return `${lines.join("\n")}\n`;
 }
 
 function verbHelp(command: Command): string {
   const lines = [`Usage: maxims ${command.usage} [options]`, "", command.summary, ""];
-  if (command.flags.length > 0) lines.push("Options:", ...flagLines(command.flags), "");
-  lines.push("Global options:", ...flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS]));
+  if (command.flags.length > 0) {
+    lines.push("Options:");
+    for (const line of flagLines(command.flags)) lines.push(line);
+    lines.push("");
+  }
+  lines.push("Global options:");
+  for (const line of flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS])) lines.push(line);
   return `${lines.join("\n")}\n`;
 }
 

@@ -126,7 +126,9 @@ export function renderBlock(input: BlockInput): string {
   assertMarkerField("source", source);
   assertMarkerField("sha", sha);
   const lines = [fillMarker(BEGIN_MARKER, { source, sha, version: VERSION })];
-  if (input.markers === "stripped") lines.push(...provenanceLines(source));
+  if (input.markers === "stripped") {
+    for (const line of provenanceLines(source)) lines.push(line);
+  }
   if (input.stale !== undefined) {
     lines.push(staleLine(source, input.stale, expands));
     if (input.selfRefresh) lines.push(SELF_REFRESH_LINE);

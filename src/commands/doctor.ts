@@ -98,7 +98,7 @@ export const doctor: Command = {
       for (const scope of scopesFor(def.id, state, here)) {
         const report = await checkHarness(def, scope, state, ctx, here);
         reports.push(report);
-        findings.push(...findingsOf(report, def, io.userHome));
+        for (const finding of findingsOf(report, def, io.userHome)) findings.push(finding);
       }
     }
     const expects: ExpectReport[] = [];

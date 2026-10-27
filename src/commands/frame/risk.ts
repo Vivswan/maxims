@@ -85,7 +85,9 @@ export async function refreshWarnings(
       disabled: disabledNames(state, destination.scope, io.projectRoot),
       detailPath: () => "",
     });
-    warnings.push(...riskWarningsFor(selected.map(({ memory }) => memory.memory)));
+    for (const warning of riskWarningsFor(selected.map(({ memory }) => memory.memory))) {
+      warnings.push(warning);
+    }
   }
   return warnings;
 }

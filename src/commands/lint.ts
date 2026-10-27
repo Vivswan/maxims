@@ -157,7 +157,8 @@ function collectMarkdown(dir: string, recursive: boolean): string[] {
     const stat = readOrRefuse(path, () => statSync(path, { throwIfNoEntry: false }));
     if (stat === undefined) continue;
     if (stat.isDirectory()) {
-      if (recursive) out.push(...collectMarkdown(path, recursive));
+      if (!recursive) continue;
+      for (const file of collectMarkdown(path, recursive)) out.push(file);
     } else if (isMemoryFile(entry)) out.push(path);
   }
   return out;
