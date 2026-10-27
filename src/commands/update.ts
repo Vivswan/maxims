@@ -221,10 +221,10 @@ async function onlySource(
 
 // A collision that appeared upstream is resolved the way `add --rename` resolves one: the pair is
 // checked against the name index with the same walk `add` runs, then joins the source's rename
-// map before the forced refetch applies it. An upstream name the last fetch did not see is the
-// usual case (the memory that just appeared), so it is checked as incoming rather than refused;
-// a pair whose LOCAL name collides is refused before anything is written. `dryRun` computes the
-// edit without writing it, for the run's own preview as well as the strict preflight's.
+// map before the forced refetch applies it. `dryRun` computes the edit without writing it, for
+// the run's own preview as well as the strict preflight's.
+//   an upstream name the last fetch did not see -> the usual case (the memory that just appeared), so checked as incoming rather than refused
+//   a pair whose LOCAL name collides            -> refused before anything is written
 async function recordRenames(
   key: string,
   renames: RenameMap,

@@ -1,11 +1,13 @@
 // Fails if the benchmark harness stops producing the record the nightly latency trend reads: the
-// field names and a real median are what the week-over-week comparison is built from, and a mean,
-// or a child that ran fewer times than --runs, would flow through unnoticed. Also fails if a run
-// leaves its throwaway HOME behind, if a failing child's stderr is swallowed, or if measured
-// timings can be written inside the repository, where a commit would publish them, including
-// through a symlink or a /proc alias whose lexical path lies outside the checkout, or into any
-// other checkout of a repository the bench runs from a linked worktree of. Also fails if the bench
-// guesses at that set of checkouts when git cannot list them or is not installed.
+// field names and a real median are what the week-over-week comparison is built from. A mean, or
+// a child that ran fewer times than --runs, would flow through unnoticed.
+//
+//   a run's throwaway HOME                                                                 -> removed, never left behind
+//   a failing child's stderr                                                               -> reported, never swallowed
+//   measured timings written inside the repository                                         -> refused: a commit would publish them
+//   a symlink or a /proc alias into the repository, its lexical path outside the checkout  -> refused all the same
+//   any other checkout of a repository the bench runs from a linked worktree of            -> refused all the same
+//   git unable to list that set of checkouts, or not installed                             -> refused, never guessed at
 import { expect, test } from "bun:test";
 import {
   copyFileSync,

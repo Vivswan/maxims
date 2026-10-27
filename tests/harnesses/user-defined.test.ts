@@ -1,8 +1,13 @@
-// Guards the boundary of `$MAXIMS_HOME/harnesses.json`: a missing file is an empty list; a file
-// that cannot be read or parsed, an entry that fails the schema, an id that collides with a
-// built-in, or an id declared twice each stop the load with exit 4 and a message naming the file,
-// the entry and the field; and what loads carries `userDefined` so `list` can label it. A loader
-// that dropped a bad entry and went on would leave a harness the user declared silently unsynced.
+// Guards the boundary of `$MAXIMS_HOME/harnesses.json`. Each refusal below stops the load with exit 4
+// and a message naming the file, the entry and the field: a loader that dropped a bad entry and went
+// on would leave a harness the user declared silently unsynced.
+//
+//   a missing file                        -> an empty list
+//   a file that cannot be read or parsed  -> refused
+//   an entry that fails the schema        -> refused
+//   an id that collides with a built-in   -> refused
+//   an id declared twice                  -> refused
+//   what loads                            -> carries `userDefined` so `list` can label it
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
