@@ -555,7 +555,7 @@ Demonstrated by: [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts)
 
 ## The module map
 
-Each node is one layer, labelled with the paths it owns; an arrow means the layer imports the other. Rendered from `architecture.yml` by `bun run docs:arch` (`docs:arch:check` fails on drift), and `bun run lint:arch` keeps that declaration equal to the import graph under `src/`:
+Each node is one layer, labelled with the paths it owns; an arrow means the layer imports the other. The `working-text` skill's `architecture/render-map.mts` renders it from `architecture.yml`, and that skill's `architecture/lint.mts` keeps the declaration equal to the import graph under `src/`:
 
 | Lint message | What to do |
 | --- | --- |
@@ -566,7 +566,7 @@ Each node is one layer, labelled with the paths it owns; an arrow means the laye
 
 An edge is any relative import: runtime, type-only, re-export, side-effect, or a string-literal `import()`. Imports inside one layer are not edges, and a layer absent from `edges` imports nothing outside itself.
 
-<!-- BEGIN GENERATED: architecture-map (bun run docs:arch; derived from architecture.yml) -->
+<!-- BEGIN GENERATED: architecture-map (working-text's architecture/render-map.mts; derived from architecture.yml) -->
 ```mermaid
 graph TD
   cli["src/cli.ts"]

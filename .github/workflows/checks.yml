@@ -46,8 +46,8 @@ jobs:
       - name: Dead code
         run: bun run knip
 
-  # These checks read the repository's pages and import graph, not the built CLI, so one platform
-  # proves them; the three-OS matrix above is for the code paths that differ per platform.
+  # This check reads the repository's pages, not the built CLI, so one platform
+  # proves it; the three-OS matrix above is for the code paths that differ per platform.
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -57,16 +57,8 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - name: Docs
-        run: bun run docs:check
       - name: Docs tables
         run: bun run docs:tables:check
-      - name: Architecture lint
-        run: bun run lint:arch
-      - name: Architecture page
-        run: bun run test:arch
-      - name: Architecture map
-        run: bun run docs:arch:check
 
   # Latency and bundle-size tripwire: HEAD and the base ref are built and timed on this runner,
   # and a gross regression on the hook path or the bundle fails the job. The report goes to the

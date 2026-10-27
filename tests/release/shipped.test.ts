@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { isShipped } from "../../.github/scripts/release-pipeline.ts";
 import manifest from "../../package.json" with { type: "json" };
-import { importSpecifiers, resolveImport, SOURCE_EXTENSIONS } from "../../scripts/arch_lint.mts";
+import { importSpecifiers, resolveImport, SOURCE_EXTENSIONS } from "../../scripts/lib/imports.ts";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const BUILD_SCRIPT = "scripts/build.ts";

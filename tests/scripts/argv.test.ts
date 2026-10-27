@@ -1,4 +1,4 @@
-// Fails if a flag given twice stops being refused by any of the eight scripts and resolves to its
+// Fails if a flag given twice stops being refused by any of the four scripts and resolves to its
 // last value again: before parseArgv, `bun scripts/bench.ts --runs 1 --runs 2 -- <child>` ran the
 // child twice. Also fails if the refusal stops being exit 2 with the script's own usage before
 // anything runs or is written, or if a `--runs` after bench's `--` is read as the bench's own.
@@ -49,24 +49,11 @@ const repeated: [script: string, flag: string, args: (dir: string) => string[]][
     "--report-dir",
     (dir) => ["harness-drift", "--report-dir", join(dir, "a"), "--report-dir", join(dir, "b")],
   ],
-  ["scripts/docs_probe.mts", "--shape-only", () => ["--shape-only", "--shape-only", "README.md"]],
-  ["scripts/arch_lint.mts", "--root", () => ["--root", repoRoot, `--root=${repoRoot}`]],
-  [
-    "scripts/render_architecture_map.mts",
-    "--page",
-    (dir) => ["--page", join(dir, "a.md"), "--page", join(dir, "b.md")],
-  ],
-  [
-    "scripts/check_architecture_page.mts",
-    "--page",
-    (dir) => ["--page", join(dir, "a.md"), "--page", join(dir, "b.md")],
-  ],
 ];
 
-// The bench row is the incident's own spelling; build and arch_lint mix the inline and separate
-// spellings, and docs_probe repeats a boolean. Every output path points into the temp cwd, and
-// bench_ci's base is a ref no repository holds, so a script that parsed on would write there, run
-// the child, or fail later at git with status 1.
+// The bench row is the incident's own spelling, and build mixes the inline and separate spellings.
+// Every output path points into the temp cwd, and bench_ci's base is a ref no repository holds, so
+// a script that parsed on would write there, run the child, or fail later at git with status 1.
 test.each(repeated)(
   "%s refuses %s given twice with exit 2 and its own usage",
   async (script, flag, args) => {

@@ -18,8 +18,8 @@ import {
   symlinkSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { importSpecifiers, resolveImport } from "../../scripts/arch_lint.mts";
 import { summarize } from "../../scripts/bench.ts";
+import { importSpecifiers, resolveImport } from "../../scripts/lib/imports.ts";
 import { git, gitInit } from "../shared/git_fixture.ts";
 import { removerOfCreated } from "../shared/strays.ts";
 import { tmpdirEnv, withTempDir } from "../shared/temp_dir.ts";

@@ -1,7 +1,7 @@
 // A region name is spliced into the marker pattern unescaped, so NAME admits only regex-literal characters.
 import { readPage } from "./page.ts";
 
-export interface RegionMarker {
+interface RegionMarker {
   readonly kind: "BEGIN" | "END";
   readonly name: string;
 }
@@ -10,9 +10,8 @@ const NAME = "[a-z0-9-]+";
 const REGION_NAME = new RegExp(`^${NAME}$`);
 
 /**
- * The marker grammar, owned here for the renderers that splice a region and the checks that skip
- * one. A marker is a line of its own (up to three spaces in); one quoted mid-line or under `> ` is
- * page text.
+ * The marker grammar, owned here for the renderers that splice a region. A marker is a line of
+ * its own (up to three spaces in); one quoted mid-line or under `> ` is page text.
  *
  *   <!-- BEGIN GENERATED: name (hint) -->
  *   <!-- END GENERATED: name -->
@@ -23,18 +22,6 @@ function markerPattern(kind: RegionMarker["kind"], name: string, flags = ""): Re
     String.raw`^ {0,3}<!-- ${kind} GENERATED: (${name})${hint} -->[ \t]*\r?$`,
     flags,
   );
-}
-
-const MARKER_LINES = (["BEGIN", "END"] as const).map(
-  (kind) => [kind, markerPattern(kind, NAME)] as const,
-);
-
-export function parseMarker(line: string): RegionMarker | null {
-  for (const [kind, pattern] of MARKER_LINES) {
-    const name = pattern.exec(line)?.[1];
-    if (name !== undefined) return { kind, name };
-  }
-  return null;
 }
 
 /** Exactly one BEGIN then one END for `name`, else a throw naming the counts: a second marker pair would splice into the wrong one silently. */
