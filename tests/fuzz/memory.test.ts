@@ -15,7 +15,7 @@ import {
 import { extractWikilinks, resolveWikilinks } from "../../src/memory/wikilinks.ts";
 import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
+import { anyText, budgetMs, describeError, fragments, fuzz, timedBest } from "./shared.ts";
 
 // The frontmatter grammar's own tokens, so a near miss lands on the row-by-row checks rather than on the first byte; anchors, tags and flow collections reach the branches where the YAML value is not a plain mapping of strings.
 const FRONTMATTER_PIECES = [
@@ -165,9 +165,13 @@ test(
   "parseMemory returns a typed answer for any filename and file text",
   async () => {
     await fuzz("parseMemory", memoryFile, ({ filename, text }) => {
-      const { value: result, ms } = timed(() => outcome(() => parseMemory(filename, text)));
+      const budget = budgetMs(text.length, 5);
+      const { value: result, ms } = timedBest(
+        () => outcome(() => parseMemory(filename, text)),
+        budget,
+      );
       if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
-      expect(ms).toBeLessThan(budgetMs(text.length, 5));
+      expect(ms).toBeLessThan(budget);
       const parsed = result.value;
       if (!parsed.ok) {
         expect(parsed.reason.length).toBeGreaterThan(0);

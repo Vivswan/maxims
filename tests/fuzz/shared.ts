@@ -8,6 +8,9 @@ import { checkProperty, propertyKnobs } from "../shared/property.ts";
 // A convergence property drives the whole engine per run; a fuzz case is one parser call, so the same knob buys this many more cases per property.
 export const FUZZ_MULTIPLIER = 25;
 
+// Timings per budget check: a scheduler hiccup misses one, a quadratic regression misses them all.
+const BUDGET_TIMINGS = 3;
+
 // An input of tens of KiB costs milliseconds, not microseconds, so a property over such inputs
 // runs at the knob's own count (multiplier 1) rather than the fuzz multiple.
 export type FuzzOptions = { multiplier?: number };
@@ -60,10 +63,21 @@ export function fragments(
   return fc.string({ ...constraints, unit: fc.constantFrom(...pieces) });
 }
 
-export function timed<T>(fn: () => T): { value: T; ms: number } {
+function timed<T>(fn: () => T): { value: T; ms: number } {
   const start = performance.now();
   const value = fn();
   return { value, ms: performance.now() - start };
+}
+
+// A lone timing is at the runner's mercy: a 2x miss on code a green run had just passed is
+// scheduler noise, while a quadratic regression misses the budget on every timing, many times over.
+export function timedBest<T>(fn: () => T, budget: number): { value: T; ms: number } {
+  let best = timed(fn);
+  for (let timings = 1; timings < BUDGET_TIMINGS && best.ms >= budget; timings += 1) {
+    const again = timed(fn);
+    if (again.ms < best.ms) best = again;
+  }
+  return best;
 }
 
 // A budget is a floor for the runner's own jitter plus a rate per KiB read off the module's

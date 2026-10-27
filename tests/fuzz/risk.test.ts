@@ -22,7 +22,7 @@ import {
   fragments,
   fuzz,
   latin1Text,
-  timed,
+  timedBest,
 } from "./shared.ts";
 
 const RISK_PIECES = [
@@ -141,9 +141,10 @@ const description = fc.oneof(
 const MS_PER_KIB = 0.5;
 
 function check(text: string): void {
-  const { value: result, ms } = timed(() => outcome(() => riskWarnings(text)));
+  const budget = budgetMs(text.length, MS_PER_KIB);
+  const { value: result, ms } = timedBest(() => outcome(() => riskWarnings(text)), budget);
   if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
-  expect(ms).toBeLessThan(budgetMs(text.length, MS_PER_KIB));
+  expect(ms).toBeLessThan(budget);
   const warnings = result.value;
   expect(new Set(warnings.map((warning) => warning.kind)).size).toBe(warnings.length);
   let previous = 0;

@@ -32,7 +32,7 @@ import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { memoryName } from "../engine/fakes.ts";
 import { outcome } from "../shared/outcome.ts";
 import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
-import { anyText, budgetMs, describeError, fragments, fuzz, timed } from "./shared.ts";
+import { anyText, budgetMs, describeError, fragments, fuzz, timedBest } from "./shared.ts";
 
 const SOURCE = "@example-user/rules";
 const BEGIN = `<!-- maxims:begin ${SOURCE} sha=3f2a9c1e version=1 -->`;
@@ -157,9 +157,10 @@ test(
   "markdownLines partitions any file into lines that carry their own bytes",
   async () => {
     await fuzz("markdownLines", fileText, (text) => {
-      const { value: result, ms } = timed(() => outcome(() => markdownLines(text)));
+      const budget = budgetMs(text.length, MS_PER_KIB);
+      const { value: result, ms } = timedBest(() => outcome(() => markdownLines(text)), budget);
       if (result.kind === "threw") throw new Error(`threw ${describeError(result.error)}`);
-      expect(ms).toBeLessThan(budgetMs(text.length, MS_PER_KIB));
+      expect(ms).toBeLessThan(budget);
       let cursor = text.startsWith("\ufeff") ? 1 : 0;
       for (const line of result.value) {
         expect(line.start).toBe(cursor);
@@ -373,8 +374,9 @@ const large: [string, string][] = [
 // One huge line, a marker flood, a blockquote and list nesting flood, opener floods and a CR flood
 // at 3 MiB: the shapes where a scanner that re-reads a line per level or per marker goes quadratic.
 test.each(large)("parseBlocks stays linear on %s", (_label, text) => {
-  const { ms } = timed(() => parseBlocks(text));
-  expect(ms).toBeLessThan(budgetMs(text.length, MS_PER_KIB));
+  const budget = budgetMs(text.length, MS_PER_KIB);
+  const { ms } = timedBest(() => parseBlocks(text), budget);
+  expect(ms).toBeLessThan(budget);
 });
 
 const sourceKey = fc.oneof(
