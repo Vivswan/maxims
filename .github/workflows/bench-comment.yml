@@ -46,7 +46,7 @@ jobs:
         # The CI run uploads nothing when the bench job died before writing a report, and the
         # download then fails; the failure belongs to that run, not to this comment.
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bench-report
           path: ${{ runner.temp }}/bench
