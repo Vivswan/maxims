@@ -553,14 +553,25 @@
     },
     {
       "at": "2026-11-01T13:48:00.682Z",
-      "runs": 10,
       "sha": "b2ef5fc0372708ad27d40b4cca9d571744412f64",
       "node": "v22.23.4",
+      "runs": 10,
       "medianMs": {
         "sync --quiet": 136.557,
         "add --list": 131.415
       },
       "bundleBytes": 1422385
+    },
+    {
+      "at": "2026-11-02T16:33:21.572Z",
+      "runs": 10,
+      "sha": "7e87232d23a256e9726ce158db8bf1bec65ae7e3",
+      "node": "v22.23.4",
+      "medianMs": {
+        "sync --quiet": 133.599,
+        "add --list": 130.325
+      },
+      "bundleBytes": 1423589
     }
   ]
 }
