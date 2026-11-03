@@ -26,14 +26,14 @@ Global memories
 Defaults: agents=detected rule=false cooldownDays=7 ruleCap=25
 ```
 
-| `list` reports | derived from |
-| --- | --- |
-| each source and its fetched sha | state |
-| its selected memories, each with its short content hash | the store copy or the live tree, filtered by the recorded selection |
-| staleness per source, with the reason of the last failed fetch | state |
-| a reviewed source's mark, and the revision [held for review](keep-fresh.md#hold-changes-for-review) with its changed-line count | state |
-| live name collisions and the renames resolving them | the name index, rebuilt from every source's intent |
-| the tier each harness achieves, and the rule file token estimate | the harness configs and rule files on disk |
+| `list` reports                                                                                                                  | derived from                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| each source and its fetched sha                                                                                                 | state                                                               |
+| its selected memories, each with its short content hash                                                                         | the store copy or the live tree, filtered by the recorded selection |
+| staleness per source, with the reason of the last failed fetch                                                                  | state                                                               |
+| a reviewed source's mark, and the revision [held for review](keep-fresh.md#hold-changes-for-review) with its changed-line count | state                                                               |
+| live name collisions and the renames resolving them                                                                             | the name index, rebuilt from every source's intent                  |
+| the tier each harness achieves, and the rule file token estimate                                                                | the harness configs and rule files on disk                          |
 
 `--json` prints the same facts as one document. Each harness under a source carries `hook`, with the [values `doctor` reports](#the-ci-one-liner).
 
@@ -76,11 +76,11 @@ npx -y @vivswan/maxims doctor
 
 `doctor` reads each harness's own loading rules against disk: the rule file at the path the harness reads, required frontmatter present, the hook entry registered, the hook command current. `list` reports what state asks for and re-derives the tier from disk when you run it; `doctor` goes file by file and fails on a mismatch. It prints one line per finding.
 
-| line starts with | meaning |
-| --- | --- |
-| `ok` | this harness loads what state asks for |
-| `!` | a warning: an undefined harness id, a [held revision](keep-fresh.md#hold-changes-for-review), or "never synced" |
-| `x` | one harness that will not load a rule you believe is installed |
+| line starts with | meaning                                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `ok`             | this harness loads what state asks for                                                                          |
+| `!`              | a warning: an undefined harness id, a [held revision](keep-fresh.md#hold-changes-for-review), or "never synced" |
+| `x`              | one harness that will not load a rule you believe is installed                                                  |
 
 The report ends with a `Defaults:` line naming the `rule` and `addHook` defaults from `config.json`, and with the age of the last sync. Exit 0 when every harness in state passes, exit 1 when any line is `x`. A rule file [held behind a block marker](troubleshooting.md#exit-4-a-blocks-marker-carries-no-version-or-another-one) is one such `x` row.
 

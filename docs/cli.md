@@ -13,28 +13,27 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 
 ## Verbs
 
-| verb | alias | what it does | network | owner |
-| --- | --- | --- | --- | --- |
-| `add <source>` | `a` | fetch the source, record its destination, selection, rule flag, and harnesses in state, then sync | yes | [install](install.md) |
-| `sync` | | apply state to this machine and project: link bodies, regenerate rule files, reconcile hooks | past the cooldown | [keep fresh](keep-fresh.md#the-session-hook) |
-| `update [source]` | `check`, `upgrade` | refetch every source, or the one named, ignoring the cooldown, then sync | always | [keep fresh](keep-fresh.md#refresh-now-update) |
-| `remove <source or name>` | `rm`, `r` | take a source or one memory out of state, then sync | no | [remove](move-or-uninstall.md#remove-a-source-or-a-memory) |
-| `list` | `ls` | what state holds per source and per harness, everything past intent re-derived | no | [check](check.md#see-what-is-installed-list) |
-| `show <memory or source>` | | one memory in full, or a source's facts and the changes it holds for review | no | [check](check.md#read-one-memory-or-source-show) |
-| `install` | `i` | replay the project lock: add every source it names at project scope, then sync | yes | [share](share.md#the-project-manifest) |
-| `share <source>`, `unshare <source>` | | put a project-scope source into the project lock, or take it out | no | [share](share.md#sharing-a-source) |
-| `link <source> -a <harness>` | | add a harness to a source's recorded list without a refetch, then sync | no | below |
-| `unlink <source> -a <harness>` | | drop a harness from a source's recorded list, then sync | no | below |
-| `disable <memory>` | | keep a memory in state but withhold its rule line and link here, then sync | no | below |
-| `enable <memory>` | | undo `disable`, then sync | no | below |
-| `review <source>` | | hold this source's upstream changes until `accept` | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
-| `unreview <source>` | | let upstream changes apply at once again, accepting any held | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
-| `accept <source>`, `accept --all` | | apply the held revision of one source, or of every held source, then sync | no | [keep fresh](keep-fresh.md#hold-changes-for-review) |
-| `doctor` | | report, per harness, whether the rule file and hook are where it loads them | no | [check](check.md#doctor-what-each-harness-loads) |
-| `lint [path]` | | check a folder of memory files against the contract before publishing | no | [memories](write-memories.md#lint-a-folder-before-publishing) |
-| `config set\|get\|unset <key> [value]` | | read or write a user default | no | [files](files.md#user-defaults-in-configjson) |
-| `init [name]` | | scaffold a contract-valid memory file | no | [memories](write-memories.md#scaffold-a-file-with-init) |
-
+| verb                                   | alias              | what it does                                                                                      | network           | owner                                                         |
+| -------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------- |
+| `add <source>`                         | `a`                | fetch the source, record its destination, selection, rule flag, and harnesses in state, then sync | yes               | [install](install.md)                                         |
+| `sync`                                 |                    | apply state to this machine and project: link bodies, regenerate rule files, reconcile hooks      | past the cooldown | [keep fresh](keep-fresh.md#the-session-hook)                  |
+| `update [source]`                      | `check`, `upgrade` | refetch every source, or the one named, ignoring the cooldown, then sync                          | always            | [keep fresh](keep-fresh.md#refresh-now-update)                |
+| `remove <source or name>`              | `rm`, `r`          | take a source or one memory out of state, then sync                                               | no                | [remove](move-or-uninstall.md#remove-a-source-or-a-memory)    |
+| `list`                                 | `ls`               | what state holds per source and per harness, everything past intent re-derived                    | no                | [check](check.md#see-what-is-installed-list)                  |
+| `show <memory or source>`              |                    | one memory in full, or a source's facts and the changes it holds for review                       | no                | [check](check.md#read-one-memory-or-source-show)              |
+| `install`                              | `i`                | replay the project lock: add every source it names at project scope, then sync                    | yes               | [share](share.md#the-project-manifest)                        |
+| `share <source>`, `unshare <source>`   |                    | put a project-scope source into the project lock, or take it out                                  | no                | [share](share.md#sharing-a-source)                            |
+| `link <source> -a <harness>`           |                    | add a harness to a source's recorded list without a refetch, then sync                            | no                | below                                                         |
+| `unlink <source> -a <harness>`         |                    | drop a harness from a source's recorded list, then sync                                           | no                | below                                                         |
+| `disable <memory>`                     |                    | keep a memory in state but withhold its rule line and link here, then sync                        | no                | below                                                         |
+| `enable <memory>`                      |                    | undo `disable`, then sync                                                                         | no                | below                                                         |
+| `review <source>`                      |                    | hold this source's upstream changes until `accept`                                                | no                | [keep fresh](keep-fresh.md#hold-changes-for-review)           |
+| `unreview <source>`                    |                    | let upstream changes apply at once again, accepting any held                                      | no                | [keep fresh](keep-fresh.md#hold-changes-for-review)           |
+| `accept <source>`, `accept --all`      |                    | apply the held revision of one source, or of every held source, then sync                         | no                | [keep fresh](keep-fresh.md#hold-changes-for-review)           |
+| `doctor`                               |                    | report, per harness, whether the rule file and hook are where it loads them                       | no                | [check](check.md#doctor-what-each-harness-loads)              |
+| `lint [path]`                          |                    | check a folder of memory files against the contract before publishing                             | no                | [memories](write-memories.md#lint-a-folder-before-publishing) |
+| `config set\|get\|unset <key> [value]` |                    | read or write a user default                                                                      | no                | [files](files.md#user-defaults-in-configjson)                 |
+| `init [name]`                          |                    | scaffold a contract-valid memory file                                                             | no                | [memories](write-memories.md#scaffold-a-file-with-init)       |
 - **Two scopes exist,** project (`-p`) and user (`-g`). `-o` is an output folder for a rule file no harness owns, and it is neither scope.
 - **No source argument.** `sync`, `install`, and `doctor` read state or the lock instead. `update` alone refreshes every source, and `update <source>` one.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
@@ -49,10 +48,10 @@ A source is `@owner/repo`, `owner/repo`, a GitHub URL, any other git remote URL 
 
 The `@` in `@owner/repo` is cosmetic, as it is for `skills`.
 
-| source form | what it means |
-| --- | --- |
-| `@owner/repo@memory-name` | the same as `@owner/repo -m memory-name`: one memory, by name |
-| `https://github.com/owner/repo/tree/<ref>` | a GitHub URL whose `/tree/<ref>` segment sets the ref, as `--pin <ref>` would |
+| source form                                               | what it means                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `@owner/repo@memory-name`                                 | the same as `@owner/repo -m memory-name`: one memory, by name                                     |
+| `https://github.com/owner/repo/tree/<ref>`                | a GitHub URL whose `/tree/<ref>` segment sets the ref, as `--pin <ref>` would                     |
 | `https://git.example.com/team/rules.git`, `git@host:path` | any git remote, stored verbatim; [how a source is fetched](keep-fresh.md#how-a-source-is-fetched) |
 
 A path after the `/tree/<ref>` segment is refused, because a branch containing `/` cannot be told from the path. Drop the `/tree/` tail and pass the ref with `--pin` and the path with `--from`. A `/blob/<ref>/<file>` URL names one file where a source is a folder, so it is refused the same way: pass the ref with `--pin`, the file's folder with `--from`, and its name with `--memory`.
@@ -61,48 +60,46 @@ A path after the `/tree/<ref>` segment is refused, because a branch containing `
 
 These flags work on every verb.
 
-| flag | default | what it does |
-| --- | --- | --- |
-| `--dry-run` | off | the exact plan and diff, nothing written; a failed fetch [exits](#exit-codes) as without the flag |
-| `--json` | off | the same plan as one JSON document, for CI assertions; never prompts, see below |
-| `--quiet` | off | one-line output and fail-soft, see the exit codes below; the hook's mode |
-| `--verbose` | off | unfolds the `add` and `install` plan to every one-liner |
-| `-h, --help`, `-v, --version` | | standard |
-
+| flag                          | default | what it does                                                                                      |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `--dry-run`                   | off     | the exact plan and diff, nothing written; a failed fetch [exits](#exit-codes) as without the flag |
+| `--json`                      | off     | the same plan as one JSON document, for CI assertions; never prompts, see below                   |
+| `--quiet`                     | off     | one-line output and fail-soft, see the exit codes below; the hook's mode                          |
+| `--verbose`                   | off     | unfolds the `add` and `install` plan to every one-liner                                           |
+| `-h, --help`, `-v, --version` |         | standard                                                                                          |
 - **`--json` never prompts.** `add` and `remove` need `-y` or `--all` beside it, `install` needs `-y`, and `--json` with `--list` is refused. Each exits 1.
 
 The rest belong to the verbs the second column names. A value flag takes `--flag value` or `--flag=value`. A list flag takes a comma list and may repeat, so `-m a,b -m c` selects three memories.
 
-| flag | verbs | default | meaning |
-| --- | --- | --- | --- |
-| `-g, --global` | add, remove, show, disable, enable | auto | the user scope; [where it lands](install.md#where-it-lands) |
-| `-p, --project` | add, remove, show, disable, enable | auto | the project scope; [where it lands](install.md#where-it-lands) |
-| `-o, --out <dir>` | add, remove | off | an output folder instead of a scope; [where it lands](install.md#where-it-lands) |
-| `-m, --memory <names>` | add, remove | `*` | only these memories; [what gets installed](install.md#what-gets-installed) |
-| `-a, --agent <ids>` | add, remove, sync, update, install, link, unlink | detected | target harnesses, ids from the [matrix](harnesses.md#the-matrix); each verb reads it differently, see below |
-| `-l, --list` | add | off | preview the source, write nothing; [what gets installed](install.md#what-gets-installed) |
-| `-y, --yes` | add, remove, install | auto | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior) |
-| `--all` | add, remove, accept | off | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed) |
-| `--rule` | add | off | publish one-liners into the rule file; [two separate choices](install.md#two-separate-choices) |
-| `--add-hook` | add | off | register the harness's sync hook and MCP server where declared; [two separate choices](install.md#two-separate-choices) |
-| `--share` | add | off | record the source in the [project lock](share.md#the-project-manifest) as well as in state |
-| `--copy` | add | off | copy bodies instead of linking them; [bodies](install.md#bodies) |
-| `--link` | add | off, on for `.` | local sources: link the store to the directory; [bodies](install.md#bodies) |
-| `--from <path>` | add | `memories/` | the folder in the source holding memories; [source layout](write-memories.md#layout-in-a-source) |
-| `--full-depth` | add, lint | off | scan the whole source; [source layout](write-memories.md#layout-in-a-source) |
-| `--pin <sha or tag>` | add | off | track this ref; [refs](install.md#refs) |
-| `--paths <glob>` | add | off | scope the rules to matching files, repeatable; [path scoping](install.md#path-scoping) |
-| `--rename <upstream>=<local>` | add, update | off | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames) |
-| `--allow-hidden` | add | off | accept descriptions carrying [hidden characters](write-memories.md#hidden-characters-are-refused) |
-| `--review` | add | off | hold upstream changes until `accept`; [hold changes for review](keep-fresh.md#hold-changes-for-review) |
-| `--strict` | add, install, update | off | refuse a source whose descriptions carry a [risky shape](security.md#risky-shapes-in-descriptions), exit 3 |
-| `--auth` | add | off | fetch with your `gh` login, as `MAXIMS_AUTH=1` does; [fetching](keep-fresh.md#how-a-source-is-fetched) |
-| `--no-fetch` | sync | off | never touch the network; [fetching](keep-fresh.md#how-a-source-is-fetched) |
-| `--cooldown <days>` | add, sync, update | 7 | days between refreshes, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
-| `--cap <n>` | add, sync, update, lint | 25 | most rule lines per source, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown) |
-| `--expect <name or @owner/repo/name>` | doctor | off | assert this memory has a rule line, repeatable; [the CI one-liner](check.md#the-ci-one-liner) |
-| `--source <key>` | show | off | the source to read the memory from, when several provide the name; [read one memory](check.md#read-one-memory-or-source-show) |
-
+| flag                                  | verbs                                            | default         | meaning                                                                                                                       |
+| ------------------------------------- | ------------------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `-g, --global`                        | add, remove, show, disable, enable               | auto            | the user scope; [where it lands](install.md#where-it-lands)                                                                   |
+| `-p, --project`                       | add, remove, show, disable, enable               | auto            | the project scope; [where it lands](install.md#where-it-lands)                                                                |
+| `-o, --out <dir>`                     | add, remove                                      | off             | an output folder instead of a scope; [where it lands](install.md#where-it-lands)                                              |
+| `-m, --memory <names>`                | add, remove                                      | `*`             | only these memories; [what gets installed](install.md#what-gets-installed)                                                    |
+| `-a, --agent <ids>`                   | add, remove, sync, update, install, link, unlink | detected        | target harnesses, ids from the [matrix](harnesses.md#the-matrix); each verb reads it differently, see below                   |
+| `-l, --list`                          | add                                              | off             | preview the source, write nothing; [what gets installed](install.md#what-gets-installed)                                      |
+| `-y, --yes`                           | add, remove, install                             | auto            | skip the confirmation prompt; [non-interactive behavior](install.md#non-interactive-behavior)                                 |
+| `--all`                               | add, remove, accept                              | off             | every memory, every harness, no prompt; [what gets installed](install.md#what-gets-installed)                                 |
+| `--rule`                              | add                                              | off             | publish one-liners into the rule file; [two separate choices](install.md#two-separate-choices)                                |
+| `--add-hook`                          | add                                              | off             | register the harness's sync hook and MCP server where declared; [two separate choices](install.md#two-separate-choices)       |
+| `--share`                             | add                                              | off             | record the source in the [project lock](share.md#the-project-manifest) as well as in state                                    |
+| `--copy`                              | add                                              | off             | copy bodies instead of linking them; [bodies](install.md#bodies)                                                              |
+| `--link`                              | add                                              | off, on for `.` | local sources: link the store to the directory; [bodies](install.md#bodies)                                                   |
+| `--from <path>`                       | add                                              | `memories/`     | the folder in the source holding memories; [source layout](write-memories.md#layout-in-a-source)                              |
+| `--full-depth`                        | add, lint                                        | off             | scan the whole source; [source layout](write-memories.md#layout-in-a-source)                                                  |
+| `--pin <sha or tag>`                  | add                                              | off             | track this ref; [refs](install.md#refs)                                                                                       |
+| `--paths <glob>`                      | add                                              | off             | scope the rules to matching files, repeatable; [path scoping](install.md#path-scoping)                                        |
+| `--rename <upstream>=<local>`         | add, update                                      | off             | resolve a name collision, repeatable; [collisions](install.md#name-collisions-and-renames)                                    |
+| `--allow-hidden`                      | add                                              | off             | accept descriptions carrying [hidden characters](write-memories.md#hidden-characters-are-refused)                             |
+| `--review`                            | add                                              | off             | hold upstream changes until `accept`; [hold changes for review](keep-fresh.md#hold-changes-for-review)                        |
+| `--strict`                            | add, install, update                             | off             | refuse a source whose descriptions carry a [risky shape](security.md#risky-shapes-in-descriptions), exit 3                    |
+| `--auth`                              | add                                              | off             | fetch with your `gh` login, as `MAXIMS_AUTH=1` does; [fetching](keep-fresh.md#how-a-source-is-fetched)                        |
+| `--no-fetch`                          | sync                                             | off             | never touch the network; [fetching](keep-fresh.md#how-a-source-is-fetched)                                                    |
+| `--cooldown <days>`                   | add, sync, update                                | 7               | days between refreshes, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown)            |
+| `--cap <n>`                           | add, sync, update, lint                          | 25              | most rule lines per source, saved to `config.json`; [the cap and the cooldown](keep-fresh.md#the-cap-and-the-cooldown)        |
+| `--expect <name or @owner/repo/name>` | doctor                                           | off             | assert this memory has a rule line, repeatable; [the CI one-liner](check.md#the-ci-one-liner)                                 |
+| `--source <key>`                      | show                                             | off             | the source to read the memory from, when several provide the name; [read one memory](check.md#read-one-memory-or-source-show) |
 - **`-a` on `sync`** limits the run to the named harnesses and fetches nothing; `-a '*'` names them all and fetches as a plain `sync` does.
 - **`-a` on `update`** does not narrow the refresh: every source, or the one named, is still fetched, and a refreshed source is written for every harness that reads it. The filter narrows only the untouched sources.
 - **`--rename` on `update`** needs the source it applies to, so `update --rename a=b` without one exits 1.
@@ -118,17 +115,17 @@ Flags compose. The everyday invocation, `add @Octocat/rules -g --rule --add-hook
 
 <!-- BEGIN GENERATED: exit-codes (bun run docs:tables) -->
 
-| code | meaning |
-|---|---|
-| 0 | success, or nothing to do |
-| 1 | usage error, or a failed check |
-| 2 | source unresolvable |
-| 3 | nothing resolved to install |
-| 4 | destination write failed |
-| 5 | store locked |
-| 6 | name collision |
-| 7 | unmet dependency |
-| 8 | rule cap exceeded |
+| code | meaning                        |
+| ---- | ------------------------------ |
+| 0    | success, or nothing to do      |
+| 1    | usage error, or a failed check |
+| 2    | source unresolvable            |
+| 3    | nothing resolved to install    |
+| 4    | destination write failed       |
+| 5    | store locked                   |
+| 6    | name collision                 |
+| 7    | unmet dependency               |
+| 8    | rule cap exceeded              |
 
 <!-- END GENERATED: exit-codes -->
 

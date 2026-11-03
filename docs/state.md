@@ -13,23 +13,23 @@ This page owns what belongs in the file, the schema, and migrations. The [guaran
 
 Each fact has exactly one owner. State records only what nothing else on the machine can tell you.
 
-| category | what belongs | example |
-| --- | --- | --- |
-| user intent | what the user asked for | which source, which memories, whether it publishes rule lines, which harnesses, where |
-| fetch facts | what the last fetch found | the sha, when, the content hashes, the last error |
-| provenance | when it was added and which maxims wrote the file | `addedAt`, `writtenBy` |
+| category    | what belongs                                      | example                                                                               |
+| ----------- | ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| user intent | what the user asked for                           | which source, which memories, whether it publishes rule lines, which harnesses, where |
+| fetch facts | what the last fetch found                         | the sha, when, the content hashes, the last error                                     |
+| provenance  | when it was added and which maxims wrote the file | `addedAt`, `writtenBy`                                                                |
 
-| not in state | the real owner |
-| --- | --- |
-| whether a memory is in the rule file | derived at sync from the rule flag, the selection, the renames, and the cap |
-| installed paths and store paths | derived from the destination and the store's naming scheme |
-| whether the hook is registered, its command, whether it is async | the harness registry, read at sync |
-| each target's path, strategy, and tier | the harness definition; the tier achieved is a sync-time result `list` reports |
-| collisions | re-derived by walking the name index; a resolution is a rename entry |
-| retired memories | the log; a retired memory drops out of the regenerated block on its own |
-| `updatedAt` | the state file's mtime, plus the log |
+| not in state                                                                           | the real owner                                                                                                               |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| whether a memory is in the rule file                                                   | derived at sync from the rule flag, the selection, the renames, and the cap                                                  |
+| installed paths and store paths                                                        | derived from the destination and the store's naming scheme                                                                   |
+| whether the hook is registered, its command, whether it is async                       | the harness registry, read at sync                                                                                           |
+| each target's path, strategy, and tier                                                 | the harness definition; the tier achieved is a sync-time result `list` reports                                               |
+| collisions                                                                             | re-derived by walking the name index; a resolution is a rename entry                                                         |
+| retired memories                                                                       | the log; a retired memory drops out of the regenerated block on its own                                                      |
+| `updatedAt`                                                                            | the state file's mtime, plus the log                                                                                         |
 | user defaults: which harnesses, `--yes`, `--rule`, `--add-hook`, the cooldown, the cap | [`config.json`](files.md#user-defaults-in-configjson), beside state; `sync` reads the cooldown and cap, `add` reads the rest |
-| the project's source list for a fresh clone | the [project lock](share.md): state is per machine, the lock per repository |
+| the project's source list for a fresh clone                                            | the [project lock](share.md): state is per machine, the lock per repository                                                  |
 
 A maxims upgrade that changes the hook command needs no migration; the next sync rewrites the entry. What `add` fills in from `config.json` becomes ordinary intent.
 
@@ -109,12 +109,12 @@ The example is hand-written and parses against the current schema; a test keeps 
 
 Each source is keyed by what identifies it, never by a memory name, which is what makes an upstream rename disappear cleanly. The block is regenerated from the store's current content, so a vanished name cannot survive in the output.
 
-| source | key |
-| --- | --- |
-| GitHub | `@owner/repo`, or `@<host>/owner/repo` on a GitHub Enterprise host |
-| any other git remote | the URL as you typed it, never rewritten |
-| local directory | its absolute path |
-| any pinned source | the key above plus `#<ref>` |
+| source               | key                                                                |
+| -------------------- | ------------------------------------------------------------------ |
+| GitHub               | `@owner/repo`, or `@<host>/owner/repo` on a GitHub Enterprise host |
+| any other git remote | the URL as you typed it, never rewritten                           |
+| local directory      | its absolute path                                                  |
+| any pinned source    | the key above plus `#<ref>`                                        |
 
 A GitHub key keeps the case you typed, but GitHub names are case-insensitive and the store folds them, so two keys whose `owner/repo` differ only by letter case are corrupt and the file is refused; a `#<ref>` suffix is compared as typed. `@acme/rules` and `@acme/rules#v2` are two sources and may both be installed.
 

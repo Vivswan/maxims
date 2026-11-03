@@ -18,18 +18,19 @@ npx -y @vivswan/maxims remove prefer-timeouts-to-hangs  # one memory by name
 
 In a terminal it lists "Memories to remove:" and asks "Are you sure you want to remove them?" before acting, then reports "Removed 2 memories". The [non-interactive rules](install.md#non-interactive-behavior) own what happens without a TTY.
 
-| after `remove` | result |
-| --- | --- |
-| a rule file that was only the maxims block | deleted |
-| a rule file with hand-written content beside the block | the block goes, the rest stays byte for byte |
-| a live local source (installed with `--link`) | the store symlink is unlinked; the source directory is never touched |
-| the hook | leaves its scope with the last source there for its harness |
+| after `remove`                                         | result                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| a rule file that was only the maxims block             | deleted                                                              |
+| a rule file with hand-written content beside the block | the block goes, the rest stays byte for byte                         |
+| a live local source (installed with `--link`)          | the store symlink is unlinked; the source directory is never touched |
+| the hook                                               | leaves its scope with the last source there for its harness          |
 
 ## Back up or move to a new machine
 
 State carries the intent, so a backup of your intent and configuration is a copy of the files in step 1, and moving an install is three steps; rule files and memory bodies are not in that copy, since `sync` writes them again from the sources.
 
 1. Copy `~/.agents/maxims/state.json` to the same path on the new machine, `config.json` beside it if you want the same defaults, and `harnesses.json` if you declared your own harnesses. Without that file a source naming one in `intent.harnesses` restores nothing for it, every `sync` prints the line below instead, and the [dropped-harness notice](troubleshooting.md#a-sync-notice-names-a-harness-you-defined-yourself) owns the way out:
+
    ```text
    !  maxims: @Octocat/rules: skipped my-harness (not defined in harnesses.json; run maxims unlink <source> -a <id> to drop it)
    ```

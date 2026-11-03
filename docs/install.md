@@ -15,13 +15,13 @@ The [quickstart](quickstart.md#install-a-source) shows what that command prints 
 
 ## Where it lands
 
-| flag | destination | notes |
-| --- | --- | --- |
-| `-g, --global` | the user scope: every project on the machine | on a harness with no global target, warns and skips that harness |
-| `-p, --project` | the project scope: the git checkout you are in | the explicit opposite of `-g` |
-| neither | a GitHub source: the project when inside one, else the user scope, as in `skills` | a local directory source defaults to the user scope (below) |
-| `-o, --out <dir>` | an output folder for a rule file no harness owns | neither scope; a relative path resolves against the cwd, not the project root |
-| `--share` | with `-p`: the source also enters the [project lock](share.md#sharing-a-source) for teammates | without it a project install stays yours; refused with `-g` or `-o` |
+| flag              | destination                                                                                   | notes                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `-g, --global`    | the user scope: every project on the machine                                                  | on a harness with no global target, warns and skips that harness              |
+| `-p, --project`   | the project scope: the git checkout you are in                                                | the explicit opposite of `-g`                                                 |
+| neither           | a GitHub source: the project when inside one, else the user scope, as in `skills`             | a local directory source defaults to the user scope (below)                   |
+| `-o, --out <dir>` | an output folder for a rule file no harness owns                                              | neither scope; a relative path resolves against the cwd, not the project root |
+| `--share`         | with `-p`: the source also enters the [project lock](share.md#sharing-a-source) for teammates | without it a project install stays yours; refused with `-g` or `-o`           |
 
 Two of `-g`, `-p`, and `-o` together is exit 1, "two destinations given". A team folder inside a repo is the case `-o` exists for. A source already installed at one scope is not moved by a re-add at another: that is exit 1 naming where it is, and `remove` followed by `add` is the way to move it.
 
@@ -29,13 +29,12 @@ A local directory source defaults to the user scope so personal text stays out o
 
 ## What gets installed
 
-| flag | selection |
-| --- | --- |
-| none | every memory in the source (`*`) |
-| `-m, --memory <names>` | a comma list, repeatable; `*` means all |
-| `--all` | every memory, every harness, no prompt |
-| `-l, --list` | a read-only preview of the source; nothing installs |
-
+| flag                   | selection                                           |
+| ---------------------- | --------------------------------------------------- |
+| none                   | every memory in the source (`*`)                    |
+| `-m, --memory <names>` | a comma list, repeatable; `*` means all             |
+| `--all`                | every memory, every harness, no prompt              |
+| `-l, --list`           | a read-only preview of the source; nothing installs |
 - **A `--memory` name the source lacks** is exit 3 with nothing written.
 - **`--all` is shorthand for `--memory '*' --agent '*' -y`.** On `remove` it means every installed source, with `-y` spelled out, so it is the one `remove` that needs no separate `-y`.
 - **`--list` prints the "Found N memories" line and every memory name,** one per line, then "Run without --list to install". It writes nothing, never touches state, and ignores `--rule`, `--add-hook`, `-o`, and `-y` with a warning. Once a source is installed, `maxims show <memory>` prints one memory in full; [check](check.md#read-one-memory-or-source-show) owns it.
@@ -64,10 +63,10 @@ o  Run without --list to install
 
 `--rule` and `--add-hook` record two different intents, and neither implies the other.
 
-| flag | records | every later sync |
-| --- | --- | --- |
-| `--rule` | this source's one-liners go to the rule file | regenerates the rule lines; `remove` always removes them |
-| `--add-hook` | the harness's sync hook (and MCP server, where declared) is wanted at this install's scope | keeps the hook and the server registered there |
+| flag         | records                                                                                    | every later sync                                         |
+| ------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| `--rule`     | this source's one-liners go to the rule file                                               | regenerates the rule lines; `remove` always removes them |
+| `--add-hook` | the harness's sync hook (and MCP server, where declared) is wanted at this install's scope | keeps the hook and the server registered there           |
 
 The hook carries no source and no filter, so the tenth source adds nothing to it. An install from `.` registers no hook, so an unpushed edit is never clobbered by a refresh.
 
@@ -88,11 +87,11 @@ o  First source from github.com/acme
 
 ## Bodies
 
-| flag | where the body lives | for |
-| --- | --- | --- |
-| none | the [canonical home](files.md#the-canonical-home), linked from the destination | every setup where a symlink works |
-| `--copy` | a copy at the destination | symlink-hostile setups, as `skills --copy` |
-| `--link` | the store entry is a symlink to the source directory, so edits are live | local sources only; on by default for `.` |
+| flag     | where the body lives                                                           | for                                        |
+| -------- | ------------------------------------------------------------------------------ | ------------------------------------------ |
+| none     | the [canonical home](files.md#the-canonical-home), linked from the destination | every setup where a symlink works          |
+| `--copy` | a copy at the destination                                                      | symlink-hostile setups, as `skills --copy` |
+| `--link` | the store entry is a symlink to the source directory, so edits are live        | local sources only; on by default for `.`  |
 
 `--link` is local-only because a fetched source has no representation for it in state.
 
@@ -137,13 +136,13 @@ The rename is a local identity only. The stored file keeps its upstream name and
 
 Detection mirrors `skills`, which prints "Agent detected - installing non-interactively" when run from inside an agent.
 
-| stdout is a TTY | agent env detected | `--yes` | behavior |
-| --- | --- | --- | --- |
-| yes | no | no | full prompts: confirm the plan, confirm hook registration |
-| yes | no | yes | no prompts, full output |
-| yes | yes | either | no prompts, full output, "Agent detected" banner |
-| no | either | either | no prompts, plain output, no spinner, no color; `--yes` implied on `add` and `sync` |
-| any | any | any, with `--quiet` | only the lines a session must hear, or nothing; prompts follow the rules below |
+| stdout is a TTY | agent env detected | `--yes`             | behavior                                                                            |
+| --------------- | ------------------ | ------------------- | ----------------------------------------------------------------------------------- |
+| yes             | no                 | no                  | full prompts: confirm the plan, confirm hook registration                           |
+| yes             | no                 | yes                 | no prompts, full output                                                             |
+| yes             | yes                | either              | no prompts, full output, "Agent detected" banner                                    |
+| no              | either             | either              | no prompts, plain output, no spinner, no color; `--yes` implied on `add` and `sync` |
+| any             | any                | any, with `--quiet` | only the lines a session must hear, or nothing; prompts follow the rules below      |
 
 Without a prompt, `add` and `sync` proceed as if `--yes` were given, and no other verb does. `remove` without an explicit `-y` aborts with exit 1, and `--all` spells `-y` out, so it is the one form that passes. The [quiet section](troubleshooting.md#--quiet-printed-nothing) shows the lines `--quiet` prints.
 

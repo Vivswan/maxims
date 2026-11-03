@@ -69,12 +69,12 @@ o  Hook registered: SessionStart -> npx -y @vivswan/maxims sync --quiet
 
 For Claude Code with `-g`, four things land on disk. Other harnesses differ only in the rule file and hook paths, which the [harness matrix](harnesses.md#the-matrix) owns.
 
-| artifact | where | what it is |
-| --- | --- | --- |
-| memory bodies | `~/.agents/maxims/store/octocat/rules/memories/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project |
-| rule file | `~/.claude/rules/maxims-octocat-rules.md` | one line per memory: the one-liner plus a `detail:` pointer to the body |
-| hook entry | `~/.claude/settings.json`, under `hooks.SessionStart` | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
-| state | `~/.agents/maxims/state.json` | what should be installed: the source, the selection, the rule flag, the harnesses |
+| artifact      | where                                                     | what it is                                                                                               |
+| ------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| memory bodies | `~/.agents/maxims/store/octocat/rules/memories/<name>.md` | the fetched files, byte for byte; a global install links nothing into any project                        |
+| rule file     | `~/.claude/rules/maxims-octocat-rules.md`                 | one line per memory: the one-liner plus a `detail:` pointer to the body                                  |
+| hook entry    | `~/.claude/settings.json`, under `hooks.SessionStart`     | one command handler, `npx -y @vivswan/maxims sync --quiet`, registered once however many sources you add |
+| state         | `~/.agents/maxims/state.json`                             | what should be installed: the source, the selection, the rule flag, the harnesses                        |
 
 The rule file for that install, cut to two of its four rule lines, with illustrative hashes. Each rule line ends with the body's absolute path and its 7-character content hash; the two comment lines after the begin marker are provenance Claude Code strips before injection:
 

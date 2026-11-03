@@ -27,6 +27,7 @@
       "style": { "useImportType": "error", "useNodejsImportProtocol": "error" }
     }
   },
+  "markdown": { "parser": { "frontmatter": true } },
   "javascript": {
     "formatter": {
       "quoteStyle": "double",
@@ -36,6 +37,16 @@
     }
   },
   "overrides": [
+    // LICENSE.md and .github/instructions arrive by platform sync PR and are never edited here, so their layout is the platform's call; the managed biome.json takes the same exception for its own files.
+    {
+      "includes": ["LICENSE.md", ".github/instructions/**"],
+      "formatter": { "enabled": false }
+    },
+    // Biome 2.6.3 formats a markdown fence's embed without frontmatter parsing, so a memory file shown inside one (the complete example on docs/write-memories.md) loses its `metadata:` nesting. Every docs page keeps its embeds as written until the 2.6.4 bump, which keeps such an embed intact; this entry leaves with it.
+    {
+      "includes": ["docs/**"],
+      "markdown": { "formatter": { "formatEmbeds": false } }
+    },
     {
       "includes": ["src/**"],
       "linter": {

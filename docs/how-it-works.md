@@ -9,13 +9,13 @@ The path a rule takes from a source repo to an agent's context, one stage at a t
 
 ## Five stages
 
-| stage | what happens | owner |
-| --- | --- | --- |
-| source | `add` fetches the repo's `memories/` folder | [source layout](write-memories.md#layout-in-a-source) |
-| store | the fetched files land under `~/.agents/maxims/store/` | [the canonical home](files.md#the-canonical-home) |
-| state | `state.json` records what should be installed | [State](state.md) |
-| rule files | `sync` writes one line per memory into each harness's always-loaded file | [the rule file](harnesses.md#the-rule-file) |
-| hook | a session-start hook runs `sync --quiet` | [the session hook](keep-fresh.md#the-session-hook) |
+| stage      | what happens                                                             | owner                                                 |
+| ---------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
+| source     | `add` fetches the repo's `memories/` folder                              | [source layout](write-memories.md#layout-in-a-source) |
+| store      | the fetched files land under `~/.agents/maxims/store/`                   | [the canonical home](files.md#the-canonical-home)     |
+| state      | `state.json` records what should be installed                            | [State](state.md)                                     |
+| rule files | `sync` writes one line per memory into each harness's always-loaded file | [the rule file](harnesses.md#the-rule-file)           |
+| hook       | a session-start hook runs `sync --quiet`                                 | [the session hook](keep-fresh.md#the-session-hook)    |
 
 `state.json` is the only record `sync` trusts. A rule file on disk is compared to what it should be, never read back as a record, so the next sync repairs a crash or a hand edit.
 

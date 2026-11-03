@@ -11,23 +11,23 @@ A harness is declared as data: one spec object that names its files, its hook an
 
 Every path is relative to its scope root: the project root for a project install, the global root for `-g`. The global root is HOME unless `globalRoot` says otherwise.
 
-| Field | What it holds |
-| --- | --- |
-| `id` | kebab-case id, what `--agent` accepts and the folder name of a built-in |
-| `displayName` | the name shown in output |
-| `tier` | `1` when a hook refreshes the rules by itself, `2` when nothing does |
-| `verifiedAgainst` | `{ date, sources }`: the vendor sources the facts were checked against; see below |
-| `globalRoot` | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and its relocating variable |
-| `targets` | per scope, a `rules-dir`, a `shared-block`, or `null` when that scope has no always-loaded file |
-| `bodiesDir` | per scope, where memory bodies land, or `null` to leave them in the store |
-| `markers` | `stripped` when the harness drops HTML comments before injection, `counted` otherwise |
-| `expands` | the reference syntaxes the harness expands inside its files: `at-import`, `none`, or empty when undocumented |
-| `byteBudget` | the largest file the harness loads, in bytes |
-| `detect` | `{ dirs, env? }`: directories under the global root, or variables, that mean installed |
-| `hook` | `{ kind: "none" }`, a `registry` entry, or a whole `file`; see below |
-| `scopeFrontmatter` | for a rules directory whose always-on form needs no preamble but a `--paths` install does |
-| `mcp` | `{ path, serversPath, format }`: MCP config per scope, its servers key path, its dialect |
-| `fixtures` | built-in folders only: `config` and `hookStdin` file names under `fixtures/` |
+| Field              | What it holds                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `id`               | kebab-case id, what `--agent` accepts and the folder name of a built-in                                      |
+| `displayName`      | the name shown in output                                                                                     |
+| `tier`             | `1` when a hook refreshes the rules by itself, `2` when nothing does                                         |
+| `verifiedAgainst`  | `{ date, sources }`: the vendor sources the facts were checked against; see below                            |
+| `globalRoot`       | `{ default, env? }`: the directory under HOME (`.codex`, `~/.config/zed`) and its relocating variable        |
+| `targets`          | per scope, a `rules-dir`, a `shared-block`, or `null` when that scope has no always-loaded file              |
+| `bodiesDir`        | per scope, where memory bodies land, or `null` to leave them in the store                                    |
+| `markers`          | `stripped` when the harness drops HTML comments before injection, `counted` otherwise                        |
+| `expands`          | the reference syntaxes the harness expands inside its files: `at-import`, `none`, or empty when undocumented |
+| `byteBudget`       | the largest file the harness loads, in bytes                                                                 |
+| `detect`           | `{ dirs, env? }`: directories under the global root, or variables, that mean installed                       |
+| `hook`             | `{ kind: "none" }`, a `registry` entry, or a whole `file`; see below                                         |
+| `scopeFrontmatter` | for a rules directory whose always-on form needs no preamble but a `--paths` install does                    |
+| `mcp`              | `{ path, serversPath, format }`: MCP config per scope, its servers key path, its dialect                     |
+| `fixtures`         | built-in folders only: `config` and `hookStdin` file names under `fixtures/`                                 |
 
 `globalRoot.env` is one variable, or a list of variables that each name their `platforms`, no platform in two of them. A variable takes an optional `subdir` appended to its value and an optional `platforms` list (`process.platform` names such as `linux`) outside which it is not read.
 
@@ -49,18 +49,18 @@ A `shared-block` target is `{ kind: "shared-block", file, precedence? }`. `prece
 
 A `registry` hook (`kind: "registry"`) is one handler edited into a config file the user also owns:
 
-| Field | Meaning |
-| --- | --- |
-| `path` | the registry file per scope |
-| `format` | the dialect the vendor's parser takes: `json` (strict), `json-with-comments`, or `jsonc` |
-| `eventPath` | the key path to the event's handler list, such as `["hooks", "SessionStart"]` |
-| `grouped` | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups |
-| `wrapper` | top-level keys a fresh file needs, such as `{ "version": 1 }` |
-| `handlerTemplate` | the handler object, with placeholders; the value under `commandKey` starts with `{{command}}` |
-| `commandKey` | the handler key whose value starts with the maxims command |
-| `stdout` | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
-| `async` | whether the harness has an async handler field and it is set |
-| `tierCheck` | `{ layers, format?, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value |
+| Field             | Meaning                                                                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`            | the registry file per scope                                                                                                                                                   |
+| `format`          | the dialect the vendor's parser takes: `json` (strict), `json-with-comments`, or `jsonc`                                                                                      |
+| `eventPath`       | the key path to the event's handler list, such as `["hooks", "SessionStart"]`                                                                                                 |
+| `grouped`         | `true` when handlers sit inside `{ matcher?, hooks: [...] }` groups                                                                                                           |
+| `wrapper`         | top-level keys a fresh file needs, such as `{ "version": 1 }`                                                                                                                 |
+| `handlerTemplate` | the handler object, with placeholders; the value under `commandKey` starts with `{{command}}`                                                                                 |
+| `commandKey`      | the handler key whose value starts with the maxims command                                                                                                                    |
+| `stdout`          | how the hook may speak back: `plain`, `json:additionalContext`, `json:hookSpecificOutput.additionalContext`, `json:contextModification`, `json:additional_context`, or `none` |
+| `async`           | whether the harness has an async handler field and it is set                                                                                                                  |
+| `tierCheck`       | `{ layers, format?, key, demotesWhen, unreadable, projectTrust? }`: the layers read for a demoting value                                                                      |
 
 There is no per-harness debounce field: every hook runs the same `sync --quiet`, and the one stamp in `src/commands/frame/debounce.ts` debounces them all, per-prompt events included.
 
@@ -85,13 +85,13 @@ Placeholders render from the hook command. A value that is exactly one placehold
 
 <!-- BEGIN GENERATED: hook-placeholders (bun run docs:tables) -->
 
-| Placeholder | Renders as |
-|---|---|
-| `{{command}}` | `npx -y @vivswan/maxims sync --quiet` |
-| `{{argv}}` | `["npx","-y","@vivswan/maxims","sync","--quiet"]` |
-| `{{async}}` | the hook's `async` flag, `true` or `false` |
-| `{{timeoutSeconds}}` | `20` |
-| `{{timeoutMs}}` | `20000` |
+| Placeholder          | Renders as                                        |
+| -------------------- | ------------------------------------------------- |
+| `{{command}}`        | `npx -y @vivswan/maxims sync --quiet`             |
+| `{{argv}}`           | `["npx","-y","@vivswan/maxims","sync","--quiet"]` |
+| `{{async}}`          | the hook's `async` flag, `true` or `false`        |
+| `{{timeoutSeconds}}` | `20`                                              |
+| `{{timeoutMs}}`      | `20000`                                           |
 
 <!-- END GENERATED: hook-placeholders -->
 
@@ -112,7 +112,11 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
       {
         "kind": "page",
         "url": "https://learn.chatgpt.com/docs/agent-configuration/agents-md.md",
-        "claims": ["it checks for `AGENTS.override.md`, then `AGENTS.md`", "only the first non-empty file", "project_doc_max_bytes"],
+        "claims": [
+          "it checks for `AGENTS.override.md`, then `AGENTS.md`",
+          "only the first non-empty file",
+          "project_doc_max_bytes"
+        ],
         "why": "the AGENTS.md precedence is prose with no single source constant beyond the two loaders",
         "note": "AGENTS.override.md over AGENTS.md"
       }
@@ -120,8 +124,17 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
   },
   "globalRoot": { "default": ".codex", "env": { "name": "CODEX_HOME" } },
   "targets": {
-    "project": { "kind": "shared-block", "file": "AGENTS.md", "precedence": ["AGENTS.override.md", "AGENTS.md"] },
-    "global": { "kind": "shared-block", "file": "AGENTS.md", "precedence": ["AGENTS.override.md", "AGENTS.md"], "skipsEmpty": true }
+    "project": {
+      "kind": "shared-block",
+      "file": "AGENTS.md",
+      "precedence": ["AGENTS.override.md", "AGENTS.md"]
+    },
+    "global": {
+      "kind": "shared-block",
+      "file": "AGENTS.md",
+      "precedence": ["AGENTS.override.md", "AGENTS.md"],
+      "skipsEmpty": true
+    }
   },
   "bodiesDir": { "project": ".agents/memories", "global": null },
   "markers": "counted",
@@ -144,12 +157,20 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
     "stdout": "plain",
     "async": true,
     "tierCheck": {
-      "layers": { "project": [{ "kind": "root-to-cwd", "file": ".codex/config.toml" }], "global": ["config.toml"] },
+      "layers": {
+        "project": [{ "kind": "root-to-cwd", "file": ".codex/config.toml" }],
+        "global": ["config.toml"]
+      },
       "format": "toml",
       "key": "features.hooks",
       "demotesWhen": false,
       "unreadable": "refuses-to-start",
-      "projectTrust": { "table": "projects", "key": "trust_level", "trusted": "trusted", "accepted": ["trusted", "untrusted"] }
+      "projectTrust": {
+        "table": "projects",
+        "key": "trust_level",
+        "trusted": "trusted",
+        "accepted": ["trusted", "untrusted"]
+      }
     }
   }
 }
@@ -160,7 +181,7 @@ A `harnesses.json` entry has the same shape under an id that is not a built-in. 
 The file is `$MAXIMS_HOME/harnesses.json`, so `~/.agents/maxims/harnesses.json` by default. It holds one object with a `harnesses` array of specs like the one above, minus `fixtures`.
 
 ```json
-{ "harnesses": [ { "id": "acme", "displayName": "Acme Agent", "tier": 2, "...": "..." } ] }
+{ "harnesses": [{ "id": "acme", "displayName": "Acme Agent", "tier": 2, "...": "..." }] }
 ```
 
 Every spec is parsed strictly. An unknown key, a path that is absolute, climbs out with `..`, or is not spelled as plain segments joined by `/` (a trailing `/`, a leading `./`, a backslash), a template with an unknown placeholder, an id that is a built-in, or an id declared twice stops the load with exit 4 and a message naming the file, the entry and the field:
@@ -185,11 +206,11 @@ Each source goes into `verifiedAgainst.sources` with the facts the nightly re-re
 
 A `file` source's `ref` is the line the targeted version is released from: a release branch where the vendor keeps one (OpenCode's `v2`), the default branch where releases cut from it. A default branch that already carries the next major verifies a contract the harness has not moved to, so a claim that fails there is not drift the harness can act on.
 
-| kind | shape | what the nightly checks |
-| --- | --- | --- |
-| `schema` | `{ kind, url, paths, note? }` | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that primitive value |
-| `file` | `{ kind, repo, ref, path, claims, note? }` | each claim appears in the raw file at `<repo>/<ref>/<path>` on GitHub |
-| `page` | `{ kind, url, claims, why, note? }` | each claim appears in the page's text, a markdown rendition served as text |
+| kind     | shape                                      | what the nightly checks                                                                     |
+| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `schema` | `{ kind, url, paths, note? }`              | each pointer in `paths` resolves; `{ pointer, equals }` must also hold that primitive value |
+| `file`   | `{ kind, repo, ref, path, claims, note? }` | each claim appears in the raw file at `<repo>/<ref>/<path>` on GitHub                       |
+| `page`   | `{ kind, url, claims, why, note? }`        | each claim appears in the page's text, a markdown rendition served as text                  |
 
 A claim is a short literal phrase that would disappear if the fact changed: a file name (`.claude/rules`), a key (`disableAllHooks`), a config path, a limit (`12,000 characters`), a frontmatter key (`alwaysApply`). Prefer identifiers over prose, since prose is reworded without the fact moving, and two to five claims per source is the usual count.
 
@@ -203,11 +224,11 @@ One source rarely states every fact: Pi's context-file order is in its resource 
 
 The nightly `harness-drift` category, which the release PR runs too before a release is cut, fetches every source and gives each a verdict:
 
-| verdict | meaning | the run |
-| --- | --- | --- |
-| `match` | every claim holds and every pointer resolves | passes |
-| `DRIFT` | a claim or pointer is missing or a value differs; the row names it | fails |
-| `UNREACHABLE` | answered with a status, a redirect, a timeout, a network error, HTML or non-JSON | fails |
+| verdict       | meaning                                                                          | the run |
+| ------------- | -------------------------------------------------------------------------------- | ------- |
+| `match`       | every claim holds and every pointer resolves                                     | passes  |
+| `DRIFT`       | a claim or pointer is missing or a value differs; the row names it               | fails   |
+| `UNREACHABLE` | answered with a status, a redirect, a timeout, a network error, HTML or non-JSON | fails   |
 
 A definition takes the worst verdict of its sources and the run the worst of its definitions, so a run that read nothing fails. To clear a `DRIFT` row, open the source, re-verify the facts it justifies, fix the definition or its claims and pointers to what the source states now, and set `verifiedAgainst.date` to today. `bun scripts/nightly.ts harness-drift --report-dir <dir>` runs the category locally:
 

@@ -24,6 +24,7 @@ import { markdownTable } from "./lib/markdown_table.ts";
 import { regionBounds } from "./lib/region.ts";
 
 const REGENERATE = "bun run docs:tables";
+const ROOT = resolve(import.meta.dir, "..");
 
 const code = (text: string): string => `\`${text}\``;
 const codeList = (items: readonly string[]): string[] => items.map(code);
@@ -332,13 +333,28 @@ export const REGIONS: readonly Region[] = [
   { page: "docs/state.md", name: "state-fields", render: renderStateFields },
 ];
 
+// Biome lays the rendered markdown out as the page's format gate reads it, so a generated region
+// and `biome ci` agree; the page path selects that page's own overrides.
+function formatMarkdown(text: string, page: string): string {
+  const biome = Bun.spawnSync(["bun", "x", "biome", "format", `--stdin-file-path=${page}`], {
+    cwd: ROOT,
+    stdin: Buffer.from(text),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (biome.exitCode !== 0) {
+    throw new Error(`biome format ${page}: ${biome.stderr.toString().trim()}`);
+  }
+  return biome.stdout.toString().trimEnd();
+}
+
 // The region body is replaced whole, with a blank line on each side: a table glued to the marker
 // comment renders as one HTML block, and the docs probe then no longer sees a generated region it
 // should skip.
 export function renderPage(text: string, regions: readonly Region[]): string {
   let page = text;
   for (const region of regions) {
-    const body = region.render();
+    const body = formatMarkdown(region.render(), region.page);
     const { bodyStart, bodyEnd } = regionBounds(page, region.name);
     page = `${page.slice(0, bodyStart)}\n\n${body}\n\n${page.slice(bodyEnd)}`;
   }
@@ -358,7 +374,7 @@ function main(argv: readonly string[]): number {
   for (const region of REGIONS) pages.set(region.page, [...(pages.get(region.page) ?? []), region]);
   let stale = 0;
   for (const [page, regions] of pages) {
-    const path = resolve(import.meta.dir, "..", page);
+    const path = resolve(ROOT, page);
     const current = readFileSync(path, "utf8");
     const next = renderPage(current, regions);
     const names = regions.map((region) => region.name).join(", ");

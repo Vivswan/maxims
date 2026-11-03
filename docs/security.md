@@ -39,23 +39,22 @@ Each entry below is one entry point: the scenario first, then the mitigation, th
 
 `add`, `install`, and `update` scan every incoming description and print one `!` line per shape found, as `memory: kind: detail at column N`. `--json` carries them as `warnings`, and `lint` reports them as problems.
 
-| verb | where the lines sit | what is scanned |
-| --- | --- | --- |
-| `add`, `install` | above the plan | the memories the selection installs |
-| `update` | among the notices | every source the run refreshed, changed upstream or not, plus what a live source holds |
+| verb             | where the lines sit | what is scanned                                                                        |
+| ---------------- | ------------------- | -------------------------------------------------------------------------------------- |
+| `add`, `install` | above the plan      | the memories the selection installs                                                    |
+| `update`         | among the notices   | every source the run refreshed, changed upstream or not, plus what a live source holds |
 
 They are advisory: the install proceeds unless `--strict` turns any warning into exit 3 with nothing written or persisted.
 
-| kind | what it names |
-| --- | --- |
-| `shell-pipe` | a fetch piped into a shell or interpreter, or its PowerShell equivalents |
-| `url` | any `http` or `https` URL, with the host a browser would resolve it to |
-| `override` | an instruction-override phrase such as "ignore all previous instructions" or "you are now" |
-| `mixed-script` | a word mixing Latin with Cyrillic, Greek, or Armenian letters, the homoglyph shape |
-| `encoded-blob` | a long base64-like or hex run, a payload hidden in prose |
-| `sensitive-path` | a path such as `~/.ssh`, `/etc/shadow`, `.env`, or `credentials` |
-| `secret-shape` | a GitHub, OpenAI, AWS, Slack, or Google key, or a PEM private key header |
-
+| kind             | what it names                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `shell-pipe`     | a fetch piped into a shell or interpreter, or its PowerShell equivalents                   |
+| `url`            | any `http` or `https` URL, with the host a browser would resolve it to                     |
+| `override`       | an instruction-override phrase such as "ignore all previous instructions" or "you are now" |
+| `mixed-script`   | a word mixing Latin with Cyrillic, Greek, or Armenian letters, the homoglyph shape         |
+| `encoded-blob`   | a long base64-like or hex run, a payload hidden in prose                                   |
+| `sensitive-path` | a path such as `~/.ssh`, `/etc/shadow`, `.env`, or `credentials`                           |
+| `secret-shape`   | a GitHub, OpenAI, AWS, Slack, or Google key, or a PEM private key header                   |
 - **`shell-pipe`** covers `curl`, `wget`, and `iwr` piped into a shell or interpreter, an encoded PowerShell command, and a fetched script inside `$(...)`.
 
 ## Two things that are not mitigations
