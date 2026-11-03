@@ -22,20 +22,20 @@ There is one durable commit point, the state write, done as temp file plus renam
 
 ## Failure paths
 
-| failure | behavior |
-| --- | --- |
-| fetch fails before any write | keep the last good store, exit 2 (0 with `--quiet`) |
-| fetch succeeds, some files fail the contract | install the valid ones, warn per bad file |
-| fetch succeeds, every file fails the contract | treat as an empty source; the existing block survives, exit 3 |
-| write fails partway through linking bodies | intent is already correct, nothing is stranded, exit 4 |
-| write fails on the rule file | bodies stay, block unchanged, exit 4 |
-| process killed between store swap and rule write | the next sync re-derives everything from intent |
-| hook fires while a manual add holds the lock | the hook exits 0 immediately without waiting |
-| two manual adds at once | the second polls, then exits 5 |
-| source repo deleted upstream | keep the last good copy, warn at every start, never auto-remove |
-| store copy missing on a new machine | sync refetches on the spot, cooldown or not |
-| a live source's directory moved or deleted | the symlink dangles, no copy exists: keep the block, report the error, never wipe |
-| a live edit breaks a wikilink or crosses the cap | that source's block keeps its previous content; other sources are unaffected |
+| failure                                          | behavior                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| fetch fails before any write                     | keep the last good store, exit 2 (0 with `--quiet`)                               |
+| fetch succeeds, some files fail the contract     | install the valid ones, warn per bad file                                         |
+| fetch succeeds, every file fails the contract    | treat as an empty source; the existing block survives, exit 3                     |
+| write fails partway through linking bodies       | intent is already correct, nothing is stranded, exit 4                            |
+| write fails on the rule file                     | bodies stay, block unchanged, exit 4                                              |
+| process killed between store swap and rule write | the next sync re-derives everything from intent                                   |
+| hook fires while a manual add holds the lock     | the hook exits 0 immediately without waiting                                      |
+| two manual adds at once                          | the second polls, then exits 5                                                    |
+| source repo deleted upstream                     | keep the last good copy, warn at every start, never auto-remove                   |
+| store copy missing on a new machine              | sync refetches on the spot, cooldown or not                                       |
+| a live source's directory moved or deleted       | the symlink dangles, no copy exists: keep the block, report the error, never wipe |
+| a live edit breaks a wikilink or crosses the cap | that source's block keeps its previous content; other sources are unaffected      |
 
 Every write is a temp file plus a rename, so a partial rule file has no representation. Never auto-removing on a fetch failure is deliberate. A rate limit and a deleted repo look alike from the client, and dropping a commit-review rule because GitHub returned 403 is the failure class maxims exists to prevent.
 
@@ -43,13 +43,13 @@ Every write is a temp file plus a rename, so a partial rule file has no represen
 
 The store is single-writer. A writer creates `state.json.lock` atomically, holding its pid, host, start time, and command line. Reads never take the lock, and every write is temp plus rename, so a session starting mid-sync sees the old rule file or the new one, never a partial one.
 
-| situation | behavior |
-| --- | --- |
-| two adds, different sources | the second polls up to 5 seconds, then exits 5 naming the holder's command line |
-| a hook fires during a manual add | the hook does not wait: exit 0 at once, and `refresh.log` names the holder |
-| two syncs at once | one wins, the other exits 0; both would compute the same output |
-| the holder crashed and left the lock | a lock older than 60 seconds is stolen, and the theft is logged |
-| NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite |
+| situation                               | behavior                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| two adds, different sources             | the second polls up to 5 seconds, then exits 5 naming the holder's command line |
+| a hook fires during a manual add        | the hook does not wait: exit 0 at once, and `refresh.log` names the holder      |
+| two syncs at once                       | one wins, the other exits 0; both would compute the same output                 |
+| the holder crashed and left the lock    | a lock older than 60 seconds is stolen, and the theft is logged                 |
+| NFS or a container where pid checks lie | age alone breaks the lock at 60 seconds; the worst case is a redundant rewrite  |
 
 The line a skipped hook leaves in `log/refresh.log`, with an illustrative holder:
 
@@ -58,4 +58,3 @@ The line a skipped hook leaves in `log/refresh.log`, with an illustrative holder
 ```
 
 The theft log records whether the holder's pid was still alive.
-

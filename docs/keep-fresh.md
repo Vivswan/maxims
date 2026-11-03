@@ -75,23 +75,23 @@ Fetching is anonymous by default. No `gh` login and no token is read unless you 
 
 An authenticated refresh sends the token `gh` names for the host class as a bearer token: `GH_TOKEN` or `GITHUB_TOKEN` for github.com and `*.ghe.com` tenants, `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` for any other host. With none set it goes through `gh` when you are logged in.
 
-| situation | what runs |
-| --- | --- |
-| `git` on PATH | a sparse, shallow clone of the memories folder, never the repository's history |
-| `git` missing, GitHub source | one whole-repository tarball download over HTTPS |
-| `git` missing, any other git URL | the source is unresolvable, exit 2; a git URL has no tarball fallback |
+| situation                                | what runs                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `git` on PATH                            | a sparse, shallow clone of the memories folder, never the repository's history                     |
+| `git` missing, GitHub source             | one whole-repository tarball download over HTTPS                                                   |
+| `git` missing, any other git URL         | the source is unresolvable, exit 2; a git URL has no tarball fallback                              |
 | the fetch exceeds `MAXIMS_FETCH_TIMEOUT` | treated as a network failure; the [failure paths](guarantees.md#failure-paths) own what that keeps |
-| `sync --no-fetch` | no network at all, whatever the cooldown says, for a guaranteed-offline run |
+| `sync --no-fetch`                        | no network at all, whatever the cooldown says, for a guaranteed-offline run                        |
 
 The clone covers the folder `--from` names, or the whole tree under `--full-depth`. A non-GitHub git URL is stored as you typed it and cloned as you typed it, with no host-specific resolution. The [canonical home](files.md#the-canonical-home) owns where its store entry lands.
 
-| variable | effect |
-| --- | --- |
-| `MAXIMS_HOME` | moves the [canonical home](files.md#the-canonical-home), state, store, and `config.json` with it |
-| `MAXIMS_AUTH` | `1` makes `add` fetch with your `gh` login, as `--auth` does |
-| `GH_HOST` | the GitHub Enterprise host `@owner/repo` resolves against, and whose URLs count as GitHub sources |
-| `MAXIMS_FETCH_TIMEOUT` | seconds one fetch may take before it counts as failed |
-| `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](write-memories.md#the-contract) |
+| variable                  | effect                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `MAXIMS_HOME`             | moves the [canonical home](files.md#the-canonical-home), state, store, and `config.json` with it  |
+| `MAXIMS_AUTH`             | `1` makes `add` fetch with your `gh` login, as `--auth` does                                      |
+| `GH_HOST`                 | the GitHub Enterprise host `@owner/repo` resolves against, and whose URLs count as GitHub sources |
+| `MAXIMS_FETCH_TIMEOUT`    | seconds one fetch may take before it counts as failed                                             |
+| `MAXIMS_INSTALL_INTERNAL` | `1` installs memories marked [`metadata.internal`](write-memories.md#the-contract)                |
 
 A `github.com` URL stays `github.com` whatever `GH_HOST` says, so one pasted command installs the same source on every machine. Unset, or set to `github.com`, the variable means `github.com` and records no host.
 
@@ -99,10 +99,10 @@ A `github.com` URL stays `github.com` whatever `GH_HOST` says, so one pasted com
 
 Two numbers apply to every source and live in `config.json`, not on a hook command line, so a hook has nothing to drift from. Both flags are maxims-only; `skills` has no analog.
 
-| flag | writes | default | what it governs |
-| --- | --- | --- | --- |
-| `--cooldown <days>` | `cooldownDays` in `config.json` | 7 | days after a good fetch before `sync` refetches; 0 means every sync; `update` ignores it |
-| `--cap <n>` | `ruleCap` in `config.json` | 25 | the most rule lines one source may publish |
+| flag                | writes                          | default | what it governs                                                                          |
+| ------------------- | ------------------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `--cooldown <days>` | `cooldownDays` in `config.json` | 7       | days after a good fetch before `sync` refetches; 0 means every sync; `update` ignores it |
+| `--cap <n>`         | `ruleCap` in `config.json`      | 25      | the most rule lines one source may publish                                               |
 
 The cooldown counts from the last fetch that succeeded. A fetch that failed is retried after an hour, or after any Retry-After the server sent, whatever the cooldown, so a source that is down is not asked at every session start.
 
@@ -120,15 +120,15 @@ A source added with `--review`, or marked later with `maxims review <source>`, k
 maxims: @acme/rules has 2 changed lines held for review; run maxims accept @acme/rules
 ```
 
-| step | what happens |
-| --- | --- |
-| `sync` or `update` sees upstream move | the revision lands under `pending/`; the installed copy stays |
-| what changed | one line per memory in `log/refresh.log`; `list` and `doctor` count them |
-| every later run | the line above repeats until you act, from a hook too |
-| `maxims accept <source>` | applies the held revision, then syncs; `--all` takes every held source |
-| upstream moves again | the newer revision replaces the held one |
-| upstream returns to the installed revision | the hold is withdrawn |
-| `maxims unreview <source>` | lifts the mark and applies whatever is held |
+| step                                       | what happens                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------ |
+| `sync` or `update` sees upstream move      | the revision lands under `pending/`; the installed copy stays            |
+| what changed                               | one line per memory in `log/refresh.log`; `list` and `doctor` count them |
+| every later run                            | the line above repeats until you act, from a hook too                    |
+| `maxims accept <source>`                   | applies the held revision, then syncs; `--all` takes every held source   |
+| upstream moves again                       | the newer revision replaces the held one                                 |
+| upstream returns to the installed revision | the hold is withdrawn                                                    |
+| `maxims unreview <source>`                 | lifts the mark and applies whatever is held                              |
 
 The held files sit under `pending/` in the [canonical home](files.md#the-canonical-home), laid out like the store. Each logged line is `+ name`, `- name` or `~ name (old -> new)`, the same diff `update` prints for an applied refresh. `maxims show <source>` prints the held lines with their descriptions and a diff of each body that changed; [check](check.md#read-one-memory-or-source-show) owns it.
 
@@ -138,11 +138,11 @@ The first fetch of a source is never held: `add` installs what it fetched, and t
 
 A source is stale once a fetch has failed and its last successful fetch is more than 7 days old, or older than the [cooldown](#the-cap-and-the-cooldown) when that is longer, so a `--cooldown 14` source is not stale before its refresh was due; or at once when the repository is gone or the fetched content invalid. The notice names the reason (network, rate limit, missing) rather than just "stale".
 
-| where the harness has | the notice goes to |
-| --- | --- |
-| a hook with a stdout channel, anything but `none` or `-` in the [matrix](harnesses.md#the-matrix) | the hook's stdout, which the harness adds to the agent's context on exit 0 |
-| a hook without one, `none` or `-` in the matrix | nowhere through the hook: the definition declares no channel the harness reads sync's output from |
-| no hook (tier 2) | one managed line at the top of the maxims block in the rule file |
+| where the harness has                                                                             | the notice goes to                                                                                |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| a hook with a stdout channel, anything but `none` or `-` in the [matrix](harnesses.md#the-matrix) | the hook's stdout, which the harness adds to the agent's context on exit 0                        |
+| a hook without one, `none` or `-` in the matrix                                                   | nowhere through the hook: the definition declares no channel the harness reads sync's output from |
+| no hook (tier 2)                                                                                  | one managed line at the top of the maxims block in the rule file                                  |
 
 The stdout notice rides on exit 0, so there is no non-zero exit and no hook error banner. The rule-file line is removed on the next successful refresh.
 

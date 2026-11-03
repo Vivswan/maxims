@@ -557,12 +557,12 @@ Demonstrated by: [tests/commands/verbs.test.ts](../tests/commands/verbs.test.ts)
 
 Each node is one layer, labelled with the paths it owns; an arrow means the layer imports the other. The `working-text` skill's `architecture/render-map.mts` renders it from `architecture.yml`, and that skill's `architecture/lint.mts` keeps the declaration equal to the import graph under `src/`:
 
-| Lint message | What to do |
-| --- | --- |
-| `forbidden import a -> b: src/a/x.ts -> src/b/y.ts; move it or declare the edge` | Move the import, or add `b` under `edges.a` when the dependency is right |
-| `stale allowance a -> b: no file draws it; remove it from architecture.yml` | Delete `b` from `edges.a`; the declaration lists only edges the code draws |
-| `src/z.ts belongs to no layer in architecture.yml` | Add the file to a layer or to `exclude`; nothing is dropped silently |
-| `src/a/x.ts:12 loads a module through a computed specifier ...` | Rewrite the `import(name)` with a string literal; the graph cannot follow a variable |
+| Lint message                                                                     | What to do                                                                           |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `forbidden import a -> b: src/a/x.ts -> src/b/y.ts; move it or declare the edge` | Move the import, or add `b` under `edges.a` when the dependency is right             |
+| `stale allowance a -> b: no file draws it; remove it from architecture.yml`      | Delete `b` from `edges.a`; the declaration lists only edges the code draws           |
+| `src/z.ts belongs to no layer in architecture.yml`                               | Add the file to a layer or to `exclude`; nothing is dropped silently                 |
+| `src/a/x.ts:12 loads a module through a computed specifier ...`                  | Rewrite the `import(name)` with a string literal; the graph cannot follow a variable |
 
 An edge is any relative import: runtime, type-only, re-export, side-effect, or a string-literal `import()`. Imports inside one layer are not edges, and a layer absent from `edges` imports nothing outside itself.
 

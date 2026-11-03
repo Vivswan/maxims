@@ -49,13 +49,12 @@ Rules also come from reviewable repos instead of hand-copied files, so one machi
 
 Each tool below already solved part of the problem. The table says what maxims copied from it and what it left behind; the notes under it say what each tool does and where the line falls.
 
-| tool or practice | what maxims took | what maxims left |
-| --- | --- | --- |
-| `npx skills` (vercel-labs/skills) | the verbs, the flags, `@owner/repo`, [`~/.agents/`](files.md#the-canonical-home), the committed lock | the skills layer itself |
-| Claude Code's `MEMORY.md` index | the [two layers](how-it-works.md#two-layers-one-source), the [memory file format](write-memories.md) | the single harness and the single folder |
-| rulesync (dyoshikawa/rulesync) | the fan-out, one source in each harness's own format | the unit and the trigger |
-| a shell rc line, an OS scheduler, an editor folder-open task, a git hook | nothing | all four |
-
+| tool or practice                                                         | what maxims took                                                                                     | what maxims left                         |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `npx skills` (vercel-labs/skills)                                        | the verbs, the flags, `@owner/repo`, [`~/.agents/`](files.md#the-canonical-home), the committed lock | the skills layer itself                  |
+| Claude Code's `MEMORY.md` index                                          | the [two layers](how-it-works.md#two-layers-one-source), the [memory file format](write-memories.md) | the single harness and the single folder |
+| rulesync (dyoshikawa/rulesync)                                           | the fan-out, one source in each harness's own format                                                 | the unit and the trigger                 |
+| a shell rc line, an OS scheduler, an editor folder-open task, a git hook | nothing                                                                                              | all four                                 |
 - **`npx skills`** installs `SKILL.md` folders from a GitHub repo into each agent's skills directory, with `add`, `list`, `remove`, and `update`, and a committed `skills-lock.json` a fresh clone replays. maxims takes its flag names and short forms, and the [project lock](share.md) mirrors its lock. What skills do not have is the rule line in the always-loaded layer and the session-start hook that re-syncs it.
 - **Claude Code's `MEMORY.md` index** is one index file, loaded every session, with one line per memory that points at the body file beside it. Taking its format means a source repo needs no new one. maxims writes the index for every harness in the [matrix](harnesses.md#the-matrix), from a source repo, and leaves Claude Code's own memory folder to Claude Code.
 - **rulesync** compiles rule files under `.rulesync/` into the native rule format of each supported agent when you run `rulesync generate`. maxims installs published memories from a repo rather than compiling your own local files, and a hook re-syncs at session start rather than a generate step you run by hand.
@@ -63,8 +62,8 @@ Each tool below already solved part of the problem. The table says what maxims c
 
 ## What a rule costs
 
-| item | cost |
-| --- | --- |
-| one rule line in the rule file | about 25 tokens, loaded every session |
-| the memory body | zero tokens until an agent opens the file |
-| a source at the default [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | about 600 to 700 tokens |
+| item                                                                       | cost                                      |
+| -------------------------------------------------------------------------- | ----------------------------------------- |
+| one rule line in the rule file                                             | about 25 tokens, loaded every session     |
+| the memory body                                                            | zero tokens until an agent opens the file |
+| a source at the default [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | about 600 to 700 tokens                   |

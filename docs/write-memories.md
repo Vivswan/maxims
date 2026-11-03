@@ -33,15 +33,15 @@ The `description` is the one-liner that reaches the rule file. Everything below 
 
 <!-- BEGIN GENERATED: memory-contract (bun run docs:tables) -->
 
-| field | required | rule |
-|---|---|---|
-| `name` | yes | kebab-case, `[a-z0-9]+(-[a-z0-9]+)*`, at most 200 characters, equal to the filename stem |
-| `description` | yes | non-empty, one line after YAML unquoting; this is the one-liner that reaches the rule file |
-| `metadata.node_type` | no | `memory` when present; absent is accepted |
-| `metadata.type` | no | `user`, `feedback`, `project`, or `reference`; an unknown value passes with a warning |
-| `metadata.internal` | no | `true` hides the memory unless `MAXIMS_INSTALL_INTERNAL=1` is set; absent or `false` is normal |
-| `metadata.scope`, any other key | no | carried in the store, never interpreted |
-| body | no | may be empty; `[[links]]` are preserved and resolved as dependencies (below) |
+| field                           | required | rule                                                                                           |
+| ------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `name`                          | yes      | kebab-case, `[a-z0-9]+(-[a-z0-9]+)*`, at most 200 characters, equal to the filename stem       |
+| `description`                   | yes      | non-empty, one line after YAML unquoting; this is the one-liner that reaches the rule file     |
+| `metadata.node_type`            | no       | `memory` when present; absent is accepted                                                      |
+| `metadata.type`                 | no       | `user`, `feedback`, `project`, or `reference`; an unknown value passes with a warning          |
+| `metadata.internal`             | no       | `true` hides the memory unless `MAXIMS_INSTALL_INTERNAL=1` is set; absent or `false` is normal |
+| `metadata.scope`, any other key | no       | carried in the store, never interpreted                                                        |
+| body                            | no       | may be empty; `[[links]]` are preserved and resolved as dependencies (below)                   |
 
 <!-- END GENERATED: memory-contract -->
 
@@ -55,13 +55,13 @@ Two files are reserved and are never memories, skipped by name with no warning: 
 
 A memory carrying a character the reader cannot see fails the whole install, because the plan shown at `add` is the review gate and a hidden instruction passes it unseen. The check runs over the whole file, frontmatter and body.
 
-| refused | why |
-| --- | --- |
-| zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`) | invisible in a terminal, so a one-liner can differ from what the plan showed |
-| bidi control characters (`U+061C`, `U+200E`, `U+200F`, `U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree |
-| control characters (`U+0000` to `U+001F` except tab, `U+007F` to `U+009F`) | a terminal prints nothing or moves the cursor, so file and display disagree |
-| ANSI escape sequences | a terminal executes them while printing the plan |
-| HTML comments | invisible in a rendered rule file, and the block markers are HTML comments |
+| refused                                                                                            | why                                                                          |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`)                                   | invisible in a terminal, so a one-liner can differ from what the plan showed |
+| bidi control characters (`U+061C`, `U+200E`, `U+200F`, `U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree       |
+| control characters (`U+0000` to `U+001F` except tab, `U+007F` to `U+009F`)                         | a terminal prints nothing or moves the cursor, so file and display disagree  |
+| ANSI escape sequences                                                                              | a terminal executes them while printing the plan                             |
+| HTML comments                                                                                      | invisible in a rendered rule file, and the block markers are HTML comments   |
 
 The refusal is exit 3, nothing written, with the file and the character named. `--allow-hidden` on `add` installs the source anyway; the [flag table](cli.md#flags) owns it. Unlike a contract failure, this is not a per-file skip, because an unseen instruction is the failure the gate exists to catch.
 
@@ -84,11 +84,11 @@ Resolution runs through the rename map, so a memory renamed locally after a [nam
 
 A source that also ships skills uses this layout, a `memories/` directory at the repo root beside them, so one repo and one review gate carry both.
 
-| flag on `add` | what it reads |
-| --- | --- |
-| none | `memories/` at the source root |
+| flag on `add`   | what it reads                                                       |
+| --------------- | ------------------------------------------------------------------- |
+| none            | `memories/` at the source root                                      |
 | `--from <path>` | the folder you name instead; recorded in state for every later sync |
-| `--full-depth` | the whole source tree, not stopping at the memories folder |
+| `--full-depth`  | the whole source tree, not stopping at the memories folder          |
 
 `--full-depth` is the companion to `--from` for an unusual layout. Autodetecting memories by frontmatter is not attempted, because any README with a `name:` field would become a rule. You name the folder; the tool never guesses.
 
@@ -102,13 +102,13 @@ npx -y @vivswan/maxims init commit-small-and-often
 
 The file passes the [contract](#the-contract) as written:
 
-| field | value |
-| --- | --- |
-| `name` | the name you gave |
-| `description` | a placeholder for you to replace |
-| `metadata.node_type` | `memory` |
-| `metadata.type` | `feedback` |
-| body | `**Why:**` and `**How to apply:**` stubs |
+| field                | value                                    |
+| -------------------- | ---------------------------------------- |
+| `name`               | the name you gave                        |
+| `description`        | a placeholder for you to replace         |
+| `metadata.node_type` | `memory`                                 |
+| `metadata.type`      | `feedback`                               |
+| body                 | `**Why:**` and `**How to apply:**` stubs |
 
 ## Lint a folder before publishing
 
@@ -119,18 +119,18 @@ npx -y @vivswan/maxims lint path/to/folder --full-depth --cap 30
 
 `lint` is the source repo's check. It reads every `.md` in the folder but the two reserved files, and prints one `path:line: reason` per problem, so an editor can jump to it. It never writes into a harness.
 
-| check | problem it reports |
-| --- | --- |
-| the [contract](#the-contract) | a file `add` would skip, with the contract's reason; a `metadata.type` warning counts |
-| [hidden characters](#hidden-characters-are-refused) | a `description` carrying one, with its code point and column |
-| [risky shapes](security.md#risky-shapes-in-descriptions) | a `description` carrying one, as `kind: detail at column N`; `add` warns about these |
-| [wikilinks](#wikilinks-are-dependencies) | a `[[link]]` that names no memory in this folder |
-| the [rule cap](keep-fresh.md#the-cap-and-the-cooldown) | more memories than the cap allows; `--cap <n>` sets this run's threshold |
+| check                                                    | problem it reports                                                                    |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| the [contract](#the-contract)                            | a file `add` would skip, with the contract's reason; a `metadata.type` warning counts |
+| [hidden characters](#hidden-characters-are-refused)      | a `description` carrying one, with its code point and column                          |
+| [risky shapes](security.md#risky-shapes-in-descriptions) | a `description` carrying one, as `kind: detail at column N`; `add` warns about these  |
+| [wikilinks](#wikilinks-are-dependencies)                 | a `[[link]]` that names no memory in this folder                                      |
+| the [rule cap](keep-fresh.md#the-cap-and-the-cooldown)   | more memories than the cap allows; `--cap <n>` sets this run's threshold              |
 
-| outcome | exit |
-| --- | --- |
-| no problems | 0 |
-| any problem | 3, the same code an incomplete install gets |
+| outcome                              | exit                                                        |
+| ------------------------------------ | ----------------------------------------------------------- |
+| no problems                          | 0                                                           |
+| any problem                          | 3, the same code an incomplete install gets                 |
 | a folder or file that cannot be read | 1; "no problems" is a claim about files that were inspected |
 
 On `lint`, `--cap` persists nothing. `--full-depth` scans subfolders too. `--json` prints `{ "ok": true, "problems": [] }` with one object per problem instead of the lines.

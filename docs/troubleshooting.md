@@ -98,11 +98,11 @@ A hook run exits 0 and writes the same two lines without the `!` prefix, which r
 
 **What you see:** one of three messages, each with exit 3 and nothing written.
 
-| message | cause |
-| --- | --- |
-| the file and the character named | a memory carries a [hidden character](write-memories.md#hidden-characters-are-refused) |
-| a `--memory` name the source lacks | a misspelled or renamed memory |
-| "Found 0 memories", after one warning per skipped file | the wrong folder, or every file fails the [contract](write-memories.md#the-contract) |
+| message                                                | cause                                                                                  |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| the file and the character named                       | a memory carries a [hidden character](write-memories.md#hidden-characters-are-refused) |
+| a `--memory` name the source lacks                     | a misspelled or renamed memory                                                         |
+| "Found 0 memories", after one warning per skipped file | the wrong folder, or every file fails the [contract](write-memories.md#the-contract)   |
 
 **What it means:** the install would be incomplete, so maxims writes nothing rather than a set of rules you believe is loaded and is not.
 
@@ -134,17 +134,17 @@ maxims: state.json was corrupt and moved to <path>; re-add your sources
 
 **What it means:** quiet mode prints only what a session must hear, and a second run within 60 seconds of the last exits as soon as it reads the stamp.
 
-| after a quiet run | on stdout |
-| --- | --- |
-| a source gone [stale](keep-fresh.md#the-staleness-notice-and-the-self-refresh-line) | one `maxims: the rules from <key> ...` line per source, last good copy kept |
-| a write failed | one `maxims: <message>` line per failure |
-| a source was held for a harness's byte budget (the exit 8 section above) | its two lines: the overage and the way out |
+| after a quiet run                                                                         | on stdout                                                                      |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| a source gone [stale](keep-fresh.md#the-staleness-notice-and-the-self-refresh-line)       | one `maxims: the rules from <key> ...` line per source, last good copy kept    |
+| a write failed                                                                            | one `maxims: <message>` line per failure                                       |
+| a source was held for a harness's byte budget (the exit 8 section above)                  | its two lines: the overage and the way out                                     |
 | a reviewed source has a revision [held for review](keep-fresh.md#hold-changes-for-review) | `maxims: <key> has <n> changed lines held for review; run maxims accept <key>` |
-| a file a harness reads changed | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)` |
-| under `--dry-run`, a file a harness reads would change | `maxims: rules would be refreshed (<n> files to update)`; nothing is written |
-| none of those | nothing |
-| the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-` | nothing reaches the agent, whatever sync printed |
-| the column is `json:` | the same lines inside one JSON document, in the named field |
+| a file a harness reads changed                                                            | `maxims: rules refreshed (1 file updated)`, or `(<n> files updated)`           |
+| under `--dry-run`, a file a harness reads would change                                    | `maxims: rules would be refreshed (<n> files to update)`; nothing is written   |
+| none of those                                                                             | nothing                                                                        |
+| the harness's `stdout` column in the [matrix](harnesses.md#the-matrix) is `none` or `-`   | nothing reaches the agent, whatever sync printed                               |
+| the column is `json:`                                                                     | the same lines inside one JSON document, in the named field                    |
 
 **What to do:** run `sync` without `--quiet` in a terminal to see the full report. `log/refresh.log` in the [canonical home](files.md#the-canonical-home) records what each run changed.
 

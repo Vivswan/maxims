@@ -16,14 +16,14 @@ npx -y @vivswan/maxims unshare @Octocat/rules                  # take it out of 
 npx -y @vivswan/maxims remove @Octocat/rules                   # take it out of state and out of the lock
 ```
 
-| verb | state | the lock |
-| --- | --- | --- |
-| `add -p` without `--share` | records the source, private; a lock-listed source is recorded shared, as `install` does | untouched by a private source; a listed source's entry follows the new intent |
-| `add -p --share` | records the source | gains the source |
-| `share <source>` | marks the source shared | gains the source |
-| `unshare <source>` | clears the mark; the source stays installed | loses the source |
-| `remove <source>` | drops the source | loses the source |
-| a project-scope `link`, `unlink`, `disable`, or `enable` on a shared source | changes the intent | rewritten from state, so the two never disagree |
+| verb                                                                        | state                                                                                   | the lock                                                                      |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `add -p` without `--share`                                                  | records the source, private; a lock-listed source is recorded shared, as `install` does | untouched by a private source; a listed source's entry follows the new intent |
+| `add -p --share`                                                            | records the source                                                                      | gains the source                                                              |
+| `share <source>`                                                            | marks the source shared                                                                 | gains the source                                                              |
+| `unshare <source>`                                                          | clears the mark; the source stays installed                                             | loses the source                                                              |
+| `remove <source>`                                                           | drops the source                                                                        | loses the source                                                              |
+| a project-scope `link`, `unlink`, `disable`, or `enable` on a shared source | changes the intent                                                                      | rewritten from state, so the two never disagree                               |
 
 ## The project manifest
 
