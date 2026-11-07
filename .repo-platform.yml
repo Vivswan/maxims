@@ -9,4 +9,3 @@ project:
   name: maxims
   slug: maxims
   description: One-line rule memories installed from GitHub repos into coding agents, guaranteed to load every session
-  copyright_holder: Vivswan Shah (https://github.com/Vivswan)
