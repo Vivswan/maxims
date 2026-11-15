@@ -36,12 +36,8 @@ const DECISIONS: Record<Result, string[]> = {
   success: ["resolve"],
 };
 
-// The coordinate a call from this repository would spell out in place of a local path.
 const REPOSITORY = "Vivswan/maxims";
 
-// Three spellings GitHub accepts and the report jobs do not use yet: a job condition wrapped in
-// an expression marker, an expression broken over two lines, and a closing brace pair inside a
-// string literal.
 const SPELLINGS = `
 on: push
 jobs:
@@ -316,8 +312,10 @@ test("the settings create exactly one nightly label per tracked category, worded
   }
 });
 
-// Without this, an edit of a report condition or output into one of these spellings stops the
-// census with a parse error, or leaves an unrendered expression that compares as plain text.
+// The fixture holds a job condition wrapped in an expression marker, an expression broken over
+// two lines, and a closing brace pair inside a string literal; the report jobs use none yet.
+// Without this, an edit into one of them stops the census with a parse error, or leaves an
+// unrendered expression that compares as plain text.
 test("a condition and an output in the spellings GitHub also accepts read as GitHub reads them", async () => {
   const { jobs } = await load("spellings.yml", SPELLINGS);
   const ran = (result: Result): unknown => {
