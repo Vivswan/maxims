@@ -516,7 +516,8 @@ const TRACE_ENV = /^(GIT_TRACE|GIT_CURL_VERBOSE)/i;
 // LFS pointers stay pointers: a smudge would download every large file in a repo whose memories
 // are a few kilobytes of text. GIT_ALLOW_PROTOCOL is the one protocol setting a user's gitconfig
 // cannot override, so `ext::` and other command-running transports stay closed whatever it says.
-// The C locale keeps git's messages in the English the failure patterns are written in.
+// The C locale keeps git's messages in the English the failure patterns are written in. OpenSSH
+// asks its questions through the askpass that fails, never the terminal, however ssh is wrapped.
 export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
@@ -534,6 +535,8 @@ export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<
     NO_COLOR: "1",
     LC_ALL: "C",
     LANGUAGE: "C",
+    SSH_ASKPASS: "false",
+    SSH_ASKPASS_REQUIRE: "force",
   };
 }
 
@@ -616,11 +619,11 @@ type CommandWord = "skip" | "env" | "program" | "stop";
 
 // What a word at the head of a command line is. sh reads an assignment only as spelled, unquoted;
 // `env` reads its arguments after sh has unquoted them, and takes any that holds `=`.
-//   stop   an option of env, or an assignment sh may still expand into several words
+//   stop   an option of env, or an assignment holding an expansion this parser cannot see the end of
 function commandWord(word: { raw: string; text: string }, afterEnv: boolean): CommandWord {
-  if (!afterEnv && SHELL_ASSIGNMENT.test(word.raw)) return "skip";
   if (afterEnv && word.text.startsWith("-")) return "stop";
-  if (afterEnv && word.text.includes("=")) return /[$`*?[]/.test(word.raw) ? "stop" : "skip";
+  const assignment = afterEnv ? word.text.includes("=") : SHELL_ASSIGNMENT.test(word.raw);
+  if (assignment) return /[$`*?[]/.test(word.raw) ? "stop" : "skip";
   if (ENV_PROGRAM.test(word.text)) return "env";
   return !afterEnv && word.text === "exec" ? "skip" : "program";
 }
@@ -731,7 +734,7 @@ const isGuardedEnvKey = (key: string): boolean => {
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
 };
 const ALLOWED_GUARDED_ENV =
-  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
+  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|SSH_ASKPASS|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
 
 // The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
 // upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own

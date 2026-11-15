@@ -90,23 +90,23 @@ function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fe
 // A credential helper and a GIT_SSH_COMMAND are run by git through sh, on Windows the one Git for Windows ships, which reads a forward-slash path where a backslash would start an escape.
 const shellPath = (path: string): string => path.split(sep).join("/");
 
-// A program git can be told to run as ssh: it records each call's arguments and the locale git
+// A program git can be told to run as ssh: it records each call's arguments and the environment git
 // handed it, then fails like an ssh that could not connect.
 function recordingSsh(
   dir: string,
   program: string,
-): { path: string; argv: string; locale: string } {
+): { path: string; argv: string; environment: string } {
   const argv = join(dir, "argv");
-  const locale = join(dir, "locale");
+  const environment = join(dir, "environment");
   const lines = [
     "#!/bin/sh",
     `echo "$@" >> '${shellPath(argv)}'`,
-    `printf %s "$LC_ALL" > '${shellPath(locale)}'`,
+    `printf %s "$LC_ALL $SSH_ASKPASS_REQUIRE $SSH_ASKPASS" > '${shellPath(environment)}'`,
     "exit 255",
     "",
   ];
   writeFileSync(join(dir, program), lines.join("\n"), { mode: 0o755 });
-  return { path: shellPath(join(dir, program)), argv, locale };
+  return { path: shellPath(join(dir, program)), argv, environment };
 }
 
 describe("resolveRef without auth", () => {
@@ -1070,7 +1070,7 @@ describe("git rung against a file:// fixture repo", () => {
       const args = (calls.at(-1) ?? "").split(" ");
       expect(args.slice(0, leading.length)).toEqual(leading);
       expect(args).toContain("127.0.0.1");
-      expect(readFileSync(fake.locale, "utf8")).toBe("C");
+      expect(readFileSync(fake.environment, "utf8")).toBe("C force false");
     });
   });
 
@@ -1100,6 +1100,8 @@ describe("git rung against a file:// fixture repo", () => {
   // literal path, a backslash inside double quotes escapes only sh's five, an unquoted redirection
   // ends the word, and assignments, `exec` and `env` come before it. git asks GIT_SSH_COMMAND,
   // core.sshCommand, then GIT_SSH.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: sh's parameter expansion, not a template
+  const defaulted = "FOO=${X:- ssh -v} /opt/wrapper";
   const sshPrograms: [string, Record<string, string>, string | undefined, string][] = [
     [
       "a GIT_SSH path to ssh stays one literal word ahead of BatchMode",
@@ -1198,6 +1200,13 @@ describe("git rung against a file:// fixture repo", () => {
       "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -i key",
       "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -o BatchMode=yes -i key",
     ],
+    [
+      "a command substitution in an assignment is not searched for ssh",
+      {},
+      "A=`echo ssh x` /opt/wrapper",
+      "A=`echo ssh x` /opt/wrapper",
+    ],
+    ["a parameter expansion in an assignment is not searched for ssh", {}, defaulted, defaulted],
     [
       "a second command after an assignment is left alone",
       {},
