@@ -516,6 +516,8 @@ const TRACE_ENV = /^(GIT_TRACE|GIT_CURL_VERBOSE)/i;
 // LFS pointers stay pointers: a smudge would download every large file in a repo whose memories
 // are a few kilobytes of text. GIT_ALLOW_PROTOCOL is the one protocol setting a user's gitconfig
 // cannot override, so `ext::` and other command-running transports stay closed whatever it says.
+// The C locale keeps git's messages in the English the failure patterns are written in. OpenSSH
+// asks its questions through the askpass that fails, never the terminal, however ssh is wrapped.
 export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
@@ -531,29 +533,39 @@ export function childEnvironment(base: NodeJS.ProcessEnv = process.env): Record<
     GH_PROMPT_DISABLED: "1",
     GH_NO_UPDATE_NOTIFIER: "1",
     NO_COLOR: "1",
+    LC_ALL: "C",
+    LANGUAGE: "C",
+    SSH_ASKPASS: "false",
+    SSH_ASKPASS_REQUIRE: "force",
   };
 }
 
 const execFileAsync = promisify(execFile);
 
+async function execChild(
+  binary: string,
+  args: string[],
+  options: { env: Record<string, string>; timeoutMs: number },
+): Promise<ExecResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync(binary, args, {
+      encoding: "buffer",
+      env: options.env,
+      maxBuffer: EXEC_MAX_BYTES,
+      timeout: options.timeoutMs,
+      shell: false,
+    });
+    return { kind: "exited", code: 0, stdout, stderr: stderr.toString("utf8") };
+  } catch (cause) {
+    return execFailure(binary, cause);
+  }
+}
+
 export function systemRunner(env: NodeJS.ProcessEnv = process.env): Runner {
   const timeoutMs = fetchTimeoutMs(env);
   const childEnv = childEnvironment(env);
   return {
-    exec: async (binary, args) => {
-      try {
-        const { stdout, stderr } = await execFileAsync(binary, args, {
-          encoding: "buffer",
-          env: childEnv,
-          maxBuffer: EXEC_MAX_BYTES,
-          timeout: timeoutMs,
-          shell: false,
-        });
-        return { kind: "exited", code: 0, stdout, stderr: stderr.toString("utf8") };
-      } catch (cause) {
-        return execFailure(binary, cause);
-      }
-    },
+    exec: (binary, args) => execChild(binary, args, { env: childEnv, timeoutMs }),
     fetch: (url, init) => fetch(url, init),
     git: simpleGitRunner({ env: gitEnvironment(env), timeoutMs }),
   };
@@ -571,28 +583,67 @@ function shellQuote(word: string): string {
 }
 
 // What git alone gets, beyond the common scrub: no GitHub token, because git never reads one and
-// simple-git would echo it to its debug log, and an ssh that fails instead of asking, because
-// GIT_TERMINAL_PROMPT=0 says nothing to OpenSSH's own passphrase and host-key questions.
+// simple-git would echo it to its debug log. The caller's two ssh variables ride along for
+// sshCommand(), which turns them into the one git is handed.
 export function gitEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(childEnvironment(base))) {
     if (!TOKEN_ENV.has(key.toUpperCase())) env[key] = value;
   }
-  return { ...env, GIT_SSH_COMMAND: batchSshCommand(base) };
+  for (const name of ["GIT_SSH_COMMAND", "GIT_SSH"]) {
+    const value = base[name]?.trim() ?? "";
+    if (value !== "") env[name] = value;
+  }
+  return env;
 }
 
-// ssh honors the FIRST occurrence of an option, so BatchMode goes right after the program word,
-// ahead of the user's own. Only a program named ssh takes it: a wrapper that forwards to ssh
-// rejects an ssh option in its own argument slot, and nothing but its argv reaches ssh through
-// one. A bare GIT_SSH is a literal path, so it is single-quoted before the shell splits the line.
-function batchSshCommand(base: NodeJS.ProcessEnv): string {
-  const program = base.GIT_SSH?.trim();
+const SSH_PROGRAM = /(^|[\\/])ssh(\.exe)?$/i;
+const ENV_PROGRAM = /(^|\/)env$/;
+const SHELL_ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+// The ssh command git runs, in git's own order: GIT_SSH_COMMAND, core.sshCommand (`configured`),
+// then GIT_SSH, a literal path that is single-quoted for sh. BatchMode makes ssh fail instead of
+// asking, and goes right after the program word because ssh honors the FIRST occurrence of an
+// option. A wrapper rejects an ssh option in its own argument slot, so only a program named ssh
+// takes it.
+export function sshCommand(env: NodeJS.ProcessEnv, configured?: string): string {
+  const program = env.GIT_SSH?.trim() ?? "";
   const command =
-    base.GIT_SSH_COMMAND?.trim() ||
-    (program === undefined || program === "" ? "ssh" : shellQuote(program));
-  const word = leadingShellWord(command);
-  if (!/(^|[\\/])ssh(\.exe)?$/i.test(word.text)) return command;
-  return `${word.raw} -o BatchMode=yes${command.slice(word.raw.length)}`;
+    env.GIT_SSH_COMMAND?.trim() || configured || (program === "" ? "ssh" : shellQuote(program));
+  const end = sshProgramEnd(command);
+  if (end === undefined) return command;
+  return `${command.slice(0, end)} -o BatchMode=yes${command.slice(end)}`;
+}
+
+type CommandWord = "skip" | "env" | "program" | "stop";
+
+// What a word at the head of a command line is. sh reads an assignment only as spelled, unquoted;
+// `env` reads its arguments after sh has unquoted them, and takes any that holds `=`.
+//   stop   an option of env, or an assignment holding an expansion this parser cannot see the end of
+function commandWord(word: { raw: string; text: string }, afterEnv: boolean): CommandWord {
+  if (afterEnv && word.text.startsWith("-")) return "stop";
+  const assignment = afterEnv ? word.text.includes("=") : SHELL_ASSIGNMENT.test(word.raw);
+  if (assignment) return /[$`*?[]/.test(word.raw) ? "stop" : "skip";
+  if (ENV_PROGRAM.test(word.text)) return "env";
+  return !afterEnv && word.text === "exec" ? "skip" : "program";
+}
+
+// Where the ssh program word ends, past the assignments, `exec` and `env` that may precede it.
+// Anything this cannot follow leaves the command as written.
+function sshProgramEnd(command: string): number | undefined {
+  let start = /^[ \t]*/.exec(command)?.[0].length ?? 0;
+  let afterEnv = false;
+  for (;;) {
+    const word = shellWordAt(command, start);
+    const end = start + word.raw.length;
+    const kind = commandWord(word, afterEnv);
+    if (kind === "stop") return undefined;
+    if (kind === "program") return SSH_PROGRAM.test(word.text) ? end : undefined;
+    afterEnv ||= kind === "env";
+    const gap = /^[ \t]+/.exec(command.slice(end))?.[0].length ?? 0;
+    if (gap === 0) return undefined;
+    start = end + gap;
+  }
 }
 
 // A backslash-newline is sh's line continuation and yields nothing.
@@ -607,15 +658,17 @@ function quoteAfter(char: string, quote: string | null): string | null {
   return quote;
 }
 
-// The first word of a POSIX command line, as spelled (`raw`) and as sh reads it (`text`). Inside
-// double quotes a backslash stays a character unless it escapes one of sh's five, which is how a
-// Windows path keeps its separators.
-function leadingShellWord(command: string): { raw: string; text: string } {
+// The word of a POSIX command line that starts at `start`, as spelled (`raw`) and as sh reads it
+// (`text`). Inside double quotes a backslash stays a character unless it escapes one of sh's five,
+// which is how a Windows path keeps its separators.
+function shellWordAt(command: string, start: number): { raw: string; text: string } {
   let quote: string | null = null;
   let text = "";
-  for (let index = 0; index < command.length; index += 1) {
+  for (let index = start; index < command.length; index += 1) {
     const char = command[index] ?? "";
-    if (quote === null && /[\s<>|&;()]/.test(char)) return { raw: command.slice(0, index), text };
+    if (quote === null && /[\s<>|&;()]/.test(char)) {
+      return { raw: command.slice(start, index), text };
+    }
     const quoted = quoteAfter(char, quote);
     if (quoted !== quote) {
       quote = quoted;
@@ -629,7 +682,7 @@ function leadingShellWord(command: string): { raw: string; text: string } {
     text += escaped.text;
     if (escaped.consumed) index += 1;
   }
-  return { raw: command, text };
+  return { raw: command.slice(start), text };
 }
 
 type ExecError = Error & {
@@ -681,7 +734,7 @@ const isGuardedEnvKey = (key: string): boolean => {
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
 };
 const ALLOWED_GUARDED_ENV =
-  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
+  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|SSH_ASKPASS|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
 
 // The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
 // upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
@@ -726,10 +779,24 @@ async function transportTarget(
   return transportUrl(expanded);
 }
 
+// A caller's GIT_SSH_COMMAND outranks core.sshCommand in git, so the config is read only without
+// one; the answer goes back as GIT_SSH_COMMAND, the one place BatchMode can be added to it. `git`
+// is asked where the transport will run: an `includeIf` on the remote's URL applies only there.
+// Only git's line terminator comes off the value, which may end in an escaped space.
+async function sshEnvironment(
+  git: SimpleGit,
+  env: Record<string, string>,
+): Promise<Record<string, string>> {
+  if (env.GIT_SSH_COMMAND !== undefined) return { ...env, GIT_SSH_COMMAND: sshCommand(env) };
+  const configured = await git.raw(["config", "--get", "core.sshCommand"]);
+  return { ...env, GIT_SSH_COMMAND: sshCommand(env, configured.replace(/\r?\n$/, "")) };
+}
+
 // A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
 // prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
 // simple-git's debug channel is switched off for the whole process: under `DEBUG=simple-git:*` it
 // prints every spawn's arguments and environment, where a URL's password or a token would appear.
+// Whether git exists is asked once per runner: it does not change between two calls of a process.
 export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
   debug.disable();
   const binary = options.binary ?? "git";
@@ -758,6 +825,13 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     };
     return simpleGit(settings).env(guarded.env);
   };
+  let probed: Promise<ExecResult> | undefined;
+  const present = async (): Promise<boolean> => {
+    probed ??= execChild(binary, ["--version"], { env: guardedEnvironment(env).env, timeoutMs });
+    return (await probed).kind !== "absent";
+  };
+  const transport = async (config: string[], baseDir: string, callEnv: Record<string, string>) =>
+    client(config, baseDir, await sshEnvironment(client(config, baseDir, callEnv), callEnv));
   // No git process runs in the caller's cwd: a repository the caller happens to be in would lend
   // its local config (an `insteadOf`) to the lookup, and a fetch run there would register a
   // promisor remote in its config. The lookups run in this scratch directory, the clone in its
@@ -787,18 +861,20 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     });
   return {
     lsRemote: (url, patterns, call) =>
-      gitAttempt(binary, () =>
-        withCredentials(url, call.credentials, (remote, config, callEnv, scratch) =>
-          client(config, scratch, callEnv).listRemote([remote, ...patterns]),
-        ),
+      gitAttempt(present, () =>
+        withCredentials(url, call.credentials, async (remote, config, callEnv, scratch) => {
+          const git = await transport(config, scratch, callEnv);
+          return await git.listRemote([remote, ...patterns]);
+        }),
       ),
     shallowClone: (url, ref, dir, call) =>
-      gitAttempt(binary, () =>
+      gitAttempt(present, () =>
         withCredentials(url, call.credentials, async (remote, config, callEnv) => {
           await mkdir(dir, { recursive: true });
-          const git = client(config, dir, callEnv);
-          await git.raw(["init", "--quiet"]);
-          await git.raw(["remote", "add", "origin", remote]);
+          const local = client(config, dir, callEnv);
+          await local.raw(["init", "--quiet"]);
+          await local.raw(["remote", "add", "origin", remote]);
+          const git = await transport(config, dir, callEnv);
           await git.raw(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", ref]);
           if (call.sparsePath !== undefined) {
             await git.raw(["sparse-checkout", "set", "--cone", "--", call.sparsePath]);
@@ -919,33 +995,16 @@ async function privateHome(
 
 const NETRC_FILES: ReadonlySet<string> = new Set([".netrc", "_netrc"]);
 
+// Whatever a present git throws is a failure of the command: its message may quote a path or a
+// URL spelled like a spawn failure, so only the probe says the binary is missing.
 async function gitAttempt(
-  binary: string,
+  present: () => Promise<boolean>,
   action: () => Promise<string>,
 ): Promise<GitOutcome<string>> {
+  if (!(await present())) return { kind: "absent" };
   try {
     return { kind: "ok", value: await action() };
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    if (isAbsentBinary(binary, message)) return { kind: "absent" };
-    return { kind: "failed", message };
+    return { kind: "failed", message: cause instanceof Error ? cause.message : String(cause) };
   }
-}
-
-// A missing executable surfaces as the runtime's spawn failure naming the binary, which simple-git
-// hands over as the error's `Error:` line followed by its stack. Only that first line is matched,
-// and only whole, so an ENOENT or a spawn-like phrase inside git's own output (a repository path,
-// a remote URL, even one carrying a newline) stays a failure of the command, not an absent git.
-//   node                     spawn <binary> ENOENT
-//   bun, path given          ENOENT: no such file or directory, posix_spawn '<binary>'
-//                            (uv_spawn on Windows)
-//   bun, bare name off PATH  Executable not found in $PATH: "<binary>"
-export function isAbsentBinary(binary: string, message: string): boolean {
-  const escaped = RegExp.escape(binary);
-  const spellings = [
-    `spawn ${escaped} ENOENT`,
-    `ENOENT: no such file or directory, (posix|uv)_spawn '${escaped}'`,
-    `Executable not found in \\$PATH: "${escaped}"`,
-  ];
-  return new RegExp(`^(Error: )?(${spellings.join("|")})(\n|$)`).test(message);
 }

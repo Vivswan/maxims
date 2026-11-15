@@ -19,10 +19,10 @@ import {
   endpointsFor,
   type GitCredentials,
   gitEnvironment,
-  isAbsentBinary,
   type LadderRequest,
   type Runner,
   simpleGitRunner,
+  sshCommand,
   systemRunner,
 } from "../../../src/sources/github/ladder.ts";
 import { git } from "../../shared/git_fixture.ts";
@@ -89,6 +89,25 @@ function headerCapture(): { headers: Record<string, string>[]; fetch: Runner["fe
 
 // A credential helper and a GIT_SSH_COMMAND are run by git through sh, on Windows the one Git for Windows ships, which reads a forward-slash path where a backslash would start an escape.
 const shellPath = (path: string): string => path.split(sep).join("/");
+
+// A program git can be told to run as ssh: it records each call's arguments and the environment git
+// handed it, then fails like an ssh that could not connect.
+function recordingSsh(
+  dir: string,
+  program: string,
+): { path: string; argv: string; environment: string } {
+  const argv = join(dir, "argv");
+  const environment = join(dir, "environment");
+  const lines = [
+    "#!/bin/sh",
+    `echo "$@" >> '${shellPath(argv)}'`,
+    `printf %s "$LC_ALL $SSH_ASKPASS_REQUIRE $SSH_ASKPASS" > '${shellPath(environment)}'`,
+    "exit 255",
+    "",
+  ];
+  writeFileSync(join(dir, program), lines.join("\n"), { mode: 0o755 });
+  return { path: shellPath(join(dir, program)), argv, environment };
+}
 
 describe("resolveRef without auth", () => {
   // gh is present and a token is in reach for every row, and ls-remote alone is asked. Its
@@ -623,6 +642,20 @@ describe("systemRunner", () => {
     });
   });
 
+  // What would drift: a caller's own LC_ALL or LANGUAGE reaching gh or git, whose failures are
+  // classed by their English wording.
+  test("a child of the runner gets the C locale whatever the caller's own is", async () => {
+    const runner = systemRunner({
+      PATH: process.env.PATH,
+      LANG: "de_DE.UTF-8",
+      LC_ALL: "de_DE.UTF-8",
+      LANGUAGE: "de",
+    });
+    const script = 'process.stdout.write(process.env.LC_ALL + " " + process.env.LANGUAGE)';
+    const result = await runner.exec(process.execPath, ["-e", script]);
+    expect(result).toEqual({ kind: "exited", code: 0, stdout: Buffer.from("C C"), stderr: "" });
+  });
+
   test("a child that outlives MAXIMS_FETCH_TIMEOUT is killed and reads as a network failure", async () => {
     const runner = systemRunner({ PATH: process.env.PATH, MAXIMS_FETCH_TIMEOUT: "1" });
     const result = await runner.exec("sleep", ["5"]);
@@ -978,75 +1011,211 @@ describe("git rung against a file:// fixture repo", () => {
     }
   });
 
-  // What would drift: ssh honors the first occurrence of an option, so BatchMode has to land ahead
-  // of the user's own; a wrapper (a cloud CLI's git-ssh subcommand) rejects an ssh option in its
-  // own argument slot, so it has to see none. The fixture records what reached it; git probes an
-  // unknown program with `-G` first, so the last call is the fetch.
-  const sshWords: [string, string, string, string[]][] = [
+  // What would drift: GIT_SSH_COMMAND outranks core.sshCommand in git, so exporting one of our own
+  // would replace the key or jump host the user's gitconfig names. ssh honors the first occurrence
+  // of an option; a wrapper rejects an ssh option in its own argument slot. git probes an unknown
+  // program with `-G` first, so the last recorded call is the fetch.
+  type SshSetting = "GIT_SSH_COMMAND" | "core.sshCommand";
+  const sshWords: [string, SshSetting, string, string, string[]][] = [
     [
       "ssh gets BatchMode ahead of the user's own options, so a question fails instead of waiting",
+      "GIT_SSH_COMMAND",
       "ssh",
       "-o BatchMode=no -i /home/user/.ssh/key",
       ["-o", "BatchMode=yes", "-o", "BatchMode=no", "-i", "/home/user/.ssh/key"],
     ],
     [
       "a wrapper's own arguments stay first, with no ssh option in between",
+      "GIT_SSH_COMMAND",
+      "fixture-wrapper",
+      "gitssh --",
+      ["gitssh", "--"],
+    ],
+    [
+      "the gitconfig's ssh runs when the environment names none, and still gets BatchMode",
+      "core.sshCommand",
+      "ssh",
+      "-i /home/user/.ssh/key",
+      ["-o", "BatchMode=yes", "-i", "/home/user/.ssh/key"],
+    ],
+    [
+      "the gitconfig's wrapper runs as the user wrote it",
+      "core.sshCommand",
       "fixture-wrapper",
       "gitssh --",
       ["gitssh", "--"],
     ],
   ];
-  test.each(sshWords)("%s", async (_name, program, tail, leading) => {
+  test.each(sshWords)("%s", async (_name, setting, program, tail, leading) => {
     await withTempDir(async (dir) => {
-      const record = join(dir, "argv");
-      const fake = join(dir, program);
-      writeFileSync(fake, `#!/bin/sh\necho "$@" >> '${shellPath(record)}'\nexit 255\n`, {
-        mode: 0o755,
+      const fake = recordingSsh(dir, program);
+      const command = `${fake.path} ${tail}`;
+      // The environment's command has to win over a gitconfig that names another one.
+      const configured = setting === "core.sshCommand" ? command : shellPath(join(dir, "unused"));
+      const gitconfig = join(dir, "gitconfig");
+      writeFileSync(gitconfig, `[core]\n\tsshCommand = ${configured}\n`);
+      const env = gitEnvironment({
+        ...process.env,
+        GIT_CONFIG_GLOBAL: gitconfig,
+        LC_ALL: "de_DE.UTF-8",
+        ...(setting === "GIT_SSH_COMMAND" ? { GIT_SSH_COMMAND: command } : {}),
       });
-      const env = gitEnvironment({ ...process.env, GIT_SSH_COMMAND: `${shellPath(fake)} ${tail}` });
       const outcome = await simpleGitRunner({ env }).lsRemote(
-        "ssh://example.com/rules.git",
+        "ssh://127.0.0.1:1/rules.git",
         ["HEAD"],
         { credentials: { kind: "inherited" } },
       );
       expect(outcome.kind).toBe("failed");
-      const calls = readFileSync(record, "utf8").trim().split("\n");
+      const calls = readFileSync(fake.argv, "utf8").trim().split("\n");
       const args = (calls.at(-1) ?? "").split(" ");
       expect(args.slice(0, leading.length)).toEqual(leading);
-      expect(args).toContain("example.com");
+      expect(args).toContain("127.0.0.1");
+      expect(readFileSync(fake.environment, "utf8")).toBe("C force false");
     });
   });
 
-  // What would drift: a bare GIT_SSH is a literal path, so its spaces and quotes must survive the
-  // shell git runs the command through; only a program named ssh takes the option, judged on the
-  // word as sh reads it, where a backslash inside double quotes escapes only $, `, ", \ and a
-  // newline, and an unquoted redirection ends the word.
-  const sshPrograms: [string, Record<string, string>, string][] = [
+  // What would drift: git applies an `includeIf` keyed on a remote's URL only inside the repository
+  // that has the remote, so a core.sshCommand looked up anywhere else misses a per-host key.
+  test("a core.sshCommand included for the remote's URL is the one the clone's fetch runs", async () => {
+    await withTempDir(async (dir) => {
+      const fake = recordingSsh(dir, "fixture-wrapper");
+      const included = join(dir, "per-host");
+      writeFileSync(included, `[core]\n\tsshCommand = ${fake.path} per-host-key\n`);
+      const gitconfig = join(dir, "gitconfig");
+      const condition = "hasconfig:remote.*.url:ssh://127.0.0.1:1/**";
+      writeFileSync(gitconfig, `[includeIf "${condition}"]\n\tpath = ${shellPath(included)}\n`);
+      const env = gitEnvironment({ ...process.env, GIT_CONFIG_GLOBAL: gitconfig });
+      const outcome = await simpleGitRunner({ env }).shallowClone(
+        "ssh://127.0.0.1:1/rules.git",
+        SHA,
+        join(dir, "clone"),
+        INHERITED,
+      );
+      expect(outcome.kind).toBe("failed");
+      expect(readFileSync(fake.argv, "utf8")).toContain("per-host-key");
+    });
+  });
+
+  // What would drift: sh, not this parser, decides which word is the program. A bare GIT_SSH is a
+  // literal path, a backslash inside double quotes escapes only sh's five, an unquoted redirection
+  // ends the word, and assignments, `exec` and `env` come before it. git asks GIT_SSH_COMMAND,
+  // core.sshCommand, then GIT_SSH.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: sh's parameter expansion, not a template
+  const defaulted = "FOO=${X:- ssh -v} /opt/wrapper";
+  const sshPrograms: [string, Record<string, string>, string | undefined, string][] = [
     [
       "a GIT_SSH path to ssh stays one literal word ahead of BatchMode",
       { GIT_SSH: "/home/user/My $Tools/it's/ssh" },
+      undefined,
       "'/home/user/My $Tools/it'\\''s/ssh' -o BatchMode=yes",
     ],
     [
       "a GIT_SSH path to a wrapper is quoted and otherwise left alone",
       { GIT_SSH: "/home/user/My Tools/fixture-wrapper" },
+      undefined,
       "'/home/user/My Tools/fixture-wrapper'",
     ],
     [
       "a double-quoted Windows ssh.exe path keeps its backslashes and is one word",
       { GIT_SSH_COMMAND: '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -i key' },
+      undefined,
       '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -o BatchMode=yes -i key',
     ],
     [
       "a redirection glued to ssh is not part of its name",
       { GIT_SSH_COMMAND: "ssh</dev/null -i key" },
+      undefined,
       "ssh -o BatchMode=yes</dev/null -i key",
     ],
+    [
+      "core.sshCommand outranks GIT_SSH",
+      { GIT_SSH: "/usr/bin/fixture-wrapper" },
+      "ssh -i key",
+      "ssh -o BatchMode=yes -i key",
+    ],
+    [
+      "GIT_SSH_COMMAND outranks core.sshCommand",
+      { GIT_SSH_COMMAND: "ssh -i env-key" },
+      "ssh -i config-key",
+      "ssh -o BatchMode=yes -i env-key",
+    ],
+    [
+      "an assignment ahead of ssh is not the program",
+      {},
+      "FOO=1 BAR='a b' ssh -i key",
+      "FOO=1 BAR='a b' ssh -o BatchMode=yes -i key",
+    ],
+    ["exec ahead of ssh is skipped", {}, "exec ssh -i key", "exec ssh -o BatchMode=yes -i key"],
+    [
+      "env ahead of ssh is skipped",
+      {},
+      "/usr/bin/env FOO=1 ssh",
+      "/usr/bin/env FOO=1 ssh -o BatchMode=yes",
+    ],
+    [
+      "an assignment whose value ends in ssh is not ssh",
+      {},
+      "FOO=/usr/bin/ssh fixture-wrapper --",
+      "FOO=/usr/bin/ssh fixture-wrapper --",
+    ],
+    [
+      "a quoted assignment after env is env's own, however its value ends",
+      {},
+      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
+      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
+    ],
+    [
+      "ssh after env's quoted assignment is still the program",
+      {},
+      "env 'FOO=a b' ssh -i key",
+      "env 'FOO=a b' ssh -o BatchMode=yes -i key",
+    ],
+    [
+      "an option of env that holds = is not an assignment",
+      {},
+      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
+      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
+    ],
+    [
+      "a quoted option of env is still an option",
+      {},
+      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
+      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
+    ],
+    [
+      "an env assignment sh may still expand is never the program",
+      {},
+      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
+      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
+    ],
+    [
+      "an env assignment sh may still split is not followed",
+      {},
+      "env 'FOO='$BAR /usr/bin/ssh",
+      "env 'FOO='$BAR /usr/bin/ssh",
+    ],
+    [
+      "an assignment whose value ends in env does not start env's arguments",
+      {},
+      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -i key",
+      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -o BatchMode=yes -i key",
+    ],
+    [
+      "a command substitution in an assignment is not searched for ssh",
+      {},
+      "A=`echo ssh x` /opt/wrapper",
+      "A=`echo ssh x` /opt/wrapper",
+    ],
+    ["a parameter expansion in an assignment is not searched for ssh", {}, defaulted, defaulted],
+    [
+      "a second command after an assignment is left alone",
+      {},
+      "FOO=1;ssh -i key",
+      "FOO=1;ssh -i key",
+    ],
   ];
-  test.each(sshPrograms)("%s", (_name, base, expected) => {
-    const env = gitEnvironment(base);
-    expect(env.GIT_SSH_COMMAND).toBe(expected);
-    expect(env.GIT_SSH).toBeUndefined();
+  test.each(sshPrograms)("%s", (_name, base, configured, expected) => {
+    expect(sshCommand(base, configured)).toBe(expected);
   });
 
   test("git's environment carries no GitHub token under any of gh's names", () => {
@@ -1247,59 +1416,6 @@ describe("git rung against a file:// fixture repo", () => {
     expect(await ladder(runner, { warnings, rungs }).resolveRef(REPO, "HEAD", ANON)).toBe(SHA);
     expect({ warnings, rungs }).toEqual({ warnings: [], rungs: [] });
   });
-
-  // Each runtime spells a failed spawn differently, and only the host's spelling ever runs above.
-  // A spelling the classifier misses fails the rung loudly instead of dropping it; a match loose
-  // enough to fire on a repository path drops a rung that should have warned. simple-git hands over
-  // the error's whole `Error:` line and stack, so every row carries that shape.
-  const traced = (line: string): string => `Error: ${line}\n    at spawn (node:child_process:1:1)`;
-  const spawnFailures: [string, string, string, boolean][] = [
-    ["node", "/nonexistent/maxims-test-git", "spawn /nonexistent/maxims-test-git ENOENT", true],
-    [
-      "bun on linux or macos",
-      "/nonexistent/maxims-test-git",
-      "ENOENT: no such file or directory, posix_spawn '/nonexistent/maxims-test-git'",
-      true,
-    ],
-    [
-      "bun on windows",
-      "/nonexistent/maxims-test-git",
-      "ENOENT: no such file or directory, uv_spawn '/nonexistent/maxims-test-git'",
-      true,
-    ],
-    [
-      "bun on windows with a backslash path",
-      "C:\\tools\\git.exe",
-      "ENOENT: no such file or directory, uv_spawn 'C:\\tools\\git.exe'",
-      true,
-    ],
-    ["bun with a bare name off PATH", "git", 'Executable not found in $PATH: "git"', true],
-    [
-      "git about a repository path containing ENOENT",
-      "git",
-      "fatal: '/nonexistent/ENOENT-repo' does not appear to be a git repository",
-      false,
-    ],
-    [
-      "git about a repository path spelled like a spawn failure",
-      "git",
-      "fatal: repository 'file:///nonexistent/uv_spawn 'git' ENOENT-repo' does not exist",
-      false,
-    ],
-    [
-      "git about a repository path holding a spawn failure on its own line",
-      "git",
-      "fatal: '/nonexistent/\nspawn git ENOENT\n/rules' does not appear to be a git repository",
-      false,
-    ],
-    ["node about some other binary", "git", "spawn /nonexistent/other ENOENT", false],
-  ];
-  test.each(spawnFailures)(
-    "a spawn failure spelled by %s classifies the git binary as absent: %p",
-    (_label, binary, message, absent) => {
-      expect(isAbsentBinary(binary, traced(message))).toBe(absent);
-    },
-  );
 
   // The anonymous config file pins the remote onto itself; a remote git cannot read back from that
   // file (a Windows path's backslashes, a quote) fails the rung on the file, never on the network.
