@@ -78,7 +78,7 @@ function shellPipe(line: string): Hit | null {
   return leftmost(hits);
 }
 
-const SCHEME = /https?:\/\//gi;
+const SCHEME = /(?:https?|ftp):\/\//gi;
 const AUTHORITY_END = /[\s\\/?#]/;
 const CLOSERS: Readonly<Record<string, string>> = {
   '"': '"',
@@ -271,23 +271,60 @@ function isWrapper(char: string): boolean {
 }
 
 const HAS_LATIN = /\p{Script=Latin}/u;
-const FOREIGN_SCRIPTS: readonly (readonly [string, RegExp])[] = [
+const WORD = /[\p{L}\p{M}]+/gu;
+// Han, Hiragana, Katakana and Hangul join Latin in ordinary text and look like no Latin letter.
+const CJK = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
+const FOREIGN = new RegExp(
+  `[^\\p{Script=Latin}\\p{Script=Common}\\p{Script=Inherited}${CJK}]`,
+  "u",
+);
+// Marks and Hangul are what NFKC composes across characters, so with them out a word changes only where one letter does.
+const NOT_JUDGED = new RegExp(`[\\p{M}${CJK}]+`, "gu");
+// Names only: FOREIGN decides what warns, so a script missing here still warns as "another script".
+const SCRIPT_NAMES: readonly (readonly [string, RegExp])[] = [
   ["Cyrillic", /\p{Script=Cyrillic}/u],
   ["Greek", /\p{Script=Greek}/u],
   ["Armenian", /\p{Script=Armenian}/u],
+  ["Cherokee", /\p{Script=Cherokee}/u],
 ];
-const WORD = /[\p{L}\p{M}]+/gu;
+
+const LOW_SURROGATE = /[\udc00-\udfff]/;
+
+// The first code point where the two strings part, as "U+XXXX" of `text`.
+function firstDifference(text: string, other: string): string {
+  let index = 0;
+  while (index < text.length && text.charCodeAt(index) === other.charCodeAt(index)) index++;
+  if (LOW_SURROGATE.test(text.charAt(index))) index--;
+
+  const codePoint = text.codePointAt(index) ?? 0;
+  return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+}
 
 // Combining marks join their base letter into one token (WORD), so a homoglyph hidden behind an
 // accent cannot split into two single-script words that each read as clean.
+//
+// A letter NFKC rewrites is a second spelling of another letter: a fullwidth "p", a mathematical
+// bold "a", the Kelvin sign. A word's scripts are read from its letters as typed and as folded:
+// a look-alike counts as the Latin it folds to, and a Latin letter that folds out of Latin stays Latin.
+// Marks stay out of the fold: an accent typed as a combining mark is the same text, and a flood
+// of unsorted marks makes normalising quadratic.
 function mixedScript(line: string): Hit | null {
   for (const match of line.matchAll(WORD)) {
     const word = match[0];
-    if (!HAS_LATIN.test(word)) continue;
-    for (const [name, script] of FOREIGN_SCRIPTS) {
-      if (script.test(word)) {
-        return { column: match.index, detail: `Latin+${name} in "${word}"` };
-      }
+    const letters = word.replace(NOT_JUDGED, "");
+    const folded = letters.normalize("NFKC");
+    const spellings = `${letters}${folded}`;
+    if (!HAS_LATIN.test(spellings)) continue;
+
+    if (FOREIGN.test(spellings)) {
+      const name =
+        SCRIPT_NAMES.find(([, script]) => script.test(spellings))?.[0] ?? "another script";
+      return { column: match.index, detail: `Latin+${name} in "${word}"` };
+    }
+
+    if (folded !== letters) {
+      const form = firstDifference(letters, folded);
+      return { column: match.index, detail: `look-alike form ${form} in "${word}"` };
     }
   }
   return null;
