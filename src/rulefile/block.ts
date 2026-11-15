@@ -350,13 +350,14 @@ const ATX_HEADING = /^#{1,6}(?:[ \t]|$)/;
 const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/;
 const LIST_MARKER = /^(?:[-+*]|(\d{1,9})[.)])(?=[ \t]|$)/;
 const ESCAPABLE = String.raw`[!-/:-@[-\x60{-~]`;
-const LABEL_CHAR = String.raw`(?:[^[\]\\]|\\.)`;
+const ANY = String.raw`[\s\S]`;
+const LABEL_CHAR = String.raw`(?:[^[\]\\]|\\${ANY})`;
 const DESTINATION_CHAR = String.raw`(?:\\${ESCAPABLE}|\\(?!${ESCAPABLE})|[^ ()\\\p{Cc}]|[\u0080-\u009f])`;
-const DESTINATION = String.raw`(?:<(?:[^<>\\]|\\.)*>|(?!<)(?:${DESTINATION_CHAR}|\((?:${DESTINATION_CHAR}|\((?:${DESTINATION_CHAR})*\))*\))+)`;
+const DESTINATION = String.raw`(?:<(?:[^<>\\]|\\${ANY})*>|(?!<)(?<bare>(?:${DESTINATION_CHAR}|[()])+))`;
 const TITLE_BODY = {
-  "quoted-double": String.raw`(?:[^"\\]|\\.)*`,
-  "quoted-single": String.raw`(?:[^'\\]|\\.)*`,
-  "quoted-paren": String.raw`(?:[^()\\]|\\.)*`,
+  "quoted-double": String.raw`(?:[^"\\]|\\${ANY})*`,
+  "quoted-single": String.raw`(?:[^'\\]|\\${ANY})*`,
+  "quoted-paren": String.raw`(?:[^()\\]|\\${ANY})*`,
 } as const;
 const TITLE = String.raw`(?:"${TITLE_BODY["quoted-double"]}"|'${TITLE_BODY["quoted-single"]}'|\(${TITLE_BODY["quoted-paren"]}\))`;
 const UNTERMINATED_TITLE = String.raw`(?:"${TITLE_BODY["quoted-double"]}|'${TITLE_BODY["quoted-single"]}|\(${TITLE_BODY["quoted-paren"]})\\?$`;
@@ -365,7 +366,7 @@ const LABEL_OPEN = new RegExp(String.raw`^\[(${LABEL_CHAR}*)\\?$`, "u");
 const LABEL_CLOSE = new RegExp(String.raw`^(${LABEL_CHAR}*)\]:([\s\S]*)$`, "u");
 const LABEL_CONTINUES = new RegExp(String.raw`^${LABEL_CHAR}*\\?$`, "u");
 const DESTINATION_LINE = new RegExp(
-  String.raw`^${DESTINATION}(?:[ \t]*$|[ \t]+(${TITLE})[ \t]*$|[ \t]+(${UNTERMINATED_TITLE}))`,
+  String.raw`^${DESTINATION}(?:[ \t]*$|[ \t]+(?<title>${TITLE})[ \t]*$|[ \t]+(?<open>${UNTERMINATED_TITLE}))`,
   "u",
 );
 const TITLE_LINE = new RegExp(String.raw`^${TITLE}[ \t]*$`, "u");
@@ -638,8 +639,12 @@ function advanceQuoted(state: keyof typeof TITLE_CLOSES, body: string): Definiti
 // across its length. As the reference parsers read them:
 //   label                 must hold a non-whitespace character in JavaScript's sense (they trim it),
 //                         and no more than 999 characters as written
-//   bare destination      parentheses balanced two deep; a backslash escapes only ASCII
-//                         punctuation; ASCII control characters are refused, the C1 range is not
+//   bare destination      parentheses balanced to any depth, counted in one pass after the rule
+//                         matched them flat (micromark caps the depth at 32 inside an inline link
+//                         only); a backslash escapes only ASCII punctuation; ASCII control
+//                         characters are refused, the C1 range is not
+//   backslash             pairs with whatever follows it in a label, an angle destination or a
+//                         title, the line separators JavaScript's `.` skips included
 //   open label or title   may end its line in a backslash, which escapes the line ending
 //   NUL                   reads as U+FFFD (they replace it before reading)
 function advanceDefinitions(state: Definitions, rest: Content): Definitions {
@@ -678,11 +683,29 @@ function afterLabel(tail: string): Definitions {
   return trimmed === "" ? "destination" : readDestination(trimmed);
 }
 
+// Whether every `)` of a bare destination closes an earlier `(` and no `(` is left open. A
+// backslash takes the character after it out of the count.
+function parenthesesBalance(destination: string): boolean {
+  let depth = 0;
+  for (let index = 0; index < destination.length; index += 1) {
+    const char = destination[index];
+    if (char === "\\") index += 1;
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
 function readDestination(body: string): Definitions {
   const line = DESTINATION_LINE.exec(body);
   if (line === null) return "none";
-  if (line[1] !== undefined) return "complete";
-  return line[2] === undefined ? "title" : quotedBy(line[2]);
+
+  const { bare, title, open } = line.groups ?? {};
+  if (bare !== undefined && !parenthesesBalance(bare)) return "none";
+
+  if (title !== undefined) return "complete";
+  return open === undefined ? "title" : quotedBy(open);
 }
 
 function quotedBy(title: string): Definitions {
