@@ -17,11 +17,11 @@ const END = "<!-- maxims:end @Octocat/rules -->";
 const RULE = "- A timeout on EVERY call that leaves the process (detail: /home/user/x.md, a1b2c3d)";
 const BLOCK = `${BEGIN}\n${RULE}\n${END}\n`;
 
-// Sized so a pull request pays about what the 2000 fixed cases per piece list cost: 800 fresh documents per list by default, 20,000 on the nightly deep run.
-const DIFFERENTIAL_MULTIPLIER = 4 * FUZZ_MULTIPLIER;
-
 type Line = { text: string; start: number; end: number; kind: string };
 type Reading = { lines: string[]; closer: string };
+
+// Sized so a pull request pays about what the 2000 fixed cases per piece list cost: 800 fresh documents per list by default, 20,000 on the nightly deep run.
+const DIFFERENTIAL_MULTIPLIER = 4 * FUZZ_MULTIPLIER;
 
 function shippedReading(text: string): Reading {
   const { lines, open } = scanLines(text);

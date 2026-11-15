@@ -1198,8 +1198,7 @@ function exposedReferences(rendered: string): string[] {
     ]);
 }
 
-// fast-check shrinks a constantFrom toward its first value, so every piece list puts its harmless
-// pieces first and a counterexample reads as text.
+// fast-check shrinks a constantFrom toward its first value, so every piece list puts its harmless pieces first and a counterexample reads as text.
 const DESCRIPTION_PIECES = [
   "a",
   "word",
@@ -1251,6 +1250,7 @@ const DESCRIPTION_PIECES = [
   "<!-- maxims:end @Octocat/rules",
 ];
 
+// One spelling for the two joins below: a drawn tuple's parts into a line, and the lines into a file.
 const join = (parts: string[]): string => parts.join("");
 
 // Any scalar value: fc.string's binary unit draws from the same range but builds its code point table at construction, which costs more than the whole test file.
