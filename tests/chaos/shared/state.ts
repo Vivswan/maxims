@@ -9,9 +9,6 @@ import { homePaths } from "../../../src/util/home.ts";
 import { readStateFile } from "../../shared/state_file.ts";
 import { daysAgo } from "../../shared/time.ts";
 
-// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
-export { readStateFile } from "../../shared/state_file.ts";
-
 export function fetchedOf(state: State, key: string): Fetched {
   const entry = state.sources[key];
   if (entry === undefined || !("fetched" in entry) || entry.fetched === undefined) {

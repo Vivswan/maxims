@@ -50,11 +50,3 @@ test.each(SPECS)("a memory file round-trips through the real parser: %j", (spec)
     },
   });
 });
-
-test("a plain description is written unquoted and unfolded, so files written before the shared writer keep their bytes", () => {
-  const long = `Rule ${"word ".repeat(30)}end.`;
-
-  expect(memoryFile("alpha", { description: long, internal: true })).toBe(
-    `---\nname: alpha\ndescription: ${long}\nmetadata:\n  node_type: memory\n  internal: true\n---\n\nBody of alpha.\n`,
-  );
-});

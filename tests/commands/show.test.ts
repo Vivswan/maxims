@@ -9,7 +9,6 @@ import { join } from "node:path";
 import type { ShownMemory } from "../../src/commands/show.ts";
 import { homePaths } from "../../src/util/home.ts";
 import {
-  daysAgo,
   fetchedEntry,
   fetchedFacts,
   githubFrom,
@@ -19,6 +18,7 @@ import {
   stateWith,
   treeDigest,
 } from "../engine/fakes.ts";
+import { daysAgo } from "../shared/time.ts";
 import {
   FIXTURES,
   runCli,

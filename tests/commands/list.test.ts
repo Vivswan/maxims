@@ -21,7 +21,6 @@ import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import {
   configEditHarness,
-  daysAgo,
   entryFor,
   FIXTURE_DIR,
   fakeIo,
@@ -43,6 +42,7 @@ import {
 import { globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { NOW } from "../shared/sync_support.ts";
+import { daysAgo } from "../shared/time.ts";
 
 const SYNC: SyncOptions = { quiet: false, dryRun: false, json: false, fetch: "none" };
 

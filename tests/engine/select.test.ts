@@ -12,8 +12,9 @@ import { disabledNames, selectMemories } from "../../src/engine/select.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import type { SourceEntry } from "../../src/state/schema.ts";
 import type { Change } from "../../src/util/change.ts";
+import { memoryFile } from "../shared/memory_file.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
-import { entryFor, localFrom, memoryFile, memoryName, stateWith, writeSource } from "./fakes.ts";
+import { entryFor, localFrom, memoryName, stateWith, writeSource } from "./fakes.ts";
 
 function sourceMemory(name: string, description: string, internal = false): SourceMemory {
   const text = memoryFile(name, { description, internal });

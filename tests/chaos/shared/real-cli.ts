@@ -115,6 +115,3 @@ export async function runReal(
 export function advanceClock(world: RealWorld, ms: number): void {
   world.clock.now = new Date(world.clock.now.getTime() + ms);
 }
-
-// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
-export { DAY_MS } from "../../shared/time.ts";

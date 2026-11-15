@@ -2,6 +2,7 @@
 // endpoint answers the ref, codeload answers the tarball, and a row rewrites either answer between
 // two runs to put the ladder on the rung it wants.
 
+import { memoryFile } from "../../shared/memory_file.ts";
 import {
   httpResponse,
   networkError,
@@ -9,7 +10,7 @@ import {
   scriptedRunner,
 } from "../../sources/github/fakes/runner.ts";
 import { buildTarball, type FixtureEntry } from "../../sources/github/fakes/tarballs.ts";
-import { type FileSpec, memoryFile } from "./fixture-repo.ts";
+import type { FileSpec } from "./fixture-repo.ts";
 
 export type GithubScript = {
   commits: () => Response | Promise<Response>;

@@ -1,5 +1,13 @@
-import { lstatSync, readdirSync, readlinkSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, readdirSync, readlinkSync, statSync } from "node:fs";
+import { relative, sep } from "node:path";
+import klawSync from "klaw-sync";
+
+// klaw-sync lists a folder in the order the filesystem returns it; a digest needs one order everywhere.
+const SORTED_FS = {
+  readdirSync: (dir: string): string[] => readdirSync(dir).sort(),
+  lstatSync,
+  statSync,
+};
 
 export type TreeEntry =
   | { path: string; kind: "file" }
@@ -14,31 +22,15 @@ export type TreeEntry =
 // A symlink is reported and never followed: a link to a folder outside the tree, or a link loop,
 // is one entry. The platform's recursive `readdirSync` walks through such a link.
 export function walkTree(root: string, skip: ReadonlySet<string> = new Set()): TreeEntry[] {
-  const entries: TreeEntry[] = [];
+  const pathOf = (absolute: string): string => relative(root, absolute).split(sep).join("/");
+  const items = klawSync(root, { fs: SORTED_FS, filter: (item) => !skip.has(pathOf(item.path)) });
 
-  const walk = (dir: string, prefix: string): void => {
-    for (const name of readdirSync(dir).sort()) {
-      const path = prefix === "" ? name : `${prefix}/${name}`;
-      if (skip.has(path)) continue;
+  return items.map((item) => {
+    const path = pathOf(item.path);
+    if (item.stats.isSymbolicLink())
+      return { path, kind: "symlink", target: readlinkSync(item.path) };
+    if (item.stats.isDirectory()) return { path, kind: "dir" };
 
-      const absolute = join(dir, name);
-      const stat = lstatSync(absolute);
-
-      if (stat.isSymbolicLink()) {
-        entries.push({ path, kind: "symlink", target: readlinkSync(absolute) });
-        continue;
-      }
-
-      if (!stat.isDirectory()) {
-        entries.push({ path, kind: "file" });
-        continue;
-      }
-
-      entries.push({ path, kind: "dir" });
-      walk(absolute, path);
-    }
-  };
-
-  walk(root, "");
-  return entries;
+    return { path, kind: "file" };
+  });
 }

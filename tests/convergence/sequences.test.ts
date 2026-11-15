@@ -17,9 +17,10 @@ import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
 import { emptyState } from "../../src/state/schema.ts";
 import { WRITTEN_BY } from "../../src/state/store.ts";
 import { homePaths } from "../../src/util/home.ts";
-import { type MemorySpec, memoryFile, writeMemories } from "../chaos/shared/fixture-repo.ts";
+import { writeMemories } from "../chaos/shared/fixture-repo.ts";
 import { type RealWorld, runReal, withRealWorld } from "../chaos/shared/real-cli.ts";
 import { snapshot } from "../e2e/fixtures.ts";
+import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
 import { checkProperty, PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
 
 // A source as the generators name it: its folder under the world and the memories it ships.

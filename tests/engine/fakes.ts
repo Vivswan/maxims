@@ -37,11 +37,6 @@ import { jsonDocument } from "../../src/util/json.ts";
 import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
 import { walkTree } from "../shared/tree.ts";
 
-// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
-export { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
-export { readStateFile } from "../shared/state_file.ts";
-export { daysAgo } from "../shared/time.ts";
-
 export const FIXTURE_DIR = ".fixture";
 
 export function memoryName(candidate: string): MemoryName {

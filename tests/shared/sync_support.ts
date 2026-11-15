@@ -4,9 +4,6 @@ import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
 import { sharedBlockHarness } from "../engine/fakes.ts";
 import { readStateFile } from "./state_file.ts";
 
-// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
-export { DAY_MS } from "./time.ts";
-
 export const SYNC: SyncOptions = {
   quiet: false,
   dryRun: false,

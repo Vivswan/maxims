@@ -34,9 +34,7 @@ import {
   fetchedFacts,
   githubFrom,
   localFrom,
-  memoryFile,
   memoryName,
-  readStateFile,
   seedStore,
   stateWith,
   treeDigest,
@@ -44,7 +42,9 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { memoryFile } from "../shared/memory_file.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
+import { readStateFile } from "../shared/state_file.ts";
 import { SYNC } from "../shared/sync_support.ts";
 
 const REMOVE: RemoveOptions = {

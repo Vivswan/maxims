@@ -26,16 +26,12 @@ import {
 } from "../e2e/binary.ts";
 import { snapshot } from "../e2e/fixtures.ts";
 import { commitAll } from "../shared/git_fixture.ts";
+import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
+import { readStateFile } from "../shared/state_file.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
-import {
-  fixtureRepo,
-  type MemorySpec,
-  manyMemories,
-  memoryFile,
-  writeMemories,
-} from "./shared/fixture-repo.ts";
+import { fixtureRepo, manyMemories, writeMemories } from "./shared/fixture-repo.ts";
 import { type GitDaemon, probeGitDaemon, withGitDaemon } from "./shared/git-daemon.ts";
 import { expectRuleFile } from "./shared/rule-file.ts";
 import {
@@ -45,7 +41,6 @@ import {
   lastErrorOf,
   onlyRuleFile,
   quarantinedStates,
-  readStateFile,
   refreshLog,
   ruleFiles,
   setCooldownDays,

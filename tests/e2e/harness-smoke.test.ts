@@ -318,7 +318,7 @@ beforeAll(() => {
   if (node === null) throw new Error("node is required: the published bundle targets node");
   const root = mkdtempSync(join(launcherHome, "maxims-smoke-"));
   try {
-    const bundle = buildBundle(root);
+    const bundle = buildBundle(root, process.execPath);
     const stub = join(root, "stub-cli.ts");
     writeFileSync(stub, STUB_SOURCE);
     scratch = { root, stub, entry: [node, bundle.path] };

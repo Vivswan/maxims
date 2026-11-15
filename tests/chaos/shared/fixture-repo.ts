@@ -5,9 +5,6 @@ import { join } from "node:path";
 import { commitAll, gitInit } from "../../shared/git_fixture.ts";
 import { type MemorySpec, memoryFile } from "../../shared/memory_file.ts";
 
-// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
-export { type MemorySpec, memoryFile } from "../../shared/memory_file.ts";
-
 // A file that must NOT parse as a memory is spelled as its raw text.
 export type FileSpec = MemorySpec | { raw: string };
 
