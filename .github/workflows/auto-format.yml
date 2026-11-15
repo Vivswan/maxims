@@ -41,7 +41,9 @@ jobs:
           bun-version-file: .bun-version
       # The same pinned biome as `bun run lint`, so what this job writes is what the lint gate accepts.
       - run: bun install --frozen-lockfile
+      # A finding biome cannot fix must not stop the formatting it could do from being committed.
       - name: Format (biome)
+        continue-on-error: true
         run: bun run lint:fix
 
       - name: Commit and push changes
