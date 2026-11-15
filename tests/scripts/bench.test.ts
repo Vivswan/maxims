@@ -49,7 +49,7 @@ test.each(summaries)(
 // The bench creates its per-run HOME under the OS tmpdir; pointing the tmpdir at a directory the
 // test owns lets the test see whether every run cleaned up after itself.
 function runBench(args: string[], scratch: string) {
-  return Bun.spawnSync(["bun", "scripts/bench.ts", ...args], {
+  return Bun.spawnSync([process.execPath, "scripts/bench.ts", ...args], {
     cwd: repoRoot,
     env: { ...process.env, ...tmpdirEnv(scratch) },
     stdout: "pipe",
@@ -272,7 +272,7 @@ test.each(worktreeTargets)(
         log,
       ];
       const bench = Bun.spawnSync(
-        ["bun", fixture.bench, "--runs", "1", "--json", out, "--", ...command],
+        [process.execPath, fixture.bench, "--runs", "1", "--json", out, "--", ...command],
         {
           cwd: fixture.linked,
           env: { ...process.env, ...tmpdirEnv(dir) },

@@ -32,7 +32,11 @@ const SHEBANG = "#!/usr/bin/env node\n";
 const USAGE = "usage: bun scripts/build.ts [--entry path] [--outfile path] [--size-json path]\n";
 
 function runBuild(args: string[], cwd: string) {
-  return Bun.spawnSync(["bun", buildScript, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  return Bun.spawnSync([process.execPath, buildScript, ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 }
 
 // One way to call the build and where its two files must land.

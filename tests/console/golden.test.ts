@@ -5,9 +5,9 @@
 // engine folds into the frame are pinned with it; the other goldens pin the frame alone over a
 // recording engine.
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { text } from "node:stream/consumers";
 import { stripVTControlCharacters } from "node:util";
 import { createClackConsole } from "../../src/console/clack.ts";
 import { type Console, type ConsoleMode, promptsAllowed } from "../../src/console/contract.ts";
@@ -22,15 +22,11 @@ import {
   type Scenario,
   withScenario,
 } from "../commands/fake-engine.ts";
+import { expectGolden, redactRun } from "../shared/golden.ts";
 
-const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
 const RULES = join(FIXTURES, "rules");
 const DOTFILES = join(FIXTURES, "dotfiles");
 const RISKY = join(FIXTURES, "risky");
-
-function golden(name: string): string {
-  return readFileSync(join(GOLDEN, `${name}.txt`), "utf8");
-}
 
 type Golden = [string, Parameters<typeof withScenario>[0], (scenario: Scenario) => Promise<string>];
 
@@ -50,7 +46,7 @@ const goldens: Golden[] = [
         "claude-code",
       ]);
       expect(run.code).toBe(0);
-      return redacted(run.stdout, scenario);
+      return redactRun(run.stdout, scenario.userHome);
     },
   ],
   // Pinned on a terminal, the one place the plan screen folds.
@@ -118,7 +114,7 @@ const goldens: Golden[] = [
       await runCli(scenario, ["add", "@Octocat/rules", "-g", "--rule", "-a", "codex"]);
       const run = await runCli(scenario, ["show", "tests-before-the-fix"]);
       expect(run.code).toBe(0);
-      return redacted(run.stdout, scenario);
+      return redactRun(run.stdout, scenario.userHome);
     },
   ],
   [
@@ -139,24 +135,9 @@ const goldens: Golden[] = [
   ],
 ];
 
-// The run-specific values a real engine prints: the user home a notice names in full (with the
-// separator of the machine that printed it; the golden holds the forward-slash spelling), and a
-// token estimate that follows the path lengths.
-function redacted(text: string, scenario: Scenario): string {
-  return text
-    .replaceAll(scenario.userHome, "<HOME>")
-    .replace(/<HOME>\S*/g, (path) => path.replaceAll("\\", "/"))
-    .replace(/~\d+ tokens/g, "~N tokens");
-}
-
-// MAXIMS_UPDATE_GOLDEN=1 rewrites the fixtures from the current output; the diff is then reviewed
-// like any other change to what the user sees.
 test.each(goldens)("golden %s matches byte for byte", async (name, options, produce) => {
   await withScenario({ columns: 80, ...options }, async (scenario) => {
-    const actual = await produce(scenario);
-    if (process.env.MAXIMS_UPDATE_GOLDEN === "1")
-      writeFileSync(join(GOLDEN, `${name}.txt`), actual);
-    expect(actual).toBe(golden(name));
+    expectGolden(name, await produce(scenario));
   });
 });
 
@@ -274,11 +255,9 @@ test("the clack and plain renderers print the same lines minus glyphs, ANSI and 
   let plain = "";
   scenarioLines(createPlainConsole(mode, { write: (chunk: string) => (plain += chunk) }));
   const output = new PassThrough();
-  let clack = "";
-  output.on("data", (chunk: Buffer) => (clack += chunk.toString()));
-  const input = new PassThrough();
-  scenarioLines(createClackConsole(mode, { output, input }));
-  await new Promise((done) => setTimeout(done, 20));
+  scenarioLines(createClackConsole(mode, { output, input: new PassThrough() }));
+  output.end();
+  const clack = await text(output);
   expect(normalize(clack)).toBe(normalize(plain));
   // The control: a one-word change on one side must survive normalization, or the comparison
   // above proves nothing.

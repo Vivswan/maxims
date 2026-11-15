@@ -335,7 +335,7 @@ describe("createGitResolver", () => {
     "a typed http password %s answers the server's 401 as Basic auth and stays out of the failure",
     async (password, expected) => {
       const seen: (string | null)[] = [];
-      const server = Bun.serve({
+      using server = Bun.serve({
         port: 0,
         fetch: (request) => {
           seen.push(request.headers.get("authorization"));
@@ -345,16 +345,12 @@ describe("createGitResolver", () => {
           });
         },
       });
-      try {
-        const url = `http://example-user:${password}@127.0.0.1:${server.port ?? 0}/rules.git`;
-        const resolver = createGitResolver({ warn: () => {}, rung: () => {}, env: process.env });
-        const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
-        expect(seen.filter((value) => value !== null)).toEqual([expected]);
-        expect(error.kind).toBe("auth");
-        expect(error.message).not.toContain("secret");
-      } finally {
-        server.stop(true);
-      }
+      const url = `http://example-user:${password}@127.0.0.1:${server.port ?? 0}/rules.git`;
+      const resolver = createGitResolver({ warn: () => {}, rung: () => {}, env: process.env });
+      const error = await failure(resolver.resolveRef({ type: "git", url, ref: "HEAD" }));
+      expect(seen.filter((value) => value !== null)).toEqual([expected]);
+      expect(error.kind).toBe("auth");
+      expect(error.message).not.toContain("secret");
     },
   );
 

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { readIfPresent } from "../../src/util/fs.ts";
 import { type LockOptions, withLock } from "../../src/util/lock.ts";
+import { writeLockFile } from "../shared/lock_file.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
@@ -28,12 +29,6 @@ async function expectLocked(promise: Promise<unknown>): Promise<MaximsError> {
 function holderPid(lockPath: string): number | null {
   const text = readIfPresent(lockPath);
   return text === null ? null : (JSON.parse(text) as { pid: number }).pid;
-}
-
-function writeStaleLock(lockPath: string, holder: Record<string, unknown>, ageMs: number): void {
-  writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
-  const then = new Date(Date.now() - ageMs);
-  utimesSync(lockPath, then, then);
 }
 
 type ChildHolder = {
@@ -169,7 +164,7 @@ describe("withLock", () => {
     await withTempDir(async (dir) => {
       const lockPath = join(dir, "state.json.lock");
       const startedAt = new Date(Date.now() - 120_000).toISOString();
-      writeStaleLock(
+      writeLockFile(
         lockPath,
         { pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: ["maxims", "sync"] },
         120_000,
@@ -195,7 +190,7 @@ describe("withLock", () => {
       await withTempDir(async (dir) => {
         const lockPath = join(dir, "state.json.lock");
         const startedAt = new Date(Date.now() - 120_000).toISOString();
-        writeStaleLock(
+        writeLockFile(
           lockPath,
           { pid: 2 ** 31 - 1, host: "example.com", startedAt, argv: [] },
           120_000,

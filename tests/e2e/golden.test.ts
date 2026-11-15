@@ -1,14 +1,13 @@
 // Fails if the frame a user sees from the bundle drifts: the console goldens run in process, so a
 // real install's stdout through node, the bundle a user runs, is pinned only here.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import { expectGolden } from "../shared/golden.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import { type Bundle, buildBundle, makeHome } from "./binary.ts";
 import { installDotfiles, redact } from "./fixtures.ts";
-
-const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden", "e2e-add-plain.txt");
 
 let bundleDir = "";
 let bundle: Bundle;
@@ -24,8 +23,6 @@ afterAll(() => {
   rmSync(bundleDir, { recursive: true, force: true });
 });
 
-// MAXIMS_UPDATE_GOLDEN=1 rewrites the fixture from the current output; the diff is then reviewed
-// like any other change to what the user sees.
 test("add prints the plain frame byte for byte at width 80 with color off", async () => {
   await withTempDir(async (dir) => {
     const home = makeHome(dir);
@@ -34,8 +31,6 @@ test("add prints the plain frame byte for byte at width 80 with color off", asyn
       code: ExitCode.Ok,
       stderr: "",
     });
-    const actual = redact(installed.run.stdout, installed, home);
-    if (process.env.MAXIMS_UPDATE_GOLDEN === "1") writeFileSync(GOLDEN, actual);
-    expect(actual).toBe(readFileSync(GOLDEN, "utf8"));
+    expectGolden("e2e-add-plain", redact(installed.run.stdout, installed, home));
   });
 });

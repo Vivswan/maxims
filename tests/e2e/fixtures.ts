@@ -10,6 +10,7 @@ import { sourceSlug } from "../../src/engine/slug.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { commitAll, gitInit } from "../shared/git_fixture.ts";
+import { redactRun } from "../shared/golden.ts";
 import { memoryFile } from "../shared/memory_file.ts";
 import { walkTree } from "../shared/tree.ts";
 import { type Bundle, type Home, type Run, runMaxims } from "./binary.ts";
@@ -161,18 +162,13 @@ export async function installDotfiles(
 }
 
 // The run-specific values a printed line may carry, so a whole frame can be pinned: the source
-// path, the slug hashed from it, the home, and a token estimate that follows the path lengths.
-// A path under the home keeps the separator of the machine that printed it; the golden holds the
-// forward-slash spelling.
+// path and the slug hashed from it, ahead of the home and the token estimate every frame masks.
 export function redact(
   text: string,
   installed: Pick<Installed, "source" | "slug">,
   home: Home,
 ): string {
-  return text
-    .replaceAll(installed.source, "<SOURCE>")
-    .replaceAll(installed.slug, "<SLUG>")
-    .replaceAll(home.root, "<HOME>")
-    .replace(/<HOME>\S*/g, (path) => path.replaceAll("\\", "/"))
-    .replace(/~\d+ tokens/g, "~N tokens");
+  const named = text.replaceAll(installed.source, "<SOURCE>").replaceAll(installed.slug, "<SLUG>");
+
+  return redactRun(named, home.root);
 }

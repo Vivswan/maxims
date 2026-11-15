@@ -4,7 +4,7 @@
 // line lost to the dry-run plan a verb draws before its real sync, or to a verb that fails before
 // any sync runs; a rung line escaping to stdout or stderr, where the docs promise silence until a
 // source is stale; or a rung line stamped when the verb ended instead of when it started.
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createEngine } from "../../src/commands/loader.ts";
@@ -134,17 +134,11 @@ async function runCapturingProcessStderr(
   scenario: Scenario,
   argv: string[],
 ): Promise<RunResult & { processStderr: string }> {
-  let processStderr = "";
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    processStderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { ...(await runCli(scenario, argv)), processStderr };
-  } finally {
-    process.stderr.write = write;
-  }
+  using write = spyOn(process.stderr, "write").mockReturnValue(true);
+  const run = await runCli(scenario, argv);
+  const chunks = write.mock.calls.map(([chunk]) => Buffer.from(chunk).toString("utf8"));
+
+  return { ...run, processStderr: chunks.join("") };
 }
 
 function expectSilent(run: RunResult & { processStderr: string }, code: number): void {

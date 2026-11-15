@@ -559,7 +559,7 @@ test.each(reports)(
 const UNRESOLVED_BASE = "refs/heads/bench-ci-test-unresolved";
 
 function runBenchCi(args: string[]) {
-  return Bun.spawnSync(["bun", "scripts/bench_ci.ts", ...args], {
+  return Bun.spawnSync([process.execPath, "scripts/bench_ci.ts", ...args], {
     cwd: repoRoot,
     stdout: "pipe",
     stderr: "pipe",
