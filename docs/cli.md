@@ -115,8 +115,6 @@ Flags compose. The everyday invocation, `add @Octocat/rules -g --rule --add-hook
 
 ## Exit codes
 
-<!-- BEGIN GENERATED: exit-codes (bun run docs:tables) -->
-
 | code | meaning                        |
 | ---- | ------------------------------ |
 | 0    | success, or nothing to do      |
@@ -128,8 +126,6 @@ Flags compose. The everyday invocation, `add @Octocat/rules -g --rule --add-hook
 | 6    | name collision                 |
 | 7    | unmet dependency               |
 | 8    | rule cap exceeded              |
-
-<!-- END GENERATED: exit-codes -->
 
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
 - **Exit 1** follows an unknown verb or flag, `--json` on `add`, `remove`, or `install` without `-y` (`--all` also serves on `add` and `remove`), `--json` with `--list`, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.

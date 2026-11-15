@@ -1,5 +1,5 @@
 // One GFM table: a header row, the rule, one row per entry, with a pipe inside a cell escaped so
-// it cannot split the row. The nightly reports and the generated docs tables share it.
+// it cannot split the row. The nightly reports and the bench report share it.
 export function markdownTable(
   header: readonly string[],
   rows: readonly (readonly string[])[],

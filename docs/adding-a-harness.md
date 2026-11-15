@@ -83,8 +83,6 @@ One file has one owner per scope: a servers file or a hook declared at the rule 
 
 Placeholders render from the hook command. A value that is exactly one placeholder keeps that placeholder's JSON type, so `"{{async}}"` becomes the boolean `async` flag and `"{{timeoutMs}}"` a number; anywhere else the text is spliced in.
 
-<!-- BEGIN GENERATED: hook-placeholders (bun run docs:tables) -->
-
 | Placeholder          | Renders as                                        |
 | -------------------- | ------------------------------------------------- |
 | `{{command}}`        | `npx -y @vivswan/maxims sync --quiet`             |
@@ -92,8 +90,6 @@ Placeholders render from the hook command. A value that is exactly one placehold
 | `{{async}}`          | the hook's `async` flag, `true` or `false`        |
 | `{{timeoutSeconds}}` | `20`                                              |
 | `{{timeoutMs}}`      | `20000`                                           |
-
-<!-- END GENERATED: hook-placeholders -->
 
 ## A full example
 

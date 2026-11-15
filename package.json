@@ -23,7 +23,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip && bun run docs:tables:check",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run knip",
     "lint": "bun x biome ci .",
     "lint:fix": "bun x biome check --write .",
     "typecheck": "bun x tsc -p . && bun run typecheck:node-floor",
@@ -34,9 +34,7 @@
     "bench": "bun scripts/bench.ts",
     "bench:ci": "bun scripts/bench_ci.ts",
     "nightly": "bun scripts/nightly.ts",
-    "test:container": "bun scripts/container_tests.ts",
-    "docs:tables": "bun scripts/render_docs_tables.ts",
-    "docs:tables:check": "bun scripts/render_docs_tables.ts --check"
+    "test:container": "bun scripts/container_tests.ts"
   },
   "devDependencies": {
     "@actions/expressions": "0.3.61",
