@@ -72,6 +72,36 @@ const refusals: [string, string[], string][] = [
     ["constructor"],
     "Unknown command: constructor\nTip: Run maxims --help for usage.",
   ],
+  ["mistyped verb", ["instal"], "Unknown command: instal\nTip: did you mean install?"],
+  [
+    "mistyped verb after help",
+    ["help", "instal"],
+    "Unknown command: instal\nTip: did you mean install?",
+  ],
+  [
+    "mistyped long option",
+    ["add", "--dryrun", "x"],
+    "unknown option: --dryrun\nTip: did you mean --dry-run?",
+  ],
+  [
+    "mistyped long option carrying a value",
+    ["add", "@a/b", "--memroy=x"],
+    "unknown option: --memroy\nTip: did you mean --memory?",
+  ],
+  [
+    "mistyped help flag on a verb",
+    ["add", "@a/b", "--hlep"],
+    "unknown option: --hlep\nTip: did you mean --help?",
+  ],
+  [
+    "mistyped global with no verb",
+    ["--verbos"],
+    "unknown option: --verbos\nTip: did you mean --verbose?",
+  ],
+  // Bun words this failure "Unknown option 'h'" and Node "'-h'": the text is built from the argv.
+  ["unknown short inside a group", ["add", "@a/b", "-yh"], "unknown option: -h"],
+  ["short value flag with no value", ["add", "@a/b", "-o"], "option --out needs a value"],
+  ["long value flag with no value", ["add", "@a/b", "--from"], "option --from needs a value"],
   [
     "show without name",
     ["show"],
@@ -235,6 +265,79 @@ test("--json wraps --version, --help and the bare invocation in one document", a
     const bareBody = JSON.parse(bare.stdout) as { ok: boolean; help: string };
     expect(bareBody.help).toContain("Commands:");
     expect(bare.stderr).toBe("");
+  });
+});
+
+// Fails if the `help` verb and the `--help` flag drift apart: one of them would describe a verb the other does not.
+const helpSpellings: [string[], string[]][] = [
+  [["help"], ["--help"]],
+  [["help", "help"], ["--help"]],
+  [
+    ["help", "add"],
+    ["add", "--help"],
+  ],
+  [
+    ["help", "rm"],
+    ["remove", "--help"],
+  ],
+  [
+    ["help", "--json"],
+    ["--help", "--json"],
+  ],
+  [
+    ["help", "add", "--json"],
+    ["add", "--help", "--json"],
+  ],
+  [
+    ["help", "instal", "-h"],
+    ["instal", "-h"],
+  ],
+];
+
+test.each(helpSpellings)("%j prints what %j prints", async (asVerb, asFlag) => {
+  await withScenario({}, async (scenario) => {
+    const before = treeDigest(scenario.root);
+    const run = await runCli(scenario, asVerb);
+    expect(run).toEqual(await runCli(scenario, asFlag));
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("Usage: maxims");
+    expect(treeDigest(scenario.root)).toBe(before);
+    expect(scenario.engine.calls).toEqual(NO_ENGINE_CALLS);
+  });
+});
+
+// Fails if the refusal names a later option than the one the parse stopped at: the user would fix the wrong word.
+test("the first bad option on the line is the one reported", async () => {
+  await withScenario({}, async (scenario) => {
+    const run = await runCli(scenario, ["add", "@a/b", "--from", "--yes", "-o"]);
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("'--from'");
+    expect(run.stderr).not.toContain("--out");
+  });
+});
+
+// Fails if a suggestion leaks into the hook's mode: `--quiet` stays exit 0 with nothing printed, `--json` stays one document.
+test("a mistyped verb or option under --quiet and --json keeps each mode's contract", async () => {
+  await withScenario({}, async (scenario) => {
+    const quiet = await runCli(scenario, ["sync", "--quiet", "--dryrun"]);
+    expect(quiet).toEqual({ code: 0, stdout: "", stderr: "" });
+    const helpQuiet = await runCli(scenario, ["help", "instal", "--quiet"]);
+    expect(helpQuiet).toEqual({ code: 0, stdout: "", stderr: "" });
+    const json = await runCli(scenario, ["instal", "--json"]);
+    expect(json.stderr).toBe("");
+    expect(JSON.parse(json.stdout)).toEqual({
+      ok: false,
+      code: 1,
+      message: "Unknown command: instal",
+      hint: "did you mean install?",
+    });
+    const option = await runCli(scenario, ["sync", "--json", "--dryrun"]);
+    expect(JSON.parse(option.stdout)).toEqual({
+      ok: false,
+      code: 1,
+      message: "unknown option: --dryrun",
+      hint: "did you mean --dry-run?",
+    });
   });
 });
 

@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { closestMatch } from "leven";
 import type { Console } from "../../console/contract.ts";
-import { invalidAgents, STRINGS } from "../../console/strings.ts";
+import { didYouMean, invalidAgents, STRINGS } from "../../console/strings.ts";
 import type { HarnessId } from "../../contracts/harness-id.ts";
 import type { CliIo, CommonOptions, Engine, HarnessFilter } from "../../engine/types.ts";
 import { type MemoryName, parseMemoryName } from "../../memory/contract.ts";
@@ -22,7 +22,7 @@ export type FlagSpec = {
   summary: string;
 };
 
-// main.ts derives its pre-verb scan words from these keys; `--help` and `--version` stay in its HELP_FLAGS, since no verb parses them.
+// main.ts derives its pre-verb scan words from these keys and from HELP_FLAGS.
 export const GLOBALS = {
   quiet: {
     name: "quiet",
@@ -41,6 +41,12 @@ export const GLOBALS = {
 export type GlobalFlags = { [K in keyof typeof GLOBALS]: boolean };
 
 export const GLOBAL_FLAGS: readonly FlagSpec[] = Object.values(GLOBALS);
+
+// Not in GLOBAL_FLAGS: main.ts consumes these before any verb loads, so no verb parses them.
+export const HELP_FLAGS = [
+  { name: "help", short: "h", kind: "boolean", summary: "show help" },
+  { name: "version", short: "v", kind: "boolean", summary: "print the version" },
+] as const satisfies readonly FlagSpec[];
 
 export const FLAGS = {
   global: { name: "global", short: "g", kind: "boolean", summary: "the user scope" },
@@ -192,7 +198,7 @@ export function parseVerbArgs(argv: readonly string[], flags: readonly FlagSpec[
   try {
     parsed = parseArgs({ args: [...argv], options, strict: true, allowPositionals: true });
   } catch (error) {
-    throw usage(parseArgsMessage(error));
+    throw parseFailure(error, argv, options, flags);
   }
   const values = parsed.values as Record<string, string | boolean | string[] | undefined>;
   const listOf = (name: string): string[] => {
@@ -222,18 +228,58 @@ export function parseVerbArgs(argv: readonly string[], flags: readonly FlagSpec[
   };
 }
 
-function parseArgsMessage(error: unknown): string {
+// The refusal is built from the error's `code` and a second, lenient tokenizing of the argv, never
+// from the runtime's sentence: Node and Bun word the same failure differently.
+//   add -yh  -> Node "Unknown option '-h'", Bun "Unknown option 'h'"
+//   add -o   -> both "Option '-o, --out <value>' argument missing"
+function parseFailure(
+  error: unknown,
+  argv: readonly string[],
+  options: NonNullable<ParseArgsConfig["options"]>,
+  flags: readonly FlagSpec[],
+): MaximsError {
+  const { tokens } = parseArgs({
+    args: [...argv],
+    options,
+    strict: false,
+    allowPositionals: true,
+    tokens: true,
+  });
+  // The strict parse stops at the first option it refuses, so that one is the one to name.
+  const refused = tokens.find((token) => {
+    if (token.kind !== "option") return false;
+    const spec = Object.hasOwn(options, token.name) ? options[token.name] : undefined;
+    if (spec?.type !== "string") return spec === undefined || token.value !== undefined;
+    return (
+      token.value === undefined ||
+      (!token.inlineValue && token.value.length > 1 && token.value.startsWith("-"))
+    );
+  });
   const code = (error as { code?: string }).code;
-  const message = error instanceof Error ? error.message : String(error);
-  if (code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
-    const match = /Unknown option '([^']+)'/.exec(message);
-    return `unknown option: ${match?.[1] ?? message}`;
+
+  if (refused?.kind === "option" && code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+    return unknownOption(refused.rawName, flags);
   }
-  if (code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
-    const match = /Option '([^']+)' argument missing/.exec(message);
-    if (match !== null) return `option ${match[1]} needs a value`;
+
+  if (refused?.kind === "option" && refused.value === undefined) {
+    return usage(`option --${refused.name} needs a value`);
   }
-  return message;
+
+  return usage(error instanceof Error ? error.message : String(error));
+}
+
+// `word` is the option as typed. Only a long option gets a did-you-mean: one letter is within typo
+// distance of every other letter. `fallback` is the hint when nothing is close.
+export function unknownOption(
+  word: string,
+  flags: readonly FlagSpec[],
+  fallback?: string,
+): MaximsError {
+  const [typed = ""] = word.slice(2).split("=");
+  const names = [...GLOBAL_FLAGS, ...HELP_FLAGS, ...flags].map((flag) => flag.name);
+  const closest = word.startsWith("--") ? closestName(typed, names) : null;
+  const hint = closest === null ? fallback : didYouMean(`--${closest}`);
+  return usage(`unknown option: ${word}`, hint === undefined ? {} : { hint });
 }
 
 // The engine's options never carry `--verbose`: it shapes the frame, not the work.
@@ -337,7 +383,7 @@ export function harnessIdsOrUsage<Id extends string>(
   return ids;
 }
 
-// Did-you-mean over a set of names (harness ids, installed memories): the closest by edit
+// Did-you-mean over a set of names (harness ids, installed memories, verbs, options): the closest by edit
 // distance, offered only when it is close enough to be a typo rather than a different word.
 export function closestName<Name extends string>(
   candidate: string,
