@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@actions/expressions": "0.3.61",
+    "@actions/workflow-parser": "0.3.61",
     "@biomejs/biome": "2.6.3",
     "@clack/prompts": "1.8.1",
     "@hyperjump/json-pointer": "1.1.3",

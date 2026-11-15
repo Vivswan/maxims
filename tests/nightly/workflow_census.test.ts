@@ -6,46 +6,88 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { data, Evaluator, Lexer, Parser } from "@actions/expressions";
 import type { FunctionDefinition } from "@actions/expressions/funcs/info";
-import { TokenType } from "@actions/expressions/lexer";
 import { truthy } from "@actions/expressions/result";
+import {
+  convertWorkflowTemplate,
+  isBasicExpression,
+  NoOperationTraceWriter,
+  parseWorkflow,
+} from "@actions/workflow-parser";
+import {
+  isActionStep,
+  isJob,
+  isReusableWorkflowJob,
+  isRunStep,
+} from "@actions/workflow-parser/model/type-guards";
+import type { WorkflowJob } from "@actions/workflow-parser/model/workflow-template";
+import type { TemplateToken } from "@actions/workflow-parser/templates/tokens/index";
+import { parseFileReference } from "@actions/workflow-parser/workflows/file-reference";
 import { parse } from "yaml";
 import { CATEGORIES } from "../../scripts/nightly.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
-const read = (path: string): unknown => parse(readFileSync(resolve(repoRoot, path), "utf8"));
-
-// YAML reads a bare `if: true` as a boolean; GitHub reads every condition as its text.
-type Condition = string | boolean;
-type Step = { if?: Condition; run?: string; uses?: string; with?: Record<string, string> };
-type Leg = { category: string; description: string; result: string };
-type Job = {
-  "timeout-minutes"?: number | string;
-  needs?: string[];
-  if?: Condition | null;
-  uses?: string;
-  outputs?: Record<string, string>;
-  steps?: Step[];
-  strategy?: { matrix: { include: Leg[] } };
-};
-type Workflow = { jobs: Record<string, Job> };
-type Gate = Workflow & { on: { workflow_call: { outputs: Record<string, { value: string }> } } };
-type Settings = { labels: { name: string; color: string; description: string }[] };
-
-const GATE_PATH = ".github/workflows/release-gate.yml";
-const workflow = read(".github/workflows/nightly.yml") as Workflow;
-const gate = read(GATE_PATH) as Gate;
-const settings = read(".github/settings.local.yml") as Settings;
-
+const WORKFLOWS = ".github/workflows";
+const GATE_PATH = `${WORKFLOWS}/release-gate.yml`;
 const TRACKED = [...CATEGORIES, "container"].sort();
-const report = workflow.jobs.report;
-const legs = report?.strategy?.matrix.include ?? [];
-const tiers = Object.keys(gate.jobs);
 
-const tierJob = (category: string): Job | undefined =>
-  gate.jobs[category] ?? workflow.jobs[category];
+const DECISIONS: Record<Result, string[]> = {
+  failure: ["download", "report"],
+  cancelled: ["report"],
+  success: ["resolve"],
+};
+
+// The coordinate a call from this repository would spell out in place of a local path.
+const REPOSITORY = "Vivswan/maxims";
+
+// Three spellings GitHub accepts and the report jobs do not use yet: a job condition wrapped in
+// an expression marker, an expression broken over two lines, and a closing brace pair inside a
+// string literal.
+const SPELLINGS = `
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps: [{ run: "true" }]
+  b:
+    needs: a
+    if: \${{ needs.a.result == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      two-lines: \${{ needs.a.result ==
+        'success' }}
+      braces: \${{ '}}' }}
+    steps: [{ run: "true" }]
+`;
 
 type Result = "success" | "failure" | "cancelled";
 type Context = Record<string, unknown>;
+type Settings = { labels: { name: string; color: string; description: string }[] };
+// `root` is the file as GitHub's parser read it, for the keys its typed jobs do not carry.
+type Workflow = { root: TemplateToken; jobs: Record<string, WorkflowJob> };
+type Step = { condition: string; run?: string; uses?: string; inputs?: TemplateToken };
+type Ran = { uses?: string; with: Partial<Record<string, string>> };
+
+// The conditions of the typed jobs and steps already carry GitHub's implicit `success()`.
+async function load(name: string, content: string): Promise<Workflow> {
+  const parsed = parseWorkflow({ name, content }, new NoOperationTraceWriter());
+  const template = parsed.value && (await convertWorkflowTemplate(parsed.context, parsed.value));
+  const errors = parsed.context.errors.getErrors().map((error) => error.message);
+
+  if (parsed.value === undefined || template === undefined || errors.length > 0) {
+    throw new Error(`${name} is not a workflow GitHub accepts:\n${errors.join("\n")}`);
+  }
+
+  return {
+    root: parsed.value,
+    jobs: Object.fromEntries(template.jobs.map((job) => [job.id.value, job])),
+  };
+}
+
+const read = (file: string): Promise<Workflow> =>
+  load(file, readFileSync(resolve(repoRoot, WORKFLOWS, file), "utf8"));
+
+const at = (token: TemplateToken | undefined, ...keys: string[]): TemplateToken | undefined =>
+  keys.reduce((node, key) => node?.assertMapping(`the parent of ${key}`).find(key), token);
 
 function evaluate(
   expression: string,
@@ -73,104 +115,134 @@ const statusFunctions = (results: Result[]): FunctionDefinition[] =>
     call: () => new data.BooleanData(value),
   }));
 
-// GitHub guards a job condition that names no status function with an implicit `success()`, so
-// `if: true` skips the job on a red night as surely as an empty `if` or none at all.
-function jobCondition(condition: Condition | null | undefined): string {
-  const expression = String(condition ?? "").trim();
-  if (expression === "") return "success()";
-  const tokens = new Lexer(expression).lex().tokens;
-  const named = tokens.some(
-    (token, index) =>
-      token.type === TokenType.IDENTIFIER &&
-      ["always", "success", "failure", "cancelled"].includes(token.lexeme.toLowerCase()) &&
-      tokens[index + 1]?.type === TokenType.LEFT_PAREN,
-  );
-  return named ? expression : `success() && (${expression})`;
+// The parser has already joined a value's expression parts into one expression; a value without any is its own text.
+function text(token: TemplateToken | undefined, context: Context = {}): string {
+  if (token === undefined) throw new Error("the workflow holds no value where one is read");
+  if (isBasicExpression(token)) return evaluate(token.expression, context).coerceString();
+  return token.assertScalar("a rendered value").toString();
 }
 
-const fill = (template: string, context: Context): string =>
-  template.replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) =>
-    evaluate(expression, context).coerceString(),
+const texts = (mapping: TemplateToken | undefined, context: Context = {}): Record<string, string> =>
+  Object.fromEntries(
+    [...(mapping?.assertMapping("a mapping of rendered values") ?? [])].map(({ key, value }) => [
+      key.toString(),
+      text(value, context),
+    ]),
   );
+
+const calls = (job: WorkflowJob | undefined): string | undefined =>
+  job !== undefined && isReusableWorkflowJob(job) ? job.ref.value : undefined;
+
+// A call names the gate by a local path, by the `$/` shorthand, or by this repository's coordinate with a ref.
+function callsGate(job: WorkflowJob | undefined): boolean {
+  const called = calls(job);
+  if (called === undefined) return false;
+
+  const file = parseFileReference(called);
+  // GitHub reads an owner and a repository name without regard to case.
+  const here =
+    !("repository" in file) ||
+    `${file.owner}/${file.repository}`.toLowerCase() === REPOSITORY.toLowerCase();
+  return here && file.path === GATE_PATH;
+}
+
+// The typed step carries no `with`, so each step is paired with its own entry in the file.
+function stepsOf({ root, jobs }: Workflow, id: string): Step[] {
+  const job = jobs[id];
+  if (job === undefined || !isJob(job)) return [];
+
+  const entries = at(root, "jobs", id, "steps")?.assertSequence(`the steps of ${id}`);
+
+  return job.steps.map((step, index) => ({
+    condition: step.if?.expression ?? "success()",
+    run: isRunStep(step) ? step.run.toString() : undefined,
+    uses: isActionStep(step) ? step.uses.value : undefined,
+    inputs: at(entries?.get(index), "with"),
+  }));
+}
+
+const workflow = await read("nightly.yml");
+const gate = await read("release-gate.yml");
+const settings = parse(
+  readFileSync(resolve(repoRoot, ".github/settings.local.yml"), "utf8"),
+) as Settings;
+
+const tiers = Object.keys(gate.jobs);
+const include = at(workflow.jobs.report?.strategy, "matrix", "include");
+const legs = [...(include?.assertSequence("the report legs") ?? [])].map((fields) => ({
+  category: text(at(fields, "category")),
+  fields,
+}));
+
+const tierSteps = (category: string): Step[] =>
+  stepsOf(category in gate.jobs ? gate : workflow, category);
 
 // One simulated night: `category` ends with `own`, every other tier and category with `siblings`.
 // GitHub reports the gate call as one result for all its tiers, so a tier's own verdict reaches
 // the report legs only through two declared mappings, rendered here as the runner would: the
 // tier job's outputs from its final `job.status`, then the gate's outputs from those.
-function night(category: string, own: Result, siblings: Result): Step[] {
+function night(category: string, own: Result, siblings: Result): Ran[] {
   const leg = legs.find((entry) => entry.category === category);
-  const job = leg === undefined ? workflow.jobs[`report-${category}`] : report;
+  const id = leg === undefined ? `report-${category}` : "report";
+  const job = workflow.jobs[id];
+  if (job === undefined) return [];
+
   const verdict = (name: string): Result => (name === category ? own : siblings);
   const gateJobs = Object.fromEntries(
     tiers.map((tier) => [
       tier,
-      {
-        outputs: Object.fromEntries(
-          Object.entries(gate.jobs[tier]?.outputs ?? {}).map(([name, value]) => [
-            name,
-            fill(value, { job: { status: verdict(tier) } }),
-          ]),
-        ),
-      },
+      { outputs: texts(gate.jobs[tier]?.outputs, { job: { status: verdict(tier) } }) },
     ]),
   );
+  const declared = at(gate.root, "on", "workflow_call", "outputs");
   const gateCall = {
     result: tiers.every((tier) => verdict(tier) === "success") ? "success" : "failure",
     outputs: Object.fromEntries(
-      Object.entries(gate.on.workflow_call.outputs).map(([name, output]) => [
-        name,
-        fill(output.value, { jobs: gateJobs }),
+      [...(declared?.assertMapping("the gate's outputs") ?? [])].map(({ key, value }) => [
+        key.toString(),
+        text(at(value, "value"), { jobs: gateJobs }),
       ]),
     ),
   };
   const needs = Object.fromEntries(
-    (job?.needs ?? []).map((name) => [
+    (job.needs ?? []).map(({ value: name }) => [
       name,
       name === "release-gate" ? gateCall : { result: verdict(name) },
     ]),
   );
   // A leg's fields are rendered under `needs` before any step reads them, as the runner does.
-  const matrix =
-    leg === undefined
-      ? {}
-      : Object.fromEntries(
-          Object.entries(leg).map(([key, value]) => [key, fill(value, { needs })]),
-        );
+  const matrix = leg === undefined ? {} : texts(leg.fields, { needs });
   const context: Context = { needs, matrix };
   const results = Object.values(needs).map((need) => need.result as Result);
+
   // A job-level `if` sees `needs` but not `matrix`; GitHub rejects the workflow otherwise.
-  if (!truthy(evaluate(jobCondition(job?.if), { needs }, statusFunctions(results)))) return [];
-  return (job?.steps ?? [])
-    .filter((step) => step.if === undefined || truthy(evaluate(String(step.if), context)))
-    .map((step) => ({
-      ...step,
-      with:
-        step.with &&
-        Object.fromEntries(
-          Object.entries(step.with).map(([key, value]) => [key, fill(value, context)]),
-        ),
-    }));
+  if (!truthy(evaluate(job.if.expression, { needs }, statusFunctions(results)))) return [];
+
+  // Every earlier step of a simulated job passed, so a step's own status functions see no failure.
+  return stepsOf(workflow, id)
+    .filter((step) => truthy(evaluate(step.condition, context, statusFunctions([]))))
+    .map((step) => ({ uses: step.uses, with: texts(step.inputs, context) }));
 }
 
-const kind = (step: Step): string | undefined => {
+const kind = (step: Ran): string | undefined => {
   if (step.uses?.startsWith("actions/download-artifact@")) return "download";
-  if (step.uses?.startsWith("Vivswan/repo-platform/actions/fuzz-issue@")) return step.with?.mode;
+  if (step.uses?.startsWith("Vivswan/repo-platform/actions/fuzz-issue@")) return step.with.mode;
   return undefined;
 };
 
-const DECISIONS: Record<Result, string[]> = {
-  failure: ["download", "report"],
-  cancelled: ["report"],
-  success: ["resolve"],
-};
+const nights = TRACKED.flatMap((category) =>
+  (["failure", "cancelled", "success"] as const).flatMap((own) =>
+    (["success", "failure"] as const).map((siblings) => [category, own, siblings] as const),
+  ),
+);
 
 // The container tier runs through its own script rather than the dispatcher and writes no
 // failure report, so it is the one tracked category with a report job of its own. A category
-// declared in both files fails here rather than hiding behind tierJob's gate-first lookup.
+// declared in both files fails here rather than hiding behind the gate-first lookup of its steps.
 test("every tracked category has one job a night, here or in the release gate, and nothing else has one", () => {
   const inline = Object.keys(workflow.jobs).filter((name) => TRACKED.includes(name));
   expect([...inline, ...tiers].sort()).toEqual(TRACKED);
-  expect(workflow.jobs["release-gate"]?.uses).toBe(`./${GATE_PATH}`);
+  expect(calls(workflow.jobs["release-gate"])).toBe(`./${GATE_PATH}`);
   expect(Object.keys(workflow.jobs).sort()).toEqual(
     [...inline, "release-gate", "report", "report-container"].sort(),
   );
@@ -179,46 +251,41 @@ test("every tracked category has one job a night, here or in the release gate, a
 
 // GitHub's default job timeout is six hours and nothing reports its absence.
 test("every release-gate job carries its own timeout", () => {
-  const missing = Object.entries(gate.jobs)
-    .filter(([, job]) => job["timeout-minutes"] === undefined)
-    .map(([name]) => name);
+  const missing = tiers.filter(
+    (tier) => at(gate.root, "jobs", tier, "timeout-minutes") === undefined,
+  );
   expect(missing).toEqual([]);
 });
 
-// A call names the file by a local path, by this repository's coordinate with a ref, or by the `$/` shorthand.
-const CALLS_GATE = new RegExp(`(^\\./|^\\$/|/)${RegExp.escape(GATE_PATH)}(@|$)`);
-
 // A second caller runs every tier twice per release with no error from GitHub. The managed
 // ci.yml is the platform's caller and is left out: it changes by sync, never here.
-test("nightly.yml is the one repository-owned caller of the release gate", () => {
-  const callers = readdirSync(resolve(repoRoot, ".github/workflows"))
-    .filter((file) => /\.ya?ml$/.test(file) && file !== "ci.yml")
-    .flatMap((file) =>
-      Object.entries((read(`.github/workflows/${file}`) as Workflow).jobs ?? {})
-        .filter(([, job]) => CALLS_GATE.test(job.uses ?? ""))
-        .map(([name]) => `${file}:${name}`),
-    );
+test("nightly.yml is the one repository-owned caller of the release gate", async () => {
+  const files = readdirSync(resolve(repoRoot, WORKFLOWS)).filter(
+    (file) => /\.ya?ml$/.test(file) && file !== "ci.yml",
+  );
+  const owned = await Promise.all(files.map(async (file) => ({ file, ...(await read(file)) })));
+  const callers = owned.flatMap(({ file, jobs }) =>
+    Object.keys(jobs)
+      .filter((name) => callsGate(jobs[name]))
+      .map((name) => `${file}:${name}`),
+  );
+
   expect(callers).toEqual(["nightly.yml:release-gate"]);
 });
 
 test.each([...CATEGORIES])("the %s job runs its category through the dispatcher", (category) => {
-  const runs = tierJob(category)?.steps?.flatMap((step) => step.run ?? []) ?? [];
+  const runs = tierSteps(category).flatMap((step) => step.run ?? []);
   expect(runs.some((line) => line.startsWith(`bun run nightly ${category} `))).toBe(true);
 });
-
-const nights = TRACKED.flatMap((category) =>
-  (["failure", "cancelled", "success"] as const).flatMap((own) =>
-    (["success", "failure"] as const).map((siblings) => [category, own, siblings] as const),
-  ),
-);
 
 test.each(nights)(
   "a night where %s is %s and its siblings %s decides on its own result, under its own label and artifact",
   (category, own, siblings) => {
     const steps = night(category, own, siblings);
-    const uploaded = tierJob(category)?.steps?.find((step) =>
+    const upload = tierSteps(category).find((step) =>
       step.uses?.startsWith("actions/upload-artifact@"),
-    )?.with?.name;
+    );
+    const uploaded = upload && text(at(upload.inputs, "name"));
     // The container tier uploads no report, so its red night has nothing to download.
     const decided = DECISIONS[own].filter(
       (step) => step !== "download" || category !== "container",
@@ -226,9 +293,9 @@ test.each(nights)(
     if (category !== "container") expect(uploaded).toBeString();
     expect(steps.map(kind)).toEqual(decided);
     for (const step of steps) {
-      if (kind(step) === "download") expect(step.with?.name).toBe(uploaded);
-      else expect(step.with?.label).toBe(`nightly-${category}`);
-      if (kind(step) === "report") expect(step.with?.["artifact-name"]).toBe(uploaded);
+      if (kind(step) === "download") expect(step.with.name).toBe(uploaded);
+      else expect(step.with.label).toBe(`nightly-${category}`);
+      if (kind(step) === "report") expect(step.with["artifact-name"]).toBe(uploaded);
     }
   },
 );
@@ -247,4 +314,19 @@ test("the settings create exactly one nightly label per tracked category, worded
       "label-color": label.color,
     });
   }
+});
+
+// Without this, an edit of a report condition or output into one of these spellings stops the
+// census with a parse error, or leaves an unrendered expression that compares as plain text.
+test("a condition and an output in the spellings GitHub also accepts read as GitHub reads them", async () => {
+  const { jobs } = await load("spellings.yml", SPELLINGS);
+  const ran = (result: Result): unknown => {
+    const needs = { a: { result } };
+    const condition = jobs.b?.if.expression ?? "";
+    const runs = truthy(evaluate(condition, { needs }, statusFunctions([result])));
+    return { runs, ...texts(jobs.b?.outputs, { needs }) };
+  };
+
+  expect(ran("success")).toEqual({ runs: true, "two-lines": "true", braces: "}}" });
+  expect(ran("failure")).toEqual({ runs: false, "two-lines": "false", braces: "}}" });
 });
