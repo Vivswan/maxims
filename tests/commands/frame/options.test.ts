@@ -85,13 +85,13 @@ const refusals: [string, string[], string][] = [
   ],
   [
     "mistyped long option carrying a value",
-    ["add", "@a/b", "--memroy=x"],
-    "unknown option: --memroy\nTip: did you mean --memory?",
+    ["add", "@a/b", "--memry=x"],
+    "unknown option: --memry\nTip: did you mean --memory?",
   ],
   [
     "mistyped help flag on a verb",
-    ["add", "@a/b", "--hlep"],
-    "unknown option: --hlep\nTip: did you mean --help?",
+    ["add", "@a/b", "--helpp"],
+    "unknown option: --helpp\nTip: did you mean --help?",
   ],
   [
     "mistyped global with no verb",
