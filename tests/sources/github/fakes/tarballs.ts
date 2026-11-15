@@ -125,3 +125,11 @@ export function unsupportedTypeTarball(): Uint8Array {
     { path: `${FIXTURE_TOP}/memories/ok.md`, content: "fine\n" },
   ]);
 }
+
+export function windowsHostileNamesTarball(): Uint8Array {
+  return buildTarball([
+    { path: `${FIXTURE_TOP}/memories/a:b.md`, content: "colon\n" },
+    { path: `${FIXTURE_TOP}/memories/what?.md`, content: "question\n" },
+    { path: `${FIXTURE_TOP}/c:d.md`, content: "drive\n" },
+  ]);
+}
