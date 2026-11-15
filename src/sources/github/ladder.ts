@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { format } from "node:url";
 import { promisify } from "node:util";
@@ -9,6 +8,7 @@ import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
 import { DEFAULT_GIT_REF, URL_SCHEME } from "../../contracts/source.ts";
+import { userHome } from "../../util/home.ts";
 import { withScratchDir } from "../../util/scratch.ts";
 import { FetchFailure, type FetchFailureKind } from "../contract.ts";
 import type { WarnSink } from "../tree.ts";
@@ -578,111 +578,19 @@ const TOKEN_ENV: ReadonlySet<string> = new Set([
   "GITHUB_ENTERPRISE_TOKEN",
 ]);
 
-function shellQuote(word: string): string {
-  return `'${word.replace(/'/g, `'\\''`)}'`;
-}
-
 // What git alone gets, beyond the common scrub: no GitHub token, because git never reads one and
-// simple-git would echo it to its debug log. The caller's two ssh variables ride along for
-// sshCommand(), which turns them into the one git is handed.
+// simple-git would echo it to its debug log. The caller's two ssh variables go back in as set:
+// git reads them and `core.sshCommand` itself.
 export function gitEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(childEnvironment(base))) {
     if (!TOKEN_ENV.has(key.toUpperCase())) env[key] = value;
   }
   for (const name of ["GIT_SSH_COMMAND", "GIT_SSH"]) {
-    const value = base[name]?.trim() ?? "";
-    if (value !== "") env[name] = value;
+    const value = base[name] ?? "";
+    if (value.trim() !== "") env[name] = value;
   }
   return env;
-}
-
-const SSH_PROGRAM = /(^|[\\/])ssh(\.exe)?$/i;
-const ENV_PROGRAM = /(^|\/)env$/;
-const SHELL_ASSIGNMENT = /^[A-Za-z_]\w*=/;
-
-// The ssh command git runs, in git's own order: GIT_SSH_COMMAND, core.sshCommand (`configured`),
-// then GIT_SSH, a literal path that is single-quoted for sh. BatchMode makes ssh fail instead of
-// asking, and goes right after the program word because ssh honors the FIRST occurrence of an
-// option. A wrapper rejects an ssh option in its own argument slot, so only a program named ssh
-// takes it.
-export function sshCommand(env: NodeJS.ProcessEnv, configured?: string): string {
-  const program = env.GIT_SSH?.trim() ?? "";
-  const command =
-    env.GIT_SSH_COMMAND?.trim() || configured || (program === "" ? "ssh" : shellQuote(program));
-  const end = sshProgramEnd(command);
-  if (end === undefined) return command;
-  return `${command.slice(0, end)} -o BatchMode=yes${command.slice(end)}`;
-}
-
-type CommandWord = "skip" | "env" | "program" | "stop";
-
-// What a word at the head of a command line is. sh reads an assignment only as spelled, unquoted;
-// `env` reads its arguments after sh has unquoted them, and takes any that holds `=`.
-//   stop   an option of env, or an assignment holding an expansion this parser cannot see the end of
-function commandWord(word: { raw: string; text: string }, afterEnv: boolean): CommandWord {
-  if (afterEnv && word.text.startsWith("-")) return "stop";
-  const assignment = afterEnv ? word.text.includes("=") : SHELL_ASSIGNMENT.test(word.raw);
-  if (assignment) return /[$`*?[]/.test(word.raw) ? "stop" : "skip";
-  if (ENV_PROGRAM.test(word.text)) return "env";
-  return !afterEnv && word.text === "exec" ? "skip" : "program";
-}
-
-// Where the ssh program word ends, past the assignments, `exec` and `env` that may precede it.
-// Anything this cannot follow leaves the command as written.
-function sshProgramEnd(command: string): number | undefined {
-  let start = /^[ \t]*/.exec(command)?.[0].length ?? 0;
-  let afterEnv = false;
-  for (;;) {
-    const word = shellWordAt(command, start);
-    const end = start + word.raw.length;
-    const kind = commandWord(word, afterEnv);
-    if (kind === "stop") return undefined;
-    if (kind === "program") return SSH_PROGRAM.test(word.text) ? end : undefined;
-    afterEnv ||= kind === "env";
-    const gap = /^[ \t]+/.exec(command.slice(end))?.[0].length ?? 0;
-    if (gap === 0) return undefined;
-    start = end + gap;
-  }
-}
-
-// A backslash-newline is sh's line continuation and yields nothing.
-function escapedChar(next: string, quote: string | null): { text: string; consumed: boolean } {
-  if (quote !== null && !/[$`"\\\n]/.test(next)) return { text: "\\", consumed: false };
-  return { text: next === "\n" ? "" : next, consumed: true };
-}
-
-function quoteAfter(char: string, quote: string | null): string | null {
-  if (quote === null && (char === "'" || char === '"')) return char;
-  if (char === quote) return null;
-  return quote;
-}
-
-// The word of a POSIX command line that starts at `start`, as spelled (`raw`) and as sh reads it
-// (`text`). Inside double quotes a backslash stays a character unless it escapes one of sh's five,
-// which is how a Windows path keeps its separators.
-function shellWordAt(command: string, start: number): { raw: string; text: string } {
-  let quote: string | null = null;
-  let text = "";
-  for (let index = start; index < command.length; index += 1) {
-    const char = command[index] ?? "";
-    if (quote === null && /[\s<>|&;()]/.test(char)) {
-      return { raw: command.slice(start, index), text };
-    }
-    const quoted = quoteAfter(char, quote);
-    if (quoted !== quote) {
-      quote = quoted;
-      continue;
-    }
-    if (char !== "\\" || quote === "'") {
-      text += char;
-      continue;
-    }
-    const escaped = escapedChar(command[index + 1] ?? "", quote);
-    text += escaped.text;
-    if (escaped.consumed) index += 1;
-  }
-  return { raw: command.slice(start), text };
 }
 
 type ExecError = Error & {
@@ -734,7 +642,7 @@ const isGuardedEnvKey = (key: string): boolean => {
   return normalized.startsWith("git_") || isGitEnvKey(normalized);
 };
 const ALLOWED_GUARDED_ENV =
-  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH_COMMAND|GIT_SSH_VARIANT|SSH_ASKPASS|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
+  /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|SSH_ASKPASS|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
 
 // The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
 // upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
@@ -779,19 +687,6 @@ async function transportTarget(
   return transportUrl(expanded);
 }
 
-// A caller's GIT_SSH_COMMAND outranks core.sshCommand in git, so the config is read only without
-// one; the answer goes back as GIT_SSH_COMMAND, the one place BatchMode can be added to it. `git`
-// is asked where the transport will run: an `includeIf` on the remote's URL applies only there.
-// Only git's line terminator comes off the value, which may end in an escaped space.
-async function sshEnvironment(
-  git: SimpleGit,
-  env: Record<string, string>,
-): Promise<Record<string, string>> {
-  if (env.GIT_SSH_COMMAND !== undefined) return { ...env, GIT_SSH_COMMAND: sshCommand(env) };
-  const configured = await git.raw(["config", "--get", "core.sshCommand"]);
-  return { ...env, GIT_SSH_COMMAND: sshCommand(env, configured.replace(/\r?\n$/, "")) };
-}
-
 // A sparse cone of `sparsePath` is declared before the checkout, so the checkout's one blob
 // prefetch pulls only the memory folder; `--filter=blob:none` keeps the fetch itself to one tree.
 // simple-git's debug channel is switched off for the whole process: under `DEBUG=simple-git:*` it
@@ -830,8 +725,6 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     probed ??= execChild(binary, ["--version"], { env: guardedEnvironment(env).env, timeoutMs });
     return (await probed).kind !== "absent";
   };
-  const transport = async (config: string[], baseDir: string, callEnv: Record<string, string>) =>
-    client(config, baseDir, await sshEnvironment(client(config, baseDir, callEnv), callEnv));
   // No git process runs in the caller's cwd: a repository the caller happens to be in would lend
   // its local config (an `insteadOf`) to the lookup, and a fetch run there would register a
   // promisor remote in its config. The lookups run in this scratch directory, the clone in its
@@ -863,18 +756,16 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
     lsRemote: (url, patterns, call) =>
       gitAttempt(present, () =>
         withCredentials(url, call.credentials, async (remote, config, callEnv, scratch) => {
-          const git = await transport(config, scratch, callEnv);
-          return await git.listRemote([remote, ...patterns]);
+          return await client(config, scratch, callEnv).listRemote([remote, ...patterns]);
         }),
       ),
     shallowClone: (url, ref, dir, call) =>
       gitAttempt(present, () =>
         withCredentials(url, call.credentials, async (remote, config, callEnv) => {
           await mkdir(dir, { recursive: true });
-          const local = client(config, dir, callEnv);
-          await local.raw(["init", "--quiet"]);
-          await local.raw(["remote", "add", "origin", remote]);
-          const git = await transport(config, dir, callEnv);
+          const git = client(config, dir, callEnv);
+          await git.raw(["init", "--quiet"]);
+          await git.raw(["remote", "add", "origin", remote]);
           await git.raw(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", ref]);
           if (call.sparsePath !== undefined) {
             await git.raw(["sparse-checkout", "set", "--cone", "--", call.sparsePath]);
@@ -985,7 +876,7 @@ async function privateHome(
   home: string,
 ): Promise<Record<string, string>> {
   await mkdir(home, { recursive: true });
-  const realHome = env.HOME ?? homedir();
+  const realHome = userHome(env);
   for (const name of await readdir(realHome)) {
     if (NETRC_FILES.has(name.toLowerCase())) continue;
     await symlink(join(realHome, name), join(home, name));

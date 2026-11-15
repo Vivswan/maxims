@@ -22,7 +22,6 @@ import {
   type LadderRequest,
   type Runner,
   simpleGitRunner,
-  sshCommand,
   systemRunner,
 } from "../../../src/sources/github/ladder.ts";
 import { git } from "../../shared/git_fixture.ts";
@@ -1011,54 +1010,39 @@ describe("git rung against a file:// fixture repo", () => {
     }
   });
 
-  // What would drift: GIT_SSH_COMMAND outranks core.sshCommand in git, so exporting one of our own
-  // would replace the key or jump host the user's gitconfig names. ssh honors the first occurrence
-  // of an option; a wrapper rejects an ssh option in its own argument slot. git probes an unknown
-  // program with `-G` first, so the last recorded call is the fetch.
-  type SshSetting = "GIT_SSH_COMMAND" | "core.sshCommand";
-  const sshWords: [string, SshSetting, string, string, string[]][] = [
+  // What would drift: the user's ssh command reaching ssh rewritten, a `GIT_SSH` dropped by the
+  // environment filter, or the askpass guard and the C locale missing from the child. git probes
+  // an unknown program with `-G` first, so the last recorded call is the fetch.
+  type SshSetting = "GIT_SSH_COMMAND" | "GIT_SSH" | "core.sshCommand";
+  const sshWords: [string, SshSetting, string, string[]][] = [
     [
-      "ssh gets BatchMode ahead of the user's own options, so a question fails instead of waiting",
+      "a GIT_SSH_COMMAND reaches ssh as the user set it",
       "GIT_SSH_COMMAND",
-      "ssh",
-      "-o BatchMode=no -i /home/user/.ssh/key",
-      ["-o", "BatchMode=yes", "-o", "BatchMode=no", "-i", "/home/user/.ssh/key"],
+      " -o BatchMode=no -i /home/user/.ssh/key",
+      ["-o", "BatchMode=no", "-i", "/home/user/.ssh/key"],
     ],
+    ["a GIT_SSH program is the one git runs", "GIT_SSH", "", []],
     [
-      "a wrapper's own arguments stay first, with no ssh option in between",
-      "GIT_SSH_COMMAND",
-      "fixture-wrapper",
-      "gitssh --",
-      ["gitssh", "--"],
-    ],
-    [
-      "the gitconfig's ssh runs when the environment names none, and still gets BatchMode",
+      "the gitconfig's ssh runs as the user wrote it when the environment names none",
       "core.sshCommand",
-      "ssh",
-      "-i /home/user/.ssh/key",
-      ["-o", "BatchMode=yes", "-i", "/home/user/.ssh/key"],
-    ],
-    [
-      "the gitconfig's wrapper runs as the user wrote it",
-      "core.sshCommand",
-      "fixture-wrapper",
-      "gitssh --",
-      ["gitssh", "--"],
+      " -i /home/user/.ssh/key",
+      ["-i", "/home/user/.ssh/key"],
     ],
   ];
-  test.each(sshWords)("%s", async (_name, setting, program, tail, leading) => {
+  test.each(sshWords)("%s", async (_name, setting, tail, leading) => {
     await withTempDir(async (dir) => {
-      const fake = recordingSsh(dir, program);
-      const command = `${fake.path} ${tail}`;
-      // The environment's command has to win over a gitconfig that names another one.
+      const fake = recordingSsh(dir, "ssh");
+      const command = `${fake.path}${tail}`;
+      // GIT_SSH_COMMAND has to win over a gitconfig that names another one; GIT_SSH ranks below it.
       const configured = setting === "core.sshCommand" ? command : shellPath(join(dir, "unused"));
       const gitconfig = join(dir, "gitconfig");
-      writeFileSync(gitconfig, `[core]\n\tsshCommand = ${configured}\n`);
+      const core = setting === "GIT_SSH" ? "" : `[core]\n\tsshCommand = ${configured}\n`;
+      writeFileSync(gitconfig, core);
       const env = gitEnvironment({
         ...process.env,
         GIT_CONFIG_GLOBAL: gitconfig,
         LC_ALL: "de_DE.UTF-8",
-        ...(setting === "GIT_SSH_COMMAND" ? { GIT_SSH_COMMAND: command } : {}),
+        ...(setting === "core.sshCommand" ? {} : { [setting]: command }),
       });
       const outcome = await simpleGitRunner({ env }).lsRemote(
         "ssh://127.0.0.1:1/rules.git",
@@ -1075,7 +1059,7 @@ describe("git rung against a file:// fixture repo", () => {
   });
 
   // What would drift: git applies an `includeIf` keyed on a remote's URL only inside the repository
-  // that has the remote, so a core.sshCommand looked up anywhere else misses a per-host key.
+  // that has the remote, so a fetch run anywhere else would miss a per-host key.
   test("a core.sshCommand included for the remote's URL is the one the clone's fetch runs", async () => {
     await withTempDir(async (dir) => {
       const fake = recordingSsh(dir, "fixture-wrapper");
@@ -1094,128 +1078,6 @@ describe("git rung against a file:// fixture repo", () => {
       expect(outcome.kind).toBe("failed");
       expect(readFileSync(fake.argv, "utf8")).toContain("per-host-key");
     });
-  });
-
-  // What would drift: sh, not this parser, decides which word is the program. A bare GIT_SSH is a
-  // literal path, a backslash inside double quotes escapes only sh's five, an unquoted redirection
-  // ends the word, and assignments, `exec` and `env` come before it. git asks GIT_SSH_COMMAND,
-  // core.sshCommand, then GIT_SSH.
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: sh's parameter expansion, not a template
-  const defaulted = "FOO=${X:- ssh -v} /opt/wrapper";
-  const sshPrograms: [string, Record<string, string>, string | undefined, string][] = [
-    [
-      "a GIT_SSH path to ssh stays one literal word ahead of BatchMode",
-      { GIT_SSH: "/home/user/My $Tools/it's/ssh" },
-      undefined,
-      "'/home/user/My $Tools/it'\\''s/ssh' -o BatchMode=yes",
-    ],
-    [
-      "a GIT_SSH path to a wrapper is quoted and otherwise left alone",
-      { GIT_SSH: "/home/user/My Tools/fixture-wrapper" },
-      undefined,
-      "'/home/user/My Tools/fixture-wrapper'",
-    ],
-    [
-      "a double-quoted Windows ssh.exe path keeps its backslashes and is one word",
-      { GIT_SSH_COMMAND: '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -i key' },
-      undefined,
-      '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -o BatchMode=yes -i key',
-    ],
-    [
-      "a redirection glued to ssh is not part of its name",
-      { GIT_SSH_COMMAND: "ssh</dev/null -i key" },
-      undefined,
-      "ssh -o BatchMode=yes</dev/null -i key",
-    ],
-    [
-      "core.sshCommand outranks GIT_SSH",
-      { GIT_SSH: "/usr/bin/fixture-wrapper" },
-      "ssh -i key",
-      "ssh -o BatchMode=yes -i key",
-    ],
-    [
-      "GIT_SSH_COMMAND outranks core.sshCommand",
-      { GIT_SSH_COMMAND: "ssh -i env-key" },
-      "ssh -i config-key",
-      "ssh -o BatchMode=yes -i env-key",
-    ],
-    [
-      "an assignment ahead of ssh is not the program",
-      {},
-      "FOO=1 BAR='a b' ssh -i key",
-      "FOO=1 BAR='a b' ssh -o BatchMode=yes -i key",
-    ],
-    ["exec ahead of ssh is skipped", {}, "exec ssh -i key", "exec ssh -o BatchMode=yes -i key"],
-    [
-      "env ahead of ssh is skipped",
-      {},
-      "/usr/bin/env FOO=1 ssh",
-      "/usr/bin/env FOO=1 ssh -o BatchMode=yes",
-    ],
-    [
-      "an assignment whose value ends in ssh is not ssh",
-      {},
-      "FOO=/usr/bin/ssh fixture-wrapper --",
-      "FOO=/usr/bin/ssh fixture-wrapper --",
-    ],
-    [
-      "a quoted assignment after env is env's own, however its value ends",
-      {},
-      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
-      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
-    ],
-    [
-      "ssh after env's quoted assignment is still the program",
-      {},
-      "env 'FOO=a b' ssh -i key",
-      "env 'FOO=a b' ssh -o BatchMode=yes -i key",
-    ],
-    [
-      "an option of env that holds = is not an assignment",
-      {},
-      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
-      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
-    ],
-    [
-      "a quoted option of env is still an option",
-      {},
-      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
-      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
-    ],
-    [
-      "an env assignment sh may still expand is never the program",
-      {},
-      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
-      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
-    ],
-    [
-      "an env assignment sh may still split is not followed",
-      {},
-      "env 'FOO='$BAR /usr/bin/ssh",
-      "env 'FOO='$BAR /usr/bin/ssh",
-    ],
-    [
-      "an assignment whose value ends in env does not start env's arguments",
-      {},
-      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -i key",
-      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -o BatchMode=yes -i key",
-    ],
-    [
-      "a command substitution in an assignment is not searched for ssh",
-      {},
-      "A=`echo ssh x` /opt/wrapper",
-      "A=`echo ssh x` /opt/wrapper",
-    ],
-    ["a parameter expansion in an assignment is not searched for ssh", {}, defaulted, defaulted],
-    [
-      "a second command after an assignment is left alone",
-      {},
-      "FOO=1;ssh -i key",
-      "FOO=1;ssh -i key",
-    ],
-  ];
-  test.each(sshPrograms)("%s", (_name, base, configured, expected) => {
-    expect(sshCommand(base, configured)).toBe(expected);
   });
 
   test("git's environment carries no GitHub token under any of gh's names", () => {
