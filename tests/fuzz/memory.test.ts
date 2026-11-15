@@ -273,6 +273,8 @@ const WIKILINK_PIECES = [
   "\r\n",
   "\ufeff",
 ];
+
+// Arbitrary text finds the throws; the grammar's own pieces find the wrong answers a random string rarely spells.
 const body = fc.oneof(anyText({ maxLength: 1024 }), fragments(WIKILINK_PIECES, { maxLength: 80 }));
 
 test(

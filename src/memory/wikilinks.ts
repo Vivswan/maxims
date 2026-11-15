@@ -5,6 +5,7 @@ import type { Memory } from "./contract.ts";
 // `[[target|alias]]` is the wider wikilink form; only the target names a memory.
 const WIKILINK = /\[\[([^[\]\n|]+)(?:\|[^[\]\n]*)?\]\]/g;
 
+// Blanking these alone keeps the rest of a code span, so a link whose alias holds one still matches.
 const BRACKET = /[[\]]/g;
 
 // micromark skips one leading byte order mark and counts every offset from the next character.
