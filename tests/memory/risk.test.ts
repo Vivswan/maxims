@@ -8,6 +8,10 @@ const CYRILLIC_A = "\u0430";
 const GREEK_OMICRON = "\u03bf";
 const CYRILLIC_HELLO = "\u043f\u0440\u0438\u0432\u0435\u0442";
 const COMBINING_HOMOGLYPH = "e\u0301\u0430";
+const MATH_BOLD_A = "\u{1d41a}";
+const CHEROKEE_A = "\u13aa";
+const FULLWIDTH_P = "\uff50";
+const KELVIN_SIGN = "\u212a";
 const BASE64_BLOB = "aB1".repeat(15);
 const HEX_BLOB = "abcdef1234567890abcdef1234567890";
 const HEX_31 = "1234567890abcdef1234567890abcde";
@@ -119,6 +123,24 @@ const POSITIVES: [name: string, text: string, kind: RiskKind, detail: string][] 
   ["cyrillic path", `The p${CYRILLIC_A}th variable is set`, "mixed-script", "Latin+Cyrillic"],
   ["greek invoice", `Send an inv${GREEK_OMICRON}ice today`, "mixed-script", "Latin+Greek"],
   ["combining homoglyph", `Use ${COMBINING_HOMOGLYPH} inline`, "mixed-script", "Latin+Cyrillic"],
+  ["cherokee letter", `Open the ${CHEROKEE_A}it repo`, "mixed-script", "Latin+Cherokee"],
+  ["unnamed script", "Send the p\u05d0th today", "mixed-script", "Latin+another script"],
+  [
+    "latin letter folding out of latin",
+    "Use \u{10781}\u0430 here",
+    "mixed-script",
+    "Latin+Cyrillic",
+  ],
+  ["math bold letter", `Log in to p${MATH_BOLD_A}ypal`, "mixed-script", "look-alike form U+1D41A"],
+  ["fullwidth letter", `Log in to ${FULLWIDTH_P}aypal`, "mixed-script", "look-alike form U+FF50"],
+  ["kelvin sign", `Rotate the ${KELVIN_SIGN}ey`, "mixed-script", "look-alike form U+212A"],
+  [
+    "all math bold",
+    `Say ${MATH_BOLD_A}${MATH_BOLD_A} twice`,
+    "mixed-script",
+    "look-alike form U+1D41A",
+  ],
+  ["ftp link", "Fetch ftp://files.example.com/x first", "url", "files.example.com"],
   ["base64 blob", `token ${BASE64_BLOB} follows`, "encoded-blob", "base64-like run of 45"],
   ["hex blob", `digest ${HEX_BLOB} follows`, "encoded-blob", "hex run of 32"],
   ["ssh key path", "Copy ~/.ssh/id_rsa off the box", "sensitive-path", "~/.ssh"],
@@ -156,6 +178,20 @@ const NEGATIVES: [name: string, text: string, kind: RiskKind][] = [
   ["system prompts verb", "The system prompts the user for a full name", "override"],
   ["pure latin word", "The path variable is set to a default", "mixed-script"],
   ["pure cyrillic word", `${CYRILLIC_HELLO} means hello in Russian`, "mixed-script"],
+  ["latin joined to han", "Use the API\u6587\u6863 page", "mixed-script"],
+  ["latin joined to kana", "Run the test\u30c6\u30b9\u30c8 and the go\u3054 file", "mixed-script"],
+  ["latin joined to hangul", "Read the README\ud30c\uc77c first", "mixed-script"],
+  ["latin joined to halfwidth katakana", "The test\uff76\uff85 form stays", "mixed-script"],
+  ["latin joined to decomposed hangul", "Read the README\u1100\u1161 first", "mixed-script"],
+  [
+    "halfwidth katakana voiced mark",
+    "Use API\uff84\uff9e\uff77\uff6d\uff92\uff9d\uff84 here",
+    "mixed-script",
+  ],
+  ["halfwidth katakana long vowel mark", "Use API\uff7a\uff70\uff84\uff9e here", "mixed-script"],
+  ["decomposed accent", "Order a cafe\u0301 au lait", "mixed-script"],
+  ["precomposed accent", "Order a cr\u00e8me br\u00fbl\u00e9e", "mixed-script"],
+  ["another script's combining mark", "Mark a\u0483 and a\u093e here", "mixed-script"],
   ["short hex prefix", `sha ${HEX_31} is only thirty one`, "encoded-blob"],
   ["no encoded run", "a normal sentence without any long run", "encoded-blob"],
   ["credentials token", "The credentialsProvider class handles auth", "sensitive-path"],
@@ -335,6 +371,9 @@ describe("riskWarnings stays linear on a huge line", () => {
     ["backtick run flood before a url", `${"`x".repeat(499_991)}https://example.com`],
     ["nested bracket flood", `https://${"[".repeat(1_000_000)}]x`],
     ["python version suffix flood", `curl x | python${"1.".repeat(500_000)}/tool`],
+    ["unsorted combining mark flood", `a${"\u0315\u0300".repeat(500_000)}`],
+    ["decomposed hangul flood", `a${"\u1100\u1161".repeat(500_000)}`],
+    ["accented letter flood before a fullwidth letter", `${"\u00e9".repeat(1_000_000)}\uff41`],
   ];
   // A linear scan of a million characters finishes far below the budget; 500 ms is the headroom
   // a slow CI runner needs to stay green.

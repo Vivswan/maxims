@@ -230,14 +230,14 @@ function splitFrontmatter(text: string): { yaml: string; body: string } | null {
   };
 }
 
-export type HiddenCodePointKind = "zero-width" | "bidi" | "control" | "ansi";
+export type HiddenCodePointKind = "zero-width" | "bidi" | "control" | "ansi" | "invisible";
 
 export type HiddenCharacter =
   | { kind: HiddenCodePointKind; codePoint: number; index: number }
   | { kind: "html-comment"; index: number };
 
-const ZERO_WIDTH = new Set([0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]);
-const HIDDEN_LABELS = new Map<number, string>([
+// The five zero-width characters keep their class and names; every other ignorable code point reports as "invisible".
+const ZERO_WIDTH_LABELS = new Map<number, string>([
   [0x200b, "zero-width space"],
   [0x200c, "zero-width non-joiner"],
   [0x200d, "zero-width joiner"],
@@ -245,44 +245,69 @@ const HIDDEN_LABELS = new Map<number, string>([
   [0xfeff, "byte order mark"],
 ]);
 
+// Names for the carriers a reader would look up; the first match wins.
+const HIDDEN_LABELS: readonly (readonly [RegExp, string])[] = [
+  [/\u00ad/u, "soft hyphen"],
+  [/\u2028/u, "line separator"],
+  [/\u2029/u, "paragraph separator"],
+  [/\p{Variation_Selector}/u, "variation selector"],
+  [/[\u{e0000}-\u{e007f}]/u, "tag character"],
+];
+
+// Reorders what renders.
+const BIDI = /\p{Bidi_Control}/u;
+
+// A terminal prints nothing for it or moves the cursor; the two separators break a line like LF.
+const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+
+// The controls a file is made of, which are text.
+const FILE_WHITESPACE = "\t\n\r";
+
+// Opens an ANSI sequence.
+const ESCAPE = 0x1b;
+
+// Every hidden thing in one pass: an HTML comment opener, or one code point of the classes above.
+const HIDDEN = /<!--|[\p{Default_Ignorable_Code_Point}\p{Bidi_Control}\p{Cc}\p{Zl}\p{Zp}]/gu;
+
 // The label a hidden character is reported under, by `add` and `lint` alike.
 export function hiddenCharacterLabel(hidden: HiddenCharacter): string {
   if (hidden.kind === "html-comment") return "an HTML comment";
+
+  const char = String.fromCodePoint(hidden.codePoint);
   const hex = `U+${hidden.codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
-  return `${hex} ${HIDDEN_LABELS.get(hidden.codePoint) ?? `${hidden.kind} character`}`;
+  const named =
+    ZERO_WIDTH_LABELS.get(hidden.codePoint) ??
+    HIDDEN_LABELS.find(([shape]) => shape.test(char))?.[1];
+  return `${hex} ${named ?? `${hidden.kind} character`}`;
 }
 
-// The Bidi_Control marks outside the two embedding ranges: ALM, LRM and RLM.
-const BIDI_MARKS = new Set([0x061c, 0x200e, 0x200f]);
+function classify(char: string): HiddenCodePointKind {
+  const codePoint = char.codePointAt(0);
+  if (codePoint !== undefined && ZERO_WIDTH_LABELS.has(codePoint)) return "zero-width";
+  if (BIDI.test(char)) return "bidi";
+  if (codePoint === ESCAPE) return "ansi";
+  if (CONTROL.test(char)) return "control";
+  return "invisible";
+}
 
 // A description reaches the always-loaded layer of every session, so text that renders as nothing
 // (or reorders what renders) is where an injected instruction would hide. This only REPORTS; the
 // caller decides whether to refuse, since the contract is a parser, not a policy. It runs over
 // whole files too, so the three whitespace controls a file is made of (tab, LF, CR) are text.
+//
+// The classes are the regex engine's own Unicode properties, so a code point a later Unicode
+// version makes ignorable is reported once the runtime knows it.
 export function hiddenCharacters(text: string): HiddenCharacter[] {
   const found: HiddenCharacter[] = [];
-  let index = 0;
-  for (const char of text) {
-    const codePoint = char.codePointAt(0) ?? 0;
-    const kind = classify(codePoint);
-    if (kind !== null) found.push({ kind, codePoint, index });
-    if (char === "<" && text.startsWith("<!--", index)) found.push({ kind: "html-comment", index });
-    index += char.length;
+  for (const match of text.matchAll(HIDDEN)) {
+    const char = match[0];
+    if (char === "<!--") {
+      found.push({ kind: "html-comment", index: match.index });
+      continue;
+    }
+    if (FILE_WHITESPACE.includes(char)) continue;
+
+    found.push({ kind: classify(char), codePoint: char.codePointAt(0) ?? 0, index: match.index });
   }
   return found;
-}
-
-function classify(codePoint: number): HiddenCodePointKind | null {
-  if (ZERO_WIDTH.has(codePoint)) return "zero-width";
-  if (BIDI_MARKS.has(codePoint)) return "bidi";
-  if (
-    (codePoint >= 0x202a && codePoint <= 0x202e) ||
-    (codePoint >= 0x2066 && codePoint <= 0x2069)
-  ) {
-    return "bidi";
-  }
-  if (codePoint === 0x1b) return "ansi";
-  if (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d) return null;
-  if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)) return "control";
-  return null;
 }

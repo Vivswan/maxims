@@ -24,7 +24,7 @@ Each entry below is one entry point: the scenario first, then the mitigation, th
 - **Supply chain of maxims itself.** The unpinned `npx -y @vivswan/maxims` in a hook runs whatever npm serves. Accepted deliberately, because a pinned hook never gets fixes. Dependencies are pinned and bundled, so the dependencies are reviewed once per upgrade; `writtenBy` in state makes a bad release bisectable from a user's machine.
 - **The MCP stub.** A server maxims registers is a process the harness spawns and talks to. It exposes zero tools and its only behavior is one sync at process start; it is spawned over stdio, never a network listener. Guard: a test that the tool list is empty.
 - **Context exhaustion.** A source adds 400 memories and the rule file swamps the window. The [rule cap](keep-fresh.md#the-cap-and-the-cooldown) refuses the install outright. Guard: a fixture of 26 memories asserting exit 8 and an unchanged rule file.
-- **Hidden characters.** A description carries a zero-width, bidi, or ANSI sequence, or an HTML comment, so the plan a reviewer confirms is not the text that lands. The [hidden-character rule](write-memories.md#hidden-characters-are-refused) refuses the install, exit 3, unless `--allow-hidden`. Guard: a fixture with one memory per character class asserting exit 3 and nothing written.
+- **Hidden characters.** A description carries a zero-width, tag, bidi, or other invisible character, an ANSI sequence, or an HTML comment, so the plan a reviewer confirms is not the text that lands. The [hidden-character rule](write-memories.md#hidden-characters-are-refused) refuses the install, exit 3, unless `--allow-hidden`. Guard: a fixture with one memory per character class asserting exit 3 and nothing written.
 - **Telemetry.** `skills` has a `--metadata` flag for install telemetry. maxims ships no telemetry and no analog flag; `add` reads sources and writes local files, and nothing is uploaded anywhere.
 
 ## Where personal text can leak
@@ -49,13 +49,14 @@ They are advisory: the install proceeds unless `--strict` turns any warning into
 | kind             | what it names                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------ |
 | `shell-pipe`     | a fetch piped into a shell or interpreter, or its PowerShell equivalents                   |
-| `url`            | any `http` or `https` URL, with the host a browser would resolve it to                     |
+| `url`            | any `http`, `https`, or `ftp` URL, with the host a browser would resolve it to             |
 | `override`       | an instruction-override phrase such as "ignore all previous instructions" or "you are now" |
-| `mixed-script`   | a word mixing Latin with Cyrillic, Greek, or Armenian letters, the homoglyph shape         |
+| `mixed-script`   | a word mixing Latin with another script's letters, or spelled with a look-alike form       |
 | `encoded-blob`   | a long base64-like or hex run, a payload hidden in prose                                   |
 | `sensitive-path` | a path such as `~/.ssh`, `/etc/shadow`, `.env`, or `credentials`                           |
 | `secret-shape`   | a GitHub, OpenAI, AWS, Slack, or Google key, or a PEM private key header                   |
 - **`shell-pipe`** covers `curl`, `wget`, and `iwr` piped into a shell or interpreter, an encoded PowerShell command, and a fetched script inside `$(...)`.
+- **`mixed-script`** covers a Cyrillic, Greek, Cherokee, or any other script's letter inside a Latin word, and a letter Unicode's NFKC form rewrites: a fullwidth `p`, a mathematical bold `a`, the Kelvin sign. Han, Hiragana, Katakana, and Hangul joined to Latin do not warn, and neither does an accent typed as a combining mark.
 
 ## Two things that are not mitigations
 

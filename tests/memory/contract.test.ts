@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type ContentHash,
   type HiddenCharacter,
+  hiddenCharacterLabel,
   hiddenCharacters,
   type Memory,
   type MemoryMetadata,
@@ -326,5 +327,41 @@ describe("hiddenCharacters", () => {
   ];
   test.each(cases)("%s", (_, text, expected) => {
     expect(hiddenCharacters(text)).toEqual(expected);
+  });
+
+  // Each row is a carrier a hand-kept list missed: text that renders as nothing in the one-liner every session loads.
+  const carriers: [string, number, string][] = [
+    ["tag character, the ASCII smuggling carrier", 0xe0041, "U+E0041 tag character"],
+    ["soft hyphen", 0x00ad, "U+00AD soft hyphen"],
+    ["mongolian vowel separator", 0x180e, "U+180E invisible character"],
+    ["invisible times", 0x2062, "U+2062 invisible character"],
+    ["hangul filler", 0x3164, "U+3164 invisible character"],
+    ["deprecated format control", 0x206a, "U+206A invisible character"],
+    ["emoji variation selector", 0xfe0f, "U+FE0F variation selector"],
+    ["ideographic variation selector", 0xe0100, "U+E0100 variation selector"],
+    ["line separator", 0x2028, "U+2028 line separator"],
+    ["paragraph separator", 0x2029, "U+2029 paragraph separator"],
+  ];
+  test.each(carriers)("reports a %s", (_, codePoint, label) => {
+    const found = hiddenCharacters(`Review first.${String.fromCodePoint(codePoint)}`);
+    expect(found.map(hiddenCharacterLabel)).toEqual([label]);
+    expect(found[0]?.index).toBe(13);
+  });
+
+  // The labels `add` and `lint` print for the classes that predate the Unicode property classes; a golden text reads them.
+  const kept: [number, string][] = [
+    [0x061c, "U+061C bidi character"],
+    [0x200e, "U+200E bidi character"],
+    [0x202a, "U+202A bidi character"],
+    [0x2069, "U+2069 bidi character"],
+    [0x0007, "U+0007 control character"],
+    [0x007f, "U+007F control character"],
+    [0x009f, "U+009F control character"],
+    [0x001b, "U+001B ansi character"],
+  ];
+  test.each(kept)("keeps the label of U+%s", (codePoint, label) => {
+    expect(hiddenCharacters(String.fromCodePoint(codePoint)).map(hiddenCharacterLabel)).toEqual([
+      label,
+    ]);
   });
 });

@@ -55,13 +55,16 @@ Two files are reserved and are never memories, skipped by name with no warning: 
 
 A memory carrying a character the reader cannot see fails the whole install, because the plan shown at `add` is the review gate and a hidden instruction passes it unseen. The check runs over the whole file, frontmatter and body.
 
-| refused                                                                                            | why                                                                          |
-| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`)                                   | invisible in a terminal, so a one-liner can differ from what the plan showed |
-| bidi control characters (`U+061C`, `U+200E`, `U+200F`, `U+202A` to `U+202E`, `U+2066` to `U+2069`) | reorder what a reader sees, so displayed text and stored text disagree       |
-| control characters (`U+0000` to `U+001F` except tab, `U+007F` to `U+009F`)                         | a terminal prints nothing or moves the cursor, so file and display disagree  |
-| ANSI escape sequences                                                                              | a terminal executes them while printing the plan                             |
-| HTML comments                                                                                      | invisible in a rendered rule file, and the block markers are HTML comments   |
+| refused                                                                                                               | why                                                                          |
+| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| zero-width characters (`U+200B` to `U+200D`, `U+2060`, `U+FEFF`)                                                      | invisible in a terminal, so a one-liner can differ from what the plan showed |
+| any other Default_Ignorable code point: tag characters (`U+E0000` to `U+E007F`), variation selectors, the soft hyphen | renders as nothing, so an instruction can ride unseen behind the text        |
+| bidi control characters (`U+061C`, `U+200E`, `U+200F`, `U+202A` to `U+202E`, `U+2066` to `U+2069`)                    | reorder what a reader sees, so displayed text and stored text disagree       |
+| control characters (`U+0000` to `U+001F` except tab, LF, CR; `U+007F` to `U+009F`, `U+2028`, `U+2029`)                | a terminal prints nothing or moves the cursor, so file and display disagree  |
+| ANSI escape sequences                                                                                                 | a terminal executes them while printing the plan                             |
+| HTML comments                                                                                                         | invisible in a rendered rule file, and the block markers are HTML comments   |
+
+The classes are Unicode's own properties as the runtime knows them, not a list kept here. An emoji that carries `U+FE0F` or a zero-width joiner is refused with the rest.
 
 The refusal is exit 3, nothing written, with the file and the character named. `--allow-hidden` on `add` installs the source anyway; the [flag table](cli.md#flags) owns it. Unlike a contract failure, this is not a per-file skip, because an unseen instruction is the failure the gate exists to catch.
 
