@@ -612,16 +612,31 @@ export function sshCommand(env: NodeJS.ProcessEnv, configured?: string): string 
   return `${command.slice(0, end)} -o BatchMode=yes${command.slice(end)}`;
 }
 
-// Where the ssh program word ends, past what sh allows ahead of a command name: `NAME=value`
-// assignments, `exec`, and `env`. An option after one of those (`env -i`) is not followed.
+type CommandWord = "skip" | "env" | "program" | "stop";
+
+// What a word at the head of a command line is. sh reads an assignment only as spelled, unquoted;
+// `env` reads its arguments after sh has unquoted them, and takes any that holds `=`.
+//   stop   an option of env, or an assignment sh may still expand into several words
+function commandWord(word: { raw: string; text: string }, afterEnv: boolean): CommandWord {
+  if (!afterEnv && SHELL_ASSIGNMENT.test(word.raw)) return "skip";
+  if (afterEnv && word.text.startsWith("-")) return "stop";
+  if (afterEnv && word.text.includes("=")) return /[$`*?[]/.test(word.raw) ? "stop" : "skip";
+  if (ENV_PROGRAM.test(word.text)) return "env";
+  return !afterEnv && word.text === "exec" ? "skip" : "program";
+}
+
+// Where the ssh program word ends, past the assignments, `exec` and `env` that may precede it.
+// Anything this cannot follow leaves the command as written.
 function sshProgramEnd(command: string): number | undefined {
   let start = /^[ \t]*/.exec(command)?.[0].length ?? 0;
+  let afterEnv = false;
   for (;;) {
     const word = shellWordAt(command, start);
     const end = start + word.raw.length;
-    const prefix =
-      SHELL_ASSIGNMENT.test(word.raw) || word.text === "exec" || ENV_PROGRAM.test(word.text);
-    if (!prefix) return SSH_PROGRAM.test(word.text) ? end : undefined;
+    const kind = commandWord(word, afterEnv);
+    if (kind === "stop") return undefined;
+    if (kind === "program") return SSH_PROGRAM.test(word.text) ? end : undefined;
+    afterEnv ||= kind === "env";
     const gap = /^[ \t]+/.exec(command.slice(end))?.[0].length ?? 0;
     if (gap === 0) return undefined;
     start = end + gap;

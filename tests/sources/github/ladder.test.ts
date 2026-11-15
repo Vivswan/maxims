@@ -1157,6 +1157,48 @@ describe("git rung against a file:// fixture repo", () => {
       "FOO=/usr/bin/ssh fixture-wrapper --",
     ],
     [
+      "a quoted assignment after env is env's own, however its value ends",
+      {},
+      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
+      "env 'FOO=/usr/bin/ssh' /bin/echo OK",
+    ],
+    [
+      "ssh after env's quoted assignment is still the program",
+      {},
+      "env 'FOO=a b' ssh -i key",
+      "env 'FOO=a b' ssh -o BatchMode=yes -i key",
+    ],
+    [
+      "an option of env that holds = is not an assignment",
+      {},
+      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
+      "env -S'FOO=1 /usr/bin/wc' /usr/bin/ssh",
+    ],
+    [
+      "a quoted option of env is still an option",
+      {},
+      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
+      "env '-SFOO=1 /usr/bin/wc' /usr/bin/ssh",
+    ],
+    [
+      "an env assignment sh may still expand is never the program",
+      {},
+      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
+      "env FOO=$BAR/usr/bin/ssh /bin/echo OK",
+    ],
+    [
+      "an env assignment sh may still split is not followed",
+      {},
+      "env 'FOO='$BAR /usr/bin/ssh",
+      "env 'FOO='$BAR /usr/bin/ssh",
+    ],
+    [
+      "an assignment whose value ends in env does not start env's arguments",
+      {},
+      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -i key",
+      "FOO=/usr/bin/env 'BAR=/usr/bin/ssh' -o BatchMode=yes -i key",
+    ],
+    [
       "a second command after an assignment is left alone",
       {},
       "FOO=1;ssh -i key",
