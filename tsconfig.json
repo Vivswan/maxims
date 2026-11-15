@@ -10,11 +10,5 @@
     "verbatimModuleSyntax": true,
     "types": ["bun"]
   },
-  "include": [
-    "src/**/*.ts",
-    "scripts/**/*.ts",
-    "scripts/**/*.mts",
-    "tests/**/*.ts",
-    ".github/scripts/**/*.ts"
-  ]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "tests/**/*.ts"]
 }
