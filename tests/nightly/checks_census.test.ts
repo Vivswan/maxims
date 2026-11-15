@@ -20,10 +20,21 @@ const chained = scripts.check.split("&&").map((link) => {
   return match[1];
 });
 
+const gates = (script: string): string[] =>
+  script
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .flatMap((line) => [...line.matchAll(/\bbun run (\S+)/g)].flatMap((match) => match[1] ?? []));
+
 const gated = Object.values(workflow.jobs)
   .flatMap((job) => job.steps)
-  .flatMap((step) => [...(step.run ?? "").matchAll(/\bbun run (\S+)/g)].map((m) => m[1]));
+  .flatMap((step) => gates(step.run ?? ""));
 
 test("bun run check and checks.yml gate the same scripts", () => {
   expect([...new Set(chained)].sort()).toEqual([...new Set(gated)].sort());
+});
+
+// Without this, a gate retired from a step but still named in a comment beside it counts as running.
+test("a commented line of a step's script is not a gate", () => {
+  expect(gates("# bun run retired-gate was moved\nbun run lint")).toEqual(["lint"]);
 });
