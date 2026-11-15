@@ -95,9 +95,14 @@ export type Memory = {
   contentHash: ContentHash;
 };
 
-// Every line is 1-based in the file as authored, so `path:line` opens an editor on the problem.
-// A problem with no place of its own (the filename, a missing fence, an absent key) is line 1.
 export type ParsedMemory =
+  | { ok: true; memory: Memory; warning?: string }
+  | { ok: false; reason: string };
+
+// A parsed memory with the file lines `lint` prints. Every line is 1-based in the file as
+// authored, so `path:line` opens an editor on the problem. A problem with no place of its own
+// (the filename, a missing fence, an absent key) is line 1.
+export type PlacedMemory =
   | ({ ok: true; memory: Memory; descriptionLine: number } & MemoryWarning)
   | { ok: false; reason: string; line: number };
 
@@ -119,7 +124,7 @@ const OPENING_FENCE_LINES = 1;
 // A source file can carry anything YAML can express, and a file that fails the contract is
 // skipped with a reason, never fatal; the outer catch makes that promise hold for inputs the
 // row-by-row checks did not anticipate.
-export function parseMemory(filename: string, text: string): ParsedMemory {
+export function parseMemoryWithLines(filename: string, text: string): PlacedMemory {
   try {
     return parseMemoryChecked(filename, text);
   } catch (error) {
@@ -127,7 +132,16 @@ export function parseMemory(filename: string, text: string): ParsedMemory {
   }
 }
 
-function parseMemoryChecked(filename: string, text: string): ParsedMemory {
+// What every reader but `lint` needs: the memory or the reason, without the lines.
+export function parseMemory(filename: string, text: string): ParsedMemory {
+  const placed = parseMemoryWithLines(filename, text);
+  if (!placed.ok) return { ok: false, reason: placed.reason };
+  if (placed.warning === undefined) return { ok: true, memory: placed.memory };
+
+  return { ok: true, memory: placed.memory, warning: placed.warning };
+}
+
+function parseMemoryChecked(filename: string, text: string): PlacedMemory {
   const file = basename(filename);
   if (isReservedFile(file)) return { ok: false, reason: `${file} is reserved`, line: 1 };
   const stem = memoryStem(file);

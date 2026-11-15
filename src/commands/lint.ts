@@ -13,7 +13,7 @@ import {
   hiddenCharacters,
   isMemoryFile,
   type Memory,
-  parseMemory,
+  parseMemoryWithLines,
 } from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
@@ -71,7 +71,7 @@ type LintedMemory = { memory: Memory; path: string };
 
 function lintFile(file: string, path: string): { problems: LintProblem[]; memory: Memory | null } {
   const text = readOrRefuse(file, () => readFileSync(file, "utf8"));
-  const parsed = parseMemory(file, text);
+  const parsed = parseMemoryWithLines(file, text);
   if (!parsed.ok) {
     return { problems: [{ path, line: parsed.line, reason: parsed.reason }], memory: null };
   }

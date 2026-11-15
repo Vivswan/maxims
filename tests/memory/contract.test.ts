@@ -11,6 +11,7 @@ import {
   parseContentHash,
   parseMemory,
   parseMemoryName,
+  parseMemoryWithLines,
   splitFrontmatter,
 } from "../../src/memory/contract.ts";
 
@@ -130,7 +131,7 @@ describe("parseMemory", () => {
     },
   ];
   test.each(accepted)("accepts: $title", ({ filename, text, memory }) => {
-    expect(parseMemory(filename, text)).toEqual({ ok: true, memory, descriptionLine: 3 });
+    expect(parseMemory(filename, text)).toEqual({ ok: true, memory });
   });
 
   // An unknown `type` or a non-boolean `internal` is kept in `extra` with a warning rather than
@@ -357,13 +358,13 @@ describe("parseMemory", () => {
     },
   ];
   test.each(placed)("places a refusal: $title", ({ text, reason, line }) => {
-    expect(parseMemory("rule.md", text)).toEqual({ ok: false, reason, line });
+    expect(parseMemoryWithLines("rule.md", text)).toEqual({ ok: false, reason, line });
   });
 
   test("a warning is placed on the first key it names, and the description on its own key", () => {
     const text =
       "---\nname: rule\nmetadata:\n  internal: soon\n  type: chore\ndescription: fine\n---\n";
-    expect(parseMemory("rule.md", text)).toMatchObject({
+    expect(parseMemoryWithLines("rule.md", text)).toMatchObject({
       warning:
         'metadata.type "chore" is not one of user, feedback, project, reference; metadata.internal "soon" is not a boolean',
       warningLine: 5,
