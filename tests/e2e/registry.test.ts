@@ -20,6 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, sep } from "node:path";
+import { getNodeValue } from "jsonc-parser";
 import { util } from "zod";
 import { targetPath } from "../../src/commands/frame/lookup.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
@@ -38,6 +39,7 @@ import { HARNESSES } from "../../src/harnesses/registry.ts";
 import type { Destination } from "../../src/state/schema.ts";
 import type { Change } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
+import { assertParses } from "../../src/util/jsonc.ts";
 import { gitInit } from "../shared/git_fixture.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
 import {
@@ -123,12 +125,9 @@ type Handler = Record<string, unknown>;
 
 // The event list as the file spells it: the groups of a grouped registry, else the handlers.
 function eventEntries(hook: RegistryHook, text: string): unknown[] {
-  let node: unknown = JSON.parse(text);
-  for (const key of hook.eventPath) {
-    if (!util.isObject(node)) return [];
-    node = node[key];
-  }
-  return Array.isArray(node) ? node : [];
+  const root = getNodeValue(assertParses(text, "the hook registry"));
+  const entries = util.getElementAtPath(root, [...hook.eventPath]);
+  return Array.isArray(entries) ? entries : [];
 }
 
 function groupHandlers(group: unknown): Handler[] {
@@ -252,7 +251,8 @@ async function expectHookGone(
 // The servers map as the file spells it, in file order, so the stub entry shows as the one
 // addition to what the user had.
 function serverEntries(def: HarnessDefinition, text: string): [string, unknown][] {
-  const servers = util.getElementAtPath(JSON.parse(text), [...(def.mcp?.serversPath ?? [])]);
+  const root = getNodeValue(assertParses(text, "the servers file"));
+  const servers = util.getElementAtPath(root, [...(def.mcp?.serversPath ?? [])]);
   return util.isObject(servers) ? Object.entries(servers) : [];
 }
 

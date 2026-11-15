@@ -5,18 +5,18 @@
 // is chosen from the bytes a real harness writes to stdin and reaches stdout through node.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { HarnessDefinition, HookStdout } from "../../src/harnesses/contract.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
 import { serializeState } from "../../src/state/store.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
+import { expectGolden } from "../shared/golden.ts";
 import { launcherHome } from "../shared/temp_dir.ts";
 import { type Bundle, buildBundle, type Home, makeHome, runMaxims } from "./binary.ts";
 import { fixtureRepo, harnessFixture, hookPayload } from "./fixtures.ts";
 
-const GOLDEN = resolve(import.meta.dir, "..", "fixtures", "golden");
 const LAST_GOOD = "2026-01-01T00:00:00.000Z";
 
 let bundleDir = "";
@@ -75,7 +75,7 @@ afterAll(() => {
 });
 
 function goldenName(variant: HookStdout): string {
-  return `hook-stdout-${variant.replace(":", "-")}.txt`;
+  return `hook-stdout-${variant.replace(":", "-")}`;
 }
 
 // A file hook or a registry hook declares how its harness reads stdout; a custom hook and a
@@ -97,8 +97,6 @@ const rows: Row[] = [
   ["no stdin at all", "plain", undefined],
 ];
 
-// MAXIMS_UPDATE_GOLDEN=1 rewrites the fixtures from the current output; the diff is then reviewed
-// like any other change to what a harness receives.
 test.each(rows)("stdin from %s yields the %s shape on stdout", async (_label, variant, stdin) => {
   rmSync(homePaths(home.maximsHome).lastSync, { force: true });
   const started = Date.now();
@@ -118,7 +116,5 @@ test.each(rows)("stdin from %s yields the %s shape on stdout", async (_label, va
     expect(actual).toBe("");
     return;
   }
-  const golden = join(GOLDEN, goldenName(variant));
-  if (process.env.MAXIMS_UPDATE_GOLDEN === "1") writeFileSync(golden, actual);
-  expect(actual).toBe(readFileSync(golden, "utf8"));
+  expectGolden(goldenName(variant), actual);
 });

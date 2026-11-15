@@ -10,7 +10,7 @@ import { tmpdirEnv, withTempDir } from "../shared/temp_dir.ts";
 const repoRoot = resolve(import.meta.dir, "..", "..");
 
 function run(script: string, args: string[], dir: string) {
-  return Bun.spawnSync(["bun", join(repoRoot, script), ...args], {
+  return Bun.spawnSync([process.execPath, join(repoRoot, script), ...args], {
     cwd: dir,
     env: { ...process.env, ...tmpdirEnv(dir) },
     stdout: "pipe",
@@ -25,7 +25,7 @@ function markingChild(dir: string, ...extra: string[]): string[] {
     child,
     `require("node:fs").writeFileSync(${JSON.stringify(join(dir, "ran"))}, "");\n`,
   );
-  return ["bun", child, ...extra];
+  return [process.execPath, child, ...extra];
 }
 
 const repeated: [script: string, flag: string, args: (dir: string) => string[]][] = [

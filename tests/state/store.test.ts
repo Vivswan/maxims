@@ -10,7 +10,6 @@ import {
   readdirSync,
   readFileSync,
   statSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -30,6 +29,7 @@ import {
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import { homePaths } from "../../src/util/home.ts";
 import { memoryName } from "../engine/fakes.ts";
+import { writeLockFile } from "../shared/lock_file.ts";
 import { WINDOWS } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { withTempHome } from "../shared/temp_dir.ts";
@@ -175,16 +175,6 @@ function concurrentWriterLadder(
     }
     return up(json);
   });
-}
-
-// Staleness is the lock file's age, so a stale fixture backdates the file's mtime along with the
-// record; a record alone, however old, is refused as a live holder's lock.
-function holdLock(home: string, holder: Record<string, unknown>, ageMs = 0): string {
-  const lockPath = homePaths(home).lock;
-  writeFileSync(lockPath, `${JSON.stringify(holder)}\n`);
-  const then = new Date(Date.now() - ageMs);
-  utimesSync(lockPath, then, then);
-  return lockPath;
 }
 
 // A manual-mode holder that signals when its callback is running, so a contender started after
@@ -506,7 +496,8 @@ describe("withStateLock", () => {
 
   test("hook mode: a held lock is skipped at once with the holder's command line, and left in place", async () => {
     await withTempHome(async (home) => {
-      const lockPath = holdLock(home, {
+      const lockPath = homePaths(home).lock;
+      writeLockFile(lockPath, {
         pid: process.pid,
         host: "example.com",
         startedAt: new Date().toISOString(),
@@ -529,8 +520,9 @@ describe("withStateLock", () => {
   test("a stale lock from a dead holder is stolen, the theft reported, and the callback runs", async () => {
     await withTempHome(async (home) => {
       const startedAt = new Date(Date.now() - 120_000).toISOString();
-      const lockPath = holdLock(
-        home,
+      const lockPath = homePaths(home).lock;
+      writeLockFile(
+        lockPath,
         { pid: 999_999, host: "example.com", startedAt, argv: ["maxims", "sync"] },
         120_000,
       );

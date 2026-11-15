@@ -66,7 +66,7 @@ describe("writeStepSummary", () => {
     const script =
       'import { writeStepSummary } from "./scripts/nightly/report.ts";' +
       `writeStepSummary("## nightly\\n", ${JSON.stringify(env)});`;
-    const proc = Bun.spawnSync(["bun", "-e", script], {
+    const proc = Bun.spawnSync([process.execPath, "-e", script], {
       cwd: repoRoot,
       stdout: "pipe",
       stderr: "pipe",
@@ -89,7 +89,7 @@ test("a pass outcome prints its summary to the log ahead of the status line and 
     const script =
       'import { announce } from "./scripts/nightly.ts";' +
       'announce("harness-drift", { status: "pass", summary: "## Harness drift\\n\\nno drift\\n" }, process.env);';
-    const proc = Bun.spawnSync(["bun", "-e", script], {
+    const proc = Bun.spawnSync([process.execPath, "-e", script], {
       cwd: repoRoot,
       env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
       stdout: "pipe",
@@ -133,7 +133,7 @@ test.each(failBodies)(
     const script =
       'import { announce } from "./scripts/nightly.ts";' +
       `announce("harness-drift", ${JSON.stringify(outcome)}, {});`;
-    const proc = Bun.spawnSync(["bun", "-e", script], {
+    const proc = Bun.spawnSync([process.execPath, "-e", script], {
       cwd: repoRoot,
       env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
       stdout: "pipe",
@@ -156,7 +156,7 @@ const USAGE =
   `categories: ${CATEGORIES.join(" | ")}\n`;
 
 function runNightly(args: string[]) {
-  return Bun.spawnSync(["bun", "scripts/nightly.ts", ...args], {
+  return Bun.spawnSync([process.execPath, "scripts/nightly.ts", ...args], {
     cwd: repoRoot,
     stdout: "pipe",
     stderr: "pipe",
@@ -205,7 +205,7 @@ test.skipIf(WINDOWS)(
       for (const tool of ["bun", "git"]) symlinkSync(Bun.which(tool) ?? "", join(bin, tool));
       const reportDir = join(dir, "nightly-report");
       const proc = Bun.spawnSync(
-        ["bun", "scripts/nightly.ts", "live-network", "--report-dir", reportDir],
+        [process.execPath, "scripts/nightly.ts", "live-network", "--report-dir", reportDir],
         {
           cwd: repoRoot,
           env: { ...process.env, PATH: bin, GITHUB_STEP_SUMMARY: "" },
