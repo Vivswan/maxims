@@ -9,7 +9,7 @@ The lookup page for `npx -y @vivswan/maxims`: every verb, every flag, and every 
 
 The npm package is `@vivswan/maxims`; the binary it installs is `maxims`. Command shapes mirror `npx skills`, same flags, same short forms, same prompts, so a person running both never remembers two spellings.
 
-The `next` dist-tag carries a pre-release built from main. A `next` build appears when a merge changes what the package ships (the bundled code, its dependencies, the README, the license), not on every merge.
+The `next` dist-tag carries a pre-release built from main. A `next` build appears when a merge refreshes the release pull request, so only a commit the next release's changelog carries (a `feat` or a `fix`, for example) moves it, not every merge. A release publishes `latest` and moves `next` to it, so `next` is never older than `latest`.
 
 ## Verbs
 
