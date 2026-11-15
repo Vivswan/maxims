@@ -2,40 +2,18 @@
 // history, dependencies, or build output into the work tree, if the dependency link moves, or if
 // a file the copy cannot read stops being a failure that leaves the work tree empty.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { WINDOWS } from "../shared/platform.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
+import { type TreeEntry, walkTree } from "../shared/tree.ts";
 import { REPO_ROOT } from "./runner.ts";
 
 const ENTRYPOINT = join(REPO_ROOT, "tests", "container", "entrypoint.sh");
 const HOST_FILES = [".env", ".claude/x", ".git/HEAD", "node_modules/x", "dist/x", "src/y"];
 const HANDOFF = "handed-off\n";
 
-type Entry =
-  | { path: string; kind: "file" }
-  | { path: string; kind: "dir" }
-  | { path: string; kind: "symlink"; target: string };
-
-type Outcome = { ok: boolean; stdout: string; work: Entry[] };
-
-function walk(dir: string, prefix = ""): Entry[] {
-  const entries: Entry[] = [];
-  for (const name of readdirSync(dir).sort()) {
-    const path = join(dir, name);
-    const relative = prefix === "" ? name : `${prefix}/${name}`;
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) {
-      entries.push({ path: relative, kind: "symlink", target: readlinkSync(path) });
-    } else if (stat.isDirectory()) {
-      entries.push({ path: relative, kind: "dir" });
-      for (const entry of walk(path, relative)) entries.push(entry);
-    } else {
-      entries.push({ path: relative, kind: "file" });
-    }
-  }
-  return entries;
-}
+type Outcome = { ok: boolean; stdout: string; work: TreeEntry[] };
 
 // TMPDIR points into the fixture so the archive a failed copy leaves behind goes with it.
 function runCopy(arrange: (repo: string) => void): Promise<Outcome> {
@@ -59,7 +37,7 @@ function runCopy(arrange: (repo: string) => void): Promise<Outcome> {
       stdout: "pipe",
       stderr: "pipe",
     });
-    return { ok: proc.exitCode === 0, stdout: proc.stdout.toString(), work: walk(work) };
+    return { ok: proc.exitCode === 0, stdout: proc.stdout.toString(), work: walkTree(work) };
   });
 }
 

@@ -24,13 +24,15 @@ import { HOOK_COMMAND, hookSpecFor } from "../../src/harnesses/contract.ts";
 import { hasHook } from "../../src/harnesses/hook-writer.ts";
 import { HARNESSES } from "../../src/harnesses/registry.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
-import { parseState, type SourceEntry, type State } from "../../src/state/schema.ts";
+import type { SourceEntry, State } from "../../src/state/schema.ts";
 import { serializeState } from "../../src/state/store.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { withLock } from "../../src/util/lock.ts";
+import { readStateFile } from "../shared/state_file.ts";
 import { withTempDir } from "../shared/temp_dir.ts";
+import { daysAgo } from "../shared/time.ts";
 import { type Bundle, buildBundle, type Home, makeHome, type Run, runMaxims } from "./binary.ts";
 import {
   CLAUDE_SETTINGS,
@@ -74,12 +76,6 @@ function ok(run: Run): Run {
   return run;
 }
 
-function readState(home: Home): State {
-  const parsed = parseState(JSON.parse(readFileSync(homePaths(home.maximsHome).state, "utf8")));
-  if (parsed.ok !== "parsed") throw new Error(`state.json: ${JSON.stringify(parsed)}`);
-  return parsed.state;
-}
-
 function writeState(home: Home, state: State): void {
   writeFileSync(homePaths(home.maximsHome).state, serializeState(state));
 }
@@ -89,10 +85,6 @@ function onlyEntry(state: State): [string, SourceEntry] {
   const [entry] = entries;
   if (entries.length !== 1 || entry === undefined) throw new Error("expected one source in state");
   return entry;
-}
-
-function daysAgo(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 // The entry rewritten with a fetch record that says its last success was `at` and, when asked,
@@ -206,7 +198,7 @@ test("2: add installs a real rule file, one hook per registry and intent-only st
       expect(registry).toEqual(JSON.parse(fixture));
     }
 
-    const state = readState(home);
+    const state = readStateFile(home.maximsHome);
     expect(state.hooks).toEqual({ global: ["claude-code", "codex"] });
     const [key, entry] = onlyEntry(state);
     expect(key).toBe(installed.source);
@@ -258,9 +250,9 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
     const ruleBefore = readFileSync(installed.ruleFile, "utf8");
     const ruleLines = ruleBefore.split("\n").filter((line) => line.startsWith("- "));
     renameSync(installed.source, `${installed.source}.gone`);
-    const state = readState(home);
+    const state = readStateFile(home.maximsHome);
     const [key, entry] = onlyEntry(state);
-    const lastSuccess = daysAgo(8);
+    const lastSuccess = daysAgo(new Date(), 8);
     writeState(home, { ...state, sources: { [key]: agedEntry(entry, lastSuccess, false) } });
     withoutStamp(home);
 
@@ -278,7 +270,7 @@ test("3b: a hook run over a vanished source keeps last-good, records missing and
     expect(ruleAfter).toContain(
       `- maxims: the rules below from ${installed.source} have not refreshed since ${lastSuccess}`,
     );
-    const [, after] = onlyEntry(readState(home));
+    const [, after] = onlyEntry(readStateFile(home.maximsHome));
     if (!("fetched" in after) || after.fetched === undefined)
       throw new Error("expected a fetched entry");
     expect(after.fetched.lastError?.kind).toBe("missing");
@@ -338,7 +330,7 @@ test("4: remove takes back the rule file, the block, both registry entries and t
     expect(existsSync(store)).toBe(false);
     expect(readFileSync(installed.registries.claude, "utf8")).toBe(CLAUDE_SETTINGS);
     expect(readFileSync(installed.registries.codex, "utf8")).toBe(CODEX_HOOKS);
-    const state = readState(home);
+    const state = readStateFile(home.maximsHome);
     expect({ sources: state.sources, hooks: state.hooks }).toEqual({
       sources: {},
       hooks: undefined,
@@ -354,9 +346,12 @@ test("5: list --json is one document showing the rename and the stale source", a
       "commit-small-and-often=small-commits",
     ]);
     ok(installed.run);
-    const state = readState(home);
+    const state = readStateFile(home.maximsHome);
     const [key, entry] = onlyEntry(state);
-    writeState(home, { ...state, sources: { [key]: agedEntry(entry, daysAgo(8), true) } });
+    writeState(home, {
+      ...state,
+      sources: { [key]: agedEntry(entry, daysAgo(new Date(), 8), true) },
+    });
     const run = ok(await runMaxims(bundle, home, ["list", "--json"]));
     const report = JSON.parse(run.stdout) as {
       sources: {
@@ -435,7 +430,7 @@ test("7: a project install writes under the project and nothing under the user h
       const link = join(bodies, `${name}.md`);
       expect(resolve(bodies, readlinkSync(link))).toBe(join(store, "memories", `${name}.md`));
     }
-    const [, entry] = onlyEntry(readState(home));
+    const [, entry] = onlyEntry(readStateFile(home.maximsHome));
     expect(entry.intent.destination).toEqual({
       scope: "project",
       root: realpathSync(home.project),

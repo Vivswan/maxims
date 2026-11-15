@@ -16,14 +16,15 @@ import { dirname, join } from "node:path";
 import { util } from "zod";
 import type { BuiltInHarnessId } from "../../src/contracts/harness-id.ts";
 import { HOOK_COMMAND } from "../../src/harnesses/contract.ts";
-import { REPO_ROOT } from "../container/runner.ts";
 import {
   HARNESS_SMOKE_CLIS,
   HARNESS_SMOKE_SUITE,
   type HarnessSmokeCli,
   inContainerTier,
 } from "../container/tier.ts";
+import { memoryFile } from "../shared/memory_file.ts";
 import { WINDOWS } from "../shared/platform.ts";
+import { buildBundle } from "./binary.ts";
 import { type CapturedRequest, startFakeLlm, type Wire, wireFor } from "./fake-llm.ts";
 
 const PROMPT = "Reply with the single word ok.";
@@ -317,27 +318,10 @@ beforeAll(() => {
   if (node === null) throw new Error("node is required: the published bundle targets node");
   const root = mkdtempSync(join(launcherHome, "maxims-smoke-"));
   try {
-    const bundle = join(root, "cli.js");
-    const build = Bun.spawnSync(
-      [
-        process.execPath,
-        join(REPO_ROOT, "scripts", "build.ts"),
-        "--outfile",
-        bundle,
-        "--size-json",
-        join(root, "size.json"),
-      ],
-      { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
-    );
-    if (build.exitCode !== 0) {
-      throw new Error(`bundle build failed: ${build.stderr.toString()}${build.stdout.toString()}`);
-    }
-    // The published package declares its module type beside the bundle; without it an older
-    // node reads the ESM bundle as CommonJS and refuses its first import.
-    writeFileSync(join(root, "package.json"), `${JSON.stringify({ type: "module" })}\n`);
+    const bundle = buildBundle(root, process.execPath);
     const stub = join(root, "stub-cli.ts");
     writeFileSync(stub, STUB_SOURCE);
-    scratch = { root, stub, entry: [node, bundle] };
+    scratch = { root, stub, entry: [node, bundle.path] };
   } catch (error) {
     rmSync(root, { recursive: true, force: true });
     throw error;
@@ -405,19 +389,12 @@ function tail(text: string): string {
   return text.length <= TAIL_CHARS ? text : `...${text.slice(-TAIL_CHARS)}`;
 }
 
-function memoryFile(nonce: string): string {
-  return [
-    "---",
-    "name: container-smoke",
-    `description: Container smoke rule ${nonce}, reply in one word`,
-    "metadata:",
-    "  node_type: memory",
-    "  type: feedback",
-    "---",
-    "",
-    "**Why:** the rule line must reach the model request of every installed harness.",
-    "",
-  ].join("\n");
+function smokeMemory(nonce: string): string {
+  return memoryFile("container-smoke", {
+    description: `Container smoke rule ${nonce}, reply in one word`,
+    type: "feedback",
+    body: "**Why:** the rule line must reach the model request of every installed harness.",
+  });
 }
 
 // One CLI run against its own fake, home and shim. The rule file and the hook registration are
@@ -441,7 +418,7 @@ async function smoke(
   const fake = startFakeLlm();
   try {
     const nonce = `maxims-smoke-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
-    writeFileSync(join(source, "memories", "container-smoke.md"), memoryFile(nonce));
+    writeFileSync(join(source, "memories", "container-smoke.md"), smokeMemory(nonce));
     writeFileSync(join(bin, "npx"), shimSource(log));
     chmodSync(join(bin, "npx"), 0o755);
     for (const [relative, content] of Object.entries(row.files?.(fake.baseUrl) ?? {})) {

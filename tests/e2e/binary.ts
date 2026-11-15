@@ -13,11 +13,12 @@ export type Bundle = { path: string; bytes: number };
 
 // The published `dist/cli.js` runs under the package's `"type": "module"`; the temp copy gets the
 // same declaration beside it. The `node` on PATH that runs it is the engines floor, Node 24.
-export function buildBundle(dir: string): Bundle {
+// `bun` is the runtime that runs the build script; a caller with no `bun` on PATH hands over its own.
+export function buildBundle(dir: string, bun = "bun"): Bundle {
   const path = join(dir, "cli.js");
   const sizeJson = join(dir, "size.json");
   writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
-  const build = Bun.spawnSync(["bun", buildScript, "--outfile", path, "--size-json", sizeJson], {
+  const build = Bun.spawnSync([bun, buildScript, "--outfile", path, "--size-json", sizeJson], {
     cwd: repoRoot,
     stdout: "pipe",
     stderr: "pipe",

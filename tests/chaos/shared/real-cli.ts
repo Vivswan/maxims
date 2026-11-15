@@ -115,5 +115,3 @@ export async function runReal(
 export function advanceClock(world: RealWorld, ms: number): void {
   world.clock.now = new Date(world.clock.now.getTime() + ms);
 }
-
-export const DAY_MS = 24 * 60 * 60 * 1000;

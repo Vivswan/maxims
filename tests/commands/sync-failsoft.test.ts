@@ -32,7 +32,6 @@ import { readIfPresent } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { PACKAGE_COMMAND } from "../../src/util/package.ts";
 import {
-  daysAgo,
   entryFor,
   FIXTURE_DIR,
   fakeIo,
@@ -41,7 +40,6 @@ import {
   fetchedFacts,
   githubFrom,
   localFrom,
-  readStateFile,
   rulesDirHarness,
   seedStore,
   sharedBlockHarness,
@@ -53,7 +51,9 @@ import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/worl
 import { CHMOD_DENIES } from "../shared/platform.ts";
 import { srcPath } from "../shared/src_path.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
-import { DAY_MS, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { readStateFile } from "../shared/state_file.ts";
+import { NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { DAY_MS, daysAgo } from "../shared/time.ts";
 
 const SELF_REFRESH = `run \`${PACKAGE_COMMAND} sync --quiet\` before continuing`;
 

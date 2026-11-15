@@ -28,7 +28,6 @@ import type { SourceEntry } from "../../src/state/schema.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
-  daysAgo,
   entryFor,
   FIXTURE_CONFIG_CONTENT,
   FIXTURE_DIR,
@@ -38,9 +37,7 @@ import {
   fetchedFacts,
   githubFrom,
   localFrom,
-  memoryFile,
   memoryName,
-  readStateFile,
   rewritingHookHarness,
   rulesDirHarness,
   seedStore,
@@ -51,15 +48,10 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
-import {
-  budgetedReader,
-  DAY_MS,
-  fetchedOf,
-  heldHint,
-  NOW,
-  QUIET,
-  SYNC,
-} from "../shared/sync_support.ts";
+import { memoryFile } from "../shared/memory_file.ts";
+import { readStateFile } from "../shared/state_file.ts";
+import { budgetedReader, fetchedOf, heldHint, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { DAY_MS, daysAgo } from "../shared/time.ts";
 
 describe("idempotency and convergence", () => {
   // Two harnesses each hold the source's two lines in their own file; the count is what the

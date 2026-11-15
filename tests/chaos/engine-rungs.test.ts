@@ -10,7 +10,9 @@ import type { LastError } from "../../src/contracts/last-error.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { snapshot } from "../e2e/fixtures.ts";
+import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
 import { staleLines, withoutStaleLine } from "../shared/stale_line.ts";
+import { DAY_MS } from "../shared/time.ts";
 import { httpResponse } from "../sources/github/fakes/runner.ts";
 import {
   buildTarball,
@@ -18,7 +20,6 @@ import {
   symlinkTarball,
   zipSlipTarball,
 } from "../sources/github/fakes/tarballs.ts";
-import { type MemorySpec, memoryFile } from "./shared/fixture-repo.ts";
 import {
   type GithubScript,
   githubRunner,
@@ -30,7 +31,6 @@ import {
 } from "./shared/github-script.ts";
 import {
   advanceClock,
-  DAY_MS,
   type RealWorld,
   type RunResult,
   runReal,

@@ -28,7 +28,6 @@ import { renderPlan } from "../../src/util/change.ts";
 import { ExitCode } from "../../src/util/exit-codes.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
-  daysAgo,
   entryFor,
   fakeIo,
   fakeResolvers,
@@ -37,8 +36,6 @@ import {
   githubFrom,
   type IntentOverrides,
   localFrom,
-  memoryFile,
-  readStateFile,
   seedStore,
   sharedBlockHarness,
   stateWith,
@@ -47,8 +44,11 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { memoryFile } from "../shared/memory_file.ts";
 import { CHMOD_DENIES } from "../shared/platform.ts";
+import { readStateFile } from "../shared/state_file.ts";
 import { budgetedReader, fetchedOf, heldHint, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { daysAgo } from "../shared/time.ts";
 
 function heldLines(key: string, over: number, path: string): string[] {
   return [`${key} is ${over} bytes over the budget for ${path}`, heldHint(key)];

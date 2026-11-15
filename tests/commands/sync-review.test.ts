@@ -14,13 +14,11 @@ import { renderHookStdout } from "../../src/harnesses/hook-stdin.ts";
 import type { SourceEntry } from "../../src/state/schema.ts";
 import { homePaths, pendingPathFor, storePathFor } from "../../src/util/home.ts";
 import {
-  daysAgo,
   fakeIo,
   fakeResolvers,
   fetchedEntry,
   fetchedFacts,
   githubFrom,
-  readStateFile,
   seedStore,
   stateWith,
   treeDigest,
@@ -28,7 +26,9 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { globalRulesFile, TWO_MEMORIES, type World, world } from "../engine/world.ts";
-import { DAY_MS, fetchedOf, NOW, SYNC } from "../shared/sync_support.ts";
+import { readStateFile } from "../shared/state_file.ts";
+import { fetchedOf, NOW, SYNC } from "../shared/sync_support.ts";
+import { DAY_MS, daysAgo } from "../shared/time.ts";
 
 const FROM = githubFrom("acme/rules");
 const KEY = "@acme/rules";

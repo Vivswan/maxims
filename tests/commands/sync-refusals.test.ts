@@ -29,7 +29,6 @@ import { ExitCode } from "../../src/util/exit-codes.ts";
 import { isSymlink } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import {
-  daysAgo,
   entryFor,
   type FakeIo,
   FIXTURE_DIR,
@@ -40,10 +39,7 @@ import {
   githubFrom,
   gitSha,
   localFrom,
-  type MemorySpec,
-  memoryFile,
   memoryName,
-  readStateFile,
   rulesDirHarness,
   seedStore,
   sharedBlockHarness,
@@ -53,8 +49,11 @@ import {
   writeState,
 } from "../engine/fakes.ts";
 import { expectExit, globalRulesFile, TWO_MEMORIES, world } from "../engine/world.ts";
+import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
 import { WINDOWS } from "../shared/platform.ts";
-import { DAY_MS, fetchedOf, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { readStateFile } from "../shared/state_file.ts";
+import { fetchedOf, NOW, QUIET, SYNC } from "../shared/sync_support.ts";
+import { DAY_MS, daysAgo } from "../shared/time.ts";
 
 // A run that refuses several sources exits with the first failure in key order. A local source's
 // key is its path, which sorts before "@acme/rules" on POSIX and after it on Windows, where the
