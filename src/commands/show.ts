@@ -4,7 +4,7 @@
 
 import { join } from "node:path";
 import type { Console } from "../console/contract.ts";
-import { notInstalled, STRINGS } from "../console/strings.ts";
+import { didYouMean, notInstalled, STRINGS } from "../console/strings.ts";
 import { actsHere } from "../engine/context.ts";
 import type { SourceTree } from "../engine/memories.ts";
 import { disabledNames, type SelectedMemory, selectMemories } from "../engine/select.ts";
@@ -294,7 +294,7 @@ function lookupFailure(
       ? notInstalled(request.name)
       : `${request.source} does not provide ${request.name}`;
   return new MaximsError(ExitCode.Usage, message, {
-    ...(closest === null ? {} : { hint: `did you mean ${closest}?` }),
+    ...(closest === null ? {} : { hint: didYouMean(closest) }),
   });
 }
 

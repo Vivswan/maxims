@@ -78,7 +78,7 @@ export function writeFileAtomic(
     }
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
-      `cannot write ${path}: ${describe(cause)}`,
+      `cannot write ${path}: ${errorMessage(cause)}`,
       {
         cause,
       },
@@ -116,6 +116,11 @@ export function assertInsideRoot(root: string, candidate: string): RootedPath {
 export function isInside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+// `to` as seen from `from`, with `/` as the separator on every platform.
+export function posixRelative(from: string, to: string): string {
+  return relative(from, to).split(sep).join("/");
 }
 
 // The real path of a location that may not exist yet: its deepest existing prefix resolved, the
@@ -343,7 +348,7 @@ export function readIfPresent(path: string): string | null {
 export function cannotInspect(path: string, cause: unknown): MaximsError {
   return new MaximsError(
     ExitCode.DestinationWriteFailed,
-    `cannot inspect ${path}: ${describe(cause)}`,
+    `cannot inspect ${path}: ${errorMessage(cause)}`,
     {
       cause,
     },
@@ -361,7 +366,7 @@ export async function ensureDir0700(dir: string): Promise<void> {
   } catch (cause) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
-      `cannot create ${dir}: ${describe(cause)}`,
+      `cannot create ${dir}: ${errorMessage(cause)}`,
       {
         cause,
       },
@@ -369,6 +374,6 @@ export async function ensureDir0700(dir: string): Promise<void> {
   }
 }
 
-function describe(cause: unknown): string {
+export function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }

@@ -1,4 +1,3 @@
-import { relative, sep } from "node:path";
 import type { Console } from "../../console/contract.ts";
 import { riskWarning } from "../../console/strings.ts";
 import { isLiveLocal } from "../../contracts/source.ts";
@@ -16,7 +15,7 @@ import type { TreeFile, TreeScope } from "../../sources/tree.ts";
 import type { State } from "../../state/schema.ts";
 import type { Plan } from "../../util/change.ts";
 import { ExitCode, MaximsError } from "../../util/exit-codes.ts";
-import { isInside } from "../../util/fs.ts";
+import { isInside, posixRelative } from "../../util/fs.ts";
 import { storePathFor } from "../../util/home.ts";
 
 // A risky shape in a description, named for the memory that carries it. The column is 1-based, as
@@ -118,6 +117,6 @@ function storeWrites(plan: Plan, entry: string): TreeFile[] {
     if (change.kind !== "write" || !change.path.endsWith(".md") || !isInside(entry, change.path)) {
       return [];
     }
-    return [{ relPath: relative(entry, change.path).split(sep).join("/"), text: change.content }];
+    return [{ relPath: posixRelative(entry, change.path), text: change.content }];
   });
 }

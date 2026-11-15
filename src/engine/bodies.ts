@@ -11,6 +11,7 @@ import {
 import type { Change } from "../util/change.ts";
 import {
   assertInsideRoot,
+  errorMessage,
   isAbsent,
   isInside,
   type RootedPath,
@@ -155,7 +156,7 @@ export function planBodySweep(input: {
   try {
     entries = readdirSync(input.dir);
   } catch (error) {
-    if (!isAbsent(error)) input.warn(`cannot list ${input.dir}: ${describe(error)}`);
+    if (!isAbsent(error)) input.warn(`cannot list ${input.dir}: ${errorMessage(error)}`);
     return [];
   }
   const changes: Change[] = [];
@@ -202,8 +203,4 @@ function declaredName(text: string): string | null {
   } catch {
     return null;
   }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

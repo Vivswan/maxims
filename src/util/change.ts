@@ -17,6 +17,7 @@ import { ExitCode, MaximsError } from "./exit-codes.ts";
 import {
   assertInsideRoot,
   cannotInspect,
+  errorMessage,
   followLinks,
   isAbsent,
   isInside,
@@ -250,16 +251,12 @@ async function guardedValue<T>(path: string, action: () => Promise<T>): Promise<
   } catch (cause) {
     throw new MaximsError(
       ExitCode.DestinationWriteFailed,
-      `cannot update ${path}: ${detail(cause)}`,
+      `cannot update ${path}: ${errorMessage(cause)}`,
       {
         cause,
       },
     );
   }
-}
-
-function detail(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function renderPlan(plan: Plan): string {

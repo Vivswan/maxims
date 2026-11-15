@@ -29,6 +29,7 @@ import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import {
   assertInsideRoot,
   cannotInspect,
+  errorMessage,
   isAbsent,
   isSymlink,
   type RootedPath,
@@ -343,10 +344,6 @@ export function regularFileText(path: string): string | null {
   return target.isFile() ? readIfPresent(path) : null;
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 //   emptied -> the strip that leaves the file blank: the delete, or the empty write when a reader
 //              reaches the file through a link
 type SharedFileEditor = {
@@ -536,7 +533,7 @@ function listedNames(dir: string, warn: RulesDirSweepInput["warn"]): string[] | 
   try {
     return readdirSync(dir);
   } catch (error) {
-    if (!isAbsent(error)) warn(`cannot list ${dir}: ${describe(error)}`);
+    if (!isAbsent(error)) warn(`cannot list ${dir}: ${errorMessage(error)}`);
     return null;
   }
 }
@@ -553,7 +550,7 @@ function isOrphan(
     return text !== null && claimedByMaxims(text);
   } catch (error) {
     if (error instanceof MarkerRefused) input.hold(new RuleFileHeld(path, error));
-    else input.warn(describe(error));
+    else input.warn(errorMessage(error));
     return false;
   }
 }

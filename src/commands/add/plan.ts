@@ -17,6 +17,7 @@ import {
 import { harnessContext } from "../../engine/context.ts";
 import { disabledNames } from "../../engine/select.ts";
 import { sourceSlug } from "../../engine/slug.ts";
+import { shortSha } from "../../engine/sync-refresh.ts";
 import type { CliIo } from "../../engine/types.ts";
 import type { HarnessContext, HarnessDefinition, SourceSlug } from "../../harnesses/contract.ts";
 import { type Memory, type MemoryName, renamed } from "../../memory/contract.ts";
@@ -183,7 +184,7 @@ export function showProvenance(console: Console, provenance: Provenance): void {
   console.note(
     [
       provenance.url,
-      `commit ${provenance.sha.slice(0, 7)}, ${pin}`,
+      `commit ${shortSha(provenance.sha)}, ${pin}`,
       memories(provenance.memories),
     ].join("\n"),
     firstSourceFrom(provenance.owner),
