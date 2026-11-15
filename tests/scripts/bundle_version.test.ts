@@ -1,6 +1,6 @@
-// Fails if the version the built cli prints stops being the one package.json carried when it was bundled. The publish
-// lanes check the same equality right before npm publish; this test catches a bundle that bakes its version in from
-// anywhere else before a green push ever reaches them.
+// Fails if the version the built cli prints stops being the one package.json carried when it was bundled. The hook
+// .github/actions/npm-build checks the same equality right before the platform publishes; this test catches a bundle
+// that bakes its version in from anywhere else before a publish ever reaches it.
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { cpSync, symlinkSync, writeFileSync } from "node:fs";

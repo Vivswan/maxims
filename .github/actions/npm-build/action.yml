@@ -1,0 +1,31 @@
+# This file is repo-owned, seeded once by the fleet sync and never overwritten by a later sync.
+
+name: npm Build
+description: |
+  Builds this repository's npm package for the fleet's publish.
+
+  It runs as the npm-build hook of ci.yml's `npm-next` and `npm-latest` legs, on the judged commit, after the fleet
+  stamped the version into package.json and before it runs `npm publish`. It does not run when there is nothing to
+  publish.
+
+  The contract and examples are the fleet's docs/modules/npm.md.
+
+inputs:
+  version:
+    description: The version being published, already in package.json, for a build that bakes it in and a check of what was built
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version-file: .bun-version
+    # The bundle bakes in package.json's version when it is built, so the last line fails the job on a bundle that
+    # announces any other version than the one about to be published.
+    - shell: bash
+      env: { VERSION: "${{ inputs.version }}" }
+      run: |
+        bun install --frozen-lockfile
+        bun run build
+        test "$(node dist/cli.js --version)" = "maxims $VERSION"
