@@ -1,5 +1,5 @@
-import { homedir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { userInfo } from "node:os";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   DEFAULT_GIT_REF,
   parseRemote,
@@ -9,12 +9,49 @@ import {
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { assertInsideRoot, type RootedPath, sha256 } from "./fs.ts";
 
-/** @public */
-export function maximsHome(env: Record<string, string | undefined>): string {
+class NoUserHome extends MaximsError {
+  constructor(options: { cause?: unknown } = {}) {
+    super(ExitCode.Usage, "cannot find the user's home folder", {
+      ...options,
+      hint: "set HOME, or MAXIMS_HOME, to an absolute path",
+    });
+  }
+}
+
+// A blank or relative HOME names no folder: joined as it stands, it would put the store under
+// whatever folder the session runs in. `os.homedir()` is no fallback, since it hands an empty
+// HOME straight back.
+function userHomeOf(env: Record<string, string | undefined>, osHome: () => string): string {
+  for (const named of [env.HOME, env.USERPROFILE]) {
+    if (named !== undefined && isAbsolute(named)) return named;
+  }
+
+  let recorded: string;
+  try {
+    recorded = osHome();
+  } catch (cause) {
+    throw new NoUserHome({ cause });
+  }
+  if (!isAbsolute(recorded)) throw new NoUserHome();
+
+  return recorded;
+}
+
+/**
+ * The folder maxims keeps its state and store in: `MAXIMS_HOME`, else `.agents/maxims` under the
+ * user's home. `osHome` answers the operating system's record of that home, read only when the
+ * environment names none.
+ *
+ * @public
+ */
+export function maximsHome(
+  env: Record<string, string | undefined>,
+  osHome: () => string = () => userInfo().homedir,
+): string {
   const override = env.MAXIMS_HOME;
   if (override !== undefined && override !== "") return resolve(override);
-  const home = env.HOME ?? env.USERPROFILE ?? homedir();
-  return join(home, ".agents", "maxims");
+
+  return join(userHomeOf(env, osHome), ".agents", "maxims");
 }
 
 export type HomePaths = {
