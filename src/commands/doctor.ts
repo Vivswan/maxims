@@ -28,6 +28,7 @@ import {
   effectiveNames,
   effectiveNamesIfReadable,
   scopeOf,
+  splitQualifiedName,
   targetPath,
   tildify,
 } from "./frame/lookup.ts";
@@ -403,11 +404,10 @@ async function checkExpect(
   here: Here,
 ): Promise<ExpectReport> {
   const io = ctx.io;
-  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
-  const nameRaw = qualified?.[2] ?? raw;
-  const name = parseMemoryName(nameRaw);
+  const qualified = splitQualifiedName(raw);
+  const name = parseMemoryName(qualified?.name ?? raw);
   if (name === null) throw usage(`--expect "${raw}" is not a memory name or @owner/repo/name`);
-  const owners = await expectOwners(state, io, here, qualified?.[1], name);
+  const owners = await expectOwners(state, io, here, qualified?.source, name);
   const { checked, missing } = inspectRuleFiles(owners, name, io);
   return { name: raw, met: checked > 0 && missing.length === 0, checked, missing };
 }

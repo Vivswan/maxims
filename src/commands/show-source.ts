@@ -1,4 +1,5 @@
 import { createTwoFilesPatch } from "diff";
+import { changedLines } from "../console/strings.ts";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import { DEFAULT_GIT_REF, isLiveLocal } from "../contracts/source.ts";
 import { type FetchedEntry, type HeldRevision, readHeldRevision } from "../engine/fetch.ts";
@@ -272,8 +273,8 @@ function reviewLine(facts: SourceFacts): string {
   if (held === null) return "on; nothing held";
   const since = held.at.slice(0, "2026-01-01".length);
   if ("unreadable" in held) return `on; a revision held since ${since} (${held.unreadable})`;
-  const count = held.added.length + held.removed.length + held.changed.length;
-  return `on; ${count} changed ${count === 1 ? "line" : "lines"} held since ${since}`;
+  const changed = held.added.length + held.removed.length + held.changed.length;
+  return `on; ${changedLines(changed)} held since ${since}`;
 }
 
 // The held block's lines after its title, without the diffs, which the caller prints verbatim.

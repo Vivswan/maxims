@@ -34,11 +34,13 @@ The `next` dist-tag carries a pre-release built from main. A `next` build appear
 | `lint [path]`                          |                    | check a folder of memory files against the contract before publishing                             | no                | [memories](write-memories.md#lint-a-folder-before-publishing) |
 | `config set\|get\|unset <key> [value]` |                    | read or write a user default                                                                      | no                | [files](files.md#user-defaults-in-configjson)                 |
 | `init [name]`                          |                    | scaffold a contract-valid memory file                                                             | no                | [memories](write-memories.md#scaffold-a-file-with-init)       |
+| `help [verb]`                          |                    | print what `--help` prints, or what `<verb> --help` prints                                        | no                | below                                                         |
 - **Two scopes exist,** project (`-p`) and user (`-g`). `-o` is an output folder for a rule file no harness owns, and it is neither scope.
 - **No source argument.** `sync`, `install`, and `doctor` read state or the lock instead. `update` alone refreshes every source, and `update <source>` one.
 - **`remove` takes a source or a bare memory name.** A bare name two sources both provide is ambiguous, so `remove` exits 1 and prints the qualified forms.
 - **`show` takes a bare memory name or a source.** A name two sources provide exits 1 and lists them; `--source <key>`, `-g` or `-p` picks one. An argument that is both is read as the memory, with a tip naming the source.
 - **`share` and `unshare` touch the lock only,** never what is installed.
+- **`help` is `--help` as a verb.** A mistyped verb or long flag exits 1 and names the closest real one, as `Tip: did you mean install?`, when one is close.
 - **`link` and `unlink` change one field,** the source's harness list, and never refetch. `add -a` on an installed source still replaces the whole list, as it replaces the selection.
 - **`disable` and `enable` act at one scope,** the one you are in or the one `-g` or `-p` names. A memory disabled at project scope stays live for `-g`, and the other way round; the [state schema](state.md#the-schema) owns where the list is kept. A source whose every memory is disabled at a scope has no rule file and no block there until one is enabled again.
 
@@ -130,7 +132,7 @@ Flags compose. The everyday invocation, `add @Octocat/rules -g --rule --add-hook
 <!-- END GENERATED: exit-codes -->
 
 - **Exit 0** includes "already up to date" and every `--quiet` outcome.
-- **Exit 1** follows an unknown flag, `--json` on `add`, `remove`, or `install` without `-y` (`--all` also serves on `add` and `remove`), `--json` with `--list`, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.
+- **Exit 1** follows an unknown verb or flag, `--json` on `add`, `remove`, or `install` without `-y` (`--all` also serves on `add` and `remove`), `--json` with `--list`, `-g` with `-o`, an ambiguous bare name, a `show` of a name that is not installed, a non-interactive `remove` without `--yes`, a re-add of an installed source at another scope (`remove` it first), or a `doctor --expect` that is not met.
 - **Exit 2** follows a repo not found, no read access, a missing local directory, a non-GitHub git URL with no `git` on PATH, or an interactive `sync` whose fetch failed.
 - **Exit 3** follows a `--memory` name the source lacks, a filter matching nothing, a source with zero valid memories, a source carrying [hidden characters](write-memories.md#hidden-characters-are-refused) without `--allow-hidden`, a [risky shape](security.md#risky-shapes-in-descriptions) under `--strict`, or a `lint` that found problems.
 - **Exit 4** follows permissions, a read-only filesystem, a full disk, an unparsable harness config, a rule file whose [block marker carries another version](troubleshooting.md#exit-4-a-blocks-marker-carries-no-version-or-another-one), or a `remove` or `unlink` refused because [stray marker lines surround the block](troubleshooting.md#exit-4-stray-marker-lines-surround-the-block-to-remove).

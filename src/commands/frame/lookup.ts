@@ -404,6 +404,12 @@ async function resolveBareName(
   return { key: owner, name };
 }
 
+// The source and the memory a qualified `@owner/repo/name` names, or null for a bare name.
+export function splitQualifiedName(raw: string): { source: string; name: string } | null {
+  const [, source, name] = /^(@.+)\/([a-z0-9-]+)$/.exec(raw) ?? [];
+  return source === undefined || name === undefined ? null : { source, name };
+}
+
 // A qualified `@owner/repo/name` names one source to look in; a bare name is searched across every
 // source acting here.
 export async function resolveMemoryName(
@@ -411,10 +417,8 @@ export async function resolveMemoryName(
   io: MemoryLookupIo,
   raw: string,
 ): Promise<ResolvedMemory> {
-  const qualified = /^(@.+)\/([a-z0-9-]+)$/.exec(raw);
-  if (qualified !== null && qualified[1] !== undefined && qualified[2] !== undefined) {
-    return resolveQualifiedName(state, io, qualified[1], qualified[2]);
-  }
+  const qualified = splitQualifiedName(raw);
+  if (qualified !== null) return resolveQualifiedName(state, io, qualified.source, qualified.name);
   return resolveBareName(state, io, raw);
 }
 

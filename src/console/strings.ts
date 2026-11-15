@@ -94,13 +94,17 @@ export function unknownCommand(verb: string): string {
   return `Unknown command: ${verb}`;
 }
 
+export function didYouMean(name: string): string {
+  return `did you mean ${name}?`;
+}
+
 export function invalidAgents(
   ids: readonly string[],
   valid: readonly string[],
   closest: string | null,
 ) {
   const lines = [`Invalid agents: ${ids.join(", ")}`, `Valid agents: ${valid.join(", ")}`];
-  if (closest !== null) lines.push(`did you mean ${closest}?`);
+  if (closest !== null) lines.push(didYouMean(closest));
   return lines.join("\n");
 }
 

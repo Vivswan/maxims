@@ -1,6 +1,6 @@
 import { createConsole, type InteractiveStreams } from "../console/contract.ts";
 import { consoleMode } from "../console/mode.ts";
-import { jsonNeedsYes, STRINGS, unknownCommand } from "../console/strings.ts";
+import { didYouMean, jsonNeedsYes, STRINGS, unknownCommand } from "../console/strings.ts";
 import type { EngineBundle, MachineIo } from "../engine/types.ts";
 import { readUserConfig } from "../state/config.ts";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
@@ -14,13 +14,16 @@ import {
   type Args,
   type Command,
   type CommandContext,
+  closestName,
   FLAGS,
   type FlagSpec,
   GLOBAL_FLAGS,
   GLOBALS,
   globalFlags,
+  HELP_FLAGS,
   type OpenConsole,
   parseVerbArgs,
+  unknownOption,
   usage,
 } from "./frame/options.ts";
 
@@ -209,11 +212,18 @@ type Invocation = {
   dryRun: boolean;
 };
 
-// Not in GLOBAL_FLAGS: the scan consumes these before any verb loads, so no verb parses them.
-const HELP_FLAGS = [
-  { name: "help", short: "h", kind: "boolean", summary: "show help" },
-  { name: "version", short: "v", kind: "boolean", summary: "print the version" },
-] as const satisfies readonly FlagSpec[];
+// `help` is `--help` spelled as a verb: it has no module to load, so it is not a VERBS row.
+const HELP_VERB = {
+  name: "help",
+  usage: "help [command]",
+  summary: "show help for maxims or for one command",
+};
+
+// The names a mistyped verb may be corrected to. Aliases stay out: a one-letter alias is within typo distance of any short word.
+const VERB_NAMES = [
+  ...VERBS.filter((entry) => !entry.hidden).map((entry) => entry.name),
+  HELP_VERB.name,
+];
 
 type ScanFlag = keyof Omit<Invocation, "verb" | "rest">;
 
@@ -270,6 +280,28 @@ function findVerb(name: string): VerbEntry | undefined {
   return VERBS.find((entry) => entry.name === name || entry.aliases.includes(name));
 }
 
+type Target = { verb: string | null; entry: VerbEntry | undefined; help: boolean };
+
+// What the line asks for, with the `help` verb read as `--help`.
+//   help, help help  -> the command list
+//   help add         -> add --help
+//   help instal      -> the unknown-command error; `instal --help` still prints the command list
+function target(invocation: Invocation): Target {
+  const viaHelp = invocation.verb === HELP_VERB.name;
+  const topic = viaHelp ? scan(invocation.rest).verb : invocation.verb;
+  const verb = topic === HELP_VERB.name ? null : topic;
+  const entry = verb === null ? undefined : findVerb(verb);
+  const known = verb === null || entry !== undefined;
+  return { verb, entry, help: invocation.help || (viaHelp && known) };
+}
+
+function unknownVerb(name: string): MaximsError {
+  const closest = closestName(name, VERB_NAMES);
+  return usage(unknownCommand(name), {
+    hint: closest === null ? STRINGS.runHelp : didYouMean(closest),
+  });
+}
+
 // The agent is detected only where a person can see the console: a TTY stdout outside --quiet
 // and --json.
 function consoleOpener(deps: CliDeps, quiet: boolean, json: boolean): OpenConsole {
@@ -308,26 +340,20 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     return ExitCode.Ok;
   };
   if (invocation.version) return print(`maxims ${VERSION}\n`, { version: VERSION });
-  const entry = invocation.verb === null ? undefined : findVerb(invocation.verb);
   const failure: FailureContext = { io, quiet, json, dryRun, verb: invocation.verb ?? "maxims" };
-  if (invocation.help) {
+  const { verb, entry, help: helpAsked } = target(invocation);
+  if (helpAsked) {
     const help = await helpText(entry);
     return print(help, { help });
   }
-  if (invocation.verb === null) {
+  if (verb === null) {
     const unknown = invocation.rest.find((word) => !GLOBAL_WORDS.has(word));
-    if (unknown !== undefined) {
-      return reportFailure(usage(`unknown option: ${unknown}`, { hint: STRINGS.runHelp }), failure);
-    }
+    if (unknown !== undefined)
+      return reportFailure(unknownOption(unknown, [], STRINGS.runHelp), failure);
     const help = await helpText(undefined);
     return print(help, { help });
   }
-  if (entry === undefined) {
-    return reportFailure(
-      usage(unknownCommand(invocation.verb), { hint: STRINGS.runHelp }),
-      failure,
-    );
-  }
+  if (entry === undefined) return reportFailure(unknownVerb(verb), failure);
   const command = await entry.load();
   try {
     const args = parseVerbArgs(invocation.rest, command.flags);
@@ -446,13 +472,14 @@ async function helpText(entry: VerbEntry | undefined): Promise<string> {
   ];
   const shown = VERBS.filter((v) => !v.hidden);
   const commands = await Promise.all(shown.map((v) => v.load()));
-  const width = Math.max(...commands.map((c) => c.usage.length));
-  commands.forEach((command, index) => {
-    const entry = shown[index];
-    const aliases =
-      entry === undefined || entry.aliases.length === 0 ? "" : ` (${entry.aliases.join(", ")})`;
-    lines.push(`  ${command.usage.padEnd(width)}  ${command.summary}${aliases}`);
+  const rows = commands.map((command, index) => {
+    const aliases = shown[index]?.aliases ?? [];
+    const suffix = aliases.length === 0 ? "" : ` (${aliases.join(", ")})`;
+    return { usage: command.usage, summary: `${command.summary}${suffix}` };
   });
+  rows.push(HELP_VERB);
+  const width = Math.max(...rows.map((row) => row.usage.length));
+  for (const row of rows) lines.push(`  ${row.usage.padEnd(width)}  ${row.summary}`);
   lines.push("", "Global options:");
   for (const line of flagLines([...GLOBAL_FLAGS, ...HELP_FLAGS])) lines.push(line);
   return `${lines.join("\n")}\n`;
