@@ -250,7 +250,7 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-// The link grammar's tokens beside the Markdown that hides one, and the bytes that move a parser's offsets off the body's own (a byte order mark, a tab, a CRLF).
+// The link grammar's tokens beside the Markdown that hides one, and the bytes a parser's position count has to get right (a byte order mark, a tab, a CRLF).
 const WIKILINK_PIECES = [
   "[[",
   "]]",
@@ -288,15 +288,16 @@ test(
         expect(target).toBe(target.trim());
         expect(target).not.toBe("");
         expect(target).not.toMatch(/[[\]\n|]/);
-        expect(text).toContain(target);
+        // A code span inside a target reads as spaces, so the body spells the words around it.
+        for (const word of target.split(/ +/)) expect(text).toContain(word);
       }
     });
   },
   PROPERTY_TIMEOUT_MS,
 );
 
-// Text that shifts a Markdown parser's positions when it counts them unlike the body does: a byte order mark, a tab, a CRLF, a NUL, a character reference, an escape.
-const offsetShifter = fc.constantFrom(
+// Text a parser could count unlike the body does. Only the byte order mark is known to move an offset.
+const leadingText = fc.constantFrom(
   "",
   "\ufeff",
   "a\tb",
@@ -320,13 +321,13 @@ test(
   "extractWikilinks reads the links in prose and none of the ones inside a fence beside it",
   async () => {
     const input = fc.record({
-      shifter: offsetShifter,
+      lead: leadingText,
       links: fc.array(fc.constantFrom("a", "b", "c", "d-e"), { maxLength: 4 }),
       code: fencedCode,
     });
-    await fuzz("extractWikilinks beside a fence", input, ({ shifter, links, code }) => {
+    await fuzz("extractWikilinks beside a fence", input, ({ lead, links, code }) => {
       const prose = links.map((link) => `[[${link}]]`).join(" ");
-      const text = `${shifter}\n\n${prose}\`[[x]]\`\n\n\`\`\`\n${code}\n\`\`\`\n`;
+      const text = `${lead}\n\n${prose}\`[[x]]\`\n\n\`\`\`\n${code}\n\`\`\`\n`;
       expect(extractWikilinks(text)).toEqual([...new Set(links)]);
     });
   },

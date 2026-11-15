@@ -55,6 +55,11 @@ describe("extractWikilinks", () => {
     },
     { title: "an alias carrying emphasis", body: "[[a|the *a* rule]]", links: ["a"] },
     { title: "an alias carrying a code span", body: "[[a|`--timeout`]]", links: ["a"] },
+    {
+      title: "an alias carrying a code span that holds brackets",
+      body: "[[a|`x[0]`]]",
+      links: ["a"],
+    },
     { title: "a Markdown link's text", body: "[see [[a]]](https://example.com)", links: ["a"] },
     { title: "list items", body: "- [[a]]\n  1. [[b]]", links: ["a", "b"] },
     { title: "a block quote", body: "> Sibling of [[a]].", links: ["a"] },
@@ -77,8 +82,9 @@ describe("extractWikilinks", () => {
       links: ["a"],
     },
     {
-      title: "a link touching a span after a byte order mark, which the parser does not count",
-      body: "\ufeff[[a]]`x`",
+      title:
+        "a link touching a span after byte order marks, which the parser counts unlike the body",
+      body: "\ufeff\ufeff[[a]]`x`",
       links: ["a"],
     },
   ];
@@ -99,11 +105,6 @@ describe("extractWikilinks", () => {
   ];
   test.each(html)("$title is not code, so its link is a dependency", ({ body, links }) => {
     expect(extractWikilinks(body)).toEqual(links);
-  });
-
-  test("a bracket inside a code span still breaks the link around it, as it did before code was skipped", () => {
-    expect(extractWikilinks("[[a `]` b]]")).toEqual([]);
-    expect(extractWikilinks("[[a|`x[0]`]]")).toEqual([]);
   });
 });
 

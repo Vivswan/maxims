@@ -5,32 +5,21 @@ import type { Memory } from "./contract.ts";
 // `[[target|alias]]` is the wider wikilink form; only the target names a memory.
 const WIKILINK = /\[\[([^[\]\n|]+)(?:\|[^[\]\n]*)?\]\]/g;
 
-// Blanking these alone keeps the rest of a code span, so a link whose alias holds one still matches.
-const BRACKET = /[[\]]/g;
-
-// micromark skips one leading byte order mark and counts every offset from the next character.
-const BYTE_ORDER_MARK = "\uFEFF";
-
 /**
- * The body with every bracket inside fenced code, indented code and a code span blanked, at the
- * same length, so an index into one reads the same in the other. Only brackets go, so a span
- * inside an alias (``[[a|`--flag`]]``) leaves the link around it whole.
+ * The body with fenced code, indented code and code spans turned to spaces, so the parser alone
+ * decides what is code. Leading byte order marks go first: the parser skips one and counts
+ * offsets from the next character.
  */
-function withoutCodeBrackets(body: string): string {
-  const shift = body.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK.length : 0;
-  let masked = body;
+function withCodeBlanked(body: string): string {
+  let text = body.replace(/^\uFEFF+/, "");
 
-  visit(fromMarkdown(body), ["code", "inlineCode"], (node) => {
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
-    if (start === undefined || end === undefined)
-      throw new Error("mdast-util-from-markdown positions every node");
-
-    const code = masked.slice(start + shift, end + shift).replace(BRACKET, " ");
-    masked = masked.slice(0, start + shift) + code + masked.slice(end + shift);
+  visit(fromMarkdown(text), ["code", "inlineCode"], ({ position }) => {
+    const start = position?.start.offset ?? 0;
+    const end = position?.end.offset ?? 0;
+    text = text.slice(0, start) + " ".repeat(end - start) + text.slice(end);
   });
 
-  return masked;
+  return text;
 }
 
 /**
@@ -42,10 +31,7 @@ export function extractWikilinks(body: string): string[] {
   if (!body.includes("[[")) return [];
 
   const seen = new Set<string>();
-  for (const match of withoutCodeBrackets(body).matchAll(WIKILINK)) {
-    // A match that leans on a blanked bracket reads differently in the body, where it never was a link.
-    if (body.slice(match.index, match.index + match[0].length) !== match[0]) continue;
-
+  for (const match of withCodeBlanked(body).matchAll(WIKILINK)) {
     const target = (match[1] ?? "").trim();
     if (target !== "") seen.add(target);
   }
