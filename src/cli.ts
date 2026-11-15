@@ -2,12 +2,11 @@
 // The bin entry: real streams, the real machine, the engine as built. Everything else is `main`,
 // which the tests drive with injected fakes.
 
-import { homedir } from "node:os";
 import { createEngine } from "./commands/loader.ts";
 import { main } from "./commands/main.ts";
 import { detectAgent } from "./console/mode.ts";
 import { findProjectRoot } from "./engine/context.ts";
-import { maximsHome } from "./util/home.ts";
+import { maximsHome, userHome } from "./util/home.ts";
 
 const stdout = process.stdout;
 process.exitCode = await main(process.argv.slice(2), {
@@ -15,8 +14,14 @@ process.exitCode = await main(process.argv.slice(2), {
   io: {
     env: process.env,
     cwd: process.cwd(),
-    home: maximsHome(process.env),
-    userHome: process.env.HOME ?? process.env.USERPROFILE ?? homedir(),
+    // Both homes resolve when `main` reads them: a machine with neither is then a failure like
+    // any other there, which `--quiet` turns into exit 0.
+    get home() {
+      return maximsHome(process.env);
+    },
+    get userHome() {
+      return userHome(process.env);
+    },
     projectRoot: findProjectRoot(process.cwd()),
     now: () => new Date(),
     stdin: process.stdin,
