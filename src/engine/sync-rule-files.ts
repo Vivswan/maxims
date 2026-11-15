@@ -2,7 +2,7 @@
 // the budget retry's choice of block to hold. `planInstall` assembles the files and renders them
 // through it.
 
-import { join, relative, sep } from "node:path";
+import { join } from "node:path";
 import type { HarnessDefinition, Scope, SourceSlug } from "../harnesses/contract.ts";
 import { BudgetExceeded } from "../harnesses/strategies/rules-dir.ts";
 import type { MemoryName } from "../memory/contract.ts";
@@ -10,7 +10,7 @@ import { MarkerRefused } from "../rulefile/block.ts";
 import { compareInstalled } from "../rulefile/dedupe.ts";
 import type { SourceEntry, State } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
-import { assertInsideRoot, isSymlink, realKeyOf } from "../util/fs.ts";
+import { assertInsideRoot, isSymlink, posixRelative, realKeyOf } from "../util/fs.ts";
 import { agentsAllowed, type EngineContext, harnessContext } from "./context.ts";
 import { type HarnessTarget, resolveTargets } from "./destination.ts";
 import { destinationUnresolvable } from "./fs-probe.ts";
@@ -170,10 +170,7 @@ export function detailPathFor(
     group
       .map((target) => target.def.bodiesDir("project", harnessCtx))
       .find((dir) => dir !== null) ?? join(projectRoot, ".agents", "memories");
-  return (_memory, local) =>
-    relative(projectRoot, join(bodiesDir, `${local}.md`))
-      .split(sep)
-      .join("/");
+  return (_memory, local) => posixRelative(projectRoot, join(bodiesDir, `${local}.md`));
 }
 
 export function supportsPathScoping(target: HarnessTarget): boolean {

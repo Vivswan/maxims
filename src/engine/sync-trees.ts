@@ -3,7 +3,7 @@
 // read installed trees through it.
 
 import { lstatSync, readlinkSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import type { LastError } from "../contracts/last-error.ts";
 import { isLiveLocal } from "../contracts/source.ts";
 import type { MemoryName } from "../memory/contract.ts";
@@ -12,7 +12,7 @@ import { type LocalSourceFrom, materializeLocal } from "../sources/local.ts";
 import { hashFiles, type TreeFile } from "../sources/tree.ts";
 import type { SourceEntry, SourceIntent } from "../state/schema.ts";
 import type { Change } from "../util/change.ts";
-import { isInside, type RootedPath } from "../util/fs.ts";
+import { isInside, posixRelative, type RootedPath } from "../util/fs.ts";
 import { storePathFor } from "../util/home.ts";
 import { actsHere, type EngineContext } from "./context.ts";
 import { storeEntryPresent } from "./fetch.ts";
@@ -197,10 +197,7 @@ export function previewStoreTrees(
     const files: TreeFile[] = [];
     for (const change of preview.changes) {
       if (change.kind !== "write" || !isInside(path, change.path)) continue;
-      files.push({
-        relPath: relative(path, change.path).split(sep).join("/"),
-        text: change.content,
-      });
+      files.push({ relPath: posixRelative(path, change.path), text: change.content });
     }
     if (files.length > 0)
       overlay.set(path, { sha: hashFiles(files), ...validateMemoryFiles(files) });

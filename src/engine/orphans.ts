@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, sep } from "node:path";
 import type { Change } from "../util/change.ts";
-import { assertInsideRoot, isAbsent } from "../util/fs.ts";
+import { assertInsideRoot, errorMessage, isAbsent } from "../util/fs.ts";
 
 const FIXED_DEPTH: ReadonlyMap<string, number> = new Map([
   ["_local", 2],
@@ -19,9 +19,7 @@ function listedDirs(dir: string, warn: (line: string) => void): string[] | null 
       .map((entry) => entry.name)
       .sort();
   } catch (error) {
-    if (!isAbsent(error)) {
-      warn(`cannot list ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    if (!isAbsent(error)) warn(`cannot list ${dir}: ${errorMessage(error)}`);
     return null;
   }
 }
