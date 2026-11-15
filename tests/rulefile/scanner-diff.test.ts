@@ -5,8 +5,12 @@
 // appended forever. The oracle never ships: micromark is 20x to 30x slower on 3 MB files and
 // quadratic in list nesting, which a session-start hook cannot afford.
 import { describe, expect, test } from "bun:test";
+import fc from "fast-check";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import { closerFor, scanLines } from "../../src/rulefile/block.ts";
-import { scanDocument } from "./scanner-oracle.ts";
+import { FUZZ_MULTIPLIER, fragments, fuzz } from "../fuzz/shared.ts";
+import { PROPERTY_TIMEOUT_MS } from "../shared/property.ts";
+import { flowDocument, scanDocument } from "./scanner-oracle.ts";
 
 const BEGIN = "<!-- maxims:begin @Octocat/rules sha=3f2a9c1e -->";
 const END = "<!-- maxims:end @Octocat/rules -->";
@@ -15,6 +19,9 @@ const BLOCK = `${BEGIN}\n${RULE}\n${END}\n`;
 
 type Line = { text: string; start: number; end: number; kind: string };
 type Reading = { lines: string[]; closer: string };
+
+// Sized so a pull request pays about what the 2000 fixed cases per piece list cost: 800 fresh documents per list by default, 20,000 on the nightly deep run.
+const DIFFERENTIAL_MULTIPLIER = 4 * FUZZ_MULTIPLIER;
 
 function shippedReading(text: string): Reading {
   const { lines, open } = scanLines(text);
@@ -350,6 +357,51 @@ describe("the oracle departs from the reference parsers", () => {
     ]);
   });
 
+  // The same tag under a blockquote's paragraph (spec 5.1 laziness): micromark opens the HTML block
+  // inside the quote, where the oracle reads every line as text, so the readings agree by chance.
+  // When the file ends on the tag with no line ending, micromark ends the quote first and the block
+  // stands at the top level. The shipped scanner reads paragraph text both ways.
+  test("a lone tag on a lazy line under a blockquote reads as top-level HTML only when the file ends on it", () => {
+    expect(shippedKinds("> a\n</custom>")).toEqual(["text", "text"]);
+    expect(oracleKinds("> a\n</custom>")).toEqual(["text", "html"]);
+    expect(oracleKinds("> a\n</custom>\n")).toEqual(["text", "text"]);
+  });
+
+  // The same again when the item's content is a link reference definition: micromark keeps the tag
+  // as content after a top-level definition, and opens an HTML block for it on the lazy line.
+  test("a lone tag on a lazy line under an item's definition reads as HTML, and as text under a top-level one", () => {
+    expect(shippedKinds("- [x]: /url\n</pre>\n")).toEqual(["text", "text"]);
+    expect(oracleKinds("- [x]: /url\n</pre>\n")).toEqual(["text", "html"]);
+    expect(shippedKinds("[x]: /url\n</pre>\n")).toEqual(["text", "text"]);
+    expect(oracleKinds("[x]: /url\n</pre>\n")).toEqual(["text", "text"]);
+  });
+
+  // The precondition of the random documents below must name these readings' lines and nothing
+  // else: a wider one would discard a disagreement nobody has attributed.
+  const lazyTags: [string, string, number[]][] = [
+    ["a lone tag on a lazy line under a list item", "- a\n<custom>\n", [1]],
+    ["a lone tag spelled from pieces under a list item", "- x\n<a-->\n", [1]],
+    [
+      "a lone tag on a lazy line under an item holding only a definition",
+      "- [x]: /url\n</pre>\n",
+      [1],
+    ],
+    ["a lone tag ending the file on a lazy line under a blockquote", "> a\n</custom>", [1]],
+    ["a lone tag on a lazy line under a blockquote inside an item", "- > a\n<custom>\n", [1]],
+    ["a lone tag continuing a top-level paragraph", "text\n<custom>\n", []],
+    [
+      "a lone tag after a quoted thematic break, where no paragraph is open",
+      "> ***\n</custom>\n",
+      [],
+    ],
+    ["a block tag, which interrupts the item's paragraph", "- a\n<div>\n", []],
+    ["a comment, which interrupts the item's paragraph", "- a\n<!--\n", []],
+    ["a lone tag indented into the item, which is no lazy line", "- a\n\n  <custom>\n", []],
+  ];
+  test.each(lazyTags)("the lazy-tag precondition on %s", (_label, text, expected) => {
+    expect(lazyTagLines(text)).toEqual(expected);
+  });
+
   // A self-closing raw tag alone on a line: spec 4.6 condition 7 excludes the four raw names, so
   // marked reads a paragraph and the marker under it; cmark, commonmark.js, micromark and the
   // shipped scanner all open a block that hides the marker until a blank line.
@@ -377,21 +429,6 @@ describe("the oracle departs from the reference parsers", () => {
     expect(oracleReading(text)).toEqual(shippedReading(text));
   });
 });
-
-// mulberry32: a tiny seeded generator, so a failing case is reproducible from its index alone.
-// The pieces can still spell a bare tag such as `<a-->` from `<`, `a` and `-->`; the seeds in use
-// never place one lazily under an item, and a seed that did would fail the comparison rather than
-// hide it.
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 // Without the inline tags and the non-breaking space: a lone tag under a list item and a non-breaking space beside a tag are the two readings the rows above attribute, and every generated document must read alike.
 const PIECES = [
@@ -540,39 +577,120 @@ const TAGS = [
   "<!-- maxims:end s -->",
 ];
 
-function pick<T>(random: () => number, items: readonly T[]): T {
-  return items[Math.floor(random() * items.length)];
+// Mostly a line or two, where a shrunk failure is short; one draw in twenty is up to thousands of
+// pieces, where blocks nest and close each other. `size: "max"` lifts fast-check's default length
+// ceiling of ten pieces.
+function documents(pieces: readonly string[]): fc.Arbitrary<string> {
+  return fc.oneof(
+    { weight: 19, arbitrary: fragments(pieces, { maxLength: 24, size: "max" }) },
+    { weight: 1, arbitrary: fragments(pieces, { maxLength: 2500, size: "max" }) },
+  );
 }
 
-function text(random: () => number, pieces: readonly string[], target: number): string {
-  let out = "";
-  while (out.length < target) out += pick(random, pieces);
-  return out;
+// The one departure the piece lists can still spell: a complete tag alone on a lazy line under
+// content a container holds, such as `<a-->` from `<`, `a` and `-->`, or `</pre>` under `- x`.
+// The rows "a lone tag on a lazy line" above attribute it to micromark. It is read off micromark
+// alone, never off the comparison: an HTML block micromark opens on a line it recorded as lazy,
+// straight after a line of content (a paragraph, or the definitions one opened with), with an
+// opening it keeps as content after a plain top-level line. The result is the 0-based indexes of
+// those lines.
+function lazyTagLines(text: string): number[] {
+  const { events, lazy } = flowDocument(text);
+  const found: number[] = [];
+  let contentEnd = 0;
+  for (const [step, token] of events) {
+    if (step === "exit" && token.type === "content") contentEnd = token.end.line;
+    if (step !== "enter" || token.type !== "htmlFlow") continue;
+    if (!lazy[token.start.line] || contentEnd !== token.start.line - 1) continue;
+    const opening = text.slice(token.start.offset).split(/\r\n|\r|\n/, 1)[0];
+    if (!interruptsContent(opening)) found.push(token.start.line - 1);
+  }
+  return found;
 }
 
-function length(random: () => number): number {
-  return random() < 0.05 ? 10_000 : Math.floor(random() * 64);
+function interruptsContent(opening: string): boolean {
+  return flowDocument(`x\n${opening}\n`).events.some(([, token]) => token.type === "htmlFlow");
 }
+
+function assertReadAlike(doc: string): void {
+  const oracle = oracleReading(doc);
+  const shipped = shippedReading(doc);
+  if (Bun.deepEquals(oracle, shipped)) return;
+  // Discarded only when the first line read differently is the departure itself: what follows it
+  // cannot be compared, and a departure line both sides read alike excuses nothing after it.
+  const first = oracle.lines.findIndex((line, index) => line !== shipped.lines[index]);
+  fc.pre(!lazyTagLines(doc).includes(first));
+  throw new Error(
+    `the readings differ on ${JSON.stringify(doc)}\noracle  ${JSON.stringify(oracle)}\nshipped ${JSON.stringify(shipped)}`,
+  );
+}
+
+// What appendBlock writes behind `body`, with the closer the oracle reads: the body's final line
+// ending or a line feed, the closer at its column, a blank line, the block; an empty body is the block alone.
+function appendedByOracle(body: string): string {
+  if (body === "") return BLOCK;
+  const { open } = scanDocument(body);
+  const ending = /(\r\n|\r|\n)$/.exec(body)?.[1] ?? "\n";
+  const terminated = body.endsWith(ending) ? body : `${body}${ending}`;
+  const closer = open === null ? "" : `${" ".repeat(open.column)}${open.closer}${ending}`;
+  return `${terminated}${closer}${ending}${BLOCK}`;
+}
+
+// The spans read as HTML blocks outside every list and blockquote.
+function topLevelHtml(text: string): Set<string> {
+  const spans = new Set<string>();
+  for (const node of fromMarkdown(text).children) {
+    if (node.type === "html")
+      spans.add(`${node.position?.start.offset}-${node.position?.end.offset}`);
+  }
+  return spans;
+}
+
+const GENERATORS: [string, readonly string[], string][] = [
+  ["inline pieces", PIECES, ""],
+  ["list pieces", LISTS, "\n"],
+  ["tag pieces", TAGS, "\n"],
+];
 
 describe("random documents", () => {
-  const CASES = 2000;
-  const generators: [string, readonly string[], string][] = [
-    ["inline pieces", PIECES, ""],
-    ["list pieces", LISTS, "\n"],
-    ["tag pieces", TAGS, "\n"],
-  ];
-  test.each(generators)(
+  test.each(GENERATORS)(
     "%s: both scanners read every generated document alike",
-    (_label, pieces, separator) => {
-      for (let i = 0; i < CASES; i += 1) {
-        const random = rng(20260920 + i);
-        const body = text(random, pieces, length(random));
-        for (const doc of [body, `${body}${separator}${BLOCK}`]) {
-          expect(oracleReading(doc), `case ${i}: ${JSON.stringify(doc)}`).toEqual(
-            shippedReading(doc),
+    async (label, pieces, separator) => {
+      await fuzz(
+        `the scanner differential over ${label}`,
+        documents(pieces),
+        (body) => {
+          assertReadAlike(body);
+          assertReadAlike(`${body}${separator}${BLOCK}`);
+        },
+        { multiplier: DIFFERENTIAL_MULTIPLIER },
+      );
+    },
+    PROPERTY_TIMEOUT_MS,
+  );
+
+  // The differential compares two closers written from one reading of the specification; here
+  // micromark alone says whether the block appended behind the oracle's closer can be found again.
+  // Without it, a closer both sides misplace alike leaves the markers inside the block it meant to end.
+  test.each(GENERATORS)(
+    "%s: micromark reads both markers of a block appended behind the closer as top-level comments",
+    async (label, pieces) => {
+      await fuzz(`the appended block over ${label}`, documents(pieces), (body) => {
+        const doc = appendedByOracle(body);
+        const begin = doc.length - BLOCK.length;
+        const end = doc.length - END.length - 1;
+        const html = topLevelHtml(doc);
+        for (const [marker, at] of [
+          [BEGIN, begin],
+          [END, end],
+        ] as const) {
+          if (html.has(`${at}-${at + marker.length}`)) continue;
+          throw new Error(
+            `micromark does not read ${marker} as a top-level comment in ${JSON.stringify(doc)}`,
           );
         }
-      }
+      });
     },
+    PROPERTY_TIMEOUT_MS,
   );
 });
