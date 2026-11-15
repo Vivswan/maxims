@@ -3,21 +3,15 @@
 // it is allowed to touch. The bundle accepts https, http, ssh and git URLs and local directories;
 // a fixture repository is handed to it as its checkout path, which it reads as a copied local
 // source, so the git history it carries is what a later remote-URL install would clone.
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join, parse, relative, resolve, sep } from "node:path";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, parse, resolve } from "node:path";
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import { sourceSlug } from "../../src/engine/slug.ts";
 import { parseMemory } from "../../src/memory/contract.ts";
 import { sha256 } from "../../src/util/fs.ts";
 import { commitAll, gitInit } from "../shared/git_fixture.ts";
+import { memoryFile } from "../shared/memory_file.ts";
+import { walkTree } from "../shared/tree.ts";
 import { type Bundle, type Home, type Run, runMaxims } from "./binary.ts";
 
 const HARNESS_FIXTURES = resolve(import.meta.dir, "..", "..", "src", "harnesses");
@@ -86,21 +80,12 @@ export function memoriesRepo(dir: string, count: number): string {
   mkdirSync(join(repo, "memories"), { recursive: true });
   for (let index = 1; index <= count; index += 1) {
     const name = `m-${String(index).padStart(3, "0")}`;
-    writeFileSync(
-      join(repo, "memories", `${name}.md`),
-      [
-        "---",
-        `name: ${name}`,
-        `description: Generated rule number ${index} for the cap row`,
-        "metadata:",
-        "  node_type: memory",
-        "  type: feedback",
-        "---",
-        "",
-        `**Why:** rule ${index} exists to be counted.`,
-        "",
-      ].join("\n"),
-    );
+    const spec = {
+      description: `Generated rule number ${index} for the cap row`,
+      type: "feedback",
+      body: `**Why:** rule ${index} exists to be counted.`,
+    } as const;
+    writeFileSync(join(repo, "memories", `${name}.md`), memoryFile(name, spec));
   }
   gitInit(repo);
   commitAll(repo, "fixture");
@@ -113,20 +98,14 @@ export function memoriesRepo(dir: string, count: number): string {
 // relative paths a run may touch.
 export function snapshot(root: string, skip: string[] = []): Map<string, string> {
   const entries = new Map<string, string>();
-  const skipped = new Set(skip);
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      const rel = relative(root, path).split(sep).join("/");
-      if (skipped.has(rel)) continue;
-      if (entry.isSymbolicLink()) entries.set(rel, `link:${readlinkSync(path)}`);
-      else if (entry.isDirectory()) {
-        entries.set(rel, "dir");
-        walk(path);
-      } else entries.set(rel, sha256(readFileSync(path)));
-    }
-  };
-  if (existsSync(root)) walk(root);
+  if (!existsSync(root)) return entries;
+
+  for (const entry of walkTree(root, new Set(skip))) {
+    if (entry.kind === "symlink") entries.set(entry.path, `link:${entry.target}`);
+    else if (entry.kind === "dir") entries.set(entry.path, "dir");
+    else entries.set(entry.path, sha256(readFileSync(join(root, entry.path))));
+  }
+
   return entries;
 }
 

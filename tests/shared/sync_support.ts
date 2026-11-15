@@ -1,7 +1,11 @@
 import type { HarnessId } from "../../src/contracts/harness-id.ts";
 import type { SyncOptions } from "../../src/engine/types.ts";
 import type { HarnessDefinition } from "../../src/harnesses/contract.ts";
-import { readStateFile, sharedBlockHarness } from "../engine/fakes.ts";
+import { sharedBlockHarness } from "../engine/fakes.ts";
+import { readStateFile } from "./state_file.ts";
+
+// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
+export { DAY_MS } from "./time.ts";
 
 export const SYNC: SyncOptions = {
   quiet: false,
@@ -11,7 +15,6 @@ export const SYNC: SyncOptions = {
 };
 export const QUIET: SyncOptions = { ...SYNC, quiet: true };
 export const NOW = new Date("2026-09-20T12:00:00.000Z");
-export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function budgetedReader(byteBudget: number): HarnessDefinition {
   return { ...sharedBlockHarness, id: "dsh", displayName: "Fixture Budgeted", byteBudget };

@@ -3,15 +3,13 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { commitAll, gitInit } from "../../shared/git_fixture.ts";
+import { type MemorySpec, memoryFile } from "../../shared/memory_file.ts";
 
-export type MemorySpec = { description: string; body?: string };
+// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
+export { type MemorySpec, memoryFile } from "../../shared/memory_file.ts";
 
 // A file that must NOT parse as a memory is spelled as its raw text.
 export type FileSpec = MemorySpec | { raw: string };
-
-export function memoryFile(name: string, spec: MemorySpec): string {
-  return `---\nname: ${name}\ndescription: ${spec.description}\nmetadata:\n  node_type: memory\n---\n\n${spec.body ?? `Body of ${name}.`}\n`;
-}
 
 export function writeMemories(root: string, files: Record<string, FileSpec>): void {
   const dir = join(root, "memories");

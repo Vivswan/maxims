@@ -116,4 +116,5 @@ export function advanceClock(world: RealWorld, ms: number): void {
   world.clock.now = new Date(world.clock.now.getTime() + ms);
 }
 
-export const DAY_MS = 24 * 60 * 60 * 1000;
+// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
+export { DAY_MS } from "../../shared/time.ts";

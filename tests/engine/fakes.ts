@@ -1,12 +1,4 @@
-import {
-  cpSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type GitSha, parseGitSha } from "../../src/contracts/git-sha.ts";
 import type { SourceFrom } from "../../src/contracts/source.ts";
@@ -42,6 +34,13 @@ import { serializeState } from "../../src/state/store.ts";
 import { assertInsideRoot, sha256 } from "../../src/util/fs.ts";
 import { homePaths, storePathFor } from "../../src/util/home.ts";
 import { jsonDocument } from "../../src/util/json.ts";
+import { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
+import { walkTree } from "../shared/tree.ts";
+
+// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
+export { type MemorySpec, memoryFile } from "../shared/memory_file.ts";
+export { readStateFile } from "../shared/state_file.ts";
+export { daysAgo } from "../shared/time.ts";
 
 export const FIXTURE_DIR = ".fixture";
 
@@ -201,12 +200,6 @@ export function fixtureRoot(scope: Scope, ctx: HarnessContext): string {
   return join(scopeRoot({}, scope, ctx), FIXTURE_DIR);
 }
 
-export type MemorySpec = {
-  description: string;
-  body?: string;
-  internal?: boolean;
-};
-
 // Writes `memories/<name>.md` files that pass the contract, and returns the source root.
 export function writeSource(root: string, memories: Record<string, MemorySpec>): string {
   mkdirSync(join(root, "memories"), { recursive: true });
@@ -214,11 +207,6 @@ export function writeSource(root: string, memories: Record<string, MemorySpec>):
     writeFileSync(join(root, "memories", `${name}.md`), memoryFile(name, spec));
   }
   return root;
-}
-
-export function memoryFile(name: string, spec: MemorySpec): string {
-  const internal = spec.internal === true ? "\n  internal: true" : "";
-  return `---\nname: ${name}\ndescription: ${spec.description}\nmetadata:\n  node_type: memory${internal}\n---\n\n${spec.body ?? `Body of ${name}.`}\n`;
 }
 
 export type FetchBehaviour =
@@ -382,10 +370,6 @@ export function writeState(home: string, state: State): void {
   writeFileSync(homePaths(home).state, serializeState(state));
 }
 
-export function readStateFile(home: string): State {
-  return JSON.parse(readFileSync(homePaths(home).state, "utf8"));
-}
-
 export type RemoteFrom = Extract<SourceFrom, { ref: string }>;
 
 export function githubFrom(repo: string, ref = "HEAD"): RemoteFrom {
@@ -400,25 +384,13 @@ export function localFrom(path: string, live = false): SourceFrom {
 // (dangling or not), a directory by its listing, so a before-and-after comparison sees any
 // byte, link or entry that changed.
 export function treeDigest(dir: string): string {
-  const entries: string[] = [];
-  const walk = (current: string, rel: string): void => {
-    for (const name of readdirSync(current).sort()) {
-      const path = join(current, name);
-      const relPath = rel === "" ? name : `${rel}/${name}`;
-      const stat = lstatSync(path);
-      if (stat.isSymbolicLink()) entries.push(`${relPath} -> ${readlinkSync(path)}`);
-      else if (stat.isDirectory()) {
-        entries.push(`${relPath}/`);
-        walk(path, relPath);
-      } else entries.push(`${relPath}\0${sha256(readFileSync(path))}`);
-    }
-  };
-  walk(dir, "");
-  return sha256(entries.join("\n"));
-}
+  const lines = walkTree(dir).map((entry) => {
+    if (entry.kind === "symlink") return `${entry.path} -> ${entry.target}`;
+    if (entry.kind === "dir") return `${entry.path}/`;
+    return `${entry.path}\0${sha256(readFileSync(join(dir, entry.path)))}`;
+  });
 
-export function daysAgo(now: Date, days: number): string {
-  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  return sha256(lines.join("\n"));
 }
 
 // The record a remote source carries; every fixture that seeds fetch facts is a GitHub source.

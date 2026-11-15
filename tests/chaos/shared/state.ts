@@ -3,18 +3,14 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LastError } from "../../../src/contracts/last-error.ts";
-import { type Fetched, parseState, type State } from "../../../src/state/schema.ts";
+import type { Fetched, State } from "../../../src/state/schema.ts";
 import { serializeState } from "../../../src/state/store.ts";
 import { homePaths } from "../../../src/util/home.ts";
+import { readStateFile } from "../../shared/state_file.ts";
+import { daysAgo } from "../../shared/time.ts";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-export function readStateFile(maximsHome: string): State {
-  const parsed = parseState(JSON.parse(readFileSync(homePaths(maximsHome).state, "utf8")));
-  if (parsed.ok !== "parsed")
-    throw new Error(`state.json did not parse: ${JSON.stringify(parsed)}`);
-  return parsed.state;
-}
+// biome-ignore lint/performance/noBarrelFile: other test files still import these from here
+export { readStateFile } from "../../shared/state_file.ts";
 
 export function fetchedOf(state: State, key: string): Fetched {
   const entry = state.sources[key];
@@ -29,7 +25,7 @@ export function fetchedOf(state: State, key: string): Fetched {
 export function ageFetch(maximsHome: string, key: string, days: number, now = new Date()): void {
   const state = readStateFile(maximsHome);
   const fetched = fetchedOf(state, key);
-  fetched.at = new Date(now.getTime() - days * DAY_MS).toISOString();
+  fetched.at = daysAgo(now, days);
   if (fetched.lastError !== null) fetched.lastError.at = fetched.at;
   writeFileSync(homePaths(maximsHome).state, serializeState(state));
 }
