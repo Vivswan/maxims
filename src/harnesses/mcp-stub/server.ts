@@ -7,8 +7,8 @@ import { VERSION } from "../../version.ts";
 // word, which is the whole point: the sync is under way by then. It exposes ZERO tools, so a prompt
 // can reach nothing through it; `tools/list` answering an empty array is the property the test
 // pins. The protocol is newline-delimited JSON-RPC over stdio, implemented here rather than with
-// the MCP SDK because that package pulls in an HTTP stack (express, hono, cors, jose) the bundle
-// would otherwise never carry.
+// the MCP SDK because its server package would add about 782 KB to the bundle for the same replies
+// a 3 KB job gives.
 export type McpStubOptions = {
   runSync: () => Promise<unknown>;
   input: Readable;

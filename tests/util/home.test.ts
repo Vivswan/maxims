@@ -3,12 +3,14 @@
 // already be the proven-inside-root type that a store write accepts, so no caller re-asserts it.
 // Also guards the pending root: a held revision must land where the store entry would, under
 // `pending/` instead of `store/`, or a pinned source's hold would be swapped into its tracking
-// twin's slot.
+// twin's slot. And guards where the home itself comes from: a blank HOME must never put the store
+// under the folder a session happens to run in.
 import { expect, test } from "bun:test";
 import { basename, relative, resolve, sep } from "node:path";
 import type { SourceFrom } from "../../src/contracts/source.ts";
+import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
 import type { RootedPath } from "../../src/util/fs.ts";
-import { homePaths, pendingPathFor, storePathFor } from "../../src/util/home.ts";
+import { homePaths, maximsHome, pendingPathFor, storePathFor } from "../../src/util/home.ts";
 
 const home = resolve("/home/user/.agents/maxims");
 
@@ -144,3 +146,48 @@ test("distinct sources get distinct entries, and a live local source shares its 
     storePathFor(home, { type: "local", path: "/home/user/dotfiles/memories", live: true }),
   ).toBe(local("/home/user/dotfiles/memories"));
 });
+
+const userHome = resolve("/home/user");
+const osHome = resolve("/os/record");
+const absent = resolve("/never/read");
+
+// Some service managers and containers hand a process an empty HOME. Every row injects the
+// operating system's record, so no row reads the real one.
+const homes: [string, Record<string, string | undefined>, string, string][] = [
+  ["USERPROFILE when HOME is empty", { HOME: "", USERPROFILE: userHome }, absent, userHome],
+  ["the system's record when HOME is empty", { HOME: "" }, osHome, osHome],
+  ["the system's record when both are blank", { HOME: " ", USERPROFILE: "\t" }, osHome, osHome],
+  ["the system's record when HOME is relative", { HOME: "work" }, osHome, osHome],
+];
+
+test.each(homes)("the maxims home sits under %s", (_title, env, recorded, expected) => {
+  expect(maximsHome(env, () => recorded)).toBe(resolve(expected, ".agents/maxims"));
+});
+
+// A container user with no passwd entry has no record to read, and MAXIMS_HOME is how such a run
+// names its home: reading the record first would refuse it.
+test("MAXIMS_HOME wins without the system's record being read", () => {
+  const unread = () => {
+    throw new Error("the system's record was read");
+  };
+  expect(maximsHome({ MAXIMS_HOME: home, HOME: "" }, unread)).toBe(home);
+});
+
+// A relative store lands wherever the session runs, so no home is a refusal, never a guess.
+test.each<[string, () => string]>([
+  [
+    "has no record of the user",
+    () => {
+      throw new Error("ENOENT: no such user");
+    },
+  ],
+  ["records a blank home", () => ""],
+  ["records a relative home", () => "home/user"],
+])(
+  "a blank HOME on a system that %s is refused, never resolved against the cwd",
+  (_title, record) => {
+    expect(() => maximsHome({ HOME: "", USERPROFILE: "" }, record)).toThrow(
+      new MaximsError(ExitCode.Usage, "cannot find the user's home folder"),
+    );
+  },
+);

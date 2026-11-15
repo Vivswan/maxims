@@ -1,5 +1,5 @@
-import { homedir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import os from "node:os";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   DEFAULT_GIT_REF,
   parseRemote,
@@ -9,12 +9,58 @@ import {
 import { ExitCode, MaximsError } from "./exit-codes.ts";
 import { assertInsideRoot, type RootedPath, sha256 } from "./fs.ts";
 
-/** @public */
-export function maximsHome(env: Record<string, string | undefined>): string {
+// `os.homedir()` would not do: it hands an empty HOME straight back.
+function systemHome(): string {
+  return os.userInfo().homedir;
+}
+
+class NoUserHome extends MaximsError {
+  constructor(options: { cause?: unknown } = {}) {
+    super(ExitCode.Usage, "cannot find the user's home folder", {
+      ...options,
+      hint: "set HOME to an absolute path",
+    });
+  }
+}
+
+/**
+ * The user's own home: `HOME`, then `USERPROFILE`, then `osHome`, the operating system's record,
+ * and the first that is an absolute path. A blank or relative one names no folder: joined as it
+ * stands, it would put the store under whatever folder the session runs in.
+ */
+export function userHome(
+  env: Record<string, string | undefined>,
+  osHome: () => string = systemHome,
+): string {
+  for (const named of [env.HOME, env.USERPROFILE]) {
+    if (named !== undefined && isAbsolute(named)) return named;
+  }
+
+  let recorded: string;
+  try {
+    recorded = osHome();
+  } catch (cause) {
+    throw new NoUserHome({ cause });
+  }
+  if (!isAbsolute(recorded)) throw new NoUserHome();
+
+  return recorded;
+}
+
+/**
+ * The folder maxims keeps its state and store in: `MAXIMS_HOME`, else `.agents/maxims` under the
+ * user's home (`userHome`), which is read only when `MAXIMS_HOME` is unset.
+ *
+ * @public
+ */
+export function maximsHome(
+  env: Record<string, string | undefined>,
+  osHome: () => string = systemHome,
+): string {
   const override = env.MAXIMS_HOME;
   if (override !== undefined && override !== "") return resolve(override);
-  const home = env.HOME ?? env.USERPROFILE ?? homedir();
-  return join(home, ".agents", "maxims");
+
+  return join(userHome(env, osHome), ".agents", "maxims");
 }
 
 export type HomePaths = {

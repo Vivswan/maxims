@@ -183,17 +183,41 @@ describe("renderBlock", () => {
     expect(exposedReferences(expected).filter((token) => token.startsWith("@"))).toEqual([]);
   });
 
+  const renderDescription = (description: string) =>
+    renderBlock(
+      input({
+        markers: "counted",
+        lines: [{ name: TIMEOUTS.name, description, detailPath: "P", shortHash: "h" }],
+      }),
+    ).split("\n")[1];
+
   test("a description is truncated at 300 characters with an ASCII ellipsis, never mid code point", () => {
-    const render = (description: string) =>
-      renderBlock(
-        input({
-          markers: "counted",
-          lines: [{ name: TIMEOUTS.name, description, detailPath: "P", shortHash: "h" }],
-        }),
-      ).split("\n")[1];
-    expect(render("a".repeat(300))).toBe(`- ${"a".repeat(300)} (detail: P, h)`);
-    expect(render("a".repeat(301))).toBe(`- ${"a".repeat(297)}... (detail: P, h)`);
-    expect(render("\u{1F600}".repeat(301))).toBe(`- ${"\u{1F600}".repeat(297)}... (detail: P, h)`);
+    expect(renderDescription("a".repeat(300))).toBe(`- ${"a".repeat(300)} (detail: P, h)`);
+    expect(renderDescription("a".repeat(301))).toBe(`- ${"a".repeat(297)}... (detail: P, h)`);
+    expect(renderDescription("\u{1F600}".repeat(301))).toBe(
+      `- ${"\u{1F600}".repeat(297)}... (detail: P, h)`,
+    );
+  });
+
+  // A character a reader sees as one can span several code points. A cut inside it leaves the
+  // agent a different character: a family becomes a lone man, an accented letter loses its accent,
+  // a flag becomes a boxed letter.
+  const clusters: [string, string][] = [
+    ["a family joined by zero-width joiners", "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}"],
+    ["a letter with a combining accent", "e\u0301"],
+    ["a flag of two regional indicators", "\u{1F1EB}\u{1F1F7}"],
+  ];
+  test.each(clusters)("a cut that lands inside %s drops it whole", (_title, cluster) => {
+    const description = `${"a".repeat(296)}${cluster}${"b".repeat(4)}`;
+    expect(renderDescription(description)).toBe(`- ${"a".repeat(296)}... (detail: P, h)`);
+  });
+
+  // sync rewrites a rule file whose rendering changed: a description at the limit must render as
+  // it always did, whatever characters fill it, or every install is rewritten on upgrade.
+  test.each(clusters)("300 code points made of %s render whole", (_title, cluster) => {
+    const description = cluster.repeat(300 / Array.from(cluster).length);
+    expect(Array.from(description)).toHaveLength(300);
+    expect(renderDescription(description)).toBe(`- ${description} (detail: P, h)`);
   });
 
   test("a source or sha that cannot sit inside a marker is refused before anything renders", () => {

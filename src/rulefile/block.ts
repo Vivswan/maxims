@@ -6,7 +6,7 @@
 //   end       carries no version and is spelled alike by every version: it is the line that names
 //             a block whose begin marker this maxims refuses (`heldBlockSpans`)
 
-import { util, z } from "zod";
+import { z } from "zod";
 import { ExitCode, MaximsError } from "../util/exit-codes.ts";
 import { compareCodeUnits } from "../util/order.ts";
 import { PACKAGE_COMMAND } from "../util/package.ts";
@@ -22,6 +22,7 @@ import {
 
 const DESCRIPTION_MAX_CHARS = 300;
 const ELLIPSIS = "...";
+const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 const BEGIN_MARKER = "<!-- maxims:begin {source} sha={sha} version={version} -->";
 const END_MARKER = "<!-- maxims:end {source} -->";
@@ -42,7 +43,7 @@ function fillMarker(template: string, fields: MarkerFields): string {
 function markerPattern(template: string, fields: MarkerFields): RegExp {
   const body = template
     .split(FIELD)
-    .map((part, index) => (index % 2 === 1 ? fieldOf(fields, part) : util.escapeRegex(part)))
+    .map((part, index) => (index % 2 === 1 ? fieldOf(fields, part) : RegExp.escape(part)))
     .join("");
   return new RegExp(`^${body}$`, "s");
 }
@@ -52,9 +53,7 @@ const BEGIN_LINE = markerPattern(BEGIN_MARKER, { source: "(.+)", sha: "(\\S+)", 
 const END_LINE = markerPattern(END_MARKER, { source: "(.+)" });
 const BEGIN_OPENER = BEGIN_MARKER.slice(0, BEGIN_MARKER.indexOf("{"));
 const MARKER_CLOSER = BEGIN_MARKER.slice(BEGIN_MARKER.lastIndexOf("}") + 1);
-const VERSION_FIELD = new RegExp(
-  `${util.escapeRegex(literalBefore(BEGIN_MARKER, "version"))}(\\d+)$`,
-);
+const VERSION_FIELD = new RegExp(`${RegExp.escape(literalBefore(BEGIN_MARKER, "version"))}(\\d+)$`);
 
 // The text the template writes just before a field, so a reader of that field alone spells it once.
 function literalBefore(template: string, field: string): string {
@@ -201,10 +200,21 @@ function oneLine(text: string): string {
   return text.replace(/\r\n|\r|\n/g, " ");
 }
 
+// The limit counts code points, and the cut backs up to the end of a whole character as a reader
+// sees one: half a family emoji is another emoji, and a letter cut from its accent another letter.
 function truncate(text: string): string {
-  const points = Array.from(text);
-  if (points.length <= DESCRIPTION_MAX_CHARS) return text;
-  return points.slice(0, DESCRIPTION_MAX_CHARS - ELLIPSIS.length).join("") + ELLIPSIS;
+  if (Array.from(text).length <= DESCRIPTION_MAX_CHARS) return text;
+
+  const room = DESCRIPTION_MAX_CHARS - ELLIPSIS.length;
+  let kept = "";
+  let used = 0;
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    used += Array.from(segment).length;
+    if (used > room) break;
+    kept += segment;
+  }
+
+  return kept + ELLIPSIS;
 }
 
 function escapeText(text: string, expands: readonly ExpansionSyntax[]): string {
