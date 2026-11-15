@@ -535,6 +535,29 @@ test("lint reports each problem class as path:line: reason and exits 3, clean fo
   });
 });
 
+// An editor jumps to the line lint prints. A line found by searching the file text for `key:` lands
+// on a nested key of the same name, misses a quoted key, and knows nothing of a YAML syntax error.
+test("lint places each frontmatter problem on its file line with a one-line reason", async () => {
+  await withScenario({}, async (scenario) => {
+    const dir = join(scenario.cwd, "memories");
+    mkdirSync(dir);
+    const files = {
+      "bad-yaml": "---\nname: bad-yaml\ndescription: fine\nmetadata:\n  type: [feedback\n---\n",
+      "nested-name": "---\nmetadata:\n  name: other\nname: wrong\ndescription: fine\n---\n",
+      "quoted-key": '---\nname: quoted-key\n"description": ""\n---\n',
+      "trailing-blank": "--- \t\nname: trailing-blank\ndescription: fine\n---\n",
+    };
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, `${name}.md`), text);
+    const run = await runCli(scenario, ["lint"]);
+    expect(run.stdout.split("\n")).toEqual([
+      `${join("memories", "bad-yaml.md")}:6: frontmatter is not valid YAML: Flow sequence in block collection must be sufficiently indented and end with a ]`,
+      `${join("memories", "nested-name.md")}:4: name "wrong" does not equal filename stem "nested-name"`,
+      `${join("memories", "quoted-key.md")}:3: description is missing or empty`,
+      "",
+    ]);
+  });
+});
+
 // The cap counts the rule lines an install publishes, as the planner counts them: an internal
 // memory is hidden from a `*` install until MAXIMS_INSTALL_INTERNAL=1 asks for it. A lint that
 // counted differently would tell an author to trim a folder that fits, or clear one `add` refuses.

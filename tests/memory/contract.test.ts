@@ -11,6 +11,7 @@ import {
   parseContentHash,
   parseMemory,
   parseMemoryName,
+  splitFrontmatter,
 } from "../../src/memory/contract.ts";
 
 const FRONTMATTER = [
@@ -129,7 +130,7 @@ describe("parseMemory", () => {
     },
   ];
   test.each(accepted)("accepts: $title", ({ filename, text, memory }) => {
-    expect(parseMemory(filename, text)).toEqual({ ok: true, memory });
+    expect(parseMemory(filename, text)).toEqual({ ok: true, memory, descriptionLine: 3 });
   });
 
   // An unknown `type` or a non-boolean `internal` is kept in `extra` with a warning rather than
@@ -305,6 +306,85 @@ describe("parseMemory", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(reason);
+  });
+
+  // `lint` prints these lines for an editor to jump to. Each is the key's own line in the file as
+  // authored. A nested key of the same name and a quoted key are where a text search for `key:`
+  // went wrong; the CRLF row holds the parser's offsets to file lines.
+  const placed: { title: string; text: string; reason: string; line: number }[] = [
+    {
+      title: "a YAML syntax error sits where the parser stopped, in one line",
+      text: "---\nname: rule\ndescription: fine\nmetadata:\n  type: [feedback\n---\n",
+      reason:
+        "frontmatter is not valid YAML: Flow sequence in block collection must be sufficiently indented and end with a ]",
+      line: 6,
+    },
+    {
+      title: "a top-level name below a nested key of the same name",
+      text: "---\nmetadata:\n  name: other\nname: wrong\ndescription: fine\n---\n",
+      reason: 'name "wrong" does not equal filename stem "rule"',
+      line: 4,
+    },
+    {
+      title: "a quoted description key",
+      text: '---\nname: rule\n"description": ""\n---\n',
+      reason: "description is missing or empty",
+      line: 3,
+    },
+    {
+      title: "a description key in a CRLF file with a byte order mark",
+      text: "\uFEFF---\r\nname: rule\r\ndescription: |\r\n  one\r\n  two\r\n---\r\n",
+      reason: "description spans several lines",
+      line: 3,
+    },
+    {
+      title: "a nested key",
+      text: "---\nname: rule\ndescription: fine\nmetadata:\n  scope: x\n  node_type: skill\n---\n",
+      reason: 'metadata.node_type is "skill", expected "memory"',
+      line: 6,
+    },
+    {
+      title: "a frontmatter that is a list",
+      text: "---\n# a comment\n- one\n---\n",
+      reason: "frontmatter is not a mapping",
+      line: 3,
+    },
+    {
+      title: "a YAML message that quotes a line break from the source stays one line",
+      text: '---\nname: rule\ndescription: "\\u12\n  ab"\n---\n',
+      reason: "frontmatter is not valid YAML: Invalid escape sequence \\u12",
+      line: 3,
+    },
+  ];
+  test.each(placed)("places a refusal: $title", ({ text, reason, line }) => {
+    expect(parseMemory("rule.md", text)).toEqual({ ok: false, reason, line });
+  });
+
+  test("a warning is placed on the first key it names, and the description on its own key", () => {
+    const text =
+      "---\nname: rule\nmetadata:\n  internal: soon\n  type: chore\ndescription: fine\n---\n";
+    expect(parseMemory("rule.md", text)).toMatchObject({
+      warning:
+        'metadata.type "chore" is not one of user, feedback, project, reference; metadata.internal "soon" is not a boolean',
+      warningLine: 5,
+      descriptionLine: 6,
+    });
+  });
+});
+
+// engine/bodies.ts reads a copy's `name` through this split too, so the fence grammar has one
+// definition. Both fences take trailing blanks, and an empty block is a block.
+describe("splitFrontmatter", () => {
+  const cases: [string, string, ReturnType<typeof splitFrontmatter>][] = [
+    [
+      "blanks after either fence",
+      "--- \t\nname: a\n---\t \nbody\n",
+      { yaml: "name: a\n", body: "body\n" },
+    ],
+    ["an empty block", "---\n---\nbody\n", { yaml: "", body: "body\n" }],
+  ];
+  test.each(cases)("%s", (_, text, expected) => {
+    expect(splitFrontmatter(text)).toEqual(expected);
   });
 });
 
