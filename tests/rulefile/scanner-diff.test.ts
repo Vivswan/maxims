@@ -81,6 +81,15 @@ function shippedKinds(text: string): string[] {
   return scanLines(text).lines.map((line) => line.kind);
 }
 
+// Rows whose first line is a link reference definition for `destination`, if it is one: the equals
+// signs under a definition are prose and the lone tag continues them, so both markers are read.
+function definitions(rows: [string, string][]): [string, string][] {
+  return rows.map(([label, destination]) => [
+    `a destination with parentheses ${label}`,
+    `[x]: ${destination}\n===\n<custom>\n${BLOCK}`,
+  ]);
+}
+
 describe("both scanners agree", () => {
   const agreed: [string, string][] = [
     ["an empty file", ""],
@@ -222,7 +231,43 @@ describe("both scanners agree", () => {
     ["a destination with an escaped space, which is prose", `[x]: /a\\ b\n===\n<custom>\n${BLOCK}`],
     ["a destination ending in a lone backslash", `[x]: /a\\\n===\n<custom>\n${BLOCK}`],
     ["a destination with balanced parentheses", `[x]: /a(b)\n===\n-\n  \`\`\`\n${BLOCK}`],
+    // A definition's destination nests to any depth: micromark passes its cap of 32 only where it
+    // reads an inline link. A destination the shipped scanner refused left the lone tag under it
+    // opening a block that hid both markers.
+    ...definitions([
+      ["nested three deep", "a(((a)))"],
+      ["nested thirty-two deep, the cap of an inline link", `${"(".repeat(32)}a${")".repeat(32)}`],
+      ["nested thirty-three deep, one past it", `${"(".repeat(33)}a${")".repeat(33)}`],
+      ["nested five thousand deep", `${"(".repeat(5000)}${")".repeat(5000)}`],
+      ["opened and closed side by side", "(a)(b)((c))"],
+      ["left open three deep, which is prose", "a(((a))"],
+      ["closed once too often, which is prose", "a((a)))"],
+      ["closed before they open, which is prose", "a)("],
+      ["escaped, which count for nothing", "a\\(\\(b\\)"],
+      ["opened behind an escaped backslash and never closed, which is prose", "a\\\\(b"],
+      ["closed by an escaped one only, which is prose", "a(b\\)"],
+      ["balanced before a title in parentheses", "a((b)) (title)"],
+      ["left open before a title in parentheses, which is prose", "a(b (c)"],
+    ]),
     ["a destination holding a NUL", `[x]: /a\0b\n===\n<custom>\n${BLOCK}`],
+    // A backslash before a line separator, which JavaScript's `.` does not match: the pair is two
+    // plain characters to every CommonMark parser.
+    [
+      "an angle destination holding a backslash before a line separator",
+      `[x]: <a\\\u2028>\n===\n<custom>\n${BLOCK}`,
+    ],
+    [
+      "a label holding a backslash before a paragraph separator",
+      `[a\\\u2029]: /url\n===\n<custom>\n${BLOCK}`,
+    ],
+    [
+      "a title holding a backslash before a line separator",
+      `[x]: /url "a\\\u2028"\n===\n<custom>\n${BLOCK}`,
+    ],
+    [
+      "a title in parentheses holding a backslash before a line separator",
+      `[x]: /url (a\\\u2028)\n===\n<custom>\n${BLOCK}`,
+    ],
     [
       "a label of a thousand characters written as escape pairs",
       `[${"\\!".repeat(500)}]: /url\n===\n<custom>\n${BLOCK}`,
@@ -416,14 +461,21 @@ describe("the oracle departs from the reference parsers", () => {
   // line, so `2)` after `1. +` reads as paragraph text; cmark, commonmark.js, markdown-it and
   // marked all open the list. micromark also ends an unquoted attribute value at a slash, which
   // spec 6.6 allows there, so a tag holding one is no tag and the marker under it interrupts the
-  // paragraph; cmark, commonmark.js, marked and the shipped scanner read the block. Each row
-  // fails on purpose until a micromark release corrects it.
+  // paragraph; cmark, commonmark.js, marked and the shipped scanner read the block. micromark
+  // lets a title in parentheses hold an unescaped `(`, which spec 6.3 allows only behind a
+  // backslash, so the line is a definition the equals signs cannot underline; commonmark.js,
+  // markdown-it and the shipped scanner read prose. Each row fails on purpose until a micromark
+  // release corrects it.
   const defects: [string, string][] = [
     [
       "an ordered marker numbered two after containers opened on a paragraph-interrupting line",
       "x\n1. + 2) <pre>\n",
     ],
     ["a tag whose unquoted attribute value holds a slash", `<custom a=b/c>\n${BLOCK}`],
+    [
+      "a title in parentheses holding an unescaped parenthesis",
+      `[x]: /url (a(b)\n===\n<custom>\n${BLOCK}`,
+    ],
   ];
   test.failing.each(defects)("%s", (_label, text) => {
     expect(oracleReading(text)).toEqual(shippedReading(text));
@@ -521,6 +573,9 @@ const LISTS = [
   "word",
   "a",
   "\\",
+  "[x]: a(((a)))",
+  "[x]: a((a)",
+  "(((a)))",
   END,
   BEGIN,
   "<!-- maxims:begin s sha=1 -->",
@@ -571,6 +626,9 @@ const TAGS = [
   "word",
   "a",
   "\\",
+  "[x]: a(((a)))",
+  "[x]: a((a)",
+  "(((a)))",
   END,
   BEGIN,
   "<!-- maxims:begin s sha=1 -->",
@@ -585,6 +643,31 @@ function documents(pieces: readonly string[]): fc.Arbitrary<string> {
     { weight: 19, arbitrary: fragments(pieces, { maxLength: 24, size: "max" }) },
     { weight: 1, arbitrary: fragments(pieces, { maxLength: 2500, size: "max" }) },
   );
+}
+
+// What a bare destination is spelled from: the parentheses and what takes one out of the count. No
+// whitespace: behind it these pieces spell a title in parentheses holding an unescaped one, the
+// micromark defect pinned above.
+const DESTINATION_PIECES = ["(", ")", "((", "))", "a", "\\", "\\(", "\\)", "<", ">", '"', "\u2028"];
+
+// What follows a destination on its line: nothing, a title, a title left open, or prose.
+const DESTINATION_TAILS = ["", " (t)", ' "t"', " (t", " )", " junk", "\t"];
+
+// A definition line above the equals signs and the lone tag that tell a definition from prose: the
+// piece lists reach that shape about once in a billion draws. The depth runs past 32, micromark's
+// cap inside an inline link, and the skew leaves the wrapping one parenthesis short or over.
+function definitionDocuments(): fc.Arbitrary<string> {
+  const skew = fc.oneof(
+    { weight: 3, arbitrary: fc.constant(0) },
+    { weight: 1, arbitrary: fc.constantFrom(-1, 1) },
+  );
+  const filling = fragments(DESTINATION_PIECES, { maxLength: 8, size: "max" });
+  return fc
+    .tuple(fc.nat({ max: 40 }), skew, filling, fc.constantFrom(...DESTINATION_TAILS))
+    .map(([depth, extra, inner, tail]) => {
+      const destination = `${"(".repeat(depth)}${inner}${")".repeat(Math.max(0, depth + extra))}`;
+      return `[x]: ${destination}${tail}\n===\n<custom>`;
+    });
 }
 
 // The one departure the piece lists can still spell: a complete tag alone on a lazy line under
@@ -646,19 +729,20 @@ function topLevelHtml(text: string): Set<string> {
   return spans;
 }
 
-const GENERATORS: [string, readonly string[], string][] = [
-  ["inline pieces", PIECES, ""],
-  ["list pieces", LISTS, "\n"],
-  ["tag pieces", TAGS, "\n"],
+const GENERATORS: [string, fc.Arbitrary<string>, string][] = [
+  ["inline pieces", documents(PIECES), ""],
+  ["list pieces", documents(LISTS), "\n"],
+  ["tag pieces", documents(TAGS), "\n"],
+  ["definitions with parentheses", definitionDocuments(), "\n"],
 ];
 
 describe("random documents", () => {
   test.each(GENERATORS)(
     "%s: both scanners read every generated document alike",
-    async (label, pieces, separator) => {
+    async (label, bodies, separator) => {
       await fuzz(
         `the scanner differential over ${label}`,
-        documents(pieces),
+        bodies,
         (body) => {
           assertReadAlike(body);
           assertReadAlike(`${body}${separator}${BLOCK}`);
@@ -674,8 +758,8 @@ describe("random documents", () => {
   // Without it, a closer both sides misplace alike leaves the markers inside the block it meant to end.
   test.each(GENERATORS)(
     "%s: micromark reads both markers of a block appended behind the closer as top-level comments",
-    async (label, pieces) => {
-      await fuzz(`the appended block over ${label}`, documents(pieces), (body) => {
+    async (label, bodies) => {
+      await fuzz(`the appended block over ${label}`, bodies, (body) => {
         const doc = appendedByOracle(body);
         const begin = doc.length - BLOCK.length;
         const end = doc.length - END.length - 1;

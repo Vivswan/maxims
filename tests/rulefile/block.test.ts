@@ -514,6 +514,26 @@ describe("parseBlocks", () => {
       "[x]: /a(b)\n===\n-\n  ```\n",
       false,
     ],
+    [
+      "a definition whose destination nests parentheses three deep, which `===` cannot underline",
+      "[x]: a(((a)))\n===\n<custom>\n",
+      true,
+    ],
+    [
+      "a definition whose destination nests parentheses thirty-three deep",
+      `[x]: ${"(".repeat(33)}a${")".repeat(33)}\n===\n<custom>\n`,
+      true,
+    ],
+    [
+      "a destination that leaves a parenthesis open, which `===` underlines",
+      "[x]: a(((a))\n===\n<custom>\n",
+      false,
+    ],
+    [
+      "a destination that closes a parenthesis it never opened, which `===` underlines",
+      "[x]: a((a)))\n===\n<custom>\n",
+      false,
+    ],
     ["a definition whose destination sits on the next line", "[x]:\n/url\n===\n<custom>\n", true],
     ["a definition whose title sits on the next line", '[x]: /url\n"title"\n===\n<custom>\n', true],
     ["a label alone, which `===` underlines", "[x]:\n===\n<custom>\n", false],
@@ -575,7 +595,8 @@ describe("parseBlocks", () => {
   );
 
   // Each prefix took seconds under a scanner that re-read the line or the item stack per level,
-  // or let a rule backtrack across the line.
+  // or let a rule backtrack across the line. A destination's parentheses nest without limit, so
+  // a reader that recursed per level would overflow the stack on those rows.
   const deep: [string, string][] = [
     ["a line of nested list markers", `${"- ".repeat(100_000)}x\n`],
     [
@@ -586,6 +607,12 @@ describe("parseBlocks", () => {
     ["nested blockquotes each leaving a space of indentation", `${">  ".repeat(100_000)}x\n`],
     ["nested blockquotes each followed by a tab", `${">\t".repeat(100_000)}x\n`],
     ["an unterminated link label", `[${"a".repeat(200_000)}\n`],
+    [
+      "a link destination of nested parentheses",
+      `[x]: ${"(".repeat(200_000)}${")".repeat(200_000)}\n`,
+    ],
+    ["a link destination of parentheses left open", `[x]: ${"(".repeat(200_000)}\n`],
+    ["a link destination of parentheses never opened", `[x]: a${")".repeat(200_000)}\n`],
   ];
   test.each(deep)("%s scans without rescanning the line or the item stack", (_label, prefix) => {
     expect(parseBlocks(`${prefix}${BLOCK}`).blocks).toHaveLength(1);
