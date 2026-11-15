@@ -1,5 +1,6 @@
 import { basename } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { type Document, isMap, isNode, LineCounter, parseDocument } from "yaml";
+import { findPair } from "yaml/util";
 import { util } from "zod";
 import { sha256 } from "../util/fs.ts";
 
@@ -98,50 +99,102 @@ export type ParsedMemory =
   | { ok: true; memory: Memory; warning?: string }
   | { ok: false; reason: string };
 
+// A parsed memory with the file lines `lint` prints. Every line is 1-based in the file as
+// authored, so `path:line` opens an editor on the problem. A problem with no place of its own
+// (the filename, a missing fence, an absent key) is line 1.
+export type PlacedMemory =
+  | ({ ok: true; memory: Memory; descriptionLine: number } & MemoryWarning)
+  | { ok: false; reason: string; line: number };
+
+// A warning always comes with the line of the first key it names.
+type MemoryWarning =
+  | { warning: string; warningLine: number }
+  | { warning?: undefined; warningLine?: undefined };
+
+// The keys from the top of the frontmatter down to the one a finding is about.
+type KeyPath = readonly string[];
+
+type Finding = { reason: string; at: KeyPath };
+
+type Frontmatter = { document: Document; lineCounter: LineCounter };
+
+// The opening fence is one line, so the YAML block starts on the file's second.
+const OPENING_FENCE_LINES = 1;
+
 // A source file can carry anything YAML can express, and a file that fails the contract is
 // skipped with a reason, never fatal; the outer catch makes that promise hold for inputs the
 // row-by-row checks did not anticipate.
-export function parseMemory(filename: string, text: string): ParsedMemory {
+export function parseMemoryWithLines(filename: string, text: string): PlacedMemory {
   try {
     return parseMemoryChecked(filename, text);
   } catch (error) {
-    return { ok: false, reason: `unreadable memory file: ${describe(error)}` };
+    return { ok: false, reason: `unreadable memory file: ${describe(error)}`, line: 1 };
   }
 }
 
-function parseMemoryChecked(filename: string, text: string): ParsedMemory {
+// What every reader but `lint` needs: the memory or the reason, without the lines.
+export function parseMemory(filename: string, text: string): ParsedMemory {
+  const placed = parseMemoryWithLines(filename, text);
+  if (!placed.ok) return { ok: false, reason: placed.reason };
+  if (placed.warning === undefined) return { ok: true, memory: placed.memory };
+
+  return { ok: true, memory: placed.memory, warning: placed.warning };
+}
+
+function parseMemoryChecked(filename: string, text: string): PlacedMemory {
   const file = basename(filename);
-  if (isReservedFile(file)) return { ok: false, reason: `${file} is reserved` };
+  if (isReservedFile(file)) return { ok: false, reason: `${file} is reserved`, line: 1 };
   const stem = memoryStem(file);
-  if (stem === null) return { ok: false, reason: `${file} is not a .md file` };
+  if (stem === null) return { ok: false, reason: `${file} is not a .md file`, line: 1 };
   const name = parseMemoryName(stem);
-  if (name === null) return { ok: false, reason: `filename stem "${stem}" is not kebab-case` };
+  if (name === null) {
+    return { ok: false, reason: `filename stem "${stem}" is not kebab-case`, line: 1 };
+  }
 
   const split = splitFrontmatter(text);
-  if (split === null) return { ok: false, reason: "missing frontmatter" };
+  if (split === null) return { ok: false, reason: "missing frontmatter", line: 1 };
+  const lineCounter = new LineCounter();
+  // Unprettified, an error's message comes without the code frame.
+  const document = parseDocument(split.yaml, { lineCounter, prettyErrors: false });
+  const source: Frontmatter = { document, lineCounter };
+  const syntax = document.errors[0];
+  if (syntax !== undefined) {
+    const reason = `frontmatter is not valid YAML: ${onOneLine(syntax.message)}`;
+    return { ok: false, reason, line: fileLine(source, syntax.pos[0]) };
+  }
   let frontmatter: unknown;
   try {
-    frontmatter = parseYaml(split.yaml);
+    frontmatter = document.toJS();
   } catch (error) {
-    return { ok: false, reason: `frontmatter is not valid YAML: ${describe(error)}` };
+    const reason = `frontmatter is not valid YAML: ${onOneLine(describe(error))}`;
+    return { ok: false, reason, line: 1 };
   }
-  if (!util.isObject(frontmatter)) return { ok: false, reason: "frontmatter is not a mapping" };
+  if (!util.isObject(frontmatter)) {
+    const line = nodeLine(source, document.contents);
+    return { ok: false, reason: "frontmatter is not a mapping", line };
+  }
 
   if (frontmatter.name !== name) {
-    return {
-      ok: false,
-      reason: `name ${show(frontmatter.name)} does not equal filename stem "${stem}"`,
-    };
+    const reason = `name ${show(frontmatter.name)} does not equal filename stem "${stem}"`;
+    return { ok: false, reason, line: keyLine(source, ["name"]) };
   }
+  const descriptionLine = keyLine(source, ["description"]);
   const description = frontmatter.description;
   if (typeof description !== "string" || description.trim() === "") {
-    return { ok: false, reason: "description is missing or empty" };
+    return { ok: false, reason: "description is missing or empty", line: descriptionLine };
   }
-  if (/[\r\n]/.test(description.trim()))
-    return { ok: false, reason: "description spans several lines" };
+  if (/[\r\n]/.test(description.trim())) {
+    return { ok: false, reason: "description spans several lines", line: descriptionLine };
+  }
 
   const metadata = readMetadata(frontmatter.metadata);
-  if (!metadata.ok) return metadata;
+  if (!metadata.ok) {
+    return {
+      ok: false,
+      reason: metadata.refusal.reason,
+      line: keyLine(source, metadata.refusal.at),
+    };
+  }
 
   const memory: Memory = {
     name,
@@ -151,51 +204,82 @@ function parseMemoryChecked(filename: string, text: string): ParsedMemory {
     raw: text,
     contentHash: contentHashOf(text),
   };
-  return metadata.warning === undefined
-    ? { ok: true, memory }
-    : { ok: true, memory, warning: metadata.warning };
+  const first = metadata.warnings[0];
+  if (first === undefined) return { ok: true, memory, descriptionLine };
+
+  const warning = metadata.warnings.map((finding) => finding.reason).join("; ");
+  return { ok: true, memory, descriptionLine, warning, warningLine: keyLine(source, first.at) };
+}
+
+function fileLine(source: Frontmatter, offset: number): number {
+  return source.lineCounter.linePos(offset).line + OPENING_FENCE_LINES;
+}
+
+function nodeLine(source: Frontmatter, node: unknown): number {
+  const start = isNode(node) ? node.range?.[0] : undefined;
+  return start === undefined ? 1 : fileLine(source, start);
+}
+
+// The line of the deepest key the path reaches: a finding about an absent nested key lands on its
+// parent, and one about an absent top-level key on line 1.
+function keyLine(source: Frontmatter, path: KeyPath): number {
+  let node: unknown = source.document.contents;
+  let line = 1;
+  for (const key of path) {
+    if (!isMap(node)) break;
+    const pair = findPair(node.items, key);
+    if (pair === undefined) break;
+    line = nodeLine(source, pair.key);
+    node = pair.value;
+  }
+  return line;
 }
 
 type ReadMetadata =
-  | { ok: true; metadata: MemoryMetadata; warning?: string }
-  | { ok: false; reason: string };
+  | { ok: true; metadata: MemoryMetadata; warnings: Finding[] }
+  | { ok: false; refusal: Finding };
 
 // A `type` outside the contract's list stays under `extra` with a warning, never a refusal.
-function readType(metadata: MemoryMetadata, type: unknown): string[] {
+function readType(metadata: MemoryMetadata, type: unknown): Finding[] {
   if (type === undefined) return [];
   if (isMemoryType(type)) {
     metadata.type = type;
     return [];
   }
   metadata.extra.type = type;
-  return [`metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`];
+  const reason = `metadata.type ${show(type)} is not one of ${MEMORY_TYPES.join(", ")}`;
+  return [{ reason, at: ["metadata", "type"] }];
 }
 
-function readInternal(metadata: MemoryMetadata, internal: unknown): string[] {
+function readInternal(metadata: MemoryMetadata, internal: unknown): Finding[] {
   if (internal === undefined) return [];
   if (typeof internal === "boolean") {
     metadata.internal = internal;
     return [];
   }
   metadata.extra.internal = internal;
-  return [`metadata.internal ${show(internal)} is not a boolean`];
+  const reason = `metadata.internal ${show(internal)} is not a boolean`;
+  return [{ reason, at: ["metadata", "internal"] }];
 }
 
 function readMetadata(value: unknown): ReadMetadata {
-  if (value === undefined || value === null) return { ok: true, metadata: { extra: {} } };
-  if (!util.isObject(value)) return { ok: false, reason: "metadata is not a mapping" };
+  if (value === undefined || value === null) {
+    return { ok: true, metadata: { extra: {} }, warnings: [] };
+  }
+  if (!util.isObject(value)) {
+    return { ok: false, refusal: { reason: "metadata is not a mapping", at: ["metadata"] } };
+  }
   const { node_type: nodeType, type, scope, internal, ...extra } = value;
   if (nodeType !== undefined && nodeType !== "memory") {
-    return { ok: false, reason: `metadata.node_type is ${show(nodeType)}, expected "memory"` };
+    const reason = `metadata.node_type is ${show(nodeType)}, expected "memory"`;
+    return { ok: false, refusal: { reason, at: ["metadata", "node_type"] } };
   }
   const metadata: MemoryMetadata = { extra };
   if (nodeType === "memory") metadata.nodeType = "memory";
   if (typeof scope === "string") metadata.scope = scope;
   else if (scope !== undefined) extra.scope = scope;
   const warnings = [...readType(metadata, type), ...readInternal(metadata, internal)];
-  return warnings.length === 0
-    ? { ok: true, metadata }
-    : { ok: true, metadata, warning: warnings.join("; ") };
+  return { ok: true, metadata, warnings };
 }
 
 function isMemoryType(value: unknown): value is MemoryType {
@@ -215,11 +299,17 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : show(error);
 }
 
-// The body is everything after the closing fence, byte for byte: the file is installed as it was
-// authored, so nothing here may normalize it.
-function splitFrontmatter(text: string): { yaml: string; body: string } | null {
+// A YAML message can quote the source it choked on, line breaks included.
+function onOneLine(message: string): string {
+  return message.replace(/\s+/g, " ").trim();
+}
+
+// The frontmatter block and the body after it, or null when the file does not open with a fenced
+// block. Both fences take trailing spaces and tabs. The body is everything after the closing
+// fence, byte for byte: the file is installed as it was authored, so nothing here may normalize it.
+export function splitFrontmatter(text: string): { yaml: string; body: string } | null {
   const source = text.startsWith("\uFEFF") ? text.slice(1) : text;
-  const open = /^---\r?\n/.exec(source);
+  const open = /^---[ \t]*\r?\n/.exec(source);
   if (open === null) return null;
   const rest = source.slice(open[0].length);
   const close = /^---[ \t]*(\r?\n|$)/m.exec(rest);

@@ -1,7 +1,13 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { type ContentHash, contentHashOf, memoryStem, parseMemory } from "../memory/contract.ts";
+import {
+  type ContentHash,
+  contentHashOf,
+  memoryStem,
+  parseMemory,
+  splitFrontmatter,
+} from "../memory/contract.ts";
 import type { Change } from "../util/change.ts";
 import {
   assertInsideRoot,
@@ -181,13 +187,14 @@ function isOurCopy(path: string, known: ReadonlySet<ContentHash>): boolean {
   return declared !== null && parseMemory(`${declared}.md`, text).ok;
 }
 
-// The `name` a memory file's frontmatter declares, read the way the contract reads it (YAML, so
-// a quoted or commented value counts), or null when there is no frontmatter mapping to read.
+// The `name` a memory file's frontmatter declares, read the way the contract reads it (its fence
+// split, then YAML, so a quoted or commented value counts), or null when there is no frontmatter
+// mapping to read.
 function declaredName(text: string): string | null {
-  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
-  if (match === null) return null;
+  const split = splitFrontmatter(text);
+  if (split === null) return null;
   try {
-    const frontmatter: unknown = parseYaml(match[1] ?? "");
+    const frontmatter: unknown = parseYaml(split.yaml);
     if (typeof frontmatter !== "object" || frontmatter === null || !("name" in frontmatter)) {
       return null;
     }

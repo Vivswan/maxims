@@ -13,7 +13,7 @@ import {
   hiddenCharacters,
   isMemoryFile,
   type Memory,
-  parseMemory,
+  parseMemoryWithLines,
 } from "../memory/contract.ts";
 import { extractWikilinks } from "../memory/wikilinks.ts";
 import { DEFAULT_RULE_CAP } from "../rulefile/budget.ts";
@@ -71,27 +71,26 @@ type LintedMemory = { memory: Memory; path: string };
 
 function lintFile(file: string, path: string): { problems: LintProblem[]; memory: Memory | null } {
   const text = readOrRefuse(file, () => readFileSync(file, "utf8"));
-  const parsed = parseMemory(file, text);
+  const parsed = parseMemoryWithLines(file, text);
   if (!parsed.ok) {
-    const problem = { path, line: keyLine(text, parsed.reason), reason: parsed.reason };
-    return { problems: [problem], memory: null };
+    return { problems: [{ path, line: parsed.line, reason: parsed.reason }], memory: null };
   }
   const problems: LintProblem[] = [];
   if (parsed.warning !== undefined) {
-    problems.push({ path, line: keyLine(text, "metadata"), reason: parsed.warning });
+    problems.push({ path, line: parsed.warningLine, reason: parsed.warning });
   }
   const first = hiddenCharacters(parsed.memory.description)[0];
   if (first !== undefined) {
     problems.push({
       path,
-      line: keyLine(text, "description"),
+      line: parsed.descriptionLine,
       reason: `description carries ${hiddenCharacterLabel(first)} at column ${first.index + 1}`,
     });
   }
   for (const warning of riskWarningsFor([parsed.memory])) {
     problems.push({
       path,
-      line: keyLine(text, "description"),
+      line: parsed.descriptionLine,
       reason: `${warning.kind}: ${warning.detail} at column ${warning.column}`,
     });
   }
@@ -171,19 +170,6 @@ function readOrRefuse<T>(path: string, read: () => T): T {
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new MaximsError(ExitCode.Usage, `cannot read ${path}: ${detail}`, { cause });
   }
-}
-
-// The line of the frontmatter key a reason names, so `description is missing or empty` points at
-// the `description:` line when there is one; line 1 otherwise.
-function keyLine(text: string, reason: string): number {
-  const key =
-    /^(name|description|metadata)\b/.exec(reason)?.[1] ?? /metadata\.(\w+)/.exec(reason)?.[1];
-  if (key === undefined) return 1;
-  const lines = text.split(/\r?\n/);
-  const index = lines.findIndex(
-    (line) => line.startsWith(`${key}:`) || line.trim().startsWith(`${key}:`),
-  );
-  return index === -1 ? 1 : index + 1;
 }
 
 function bodyLine(memory: Memory, link: string): number {
