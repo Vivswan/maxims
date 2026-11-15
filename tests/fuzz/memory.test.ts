@@ -250,7 +250,29 @@ test(
   PROPERTY_TIMEOUT_MS,
 );
 
-const WIKILINK_PIECES = ["[[", "]]", "[", "]", "|", "\n", " ", "a", "b-c", "-", "|alias", "[[x]]"];
+// The link grammar's tokens beside the Markdown that hides one, and the bytes that move a parser's offsets off the body's own (a byte order mark, a tab, a CRLF).
+const WIKILINK_PIECES = [
+  "[[",
+  "]]",
+  "[",
+  "]",
+  "|",
+  "\n",
+  " ",
+  "a",
+  "b-c",
+  "-",
+  "|alias",
+  "[[x]]",
+  "`",
+  "```",
+  "~~~",
+  "    ",
+  "\t",
+  "> ",
+  "\r\n",
+  "\ufeff",
+];
 const body = fc.oneof(anyText({ maxLength: 1024 }), fragments(WIKILINK_PIECES, { maxLength: 80 }));
 
 test(
@@ -266,6 +288,44 @@ test(
         expect(target).not.toMatch(/[[\]\n|]/);
         expect(text).toContain(target);
       }
+    });
+  },
+  PROPERTY_TIMEOUT_MS,
+);
+
+// Text that shifts a Markdown parser's positions when it counts them unlike the body does: a byte order mark, a tab, a CRLF, a NUL, a character reference, an escape.
+const offsetShifter = fc.constantFrom(
+  "",
+  "\ufeff",
+  "a\tb",
+  "x\r\n\r\ny",
+  "\0",
+  "&amp; \\[",
+  "\u00e9\u{1f600}",
+);
+
+// No piece carries a backtick, so nothing here can close the fence the property wraps it in.
+const fencedCode = fragments(
+  ["[[", "]]", "|", "\n", " ", "a", "b-c", "[[x]]", "    ", "\t", "~~~"],
+  {
+    maxLength: 40,
+  },
+);
+
+// What would drift silently: an offset counted unlike the body's blanks the wrong characters, so a
+// link in a code block comes back as a dependency or a link in prose beside it is lost.
+test(
+  "extractWikilinks reads the links in prose and none of the ones inside a fence beside it",
+  async () => {
+    const input = fc.record({
+      shifter: offsetShifter,
+      links: fc.array(fc.constantFrom("a", "b", "c", "d-e"), { maxLength: 4 }),
+      code: fencedCode,
+    });
+    await fuzz("extractWikilinks beside a fence", input, ({ shifter, links, code }) => {
+      const prose = links.map((link) => `[[${link}]]`).join(" ");
+      const text = `${shifter}\n\n${prose}\`[[x]]\`\n\n\`\`\`\n${code}\n\`\`\`\n`;
+      expect(extractWikilinks(text)).toEqual([...new Set(links)]);
     });
   },
   PROPERTY_TIMEOUT_MS,
@@ -292,7 +352,8 @@ const resolveInput = fc.record({
     fc.record({
       name: memoryName,
       links: fc.array(memoryName, { maxLength: 4 }),
-      noise: fc.stringMatching(/^[ a-z\n]{0,6}$/),
+      // Five at most: a blank line and four spaces would turn the next link into indented code, which is no dependency.
+      noise: fc.stringMatching(/^[ a-z\n]{0,5}$/),
     }),
     { maxLength: 6, selector: (memory) => memory.name },
   ),
