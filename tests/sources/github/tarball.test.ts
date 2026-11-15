@@ -12,6 +12,7 @@ import {
   symlinkTarball,
   truncatedTarball,
   unsupportedTypeTarball,
+  windowsHostileNamesTarball,
   zipSlipTarball,
 } from "./fakes/tarballs.ts";
 
@@ -41,6 +42,24 @@ describe("extractTarball", () => {
       ]);
       expect(readFileSync(join(dest, "memories", "tests-first.md"), "utf8")).toBe(
         FIXTURE_MEMORIES["tests-first"],
+      );
+    });
+  });
+
+  // Without this, a repository holding one such name fails the whole fetch: on Windows, where git
+  // is absent, the name cannot be written as it is, and at the root `c:` reads as a drive anywhere.
+  test("names Windows cannot write are mapped there, and a root name read as a drive is skipped", async () => {
+    await withTempDir(async (dir) => {
+      const dest = join(dir, "tree");
+      const warnings: string[] = [];
+      await extractTarball(windowsHostileNamesTarball(), dest, (m) => warnings.push(m));
+      expect(warnings).toEqual([
+        "skipped tarball entry example-user-rules-0123abc/c:d.md: absolute paths are rejected",
+      ]);
+      expect(listTree(dest)).toEqual(
+        process.platform === "win32"
+          ? ["memories/", "memories/a\uf03ab.md", "memories/what\uf03f.md"]
+          : ["memories/", "memories/a:b.md", "memories/what?.md"],
       );
     });
   });
@@ -98,10 +117,10 @@ describe("extractTarball", () => {
     },
   );
 
-  // An archive cut off inside a file never ends that file's stream, so the race is what tells a
-  // rejection from a hang; the tree left behind is what the next rung would have merged into.
+  // The race is what tells a rejection from a hang. The tree left behind holds the cut-off file:
+  // the ladder empties the directory before the next rung, so nothing ever reads it.
   const broken: [string, () => Uint8Array, string[]][] = [
-    ["an archive cut off inside a file", truncatedTarball, ["memories/"]],
+    ["an archive cut off inside a file", truncatedTarball, ["memories/", "memories/big-rule.md"]],
     ["bytes that are not an archive", () => new TextEncoder().encode("not a tarball"), []],
   ];
   test.each(broken)("%s rejects instead of waiting or extracting", async (_label, bytes, tree) => {
