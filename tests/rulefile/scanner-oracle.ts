@@ -48,7 +48,7 @@ type Leaf =
 export function scanDocument(fileText: string): ScannedDocument {
   const bom = fileText.startsWith(BOM) ? BOM.length : 0;
   const lines = splitLines(fileText, bom);
-  const events = flowEvents(fileText);
+  const { events } = flowDocument(fileText);
   let leaf: Leaf | null = null;
   let quoteDepth = 0;
   let lineIndex = 0;
@@ -86,13 +86,13 @@ export function scanDocument(fileText: string): ScannedDocument {
 
 // The document tokenizer yields containers around flow chunks; one subtokenize pass turns the
 // chunks into the flow blocks read here. A second pass would tokenize inline text, which nothing
-// here reads and which costs as much again.
-function flowEvents(fileText: string): Event[] {
-  const events = parse()
-    .document()
-    .write(preprocess()(fileText, undefined, true));
+// here reads and which costs as much again. `lazy` is micromark's own record, by 1-based line, of
+// the lines that did not continue every container open above them.
+export function flowDocument(fileText: string): { events: Event[]; lazy: Record<number, boolean> } {
+  const parser = parse();
+  const events = parser.document().write(preprocess()(fileText, undefined, true));
   subtokenize(events);
-  return events;
+  return { events, lazy: parser.lazy };
 }
 
 function splitLines(fileText: string, from: number): MarkdownLine[] {

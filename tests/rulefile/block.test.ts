@@ -16,6 +16,7 @@ import {
 } from "../../src/rulefile/block.ts";
 import type { BlockInput, ExpansionSyntax, RuleLine, Staleness } from "../../src/rulefile/types.ts";
 import { ExitCode, MaximsError } from "../../src/util/exit-codes.ts";
+import { fragments } from "../fuzz/shared.ts";
 import { propertyOptions } from "../shared/property.ts";
 
 const SOURCE = "@Octocat/rules";
@@ -1197,6 +1198,8 @@ function exposedReferences(rendered: string): string[] {
     ]);
 }
 
+// fast-check shrinks a constantFrom toward its first value, so every piece list puts its harmless
+// pieces first and a counterexample reads as text.
 const DESCRIPTION_PIECES = [
   "a",
   "word",
@@ -1250,12 +1253,6 @@ const DESCRIPTION_PIECES = [
 
 const join = (parts: string[]): string => parts.join("");
 
-// fast-check shrinks a constantFrom toward its first value, so every piece list puts its harmless
-// pieces first and a counterexample reads as text.
-function piecesOf(pieces: readonly string[], maxLength: number): fc.Arbitrary<string> {
-  return fc.string({ unit: fc.constantFrom(...pieces), maxLength });
-}
-
 // Any scalar value: fc.string's binary unit draws from the same range but builds its code point table at construction, which costs more than the whole test file.
 const anyCodePoint = fc
   .oneof(fc.integer({ min: 0, max: 0xd7ff }), fc.integer({ min: 0xe000, max: 0x10ffff }))
@@ -1288,7 +1285,7 @@ const renderCases = fc.record({
   markers: fc.constantFrom<BlockInput["markers"]>("stripped", "counted"),
   expands: fc.constantFrom<ExpansionSyntax[]>(["at-import"], [], ["none"]),
   description: descriptions,
-  detailPath: piecesOf(DESCRIPTION_PIECES, 5),
+  detailPath: fragments(DESCRIPTION_PIECES, { maxLength: 5 }),
   stale: fc.option(fc.constant<Staleness>({ since: "2026-09-01T00:00:00Z", kind: "age" }), {
     nil: undefined,
   }),
@@ -1376,7 +1373,11 @@ const OPEN_PIECES = [
 // to about a thousand lines so item, quote and paragraph state is carried far past the short cases.
 function userFiles(pieces: readonly string[]): fc.Arbitrary<string> {
   const fileLine = fc
-    .tuple(fc.constantFrom(...LINE_STARTS), piecesOf(pieces, 5), fc.constantFrom(...LINE_ENDINGS))
+    .tuple(
+      fc.constantFrom(...LINE_STARTS),
+      fragments(pieces, { maxLength: 5 }),
+      fc.constantFrom(...LINE_ENDINGS),
+    )
     .map(join);
   const fileLines = fc.oneof(
     { weight: 19, arbitrary: fc.array(fileLine, { maxLength: 10 }) },
@@ -1549,12 +1550,12 @@ describe("properties over arbitrary user files", () => {
   // behind up to two more; the block to remove is drawn by index so a shrink keeps the file and
   // walks the choice down.
   const removals = fc.record({
-    blocks: fc.array(fc.tuple(piecesOf(gaps, 3), fc.constantFrom(...rendered)), {
+    blocks: fc.array(fc.tuple(fragments(gaps, { maxLength: 3 }), fc.constantFrom(...rendered)), {
       minLength: 1,
       maxLength: 4,
     }),
     ending: fc.constantFrom(...LINE_ENDINGS),
-    tail: piecesOf(gaps, 2),
+    tail: fragments(gaps, { maxLength: 2 }),
     choice: fc.nat(),
   });
   test("an accepted removal reads back in full as exactly the kept pairs", () => {
