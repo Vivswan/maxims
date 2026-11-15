@@ -72,6 +72,17 @@ The refusal is exit 3, nothing written, with the file and the character named. `
 
 A `[[name]]` in the body names another memory this rule depends on. `add` requires every link target to resolve, either inside the same install or among memories already installed. A dangling link aborts the add and names the unmet dependency, with [exit 7](cli.md#exit-codes), the way a package manager refuses a missing dependency.
 
+Only prose links count. A `[[...]]` inside Markdown code is text the memory shows, so a shell test or a TOML table in an example never becomes a dependency.
+
+| where the `[[name]]` sits                                  | dependency |
+| ---------------------------------------------------------- | ---------- |
+| prose: a paragraph, list item, block quote, heading, table | yes        |
+| inside emphasis or a Markdown link's text                  | yes        |
+| an HTML block, inline HTML, or an HTML comment             | yes        |
+| a fenced code block, indented code, or an inline code span | no         |
+
+HTML counts because an agent reads the file as written, comment included. To show the syntax without depending on anything, put it in a code span.
+
 Resolution runs through the rename map, so a memory renamed locally after a [name collision](install.md#name-collisions-and-renames) still satisfies links written against its upstream name. The file content is never rewritten to match.
 
 ## Layout in a source
