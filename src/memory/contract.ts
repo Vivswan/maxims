@@ -244,6 +244,8 @@ const ZERO_WIDTH_LABELS = new Map<number, string>([
   [0x2060, "word joiner"],
   [0xfeff, "byte order mark"],
 ]);
+
+// Names for the carriers a reader would look up; the first match wins.
 const HIDDEN_LABELS: readonly (readonly [RegExp, string])[] = [
   [/\u00ad/u, "soft hyphen"],
   [/\u2028/u, "line separator"],
@@ -251,10 +253,20 @@ const HIDDEN_LABELS: readonly (readonly [RegExp, string])[] = [
   [/\p{Variation_Selector}/u, "variation selector"],
   [/[\u{e0000}-\u{e007f}]/u, "tag character"],
 ];
+
+// Reorders what renders.
 const BIDI = /\p{Bidi_Control}/u;
+
+// A terminal prints nothing for it or moves the cursor; the two separators break a line like LF.
 const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+
+// The controls a file is made of, which are text.
 const FILE_WHITESPACE = "\t\n\r";
+
+// Opens an ANSI sequence.
 const ESCAPE = 0x1b;
+
+// Every hidden thing in one pass: an HTML comment opener, or one code point of the classes above.
 const HIDDEN = /<!--|[\p{Default_Ignorable_Code_Point}\p{Bidi_Control}\p{Cc}\p{Zl}\p{Zp}]/gu;
 
 // The label a hidden character is reported under, by `add` and `lint` alike.

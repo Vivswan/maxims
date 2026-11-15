@@ -270,16 +270,24 @@ function isWrapper(char: string): boolean {
   return char !== "" && TRAILING_WRAPPERS.includes(char);
 }
 
+// Whether a word holds a Latin letter.
 const HAS_LATIN = /\p{Script=Latin}/u;
+
+// Letters with their combining marks, so an accent cannot split one word into two clean ones.
 const WORD = /[\p{L}\p{M}]+/gu;
-// Han, Hiragana, Katakana and Hangul join Latin in ordinary text and look like no Latin letter.
-const CJK = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
+
+// Han, Hiragana, Katakana and Hangul join Latin in ordinary text; Script_Extensions takes their Common-script sound marks with them.
+const CJK = "\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Hangul}";
+
+// A letter of a script that can pass for Latin.
 const FOREIGN = new RegExp(
   `[^\\p{Script=Latin}\\p{Script=Common}\\p{Script=Inherited}${CJK}]`,
   "u",
 );
+
 // Marks and Hangul are what NFKC composes across characters, so with them out a word changes only where one letter does.
 const NOT_JUDGED = new RegExp(`[\\p{M}${CJK}]+`, "gu");
+
 // Names only: FOREIGN decides what warns, so a script missing here still warns as "another script".
 const SCRIPT_NAMES: readonly (readonly [string, RegExp])[] = [
   ["Cyrillic", /\p{Script=Cyrillic}/u],
@@ -288,6 +296,7 @@ const SCRIPT_NAMES: readonly (readonly [string, RegExp])[] = [
   ["Cherokee", /\p{Script=Cherokee}/u],
 ];
 
+// The second half of a surrogate pair.
 const LOW_SURROGATE = /[\udc00-\udfff]/;
 
 // The first code point where the two strings part, as "U+XXXX" of `text`.
