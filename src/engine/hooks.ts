@@ -1,4 +1,4 @@
-import { append, nil } from "@hyperjump/json-pointer";
+import { pointerStringify } from "@hyperjump/json-pointer";
 import type { HarnessId } from "../contracts/harness-id.ts";
 import {
   type ConfigRewrite,
@@ -395,7 +395,7 @@ async function mcpAnswer(
 // A key path as a JSON pointer, so a segment holding a separator (`["mcp/one"]`) is not the
 // nested path (`["mcp", "one"]`).
 function entryOf(kind: "hook" | "servers" | "config", path: readonly string[]): string {
-  return `${kind}${path.reduce((pointer, segment) => append(segment, pointer), nil)}`;
+  return `${kind}${pointerStringify(path)}`;
 }
 
 function filesOf(change: Change): string[] {

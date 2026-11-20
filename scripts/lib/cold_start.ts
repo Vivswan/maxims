@@ -7,7 +7,7 @@ import { withScratchDir } from "./scratch.ts";
 export interface ColdStart {
   elapsedMs: number;
   exitCode: number | null;
-  signalCode: string | undefined;
+  signalCode: NodeJS.Signals | number | undefined;
   stderr: string;
 }
 

@@ -4,7 +4,7 @@
 // to a 24-hour window instead of waiting for someone to look. A pass means every source was read
 // and every claim held: a source the run could not read fails it, since a run that read nothing
 // proves nothing about the facts.
-import { pointerSegments } from "@hyperjump/json-pointer";
+import { pointerParse } from "@hyperjump/json-pointer";
 import {
   findNodeAtLocation,
   getNodeValue,
@@ -134,7 +134,7 @@ const CANONICAL_INDEX = /^(?:0|[1-9][0-9]*)$/;
 // inherited `toString`, an array's `length`, or `/a/01` standing in for `/a/1`.
 function findPointer(root: Node, pointer: string): Node | undefined {
   let node: Node | undefined = root;
-  for (const token of pointerSegments(pointer)) {
+  for (const token of pointerParse(pointer)) {
     if (node === undefined) return undefined;
     const segment = node.type === "array" && CANONICAL_INDEX.test(token) ? Number(token) : token;
     node = findNodeAtLocation(node, [segment]);
