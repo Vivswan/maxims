@@ -33,7 +33,9 @@ function holderPid(lockPath: string): number | null {
 
 type ChildHolder = {
   pid: number;
-  kill: (signal: "SIGTERM") => Promise<{ exitCode: number | null; signalCode: string | null }>;
+  kill: (
+    signal: "SIGTERM",
+  ) => Promise<{ exitCode: number | null; signalCode: NodeJS.Signals | number | null }>;
 };
 
 const HOLDER_SCRIPT = `

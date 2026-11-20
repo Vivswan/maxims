@@ -355,7 +355,7 @@ const EXPECTED_SHIM_LINE = HOOK_COMMAND.split(" ").slice(1).join(" ");
 
 type Run = {
   exitCode: number | null;
-  signalCode: NodeJS.Signals | null;
+  signalCode: NodeJS.Signals | number | null;
   stdout: string;
   stderr: string;
 };

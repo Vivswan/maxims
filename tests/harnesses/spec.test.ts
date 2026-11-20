@@ -5,7 +5,7 @@
 // to the wrong place or writes nothing, and the refusal must name the field so the author can find
 // it.
 import { expect, test } from "bun:test";
-import { append, type Json, nil, set, unset } from "@hyperjump/json-pointer";
+import { type Json, pointerSet, pointerUnset } from "@hyperjump/json-pointer";
 import { util } from "zod";
 import { parseHarnessSpec } from "../../src/harnesses/spec.ts";
 
@@ -57,11 +57,10 @@ function base(): Record<string, unknown> {
 type Mutation = (spec: Record<string, unknown>) => Record<string, unknown>;
 
 function at(path: string[], value: unknown): Mutation {
-  const pointer = path.reduce((built, segment) => append(segment, built), nil);
   return (spec) => {
     const subject = spec as Json;
     const edited =
-      value === undefined ? unset(pointer, subject) : set(pointer, subject, value as Json);
+      value === undefined ? pointerUnset(path, subject) : pointerSet(path, subject, value as Json);
     if (!util.isObject(edited)) throw new Error("the spec stays an object");
     return edited;
   };
