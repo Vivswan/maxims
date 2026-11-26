@@ -3,7 +3,7 @@ import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { format } from "node:url";
 import { promisify } from "node:util";
-import { isGitEnvKey } from "@simple-git/argv-parser";
+import { isGuardedEnvKey } from "@simple-git/argv-parser";
 import debug from "debug";
 import { type SimpleGit, type SimpleGitOptions, simpleGit } from "simple-git";
 import { parseGitSha } from "../../contracts/git-sha.ts";
@@ -637,31 +637,32 @@ const GIT_CONFIG = [
   "protocol.file.allow=always",
 ];
 
-const isGuardedEnvKey = (key: string): boolean => {
-  const normalized = key.toLowerCase().trim();
-  return normalized.startsWith("git_") || isGitEnvKey(normalized);
-};
 const ALLOWED_GUARDED_ENV =
   /^(GIT_TERMINAL_PROMPT|GIT_LFS_SKIP_SMUDGE|GIT_ALLOW_PROTOCOL|GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|SSH_ASKPASS|PREFIX|GIT_CONFIG(_\w+)?|GIT_SSL_\w+|GIT_HTTP_\w+|GIT_PROXY_SSL_\w+|GIT_CURL_\w+)$/i;
 
 // The filter that decides which `GIT_*` reaches git, whatever simple-git's own guard does after an
 // upgrade; a hook's inherited `GIT_DIR` would otherwise point the clone's init at the caller's own
 // repository. simple-git refuses a guarded variable unless `allowEnvironment` lists it, so an
-// unlisted one is dropped rather than failing the fetch.
+// unlisted one is dropped rather than failing the fetch. The caller's own `GIT_CONFIG_KEY_<n>`
+// entries are config keys to simple-git, which warns once per process about a key it lists as
+// neither safe nor unsafe, so each of them is admitted through `allowConfig`.
 function guardedEnvironment(env: Record<string, string>): {
   env: Record<string, string>;
   allowEnvironment: string[];
+  allowConfig: string[];
 } {
   const kept: Record<string, string> = {};
   const allowEnvironment: string[] = [];
+  const allowConfig: string[] = [];
   for (const [key, value] of Object.entries(env)) {
     if (isGuardedEnvKey(key)) {
       if (!ALLOWED_GUARDED_ENV.test(key)) continue;
       allowEnvironment.push(key);
+      if (/^GIT_CONFIG_KEY_\d+$/i.test(key)) allowConfig.push(value);
     }
     kept[key] = value;
   }
-  return { env: kept, allowEnvironment };
+  return { env: kept, allowEnvironment, allowConfig };
 }
 
 // An `insteadOf` rule matches the typed bytes, so git expands the URL before anything is
@@ -705,6 +706,8 @@ export function simpleGitRunner(options: GitRunnerOptions = {}): GitRunner {
       config: [...GIT_CONFIG, ...config],
       timeout: { block: timeoutMs },
       allowEnvironment: guarded.allowEnvironment,
+      // The one key above that simple-git lists as neither safe nor unsafe, plus the caller's own.
+      allowConfig: ["credential.interactive", ...guarded.allowConfig],
       // Each flag admits something the caller's own, never a value read from a source: the
       // constants above, inherited config-path and config-count variables, the include file
       // written below, and an `insteadOf` those entries may carry (a rewrite runs no command).

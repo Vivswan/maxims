@@ -1110,6 +1110,31 @@ describe("git rung against a file:// fixture repo", () => {
     });
   });
 
+  // What would drift: simple-git 4.1 warns once per process about a config key it lists as neither
+  // safe nor unsafe, and the caller's own GIT_CONFIG_COUNT entries reach it as config.
+  test("a caller's own GIT_CONFIG_COUNT entry with a key simple-git does not list stays out of stderr", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createFixtureRepo(join(dir, "repo"));
+      const script = [
+        `import { simpleGitRunner } from ${JSON.stringify(srcPath("sources", "github", "ladder.ts"))};`,
+        `const out = await simpleGitRunner().lsRemote(${JSON.stringify(repo.url)}, ["HEAD"], { credentials: { kind: "inherited" } });`,
+        "console.log(out.kind);",
+      ].join("\n");
+      const proc = Bun.spawnSync(["bun", "-e", script], {
+        env: {
+          ...process.env,
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.useHttpPath",
+          GIT_CONFIG_VALUE_0: "true",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(proc.stdout.toString().trim()).toBe("ok");
+      expect(proc.stderr.toString()).toBe("");
+    });
+  });
+
   test("an inherited GIT_DIR cannot point the clone at the caller's own repository", async () => {
     await withTempDir(async (dir) => {
       const source = await createFixtureRepo(join(dir, "source"));
